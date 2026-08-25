@@ -117,6 +117,13 @@ bank4_start:
     include "gen/spr_frigate.asm"
     include "game/campaign.asm"
     include "game/helptext.asm"
+;  The title screen RUNS from the bank. Nothing pages bank 4 out, so #4000
+;  upwards is ordinary executable RAM -- and this is code that runs once,
+;  before the first mission, so it has no business competing for the low 16K
+;  that everything in the frame loop has to share.
+    include "gfx/bigtext.asm"
+    include "game/title.asm"
+    include "game/titletext.asm"
 bank4_end:
 
 ; ----------------------------------------------------------------------------
@@ -141,6 +148,12 @@ bank4_limit:
     assert fleet_buffer == fleet_block + FLEET_HDR_SIZE, "the fleet must follow its header"
     assert bank4_limit - fleet_block == FLEET_BLOCK_SIZE, "the save block is not whole sectors"
     assert bank4_limit <= BANK_WINDOW + BANK_WINDOW_SIZE, "bank 4 contents overflow the window"
+
+;  The title is sized to the screen rather than centred on it: ten glyphs at
+;  TXT_BIG_W_BYTES is exactly the 80-byte line. Checked here rather than beside
+;  txt_big because ASSERT is evaluated where it stands and the strings are in
+;  the bank, which is included further down than the code that draws them.
+    assert (title_credit - title_text - 1) * TXT_BIG_W_BYTES == SCR_BYTES_PER_LINE, "the title no longer spans the screen"
 
     print "bank 4:", {hex}BANK_WINDOW, "..", {hex}bank4_limit, " image:", bank4_end - BANK_WINDOW, " free:", BANK_WINDOW + BANK_WINDOW_SIZE - bank4_limit
 

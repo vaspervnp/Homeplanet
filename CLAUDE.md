@@ -134,8 +134,23 @@ stops being the RAM the stub is executing from. Both the stub and the sprite
 image therefore sit above `#8000`, which the paging leaves alone.
 
 In tests, `read_ram()` indexes the base 64K by address and will hand you
-bank 1 for `#4000`. Use `harness.read_cpu()` for anything in the window — it
-goes through `peek`, which honours the paging.
+bank 1 for `#4000`. Use `harness.read_cpu()` (and `write_cpu()`) for anything
+in the window — they go through `peek`/`poke`, which honour the paging. This
+catches you the moment a variable moves into the bank: `title_shown` read back
+as 14 the first time, because `read_ram` was looking at bank 1.
+
+**The bank is executable RAM, not just data.** Nothing pages bank 4 out, so
+`#4000-#7FFF` runs code as happily as it holds sprites — and that is the
+escape hatch when the low 16K fills up. The title screen (`gfx/bigtext.asm`,
+`game/title.asm`) lives there for exactly that reason: it runs once, before
+the first mission, so it has no business competing for space with the frame
+loop. It went in the low 16K first and took `CODE_END` to `#3D00`, which left
+the *tests* no room for their scratch and broke seven classes that had nothing
+to do with it.
+
+The rule that still holds is the original one: anything touched **per frame**
+must be below `#4000`, because a future mission that pages in bank 5 would
+pull it out from under itself mid-instruction.
 
 ---
 
@@ -146,15 +161,17 @@ goes through `peek`, which honours the paging.
 `<subsystem>_<verb>` for routines, `<subsystem>_<noun>` for data:
 `scr_fill_rect`, `scr_line_addr`, `sys_boot`, `demo_update`.
 Subsystem prefixes: `sys_`, `scr_`, `snd_`, `ent_`, `cam_`, `hud_`, `spr_`,
-`fdc_`, `help_`.
+`fdc_`, `help_`, `title_`.
 
 Local labels start with `@` and are scoped to the enclosing global label.
 
 **RASM is case-insensitive.** `demo_objects` and `DEMO_OBJECTS` are the same
 symbol and the build will fail with "there is already an alias with the same
 name". Do not distinguish an equate from a label by case alone — a routine
-`fdc_motor` beside a port equate `FDC_MOTOR` is the same collision, and it is
-an easy one to walk into because the two read as different kinds of thing.
+`fdc_motor` beside a port equate `FDC_MOTOR` is the same collision, and so is
+a routine `title_stars` beside a count `TITLE_STARS`. It is an easy one to
+walk into because the two read as different kinds of thing — both of those
+were written, and both failed the build, after this paragraph existed.
 
 **`@` labels are GLOBAL.** Not per-routine, not even per-file — two routines
 anywhere in the build cannot both have an `@no_carry`. Prefix them with the
@@ -431,6 +448,7 @@ limit: bank 4 has ~10 KB spare, enough for a second class. Add it to
 | `H` | send the selected squadron's **harvesters** to work |
 | `B` | open the build panel; `,`/`.` pick a class, ENTER orders it |
 | `?` | the key list; `ESC` goes back |
+| `ENTER` | on the title screen, start the game |
 
 `J` jumps when the objective is met, and writes the save on its way out.
 
@@ -680,6 +698,27 @@ bank 4: it cannot simply sit above `#8000` any more, because a second ship
 class pushed the file past AMSDOS. Screen A is 16K of RAM nothing needs until
 `sys_boot` clears it, it is untouched by the `#4000` paging, and it is exactly
 one bank big.
+
+### The title screen
+
+`HOMEPLANET` across the full width, a starfield, a flight of ships, the credit
+line, and `ENTER` to go on to the first briefing. Third screen to work this
+way after the briefing and the help page, with the same two obligations:
+repaint every frame, and set `mis_wipe` on the way out.
+
+**The title is sized to the screen rather than centred on it.** `txt_big`
+blows the ordinary 8×8 font up 4× — in Mode 1 one source pixel is exactly one
+screen byte, so a glyph is 8 bytes and ten glyphs is the whole 80-byte line.
+That is why the game is called a ten-letter word on this screen, and
+`src/main.asm` asserts it. Rename it and the build says so.
+
+The face is 5 pixels in an 8-pixel cell, so **the last three byte columns are
+blank by construction** — the title is flush left and stops one tracking-width
+short of the right edge. That is what "spans the screen" means for this font;
+a test asserting ink in column 79 is asserting the wrong thing.
+
+`spr_x` is a **byte column, not a pixel** — the first flight had three of its
+five ships off the right-hand side because the table was written in pixels.
 
 ### The help page
 

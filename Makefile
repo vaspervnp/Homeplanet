@@ -94,3 +94,9 @@ dsk-list: $(DSK)
 
 clean:
 	rm -rf $(BUILD_DIR) $(GEN_DIR)
+
+#  A recorded round, straight out of the emulator through ffmpeg. Boots from
+#  the .dsk like a user would, so it exercises the real loader.
+demo: all
+	python3 tools/record.py build/homeplanet-demo.mp4
+.PHONY: demo

@@ -101,6 +101,7 @@ demo_init:
     call fleet_disc_load
     call fleet_restore
     call mis_setup                      ; the mission places the enemy, not us
+    call title_open                     ; ...but the player sees the title first
     jp squad_init
 
 
@@ -210,6 +211,19 @@ phase4_spawn_fleet:
 demo_update:
     call key_scan
 
+    ;  The title screen comes before everything, including the first mission's
+    ;  briefing -- which mis_init has already opened behind it.
+    ld a,(title_shown)
+    or a
+    jr z,@p4_check_brief
+    call title_key
+    call title_draw
+    call phase4_rects_reset
+    ld hl,demo_frames
+    inc (hl)
+    ret
+
+@p4_check_brief:
     ;  While the briefing is up nothing else runs: no orders, no simulation,
     ;  no battle. Section 10 wants a static screen, and static means static.
     ld a,(mis_briefing)
