@@ -3,8 +3,8 @@
 ; ============================================================================
 ;  Build with:  make          (see CLAUDE.md)
 ;
-;  Phase 1: the 3D pipeline. A camera orbits a lattice of 100 world points at
-;  12.5 fps -- one rotation matrix per frame, one projection per point.
+;  Phases 2 and 3: masked sprite blitting. A squadron of interceptors sits in
+;  3D while the camera orbits, each picking its yaw view and size tier.
 ; ----------------------------------------------------------------------------
 
     include "equ/hardware.asm"
@@ -21,11 +21,11 @@ game_main:
     ld sp,STACK_TOP                     ; before any CALL, obviously
     call sys_boot                       ; one-way: firmware is gone after this
 
-    call phase1_init
+    call demo_init
 
 @frame_loop:
-    call phase1_update                  ; draw into the back buffer
-    call phase1_wait_frame              ; hold the loop to 4 VSYNCs = 12.5 fps
+    call demo_update                    ; draw into the back buffer
+    call demo_wait_frame                ; hold the loop to 4 VSYNCs = 12.5 fps
     call scr_wait_vsync
     call scr_flip                       ; back becomes front
     jr @frame_loop
@@ -40,7 +40,14 @@ game_main:
     include "math/mul.asm"
     include "math/cam.asm"
     include "math/proj.asm"
-    include "demo/phase1.asm"
+    include "gfx/sprite.asm"
+    include "demo/phase3.asm"
+
+; ----------------------------------------------------------------------------
+;  Sprite data. Only one class fits under #4000 alongside the code and
+;  tables; three would be 16.9 KB. Multi-class needs the #4000 bank window.
+; ----------------------------------------------------------------------------
+    include "gen/spr_interceptor.asm"
 
 ; ----------------------------------------------------------------------------
 ;  Generated lookup tables. Must come last: they are page-aligned and would

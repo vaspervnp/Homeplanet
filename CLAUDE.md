@@ -139,9 +139,16 @@ Local labels start with `@` and are scoped to the enclosing global label.
 symbol and the build will fail with "there is already an alias with the same
 name". Do not distinguish an equate from a label by case alone.
 
-**`@` labels are scoped to the FILE, not to the enclosing routine.** Two
-routines in one file cannot both have an `@positive`. Give them names that say
-which routine they belong to.
+**`@` labels are GLOBAL.** Not per-routine, not even per-file — two routines
+anywhere in the build cannot both have an `@no_carry`. Prefix them with the
+subsystem (`@spr_no_carry`). Check with:
+
+```bash
+grep -hoE '^@[a-z_0-9]+' $(find src -name '*.asm') | sort | uniq -d
+```
+
+**`JR` reaches ±127 bytes.** A shared error exit at the end of a long routine
+will be out of range; use `JP`. RASM reports it as "relative offset N too far".
 
 **`ASSERT` is evaluated where it stands**, so it cannot see anything included
 later. The table-layout invariants therefore live at the bottom of
@@ -280,15 +287,21 @@ Design document section 13 lists ten phases.
   that model is the specification, and if you change a shift you change it in
   both places. 100 points run at ~7 fps (see the budget table above for why
   that is expected, and fine).
-- **Phase 3 — partly done, out of order.** The sprite pipeline exists
-  (`mkships.py` → `art/*.json` → `rt2sprite.py`) and three classes are drawn,
-  but nothing blits them yet. That is Phase 2.
-- **Phase 2 — next.** The masked sprite blitter and dirty rectangles for it.
-  The data is already in the right layout: mask/data pairs, row-major, one
-  block per (frame, pre-shift).
+- **Phases 2 and 3 — done.** Masked sprite blitter with full clipping,
+  per-buffer dirty rectangles, z-sorted draw order, yaw view and size tier
+  chosen per entity. A squadron of 16 interceptors orbits at ~8 fps. The
+  blitter is verified pixel-exact against a Python model of
+  `(screen AND mask) OR data`, including that a clipped sprite writes nothing
+  outside its clipped rectangle.
+- **Phase 4 — next.** Entities proper: the 20-byte record from section 7,
+  movement, formations, and the reference grid at Y=0.
 
-`src/demo/phase1.asm` is the Phase 1 acceptance test running on the CPC
-itself. Delete it when Phase 4 puts real entities on screen.
+`src/demo/phase3.asm` is the Phase 2/3 acceptance test running on the CPC
+itself. Replace it when Phase 4 brings real entities.
+
+**Only one ship class is linked in.** Three would be 16.9 KB of sprite data
+and the low 16K has ~3.8 KB spare. Multi-class needs the `#4000` bank window,
+which nothing pages yet.
 
 ### Known open questions
 

@@ -232,74 +232,11 @@ class TestProjection(EmuFixture):
         self.assertGreater(len(seen), 2)
 
 
-class TestPhase1Demo(EmuFixture):
-    """The acceptance criterion: 100 points rotating at 12.5 fps."""
-
-    @classmethod
-    def setUpClass(cls):
-        cls.c = h.boot_quick(frames=60)
-        cls.sym = h.symbols()
-
-    def test_it_actually_draws_points(self):
-        drawn = max(self.byte("PHASE1_DRAWN_A"), self.byte("PHASE1_DRAWN_B"))
-        self.assertGreater(drawn, 40, "hardly any of the lattice is on screen")
-        self.assertLessEqual(drawn, 100)
-
-    def test_no_pixel_trails(self):
-        """Lit pixels must never exceed the number of points drawn.
-
-        If the per-buffer erase list is wrong, dots smear into arcs and the
-        count climbs frame after frame.
-        """
-        for _ in range(6):
-            self.c.run_frames(4)
-            front = h.front_buffer(self.c)
-            ram = self.c.read_ram(front, 0x4000)
-            lit = sum(bin(ram[h.screen_offset(y, x)]).count("1")
-                      for y in range(200) for x in range(80))
-            self.assertLessEqual(lit, 100, f"buffer #{front:04X} has {lit} lit pixels")
-
-    def test_the_picture_changes(self):
-        """The camera is orbiting, so consecutive frames must differ."""
-        shots = []
-        for _ in range(3):
-            self.c.run_frames(5)
-            shots.append(bytes(self.c.read_ram(h.front_buffer(self.c), 0x4000)))
-        self.assertNotEqual(shots[0], shots[1], "the lattice is not moving")
-        self.assertNotEqual(shots[1], shots[2])
-
-    #  MEASURED, not aspirational.
-    #
-    #  100 points through the FULL projection does not reach 12.5 fps and
-    #  cannot: proj_point costs ~4560 T-states, so 100 of them is ~456,000 T
-    #  against a 265,000 T frame. Homeplanet.md section 6 budgets 1200 T per
-    #  entity, which is about 3.8x optimistic for a general 3x3 rotation on a
-    #  4 MHz Z80 -- nine table-driven multiplies alone will not fit in it.
-    #
-    #  That is fine for the GAME, which projects 24 entities (~41% of a
-    #  frame), and the design already routes the 100 background stars down a
-    #  much cheaper path (section 5.4: no translation, no perspective divide,
-    #  cached unless the camera moves). This demo deliberately does the
-    #  expensive thing to all 100 points, so it is a harder test than the
-    #  engine will ever face.
-    #
-    #  The floor below is a regression guard on the measured rate, not a
-    #  target. If it drops, something got slower.
-    MEASURED_FPS_FLOOR = 6.5
-
-    def test_frame_rate_does_not_regress(self):
-        before = self.byte("PHASE1_FRAMES")
-        pal_frames = 200                       # 4 seconds
-        self.c.run_frames(pal_frames)
-        after = self.byte("PHASE1_FRAMES")
-
-        elapsed = (after - before) % 256
-        fps = elapsed / (pal_frames / 50)
-        self.assertGreaterEqual(
-            fps, self.MEASURED_FPS_FLOOR,
-            f"{fps:.1f} fps for 100 fully-projected points, "
-            f"was {self.MEASURED_FPS_FLOOR}+ -- something got slower",
-        )
+#  TestPhase1Demo lived here and drove the 100-point lattice demo, which
+#  Phase 3 replaced with the sprite fleet (tests/test_phase3.py). The maths
+#  tests above and the cost guard below are what actually protected the
+#  projection, and they call the routines directly, so they carry over
+#  unchanged.
 
 
 class TestProjectionCost(EmuFixture):

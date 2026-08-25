@@ -64,34 +64,35 @@ class TestPageFlip(unittest.TestCase):
     def setUpClass(cls):
         cls.c = h.boot_quick(frames=40)
 
-    def test_display_alternates_every_game_frame(self):
-        """One flip per GAME frame, not per PAL frame.
+    def test_one_flip_per_game_frame(self):
+        """The display must swap exactly once per game frame, and use both buffers.
 
-        The loop is paced to 12.5 fps and the projection is heavy, so several
-        PAL frames pass between flips. Sampling per PAL frame would just
-        measure the frame rate; sample per game frame instead, which is the
-        invariant that actually matters.
+        Counting transitions rather than checking alternation at each sample
+        is deliberate: the loop runs at ~8 fps, so sampling per PAL frame sees
+        each buffer several times in a row, and where the sample lands
+        relative to the flip is arbitrary. Transitions per frame is the same
+        invariant without the phase sensitivity.
         """
         sym = h.symbols()
-        tick = sym["PHASE1_FRAMES"]
+        tick = sym["DEMO_FRAMES"]
 
-        seen = []
-        last = self.c.read_ram(tick, 1)[0]
-        for _ in range(400):
+        pages = [h.crtc_page(self.c)]
+        frames_before = self.c.read_ram(tick, 1)[0]
+        for _ in range(120):
             self.c.run_frames(1)
-            now = self.c.read_ram(tick, 1)[0]
-            if now != last:
-                last = now
-                seen.append(h.crtc_page(self.c))
-            if len(seen) >= 8:
-                break
+            pages.append(h.crtc_page(self.c))
+        frames_after = self.c.read_ram(tick, 1)[0]
 
-        self.assertGreaterEqual(len(seen), 6, "the game loop is barely advancing")
-        self.assertNotIn(-1, seen, "CRTC parked on neither buffer")
-        self.assertEqual(set(seen), {h.SCREEN_A, h.SCREEN_B}, "only one buffer ever shown")
+        game_frames = (frames_after - frames_before) % 256
+        transitions = sum(1 for i in range(1, len(pages)) if pages[i] != pages[i - 1])
 
-        stuck = [i for i in range(1, len(seen)) if seen[i] == seen[i - 1]]
-        self.assertEqual(stuck, [], f"buffer did not flip on game frames {stuck}: {seen}")
+        self.assertGreater(game_frames, 4, "the game loop is barely advancing")
+        self.assertNotIn(-1, pages, "CRTC parked on neither buffer")
+        self.assertEqual(set(pages), {h.SCREEN_A, h.SCREEN_B}, "only one buffer ever shown")
+        self.assertAlmostEqual(
+            transitions, game_frames, delta=1,
+            msg=f"{transitions} flips for {game_frames} game frames",
+        )
 
     def test_r13_offset_stays_zero(self):
         """Only R12 changes; a stray R13 would shift the whole picture."""

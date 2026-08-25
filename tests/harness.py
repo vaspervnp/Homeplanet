@@ -113,6 +113,35 @@ def boot_disc(frames: int = 400) -> cpc.CPC:
     return c
 
 
+def run_until_pc_in(c: cpc.CPC, lo: int, hi: int, max_us: int = 400_000) -> bool:
+    """Step until the CPU is executing inside [lo, hi), or give up.
+
+    Needed because the game's own data structures are only consistent at
+    certain points in the frame. Reading `phase3_visible` while
+    `phase3_project` is halfway through rebuilding it gives a count that does
+    not match the array beside it -- a race in the TEST, not in the game.
+
+    Steps in 100 microsecond slices, which is fine enough to land inside a
+    short spin loop like scr_wait_vsync.
+    """
+    for _ in range(max_us // 100):
+        if lo <= c.pc < hi:
+            return True
+        c.run_us(100)
+    return False
+
+
+def run_to_stable_point(c: cpc.CPC, sym: dict[str, int]) -> None:
+    """Park the machine in scr_wait_vsync, where a frame has just finished.
+
+    Everything the frame computed -- the visible list, the draw order, the
+    dirty rectangles -- is complete and not yet being overwritten.
+    """
+    lo = sym["SCR_WAIT_VSYNC"]
+    if not run_until_pc_in(c, lo, lo + 12):
+        raise RuntimeError("never caught the frame loop at scr_wait_vsync")
+
+
 def front_buffer(c: cpc.CPC) -> int:
     """Base address of the buffer currently on screen.
 

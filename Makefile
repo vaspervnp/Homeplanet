@@ -17,6 +17,11 @@ SRC_DIR   := src
 GEN_DIR   := $(SRC_DIR)/gen
 BUILD_DIR := build
 
+# Sprite data the game links in. Adding a class here will overflow the low
+# 16K until something pages the #4000 bank window.
+SHIP_CLASSES := interceptor
+SPRITES := $(patsubst %,$(GEN_DIR)/spr_%.asm,$(SHIP_CLASSES))
+
 MAIN   := $(SRC_DIR)/main.asm
 DISC   := $(SRC_DIR)/disc.asm
 TABLES := $(GEN_DIR)/tables.asm
@@ -40,7 +45,7 @@ all: $(DISC_RAW)
 # Two stages, and the order matters: disc.asm INCBINs the game blob, so the
 # game has to exist first. See src/disc.asm for why the game cannot simply be
 # loaded at #0040 and run.
-$(GAME_RAW) $(SYM): $(ASM_SOURCES) $(TABLES) | $(BUILD_DIR)
+$(GAME_RAW) $(SYM): $(ASM_SOURCES) $(TABLES) $(SPRITES) | $(BUILD_DIR)
 	$(RASM) $(MAIN) $(RASMFLAGS) -s -sa -ec -os $(SYM)
 
 $(DISC_RAW) $(DSK): $(GAME_RAW) $(DISC)
@@ -51,6 +56,12 @@ $(TABLES): tools/gentables.py
 
 tables:
 	$(PYTHON) tools/gentables.py
+
+# art/*.retrotools.json is checked-in source; src/gen/spr_*.asm is derived from
+# it and is not. Converting is cheap and pure, so it IS part of every build --
+# unlike `make ships`, which re-renders the 3D models.
+$(GEN_DIR)/spr_%.asm: art/%.retrotools.json tools/rt2sprite.py
+	$(PYTHON) tools/rt2sprite.py $< --out $@
 
 # Ship sprites. Not part of `all`: the projects in art/ are checked in, and
 # re-rendering them is something you do when you have changed a model, not

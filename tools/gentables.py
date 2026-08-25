@@ -68,6 +68,14 @@ PROJ_K = 160 << PROJ_SHIFT           # 20480
 Z_NEAR = 84
 Z_FAR = 255
 
+#  Size tiers (Homeplanet.md section 5.1). Tier 2 is the 24x16 close-up, 1 the
+#  16x10 middle distance, 0 the 8x6 far one. Chosen so the apparent size of a
+#  ship changes at roughly the point where the next tier down would be drawing
+#  the same number of lit pixels anyway.
+TIER_C_MAX_Z = 130                   # nearer than this -> 24x16
+TIER_B_MAX_Z = 190                   # nearer than this -> 16x10
+                                     # anything further -> 8x6
+
 
 def screen_line_offsets() -> list[int]:
     """Byte offset of each pixel line from the base of a screen buffer.
@@ -130,6 +138,14 @@ def signed_quarter_squares() -> list[int]:
     Entries 256..511 therefore hold f of the negative values.
     """
     return [((i if i < 256 else i - 512) ** 2) // 4 for i in range(512)]
+
+
+def tier_table() -> list[int]:
+    """Which sprite size tier to draw at each camera depth."""
+    return [
+        2 if z < TIER_C_MAX_Z else 1 if z < TIER_B_MAX_Z else 0
+        for z in range(256)
+    ]
 
 
 def sin7_table() -> list[int]:
@@ -373,6 +389,15 @@ def render() -> str:
         "",
         "    align 256",
         _defb_block("recip", recip_table()),
+        "",
+        "; ---------------------------------------------------------------------------",
+        ";  tier_lut -- sprite size tier per depth: 2 = 24x16, 1 = 16x10, 0 = 8x6",
+        "; ---------------------------------------------------------------------------",
+        f"TIER_C_MAX_Z equ {TIER_C_MAX_Z}",
+        f"TIER_B_MAX_Z equ {TIER_B_MAX_Z}",
+        "",
+        "    align 256",
+        _defb_block("tier_lut", tier_table()),
         "",
     ]
 
