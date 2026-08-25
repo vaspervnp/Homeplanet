@@ -29,6 +29,22 @@ python3 -m unittest tests.test_phase0 -v     # one test module
 **Always `make test` before saying something works.** The emulator gives us
 the whole machine state; there is no reason to guess.
 
+**The `.dsk` is minted fresh every build, and that `rm -f` in the Makefile is
+load-bearing.** RASM's `-eo` writes DISC.BIN *into* an existing image, and the
+file grows with every feature; overwriting in place left the image holding a
+mixture of builds. `boot_quick` reads `build/disc.raw` and kept working, while
+`boot_disc` -- and anyone running the real disc in an emulator -- got older
+code. The symptom is data three bytes out of where the symbol file says it is,
+with nothing in the source to explain it. If a `boot_disc` test disagrees with
+a `boot_quick` one, suspect the image before the code.
+
+**Never run `rasm` by hand to look at an error.** It rewrites
+`build/homeplanet.sym`, and if that assembly fails the symbol file is left
+disagreeing with the binary `make` built. Every test then reads the right name
+at the wrong address: `MIS_BRIEFING` came back as 78, which is the `E` of the
+`"ENTER"` prompt three bytes further on. Use `make` and read its output, or
+`make clean` afterwards.
+
 ---
 
 ## Toolchain
@@ -448,7 +464,7 @@ limit: bank 4 has ~10 KB spare, enough for a second class. Add it to
 | `H` | send the selected squadron's **harvesters** to work |
 | `B` | open the build panel; `,`/`.` pick a class, ENTER orders it |
 | `?` | the key list; `ESC` goes back |
-| `ENTER` | on the title screen, start the game |
+| `SPACE` | on the title screen, start the game |
 
 `J` jumps when the objective is met, and writes the save on its way out.
 
@@ -523,17 +539,40 @@ and it may land on the save.
 
 Three things to know before touching it:
 
-- **The controller may refuse the command**, and then it skips the execution
-  phase entirely and goes straight to handing back its seven result bytes.
-  Code that pumps 512 bytes at it regardless waits on an RQM that never comes.
-  That is *the* failure mode — no disc in the drive is the common case, since
-  `boot_quick` never inserts one — and it hangs the whole suite. `fdc_sector_rw`
-  tests `FDC_ST_EXM` before transferring.
+**Every hang this code has had was the same mistake**: assuming the controller
+is where you left it. It is a separate chip running on its own time, and the
+emulator here hides that — `chips/upd765.h` resolves the phase *synchronously*,
+the instant the last command byte is written, and never runs out of patience.
+A real controller does neither, which is why the first version of this worked
+perfectly under test and **hung on every jump in Retro Virtual Machine**.
+
+The transfer loop therefore watches `RQM`, `DIO` and `EXM` together, and the
+three cases it has to survive are:
+
+- **The command is refused** — no disc, no such sector, write protected. The
+  controller never enters the execution phase; it goes straight to the result
+  bytes. (No disc is the *common* case here: `boot_quick` never inserts one.)
+- **The transfer ends early** — we were too slow feeding it, so it gives up and
+  leaves the execution phase part way through. A loop that only ever waits for
+  "ready, wants a byte" then waits forever.
+- **It has not decided yet.** Testing `EXM` immediately after the last command
+  byte is a race: the chip has not entered execution, `EXM` reads 0, and code
+  that takes that for a refusal settles down to wait for result bytes it is not
+  sending — while it waits for data we are not sending. That was the RVM hang.
+
+Testing `EXM` alongside `RQM`/`DIO` is **free** — one more bit in a mask that
+was already being compared — so the fast path stays inside the controller's
+32-microsecond-a-byte budget. Do not be tempted to "optimise" it back out.
+
+- **Drain the result by status, not by count.** `fdc_drain_result` reads until
+  `CB` clears. READ and WRITE return seven bytes, SENSE INTERRUPT STATUS
+  returns two, and a SENSE with no interrupt pending returns *one* — counting
+  means the count has to be right everywhere, and being one too high is a wait
+  for a byte that is never coming. It also runs before the first command, since
+  AMSDOS ran before us and the chip keeps its state across the ROMs going out.
 - **EOT must equal R.** It is the last sector of the transfer, so for a single
   sector it is the sector itself. The emulator asserts on this rather than
   returning an error.
-- **All seven result bytes have to be read.** The controller sits in the result
-  phase until the last one goes and ignores anything sent to it meanwhile.
 
 The header (magic, mission index, ship count) sits *in front of* the fleet in
 the same bank-4 block, padded to two whole sectors, so a save is two writes
@@ -702,7 +741,8 @@ one bank big.
 ### The title screen
 
 `HOMEPLANET` across the full width, a starfield, a flight of ships, the credit
-line, and `ENTER` to go on to the first briefing. Third screen to work this
+line, a blinking `PRESS SPACE TO START`, and `SPACE` to go on to the first
+briefing. Third screen to work this
 way after the briefing and the help page, with the same two obligations:
 repaint every frame, and set `mis_wipe` on the way out.
 
@@ -719,6 +759,21 @@ a test asserting ink in column 79 is asserting the wrong thing.
 
 `spr_x` is a **byte column, not a pixel** — the first flight had three of its
 five ships off the right-hand side because the table was written in pixels.
+
+Two things this screen broke by touching state it did not own, both of which
+showed up as "the HUD comes and goes":
+
+- `title_draw_ships` opens `spr_clip_bottom` to all 200 lines so the flight can
+  sit anywhere, and it has to **close it again itself**. Restoring it in
+  `title_key` does not work: `title_key` only clears the flag, and the frame
+  loop goes on to call `title_draw` one last time in the same frame, which
+  reopened it permanently. The tactical view then drew over the HUD and the
+  dirty-rectangle erase rubbed it out again.
+- `mis_wipe_screen` now clears **all 200 lines**, and everything that schedules
+  a wipe marks the HUD dirty. It used to stop at `spr_clip_bottom`, which left
+  the title's credit line — at y=186, inside the HUD's strip — on screen for
+  the rest of the game, because the HUD does not clear its strip, it draws
+  labels onto it.
 
 ### The help page
 

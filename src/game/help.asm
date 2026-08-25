@@ -48,6 +48,8 @@ help_key:
     ;  would ever erase it. Two frames of wipe, one per screen buffer.
     ld a,2
     ld (mis_wipe),a
+    ld a,2
+    ld (phase4_hud_dirty),a
     ret
 
 

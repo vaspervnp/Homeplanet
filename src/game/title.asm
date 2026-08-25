@@ -18,6 +18,8 @@
 TITLE_Y             equ 20              ; the big letters, 32 scanlines of them
 TITLE_STARS         equ 40
 TITLE_CREDIT_Y      equ 186
+TITLE_PROMPT_Y      equ 160
+TITLE_BLINK_BIT     equ %00000100   ; ~4 game frames on, ~4 off
 
 ;  The ships, as (x, y) in the flight below the title.
 TITLE_SHIP_Y        equ 104
@@ -34,11 +36,15 @@ title_open:
 
 
 ; ----------------------------------------------------------------------------
-;  title_key -- ENTER starts the game
+;  title_key -- SPACE starts the game
+;
+;  SPACE is the tactical pause once the game is running, and there is no
+;  clash: this screen returns out of demo_update before phase4_commands is
+;  ever reached, so the keypress that starts the game cannot also pause it.
 ;  Uses: everything
 ; ----------------------------------------------------------------------------
 title_key:
-    ld a,KEY_ENTER
+    ld a,KEY_SPACE
     call key_hit
     ret nc
     xor a
@@ -52,6 +58,7 @@ title_key:
     ld (mis_wipe),a
     ld a,2
     ld (phase4_hud_dirty),a             ; and the HUD has to come back
+
     ret
 
 
@@ -74,6 +81,20 @@ title_draw:
 
     call title_draw_stars
     call title_draw_ships
+
+    ;  The prompt blinks. The whole screen is repainted every frame anyway, so
+    ;  "blink" is just declining to draw it on half the frames -- no erase, no
+    ;  dirty rectangle, six instructions. demo_frames counts GAME frames, so
+    ;  bit 2 is about four of them either way: a little under a second on and
+    ;  a little under a second off.
+    ld a,(demo_frames)
+    and TITLE_BLINK_BIT
+    jr z,@title_no_prompt
+    ld hl,title_prompt
+    ld b,TITLE_PROMPT_X
+    ld c,TITLE_PROMPT_Y
+    call txt_draw
+@title_no_prompt:
 
     ld hl,title_credit
     ld b,TITLE_CREDIT_X
@@ -134,8 +155,15 @@ title_draw_stars:
 ;  Uses: everything
 ; ----------------------------------------------------------------------------
 title_draw_ships:
+    ;  Open the clip to the whole screen so the flight can sit anywhere, and
+    ;  put it BACK before returning. Restoring it in title_key instead does
+    ;  not work: title_key only clears the flag, and the frame loop goes on
+    ;  to call title_draw one last time in the same frame -- which re-opened
+    ;  it, permanently. The tactical view then drew over the HUD and the
+    ;  dirty-rectangle erase rubbed it out again, so the strip came and went
+    ;  with whatever happened to be flying low.
     ld a,SCR_HEIGHT_PX
-    ld (spr_clip_bottom),a              ; no HUD to keep out of yet
+    ld (spr_clip_bottom),a
     xor a
     ld (spr_enemy),a
 
@@ -173,6 +201,9 @@ title_draw_ships:
     dec a
     ld (title_left),a
     jr nz,@title_ship
+
+    ld a,HUD_TOP                        ; the strip belongs to the HUD again
+    ld (spr_clip_bottom),a
     ret
 
 

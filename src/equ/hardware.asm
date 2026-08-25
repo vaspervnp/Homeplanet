@@ -82,6 +82,7 @@ FDC_DATA            equ #FB7F           ; data register
 FDC_ST_RQM          equ %10000000       ; the controller wants a byte moved
 FDC_ST_DIO          equ %01000000       ; 1 = it has one FOR us, 0 = it wants one
 FDC_ST_EXM          equ %00100000       ; an execution phase is under way
+FDC_ST_CB           equ %00010000       ; a command is still in progress
 FDC_ST_BUSY0        equ %00000001       ; drive 0 is still stepping
 
 FDC_CMD_READ        equ #46             ; READ DATA, MFM

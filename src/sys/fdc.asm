@@ -132,9 +132,8 @@ fdc_seek:
     ;  start another command until it has been acknowledged.
     ld a,FDC_CMD_SENSE_INT
     call fdc_out
-    call fdc_in                         ; ST0
-    call fdc_in                         ; the cylinder it thinks it is on
-    ret
+    jp fdc_drain_result                 ; ST0 and the cylinder, however many
+                                        ; (JP: the drain is 131 bytes away)
 
 
 ; ----------------------------------------------------------------------------
@@ -165,19 +164,22 @@ fdc_sector_rw:
     ld a,#FF
     call fdc_out                        ; DTL, unused while N is non-zero
 
-    ;  Did it actually start? A command the controller will not do -- no disc
-    ;  in the drive, no such sector on the track -- skips the execution phase
-    ;  and goes straight to handing back its seven result bytes. Pumping 512
-    ;  bytes at a controller that is trying to talk to US waits on an RQM that
-    ;  never comes, and the game hangs on the boot that looks for a save.
-    ld bc,FDC_STATUS
-    in a,(c)
-    and FDC_ST_EXM
-    jr z,@fdc_rw_drain
-
-    ;  Execution phase. The handshake is the same as the command phase, but
-    ;  the count is ours to keep: the controller leaves execution when it has
-    ;  had its sector, and asking for one byte more hangs on RQM forever.
+    ;  Execution phase, and the loop has to watch for three things at once.
+    ;
+    ;  A command the controller will not do -- no disc, no such sector, write
+    ;  protected -- never enters the execution phase at all; it goes straight
+    ;  to handing back its seven result bytes. And a transfer it gives up on
+    ;  part way, because we were too slow feeding it, LEAVES the execution
+    ;  phase early. Either way it is then trying to talk to US, and a loop
+    ;  that only ever waits for "ready, wants a byte" waits forever. Both of
+    ;  those hung the game on a real controller while working perfectly in
+    ;  the emulator here, which resolves the phase the instant the last
+    ;  command byte is written and never runs out of patience.
+    ;
+    ;  Testing EXM alongside RQM and DIO costs nothing -- it is one more bit
+    ;  in a mask that was already being compared -- so the fast path is the
+    ;  same length it always was, and the loop stays inside the controller's
+    ;  32-microsecond-a-byte budget.
     ld hl,(fdc_buf)
     ld de,FDC_SECTOR_SIZE
     ld a,(fdc_cmd)
@@ -187,9 +189,15 @@ fdc_sector_rw:
 @fdc_write_byte:
     ld bc,FDC_STATUS
     in a,(c)
-    and FDC_ST_RQM + FDC_ST_DIO
-    cp FDC_ST_RQM
-    jr nz,@fdc_write_byte
+    and FDC_ST_RQM + FDC_ST_DIO + FDC_ST_EXM
+    cp FDC_ST_RQM + FDC_ST_EXM          ; executing, and wanting a byte from us
+    jr z,@fdc_write_go
+    bit 5,a                             ; EXM: still executing?
+    jr nz,@fdc_write_byte               ; yes -- it just has not asked yet
+    bit 7,a                             ; no -- wait for RQM and take the result
+    jr z,@fdc_write_byte
+    jr @fdc_rw_drain
+@fdc_write_go:
     ld a,(hl)
     inc hl
     ld bc,FDC_DATA
@@ -203,9 +211,15 @@ fdc_sector_rw:
 @fdc_read_byte:
     ld bc,FDC_STATUS
     in a,(c)
-    and FDC_ST_RQM + FDC_ST_DIO
-    cp FDC_ST_RQM + FDC_ST_DIO
+    and FDC_ST_RQM + FDC_ST_DIO + FDC_ST_EXM
+    cp FDC_ST_RQM + FDC_ST_DIO + FDC_ST_EXM     ; executing, with a byte for us
+    jr z,@fdc_read_go
+    bit 5,a
     jr nz,@fdc_read_byte
+    bit 7,a
+    jr z,@fdc_read_byte
+    jr @fdc_rw_drain
+@fdc_read_go:
     ld bc,FDC_DATA
     in a,(c)
     ld (hl),a
@@ -218,19 +232,28 @@ fdc_sector_rw:
 @fdc_rw_result:
     ld (fdc_buf),hl                     ; left ready for the next sector
 
+fdc_drain_result:
 @fdc_rw_drain:
-    ;  Seven result bytes, and all seven have to go: the controller sits in
-    ;  the result phase until the last one is read and ignores everything
-    ;  sent to it in the meantime.
-    call fdc_in
-    ld (fdc_st0),a
-    ld b,6
+    ;  Every result byte has to be taken: the controller sits in the result
+    ;  phase until the last one is read and ignores anything sent to it in the
+    ;  meantime. Drain until it says it is idle rather than counting to seven
+    ;  -- READ and WRITE return seven, SENSE INTERRUPT STATUS returns two, and
+    ;  a SENSE with no interrupt pending returns ONE. Counting means the count
+    ;  has to be right everywhere, and being one too high is a wait for a byte
+    ;  that is never coming.
+    ld hl,fdc_st0                       ; the first byte is ST0; keep it
 @fdc_drain:
-    push bc
-    call fdc_in
-    pop bc
-    djnz @fdc_drain
-    ret
+    ld bc,FDC_STATUS
+    in a,(c)
+    bit 4,a                             ; CB: still working on the command?
+    ret z                               ; no -- idle, and nothing left to take
+    bit 7,a                             ; RQM
+    jr z,@fdc_drain
+    ld bc,FDC_DATA
+    in a,(c)
+    ld (hl),a
+    ld hl,fdc_spill                     ; everything after ST0 goes in the bin
+    jr @fdc_drain
 
 
 ; ----------------------------------------------------------------------------
@@ -252,6 +275,14 @@ fdc_fleet_load:
 fdc_fleet_io:
     ld (fdc_want),a
     di
+
+    ;  Start from a controller that is not mid-conversation. AMSDOS ran before
+    ;  us and the chip keeps its state across the ROMs being switched out, so
+    ;  anything it left in the result phase would make our first command byte
+    ;  land as a result read -- and fdc_out would then wait for a DIO that
+    ;  never clears. Returns at once when there is nothing pending.
+    call fdc_drain_result
+
     ld a,1
     call fdc_spin
     ld a,FLEET_TRACK
@@ -362,4 +393,5 @@ fdc_sector:         defb 0
 fdc_cmd:            defb 0
 fdc_want:           defb 0
 fdc_st0:            defb 0
+fdc_spill:          defb 0
 fdc_buf:            defw 0

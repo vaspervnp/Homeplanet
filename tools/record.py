@@ -87,8 +87,8 @@ c.run_frames(150)
 record(60, "RUN\"DISC")
 
 # ------------------------------------------------------------------ title ---
-record(150, "title screen")
-press(cpc.KEY_ENTER, note="ENTER -> mission 1 briefing")
+record(200, "title screen")
+press(cpc.KEY_SPACE, note="SPACE -> mission 1 briefing")
 record(200, "briefing")
 press(cpc.KEY_ENTER, note="ENTER -> into the game")
 record(80)

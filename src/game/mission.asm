@@ -164,15 +164,25 @@ mis_brief_key:
     ;  into each of the two buffers.
     ld a,2
     ld (mis_wipe),a
+    ld a,2
+    ld (phase4_hud_dirty),a
     ret
 
 
 ; ----------------------------------------------------------------------------
-;  mis_wipe_screen -- clear the tactical area of the back buffer
+;  mis_wipe_screen -- clear the back buffer after a full-screen page closes
 ;
-;  Called for two frames after a briefing closes, which is one per screen
-;  buffer. Cheaper and clearer than making the briefing record eighty
-;  rectangles it will never look at again.
+;  Called for two frames, which is one per screen buffer. Cheaper and clearer
+;  than making the briefing record eighty rectangles it will never look at
+;  again.
+;
+;  ALL 200 lines, including the strip the HUD owns, and whoever schedules the
+;  wipe marks the HUD dirty so it comes straight back. Wiping only as far as
+;  spr_clip_bottom left the title screen's credit line -- which sits at y=186,
+;  inside that strip -- on the screen for the rest of the game: the HUD does
+;  not clear its strip, it draws labels onto it, so anywhere it happened not
+;  to put a glyph the old pixels stayed. Two HUD redraws per screen change is
+;  nothing; a permanent smear across the bottom of the game is not.
 ;  Uses: everything
 ; ----------------------------------------------------------------------------
 mis_wipe_screen:
@@ -183,7 +193,7 @@ mis_wipe_screen:
     dec (hl)
 
     ld bc,#0000
-    ld a,(spr_clip_bottom)
+    ld a,SCR_HEIGHT_PX
     ld e,a
     ld d,SCR_BYTES_PER_LINE
     xor a

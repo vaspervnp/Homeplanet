@@ -17,6 +17,12 @@ title_credit:
 
 TITLE_CREDIT_X      equ 14
 
+;  20 characters at 2 bytes is 40, so 20 bytes of margin each side.
+title_prompt:
+    defb "PRESS SPACE TO START",0
+
+TITLE_PROMPT_X      equ 20
+
 
 ;  --- the starfield: x in bytes, y, pixel mask (pen 2 lives in the low
 ;      nibble, so the mask is the bit and nothing else) ---------------------

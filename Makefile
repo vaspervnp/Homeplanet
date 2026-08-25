@@ -56,7 +56,14 @@ $(GAME_RAW) $(SPRITE_RAW) $(SYM) &: $(ASM_SOURCES) $(TABLES) $(SPRITES) | $(BUIL
 $(SPRITE_RLE): $(SPRITE_RAW) tools/packsprites.py
 	$(PYTHON) tools/packsprites.py $(SPRITE_RAW) $(SPRITE_RLE)
 
+# The rm is not tidiness. RASM's -eo writes the file INTO an existing .dsk,
+# and DISC.BIN grows with every feature -- overwriting in place left the image
+# holding a mixture of builds, so `boot_disc` and anyone running the real disc
+# got code that no longer matched build/disc.raw or the symbol file. It shows
+# up as data three bytes out of place and nothing in the source to explain it.
+# Always mint a fresh image.
 $(DISC_RAW) $(DSK) $(DISC_SYM) &: $(GAME_RAW) $(SPRITE_RLE) $(DISC)
+	rm -f $(DSK)
 	$(RASM) $(DISC) $(RASMFLAGS) -s -sa -ec -os $(DISC_SYM)
 
 $(TABLES): tools/gentables.py

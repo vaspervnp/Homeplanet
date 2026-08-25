@@ -214,8 +214,23 @@ class TestDiscImage(unittest.TestCase):
         c = h.boot_disc(frames=400)
         sym = h.symbols()
         self.assertEqual(c.mode, 1)
-        self.assertLess(c.pc, sym["CODE_END"], "did not end up in the game")
+
+        #  "In the game" no longer means "below CODE_END". The game opens on
+        #  its title screen, and that screen RUNS from bank 4 -- the window is
+        #  paged in for the whole run, so #4000-#7FFF is ordinary executable
+        #  RAM, and code that runs once before the first mission was moved
+        #  there to stop it competing for the low 16K.
+        #
+        #  What still has to be true is that we are running OUR code and not
+        #  the firmware's: anything in #0C00-#1F00 is the lower ROM, which is
+        #  exactly where a boot that went wrong ends up.
+        self.assertTrue(c.pc < sym["CODE_END"] or 0x4000 <= c.pc < 0x8000,
+                        f"PC #{c.pc:04X} is neither in the low 16K nor in the bank")
         self.assertIn(h.crtc_page(c), (h.SCREEN_A, h.SCREEN_B))
+
+        #  And it really is up: the title is the first thing a user sees.
+        self.assertEqual(h.read_cpu(c, sym["TITLE_SHOWN"], 1)[0], 1,
+                         "booted from disc but never reached the title screen")
 
         ram = c.read_ram(0x0040, 8)
         cpu = bytes(c.peek(0x0040 + i) for i in range(8))

@@ -111,6 +111,48 @@ RESULT = SCRATCH + 0x40
 DATA = SCRATCH + 0x50
 
 
+def wait_for_title(c: cpc.CPC, frames: int = 400) -> bool:
+    """Run until the game has reached its title screen.
+
+    Needed because `frames` is not a reliable way to say "the game is up". The
+    loader decompresses the sprite library and demo_init probes the drive for
+    a saved fleet, and that probe alone spins the motor for a third of a
+    second -- so boot_quick(frames=30) used to return while the game was still
+    initialising. dismiss_title then found no title (it had not opened yet),
+    dismiss_briefing found no briefing, and the caller got a machine that put
+    the title up a moment later and ignored everything it was sent.
+    """
+    sym = symbols()
+    if "TITLE_SHOWN" not in sym:
+        return False
+    for _ in range(frames // 10):
+        if read_cpu(c, sym["TITLE_SHOWN"], 1)[0]:
+            return True
+        c.run_frames(10)
+    return False
+
+
+def dismiss_title(c: cpc.CPC) -> None:
+    """Press SPACE past the title screen, if it is up.
+
+    It sits in FRONT of the first mission's briefing, so anything that wants
+    the game actually running has to get past both. `title_shown` lives in
+    bank 4 with the rest of the title, so it is read through peek -- read_ram
+    would hand back bank 1 and report whatever the sprite library has there.
+    """
+    sym = symbols()
+    if "TITLE_SHOWN" not in sym:
+        return
+    for _ in range(6):
+        if not read_cpu(c, sym["TITLE_SHOWN"], 1)[0]:
+            return
+        c.key_down(cpc.KEY_SPACE)
+        c.run_frames(25)
+        c.key_up(cpc.KEY_SPACE)
+        c.run_frames(20)
+    raise RuntimeError("could not get past the title screen")
+
+
 def dismiss_briefing(c: cpc.CPC) -> None:
     """Press ENTER past a mission briefing, if one is up.
 
@@ -119,6 +161,7 @@ def dismiss_briefing(c: cpc.CPC) -> None:
     the game actually playing, so this is done for them; pass
     `briefing=True` to boot_quick to keep it.
     """
+    dismiss_title(c)                    # it sits in front of the briefing
     sym = symbols()
     if "MIS_BRIEFING" not in sym:
         return
@@ -153,6 +196,8 @@ def boot_quick(frames: int = 40, briefing: bool = False) -> cpc.CPC:
     if frames:
         c.run_frames(frames)
     if not briefing:
+        #  Wait for the game rather than trusting `frames` -- see wait_for_title.
+        wait_for_title(c)
         dismiss_briefing(c)
     return c
 

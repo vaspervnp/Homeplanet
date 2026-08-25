@@ -27,6 +27,7 @@ TXT_BIG_W_BYTES = 8
 TITLE_Y = 20
 TITLE_H = 32
 CREDIT_Y = 186
+PROMPT_Y = 160
 
 
 class TitleFixture(unittest.TestCase):
@@ -62,12 +63,12 @@ class TestItIsUpAtTheStart(TitleFixture):
         self.assertEqual(self.banked("TITLE_SHOWN")[0], 1,
                          "the game did not open on the title screen")
 
-    def test_enter_starts_the_game(self):
-        self.c.key_down(cpc.KEY_ENTER)
+    def test_space_starts_the_game(self):
+        self.c.key_down(cpc.KEY_SPACE)
         self.c.run_frames(25)
-        self.c.key_up(cpc.KEY_ENTER)
+        self.c.key_up(cpc.KEY_SPACE)
         self.c.run_frames(30)
-        self.assertEqual(self.banked("TITLE_SHOWN")[0], 0, "ENTER did not start the game")
+        self.assertEqual(self.banked("TITLE_SHOWN")[0], 0, "SPACE did not start the game")
         #  And what it hands over to is the first mission's briefing, which
         #  mis_init opened behind it before the player ever saw this screen.
         self.assertEqual(self.c.read_ram(self.sym["MIS_BRIEFING"], 1)[0], 1,
@@ -122,6 +123,24 @@ class TestTheWords(TitleFixture):
         margin = (SCR_BYTES_PER_LINE - len(credit) * 2) // 2
         self.assertEqual(self.sym["TITLE_CREDIT_X"], margin,
                          "the credit line is not centred")
+
+    def test_the_prompt_says_which_key(self):
+        """A title screen that does not say how to leave it is a dead end."""
+        self.assertEqual(self.string("TITLE_PROMPT"), b"PRESS SPACE TO START")
+        margin = (SCR_BYTES_PER_LINE - len(b"PRESS SPACE TO START") * 2) // 2
+        self.assertEqual(self.sym["TITLE_PROMPT_X"], margin,
+                         "the prompt is not centred")
+
+    def test_the_prompt_blinks(self):
+        """It is drawn on some frames and not others, which on a screen that
+        repaints in full every frame is all a blink needs to be."""
+        seen = set()
+        for _ in range(40):
+            self.c.run_frames(4)
+            seen.add(self.row_ink(PROMPT_Y + 3) > 10)
+            if len(seen) == 2:
+                return
+        self.fail(f"the prompt never changed state: always {'on' if True in seen else 'off'}")
 
     def test_the_credit_sits_below_the_ships_at_the_bottom(self):
         self.assertGreater(CREDIT_Y, 160, "the credit line is not near the bottom")
