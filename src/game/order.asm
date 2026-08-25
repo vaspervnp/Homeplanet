@@ -126,6 +126,10 @@ order_update:
     call key_hit
     call c,order_dock
 
+    ld a,KEY_J
+    call key_hit
+    call c,mis_jump                     ; refused unless the objective is met
+
     ld a,KEY_H
     call key_hit
     call c,eco_set_harvest

@@ -23,10 +23,10 @@
 ;  giving it a new destination.
 ; ----------------------------------------------------------------------------
 
-;  15 + 8 + the Mothership is 24 entities, which is the number section 6
-;  budgets a frame for. It was 31, and the frame rate said so.
-PHASE4_SHIPS        equ 15              ; friendly ships the demo starts with
-PHASE4_ENEMIES      equ 8
+;  The starting fleet. The enemy comes from the mission table, not from here,
+;  so the total on screen varies by mission -- section 6 budgets a frame for
+;  24 entities and the later missions push past that.
+PHASE4_SHIPS        equ 15
 
 ;  World units a ship closes on its slot each frame. Fast enough that a split
 ;  resolves in a couple of seconds, slow enough to read as flight.
@@ -61,6 +61,7 @@ HUD_PER_ROW         equ 5
 ;  The right-hand half of the strip: resources above, the yard below.
 HUD_RU_X            equ 56
 HUD_YARD_X          equ 44
+HUD_MIS_X           equ 56
 
 
 ; ----------------------------------------------------------------------------
@@ -87,8 +88,10 @@ demo_init:
     call form_init
     call cbt_init
     call eco_init
+    call mis_init
     call ent_clear_all
     call phase4_spawn_fleet
+    call mis_setup                      ; the mission places the enemy, not us
     jp squad_init
 
 
@@ -189,72 +192,6 @@ phase4_spawn_fleet:
     inc de
     djnz @p4_moth_pos
 
-    ;  ...and the Vekhar picket the fleet has to get through. They hold
-    ;  station: enemy movement is not written yet, so they wait to be reached.
-    ld a,PHASE4_SHIPS + 1
-    ld (phase4_index),a
-@p4_enemy:
-    ld a,(phase4_index)
-    call ent_addr
-    push hl
-
-    ;  Spread them in a line across the fleet's path.
-    ld a,(phase4_index)
-    sub PHASE4_SHIPS + 1
-    ld (phase4_slotno),a
-    ld c,a
-    ld b,0
-    ld hl,phase4_enemy_line
-    add hl,bc
-    add hl,bc
-    ld c,(hl)
-    inc hl
-    ld b,(hl)                           ; BC = this one's X
-    pop hl
-    push hl
-    ld (hl),c
-    inc hl
-    ld (hl),b
-    inc hl
-    ld (hl),0
-    inc hl
-    ld (hl),0                           ; Y = 0
-    inc hl
-    ld bc,PHASE4_ENEMY_Z
-    ld (hl),c
-    inc hl
-    ld (hl),b
-    pop hl
-
-    push hl
-    ld de,ENT_FLAGS
-    add hl,de
-    ld (hl),ENT_F_ACTIVE + ENT_F_ENEMY
-    pop hl
-    push hl
-    ld de,ENT_HULL
-    add hl,de
-    ld (hl),200
-    pop hl
-    push hl
-    ld de,ENT_CLASS
-    add hl,de
-    ld (hl),CLASS_INTERCEPTOR
-    pop hl
-    push hl
-    ld de,ENT_SQUAD
-    add hl,de
-    ld (hl),SQUAD_NONE                  ; not one of the player's squadrons
-    pop hl
-    ld de,ENT_TARGET
-    add hl,de
-    ld (hl),#FF
-
-    ld hl,phase4_index
-    inc (hl)
-    ld a,(hl)
-    cp PHASE4_SHIPS + 1 + PHASE4_ENEMIES
-    jr c,@p4_enemy
     ret
 
 
@@ -274,6 +211,7 @@ demo_update:
     call phase4_fly
     call cbt_update
     call eco_update
+    call mis_update
     ;  Sensors run the battle at triple speed (section 9): the view exists for
     ;  the long transits, and there is nothing to look at while they happen.
     ld a,(view_sensors)
@@ -1415,6 +1353,31 @@ phase4_hud:
     ld d,3
     call txt_draw_num
 
+    ; --- the mission -------------------------------------------------------
+    ;  Its number and whether the jump is open. Twelve characters of name
+    ;  would not fit beside the squadron list, so the name lives on the
+    ;  briefing screen the design asks for and this is the reminder.
+    ld hl,phase4_hud_mis_label
+    ld b,HUD_MIS_X
+    ld c,HUD_ROW_B_Y
+    call txt_draw
+    ld a,(mis_index)
+    inc a
+    ld b,HUD_MIS_X + 2 * TXT_CHAR_W_BYTES
+    ld c,HUD_ROW_B_Y
+    ld d,1
+    call txt_draw_num
+
+    ld a,(mis_complete)
+    or a
+    ld hl,phase4_hud_hold
+    jr z,@p4_mis_show
+    ld hl,phase4_hud_jump               ; the jump is available
+@p4_mis_show:
+    ld b,HUD_MIS_X + 4 * TXT_CHAR_W_BYTES
+    ld c,HUD_ROW_B_Y
+    call txt_draw
+
     ; --- the yard ---------------------------------------------------------
     ;  '*' while a ship is on the slipway, '>' while the panel is open and
     ;  offering one, blank otherwise.
@@ -1507,6 +1470,13 @@ phase4_hud_changed:
     add a,(hl)
     ld hl,phase4_hud_shadow_pick
     cp (hl)
+    jr nz,@p4_hud_diff
+    ld a,(mis_index)
+    add a,a
+    ld hl,mis_complete
+    add a,(hl)
+    ld hl,phase4_hud_shadow_mis
+    cp (hl)
     ret z
 
 @p4_hud_diff:
@@ -1525,6 +1495,11 @@ phase4_hud_changed:
     ld hl,eco_build_pick
     add a,(hl)
     ld (phase4_hud_shadow_pick),a
+    ld a,(mis_index)
+    add a,a
+    ld hl,mis_complete
+    add a,(hl)
+    ld (phase4_hud_shadow_mis),a
     ld a,2
     ld (phase4_hud_dirty),a
     ret
@@ -1655,8 +1630,12 @@ phase4_hud_shadow_sel: defb #FF
 phase4_hud_shadow_ru:  defw #FFFF
 phase4_hud_shadow_yard: defb #FE
 phase4_hud_shadow_pick: defb #FE
+phase4_hud_shadow_mis:  defb #FE
 
 phase4_hud_ru_label: defb "RU ",0
+phase4_hud_mis_label: defb "M",0
+phase4_hud_jump:     defb "JUMP",0
+phase4_hud_hold:     defb "    ",0
 phase4_yard_text:    defb " XXX",0
 phase4_yard_blank:   defb "    ",0
 
@@ -1668,11 +1647,6 @@ phase4_class_tag:
 phase4_hud_text:    defb " 0:",0        ; the marker and digit are patched in
 phase4_hud_blank:   defb "     ",0
 
-PHASE4_ENEMY_Z      equ 22000
-
-;  Where the picket sits, spread across X.
-phase4_enemy_line:
-    defw -12000, -8500, -5000, -1500, 1500, 5000, 8500, 12000
 
 demo_tick0:         defb 0
 demo_frames:        defb 0

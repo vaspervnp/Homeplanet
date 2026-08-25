@@ -32,6 +32,22 @@ class CombatFixture(unittest.TestCase):
 
     def setUp(self):
         self.c = h.boot_quick(frames=300)
+        self.to_combat_mission()
+
+    def to_combat_mission(self):
+        """Jump forward to the first mission that has an enemy in it.
+
+        The campaign opens on training and then on a mission the design
+        describes as "καμία μάχη· μόνο περισυλλογή επιζώντων και σιωπή".
+        Both are ARRIVE missions and complete immediately, so two jumps get
+        here; there is nothing to shoot at before that.
+        """
+        for _ in range(2):
+            self.c.key_down("j")
+            self.c.run_frames(12)
+            self.c.key_up("j")
+            self.c.run_frames(20)
+        self.assertGreater(self.counts()[1], 0, "no enemies after jumping to mission 3")
 
     def tearDown(self):
         #  Free it now; see harness.close.
@@ -83,9 +99,10 @@ class CombatFixture(unittest.TestCase):
 class TestStartingState(CombatFixture):
 
     def test_both_fleets_are_present(self):
+        """How many enemies is the mission's business; that there ARE some is ours."""
         friendly, enemy = self.counts()
         self.assertGreater(friendly, 10, "the player has no fleet")
-        self.assertGreater(enemy, 5, "there is nobody to fight")
+        self.assertGreater(enemy, 0, "there is nobody to fight")
 
     def test_nobody_has_fired_before_the_fleets_meet(self):
         """They start well out of range of each other."""
@@ -211,8 +228,9 @@ class TestBattle(CombatFixture):
         nibble of a screen byte, which nothing friendly ever does -- friendly
         ships are pens 1 and 2 and the HUD is pen 1.
         """
-        self.order_fleet_to(0, 0, 22000)
-        self.c.run_frames(900)              # let them actually make contact
+        #  Do NOT send the fleet in: it would clear the picket and there
+        #  would be nothing left to be the wrong colour. Just look at them.
+        self.c.run_frames(120)
 
         ram = self.c.read_ram(h.front_buffer(self.c), 0x4000)
         pen3 = 0

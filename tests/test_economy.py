@@ -93,10 +93,10 @@ class EconomyFixture(unittest.TestCase):
 
 class TestStartingState(EconomyFixture):
 
-    def test_the_fleet_starts_with_resources_and_full_patches(self):
+    def test_the_fleet_starts_with_resources_and_stocked_patches(self):
+        """How many patches there are is the MISSION's business, not ours."""
         self.assertEqual(self.ru(), START_RU)
-        for i, s in enumerate(self.stock()):
-            self.assertGreater(s, 0, f"patch {i} starts empty")
+        self.assertGreater(sum(self.stock()), 0, "the mission laid out no resources")
 
     def test_there_are_no_harvesters_to_begin_with(self):
         self.assertNotIn(CLASS_HARVESTER, self.ships_by_class())
@@ -196,10 +196,11 @@ class TestHarvesting(EconomyFixture):
         self.assertEqual(working, 1, "the wrong number of ships went to work")
 
     def test_h_with_no_harvesters_does_nothing(self):
+        before = self.stock()
         self.hold("h")
         self.c.run_frames(300)
         self.assertEqual(self.ru(), START_RU)
-        self.assertEqual(self.stock(), [900, 900, 700, 700])
+        self.assertEqual(self.stock(), before, "the patches were mined with no harvesters")
 
     def test_the_loop_closes(self):
         """Build a harvester, send it out, and watch RU come back."""
@@ -252,8 +253,8 @@ class TestHarvesting(EconomyFixture):
 
         for _ in range(12):
             self.c.run_frames(150)
-            for i, s in enumerate(self.stock()):
-                self.assertLessEqual(s, 900, f"patch {i} wrapped round to {s}")
+            for i, st in enumerate(self.stock()):
+                self.assertLessEqual(st, 900, f"patch {i} wrapped round to {st}")
 
     def test_harvesters_leave_the_formation(self):
         """Otherwise phase4_fly pulls them back as fast as the economy pushes.

@@ -52,6 +52,7 @@ game_main:
     include "game/order.asm"
     include "game/combat.asm"
     include "game/economy.asm"
+    include "game/mission.asm"
     include "demo/phase4.asm"
 
 ; ----------------------------------------------------------------------------
@@ -111,10 +112,23 @@ code_end:
 bank4_start:
     include "gen/spr_interceptor.asm"
     include "gen/spr_frigate.asm"
+    include "game/campaign.asm"
 bank4_end:
 
-    assert bank4_end <= BANK_WINDOW + BANK_WINDOW_SIZE, "sprite library overflows the bank window"
+; ----------------------------------------------------------------------------
+;  Uninitialised bank storage, deliberately BELOW the save above.
+;
+;  The fleet between missions -- section 10 calls it FLEET.DAT. It has no
+;  starting contents, so putting it inside the saved image would add its 960
+;  bytes to DISC.BIN for nothing, and DISC.BIN has to finish below #A700
+;  where AMSDOS keeps its workspace. That ceiling is close now.
+; ----------------------------------------------------------------------------
+fleet_buffer:
+    defs ENT_MAX * ENT_SIZE, 0
+bank4_limit:
 
-    print "bank 4:", {hex}BANK_WINDOW, "..", {hex}bank4_end, " free:", BANK_WINDOW + BANK_WINDOW_SIZE - bank4_end
+    assert bank4_limit <= BANK_WINDOW + BANK_WINDOW_SIZE, "bank 4 contents overflow the window"
+
+    print "bank 4:", {hex}BANK_WINDOW, "..", {hex}bank4_limit, " image:", bank4_end - BANK_WINDOW, " free:", BANK_WINDOW + BANK_WINDOW_SIZE - bank4_limit
 
     save "build/sprites.raw", BANK_WINDOW, bank4_end - BANK_WINDOW

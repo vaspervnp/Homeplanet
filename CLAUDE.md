@@ -366,6 +366,12 @@ Design document section 13 lists ten phases.
 - **Phase 4 — done.** The 20-byte entity record from section 7, keyboard
   matrix scanning, an 8×8 font and the HUD strip, squadrons, and formation
   flight. 20 ships at ~8 fps.
+- **Phases 8 and 9 — the mechanism is done, the content is not.** Eight
+  missions as data in bank 4, objectives (clear / survive / arrive), `J` to
+  jump when the objective is met, and the fleet carrying between them with
+  losses permanent. What is missing is authoring, not engineering: the
+  briefing screens §10 asks for, and balance tuning that needs someone to
+  play it. Mission 5 as it stands eats the fleet.
 - **Phase 7 — done.** Resource patches, harvesters, RU, and a build panel;
   `H` and `B` are live. The loop closes: build a harvester, send it out, and
   what it mines pays for the next ship. What is NOT in: build costs for the
@@ -470,6 +476,31 @@ next *active* squadron instead, because merging with an empty one would be a
 no-op and the HUD only lists the active ones. All the commands are
 edge-triggered — holding `d` divides once, not once a frame — and
 `tests/test_squad.py` presses real keys in the emulator to prove it.
+
+### The campaign, and where the fleet lives
+
+A mission is a row in `mission_table` (bank 4): a name, where the enemy is,
+where the resources are, and what winning looks like. Adding a mission is
+adding a row. The player's ships are never rebuilt by `mis_setup` — they are
+already in the entity table, either freshly spawned or restored from the bank.
+
+**The fleet is banked, not saved to disc, and that is a real limitation.**
+§11 wants the firmware brought back "on the screens between missions" to reach
+the drive. It cannot be: the memory map puts screen B at `#8000-#BFFF`, right
+on top of AMSDOS's workspace at `#A700`, so the moment the game clears its
+second screen the firmware is gone for good. A fleet survives a mission but
+not a power cycle.
+
+Making `FLEET.DAT` real needs the µPD765 driven directly — roughly 400 bytes
+of FDC code, and the low 16K has under 2 KB left. The other option is moving a
+screen buffer, which touches the whole rendering path.
+
+**`DISC.BIN` is also close to its ceiling**: it loads at `#4000` and must
+finish below `#A700`, and it currently ends around `#A66C` — about 600 bytes
+of headroom. Uninitialised bank data (the fleet buffer) is deliberately
+declared *after* `bank4_end` so it costs nothing in the file. Another ship
+class will not fit; per-mission loading, which §10 wants anyway, needs the
+same FDC work.
 
 ### The economy
 
