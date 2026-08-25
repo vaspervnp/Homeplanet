@@ -81,7 +81,7 @@ class ControlFixture(unittest.TestCase):
         self.c.run_frames(15)
 
     def open_disc(self):
-        self.hold(cpc.KEY_ENTER, frames=8)
+        self.hold(cpc.KEY_ENTER, frames=25)
         self.assertEqual(self.byte("DISC_ACTIVE"), 1, "the move disc did not open")
 
 
@@ -123,23 +123,23 @@ class TestZoom(ControlFixture):
         self.assertEqual(self.byte("CAM_ZOOM"), 1)
         self.assertEqual(self.word("CAM_DIST"), ZOOM_DISTANCES[1])
 
-        self.hold("x", frames=8)
+        self.hold("x", frames=25)
         self.assertEqual(self.byte("CAM_ZOOM"), 2)
         self.assertEqual(self.word("CAM_DIST"), ZOOM_DISTANCES[2])
 
-        self.hold("z", frames=8)
-        self.hold("z", frames=8)
+        self.hold("z", frames=25)
+        self.hold("z", frames=25)
         self.assertEqual(self.byte("CAM_ZOOM"), 0)
         self.assertEqual(self.word("CAM_DIST"), ZOOM_DISTANCES[0])
 
     def test_zoom_clamps_at_both_ends(self):
         for _ in range(6):
-            self.hold("z", frames=8)
+            self.hold("z", frames=25)
         self.assertEqual(self.byte("CAM_ZOOM"), 0)
         self.assertEqual(self.word("CAM_DIST"), ZOOM_DISTANCES[0])
 
         for _ in range(8):
-            self.hold("x", frames=8)
+            self.hold("x", frames=25)
         self.assertEqual(self.byte("CAM_ZOOM"), len(ZOOM_DISTANCES) - 1)
         self.assertEqual(self.word("CAM_DIST"), ZOOM_DISTANCES[-1])
 
@@ -158,27 +158,27 @@ class TestPause(ControlFixture):
         #  in motion when we pause it.
         self.open_disc()
         self.hold(cpc.KEY_RIGHT, frames=60)
-        self.hold(cpc.KEY_ENTER, frames=8)
+        self.hold(cpc.KEY_ENTER, frames=25)
 
         self.c.run_frames(20)
         moving_before = ship_x()
         self.c.run_frames(30)
         self.assertNotEqual(ship_x(), moving_before, "the fleet was not moving to begin with")
 
-        self.hold(cpc.KEY_SPACE, frames=8)
+        self.hold(cpc.KEY_SPACE, frames=25)
         self.assertEqual(self.byte("ORDER_PAUSED"), 1)
         frozen = ship_x()
         self.c.run_frames(60)
         self.assertEqual(ship_x(), frozen, "SPACE did not freeze the fleet")
 
-        self.hold(cpc.KEY_SPACE, frames=8)
+        self.hold(cpc.KEY_SPACE, frames=25)
         self.assertEqual(self.byte("ORDER_PAUSED"), 0)
         self.c.run_frames(40)
         self.assertNotEqual(ship_x(), frozen, "SPACE did not unfreeze the fleet")
 
     def test_the_camera_still_works_while_paused(self):
         """'Η μάχη παγώνει, οι εντολές συνεχίζουν.'"""
-        self.hold(cpc.KEY_SPACE, frames=8)
+        self.hold(cpc.KEY_SPACE, frames=25)
         before = self.byte("CAM_YAW")
         self.hold(cpc.KEY_RIGHT)
         self.assertNotEqual(self.byte("CAM_YAW"), before,
@@ -223,7 +223,7 @@ class TestMoveDisc(ControlFixture):
         moved_at_zero_yaw = tuple(a - b for a, b in zip(self.disc(), start))
 
         #  Turn a quarter circle and push it the same way again.
-        self.hold(cpc.KEY_ESC, frames=8)
+        self.hold(cpc.KEY_ESC, frames=25)
         self.c.write_ram(self.sym["CAM_YAW"], bytes([64]))
         self.c.run_frames(20)
         self.open_disc()
@@ -239,7 +239,7 @@ class TestMoveDisc(ControlFixture):
         self.hold(cpc.KEY_RIGHT, frames=60)
         target = self.disc()
 
-        self.hold(cpc.KEY_ENTER, frames=8)
+        self.hold(cpc.KEY_ENTER, frames=25)
         self.assertEqual(self.byte("DISC_ACTIVE"), 0, "the disc stayed open")
         self.assertEqual(self.dest_of(1), target,
                          "the squadron was not given the order")
@@ -248,7 +248,7 @@ class TestMoveDisc(ControlFixture):
         before = self.dest_of(1)
         self.open_disc()
         self.hold(cpc.KEY_RIGHT, frames=60)
-        self.hold(cpc.KEY_ESC, frames=8)
+        self.hold(cpc.KEY_ESC, frames=25)
         self.assertEqual(self.byte("DISC_ACTIVE"), 0, "the disc stayed open")
         self.assertEqual(self.dest_of(1), before, "ESC gave the order anyway")
 
@@ -258,7 +258,7 @@ class TestMoveDisc(ControlFixture):
 
         self.open_disc()
         self.hold(cpc.KEY_RIGHT, frames=60)
-        self.hold(cpc.KEY_ENTER, frames=8)
+        self.hold(cpc.KEY_ENTER, frames=25)
 
         self.assertEqual(self.dest_of(2), before_two,
                          "the order moved a squadron that was not selected")
@@ -271,7 +271,7 @@ class TestMoveDisc(ControlFixture):
         self.open_disc()
         self.hold(cpc.KEY_RIGHT, frames=70)
         target_x = self.disc()[0]
-        self.hold(cpc.KEY_ENTER, frames=8)
+        self.hold(cpc.KEY_ENTER, frames=25)
 
         self.c.run_frames(300)
         moved = ship_x()
@@ -417,7 +417,7 @@ class TestSensorView(ControlFixture):
             ram = self.c.read_ram(h.front_buffer(self.c), 0x4000)
             return sum(1 for y in range(168) for x in range(80) if ram[h.screen_offset(y, x)])
 
-        self.hold("z", frames=10)                # in one step
+        self.hold("z", frames=25)                # in one step
         self.c.run_frames(150)
         tactical = lit()
 

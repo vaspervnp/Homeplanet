@@ -111,12 +111,36 @@ RESULT = SCRATCH + 0x40
 DATA = SCRATCH + 0x50
 
 
-def boot_quick(frames: int = 40) -> cpc.CPC:
+def dismiss_briefing(c: cpc.CPC) -> None:
+    """Press ENTER past a mission briefing, if one is up.
+
+    Every mission opens on a static briefing screen and nothing else runs
+    while it is showing -- no orders, no simulation. Almost every test wants
+    the game actually playing, so this is done for them; pass
+    `briefing=True` to boot_quick to keep it.
+    """
+    sym = symbols()
+    if "MIS_BRIEFING" not in sym:
+        return
+    for _ in range(6):
+        if not c.read_ram(sym["MIS_BRIEFING"], 1)[0]:
+            return
+        c.key_down(cpc.KEY_ENTER)
+        c.run_frames(25)
+        c.key_up(cpc.KEY_ENTER)
+        c.run_frames(20)
+    raise RuntimeError("could not get past the mission briefing")
+
+
+def boot_quick(frames: int = 40, briefing: bool = False) -> cpc.CPC:
     """Let the firmware boot, then drop DISC.BIN in at #4000 and jump to it.
 
     This is exactly what `RUN"DISC` ends up doing, minus the disc emulation --
     the same relocating stub runs, so the code under test is identical. Use
     boot_disc() when the thing being tested IS the disc image.
+
+    The opening briefing is dismissed unless `briefing` is set: it stops the
+    whole game, so a test that left it up would be testing a static screen.
     """
     c = cpc.CPC()
     c.run_frames(BOOT_FRAMES)
@@ -128,6 +152,8 @@ def boot_quick(frames: int = 40) -> cpc.CPC:
     c.set_pc(symbols(DISC_SYM)["DISC_STUB"])
     if frames:
         c.run_frames(frames)
+    if not briefing:
+        dismiss_briefing(c)
     return c
 
 
@@ -142,6 +168,20 @@ def close(c) -> None:
     """
     if c is not None:
         c.__del__()
+
+
+def jump_mission(c: cpc.CPC, frames: int = 25) -> None:
+    """Press J and clear the briefing the next mission opens on.
+
+    A bare J leaves the game on a static screen where nothing runs, so a test
+    that then called run_frames would sit watching a briefing and conclude
+    that nothing works.
+    """
+    c.key_down("j")
+    c.run_frames(frames)
+    c.key_up("j")
+    c.run_frames(20)
+    dismiss_briefing(c)
 
 
 def boot_disc(frames: int = 400) -> cpc.CPC:

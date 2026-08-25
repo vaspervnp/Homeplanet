@@ -44,8 +44,10 @@
     include "equ/hardware.asm"
     include "equ/memmap.asm"
 
+
 GAME_LOAD           equ #4000           ; where AMSDOS drops the whole file
 SPRITE_STAGE        equ #C000           ; screen A, used as scratch during load
+SPRITE_STAGE_MIN    equ #8000           ; first address the #4000 paging spares
 
 ;  AMSDOS keeps its workspace from #A700 up. Load past that and the transfer
 ;  corrupts the very code doing it, which shows up as a disc that boots to a
@@ -59,13 +61,23 @@ game_image:
     incbin "build/home.raw"
 game_image_end:
 
+;  Run-length coded by tools/packsprites.py, which explains the format and
+;  why the two streams are separated. About half size, and that is what keeps
+;  the file under AMSDOS: uncompressed, DISC.BIN ended at #A66C against a
+;  #A700 ceiling -- 148 bytes of headroom for anything the game might grow by.
 sprite_image:
-    incbin "build/sprites.raw"
+    incbin "build/sprites.rle"
 sprite_image_end:
 
 ; ----------------------------------------------------------------------------
 ;  The stub. Runs from bank 2, which the #4000 paging cannot pull out from
 ;  under it.
+;
+;  It has to land above #8000, and with the packed library it does so on its
+;  own -- but only just, and that is not a thing to leave to luck. The assert
+;  below is the guard: if packing ever improves enough to pull the data back
+;  under #8000, the stub follows it into the window it pages out, and the fix
+;  is an ORG here to push it up again.
 ; ----------------------------------------------------------------------------
 disc_stub:
     di
@@ -76,8 +88,8 @@ disc_stub:
     ld bc,GA_PORT * 256 + GA_GAME_ROMMODE
     out (c),c
 
-    ;  Stage the sprite library in screen A first: it is about to be sitting
-    ;  in the window we are going to page out from under it.
+    ;  Stage the crunched library in screen A first: it is about to be
+    ;  sitting in the window we are going to page out from under it.
     ld hl,sprite_image
     ld de,SPRITE_STAGE
     ld bc,sprite_image_end - sprite_image
@@ -89,23 +101,71 @@ disc_stub:
     ld bc,game_image_end - game_image
     ldir
 
-    ;  Now swap bank 4 in and fill it from the staged copy, which the paging
-    ;  cannot touch.
+    ;  Now swap bank 4 in and unpack into it. The source is in screen A, which
+    ;  the #4000 paging does not touch, and the destination is the window.
     ld bc,GA_PORT * 256 + GA_BANK_4
     out (c),c
 
+    ;  Masks to the even addresses, data to the odd: the decoder re-weaves
+    ;  the two streams as it writes them, so the library lands in exactly the
+    ;  interleaved form the blitter reads.
     ld hl,SPRITE_STAGE
     ld de,BANK_WINDOW
-    ld bc,sprite_image_end - sprite_image
-    ldir
+    call unrle_stride2                  ; masks; HL is left on the second stream
+    ld de,BANK_WINDOW + 1
+    call unrle_stride2                  ; data
 
     jp CODE_START
+
+
+; ----------------------------------------------------------------------------
+;  unrle_stride2 -- expand one packed stream, writing every OTHER byte
+;  In : HL = packed source, DE = destination
+;  Out: HL just past this stream's terminator, ready for the next one
+;  Uses: everything
+;
+;  Format is in tools/packsprites.py:
+;      00        end
+;      01..FD n  that many literal bytes
+;      FE   n b  n copies of b
+; ----------------------------------------------------------------------------
+unrle_stride2:
+@unrle_next:
+    ld a,(hl)
+    inc hl
+    or a
+    ret z
+    cp #FE
+    jr z,@unrle_run
+
+    ld b,a
+@unrle_literal:
+    ld a,(hl)
+    inc hl
+    ld (de),a
+    inc de
+    inc de
+    djnz @unrle_literal
+    jr @unrle_next
+
+@unrle_run:
+    ld b,(hl)
+    inc hl
+    ld a,(hl)
+    inc hl
+@unrle_repeat:
+    ld (de),a
+    inc de
+    inc de
+    djnz @unrle_repeat
+    jr @unrle_next
 
 disc_stub_end:
 
     assert game_image_end - game_image <= CODE_LIMIT - CODE_START, "game image will not fit under #4000"
     assert sprite_image_end - sprite_image <= BANK_WINDOW_SIZE, "sprite library will not fit in a bank"
     assert disc_stub_end < AMSDOS_WORKSPACE, "DISC.BIN loads over AMSDOS's workspace and will corrupt its own loader"
+    assert disc_stub >= SPRITE_STAGE_MIN, "the stub is inside the bank window and will page itself out"
 
     run disc_stub
 

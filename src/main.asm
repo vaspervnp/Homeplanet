@@ -45,6 +45,7 @@ game_main:
     include "gfx/sprite.asm"
     include "gfx/text.asm"
     include "gfx/line.asm"
+    include "gfx/grid.asm"
     include "game/entity.asm"
     include "game/squad.asm"
     include "game/shipclass.asm"

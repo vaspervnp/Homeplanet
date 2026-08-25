@@ -84,7 +84,7 @@ class EconomyFixture(unittest.TestCase):
         self.hold("b")                              # open the panel
         self.assertEqual(self.byte("ECO_BUILD_OPEN"), 1)
         self.set_pick(ship_class)
-        self.hold(cpc.KEY_ENTER, frames=10)
+        self.hold(cpc.KEY_ENTER, frames=25)
         started = self.byte("ECO_BUILD_CLASS")
         self.hold("b")                              # close it again
         self.c.run_frames(wait)
@@ -129,23 +129,23 @@ class TestBuildPanel(EconomyFixture):
         self.hold("b")
         self.set_pick(CLASS_HARVESTER)
         before = self.ru()
-        self.hold(cpc.KEY_ENTER, frames=10)
+        self.hold(cpc.KEY_ENTER, frames=25)
         self.assertEqual(self.byte("ECO_BUILD_CLASS"), CLASS_HARVESTER)
         self.assertEqual(self.ru(), before - COST[CLASS_HARVESTER])
 
     def test_only_one_ship_is_on_the_slipway_at_a_time(self):
         self.hold("b")
         self.set_pick(CLASS_INTERCEPTOR)
-        self.hold(cpc.KEY_ENTER, frames=10)
+        self.hold(cpc.KEY_ENTER, frames=25)
         after_first = self.ru()
-        self.hold(cpc.KEY_ENTER, frames=10)
+        self.hold(cpc.KEY_ENTER, frames=25)
         self.assertEqual(self.ru(), after_first, "a second order was taken and paid for")
 
     def test_a_ship_you_cannot_afford_is_refused(self):
         self.c.write_ram(self.sym["ECO_RU"], (10).to_bytes(2, "little"))
         self.hold("b")
         self.set_pick(CLASS_HARVESTER)
-        self.hold(cpc.KEY_ENTER, frames=10)
+        self.hold(cpc.KEY_ENTER, frames=25)
         self.assertEqual(self.ru(), 10, "RU was spent on something unaffordable")
         self.assertGreaterEqual(self.byte("ECO_BUILD_CLASS"), 3, "it was queued anyway")
 

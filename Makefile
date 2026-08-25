@@ -29,6 +29,7 @@ TABLES := $(GEN_DIR)/tables.asm
 DSK      := $(BUILD_DIR)/homeplanet.dsk
 GAME_RAW := $(BUILD_DIR)/home.raw
 SPRITE_RAW := $(BUILD_DIR)/sprites.raw
+SPRITE_RLE := $(BUILD_DIR)/sprites.rle
 DISC_RAW := $(BUILD_DIR)/disc.raw
 SYM      := $(BUILD_DIR)/homeplanet.sym
 DISC_SYM := $(BUILD_DIR)/disc.sym
@@ -50,7 +51,12 @@ all: $(DISC_RAW)
 $(GAME_RAW) $(SPRITE_RAW) $(SYM) &: $(ASM_SOURCES) $(TABLES) $(SPRITES) | $(BUILD_DIR)
 	$(RASM) $(MAIN) $(RASMFLAGS) -s -sa -ec -os $(SYM)
 
-$(DISC_RAW) $(DSK) $(DISC_SYM) &: $(GAME_RAW) $(SPRITE_RAW) $(DISC)
+# Packing the library is what keeps DISC.BIN under AMSDOS's workspace;
+# tools/packsprites.py explains the format.
+$(SPRITE_RLE): $(SPRITE_RAW) tools/packsprites.py
+	$(PYTHON) tools/packsprites.py $(SPRITE_RAW) $(SPRITE_RLE)
+
+$(DISC_RAW) $(DSK) $(DISC_SYM) &: $(GAME_RAW) $(SPRITE_RLE) $(DISC)
 	$(RASM) $(DISC) $(RASMFLAGS) -s -sa -ec -os $(DISC_SYM)
 
 $(TABLES): tools/gentables.py

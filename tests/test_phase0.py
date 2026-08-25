@@ -159,7 +159,7 @@ class TestTables(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.c = h.boot_quick(frames=10)
+        cls.c = h.boot_quick(frames=25)
         cls.sym = h.symbols()
 
     def _plane(self, name: str, n: int) -> list[int]:

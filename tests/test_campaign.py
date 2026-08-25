@@ -66,6 +66,10 @@ class CampaignFixture(unittest.TestCase):
         self.c.run_frames(frames)
         self.c.key_up(key)
         self.c.run_frames(12)
+        if key == "j":
+            #  Every mission opens on a briefing, and nothing runs while it is
+            #  up. Clear it, or the rest of the test watches a static screen.
+            h.dismiss_briefing(self.c)
 
     def send_fleet_in(self):
         self.c.write_ram(self.sym["SQUAD_DEST"], struct.pack("<hhh", 0, 0, 20000))
@@ -128,9 +132,9 @@ class TestObjectives(CampaignFixture):
                          "mission 1 has nothing to do and did not complete")
 
     def test_a_clearance_mission_needs_the_enemy_dead(self):
-        self.hold("j", frames=12)                 # into mission 2
+        self.hold("j", frames=25)                 # into mission 2
         self.c.run_frames(120)
-        self.hold("j", frames=12)                 # into mission 3, which has enemies
+        self.hold("j", frames=25)                 # into mission 3, which has enemies
         self.assertEqual(self.mission(), 2)
         self.assertEqual(self.descriptor(2)[18], MIS_OBJ_CLEAR)
 
@@ -145,33 +149,33 @@ class TestObjectives(CampaignFixture):
 class TestJump(CampaignFixture):
 
     def test_j_is_refused_until_the_objective_is_met(self):
-        self.hold("j", frames=12)
+        self.hold("j", frames=25)
         self.c.run_frames(120)
-        self.hold("j", frames=12)                 # now on mission 3
+        self.hold("j", frames=25)                 # now on mission 3
         self.assertEqual(self.mission(), 2)
         self.assertEqual(self.byte("MIS_COMPLETE"), 0)
 
-        self.hold("j", frames=12)
+        self.hold("j", frames=25)
         self.assertEqual(self.mission(), 2, "jumped away from an unfinished mission")
 
     def test_j_advances_and_lays_out_the_next_mission(self):
         self.c.run_frames(120)
         self.assertEqual(self.byte("MIS_COMPLETE"), 1)
-        self.hold("j", frames=12)
+        self.hold("j", frames=25)
         self.assertEqual(self.mission(), 1)
 
         #  Jump on to mission 3, which has a picket, and THAT one must start
         #  incomplete -- the check is that mis_setup resets the flag, and an
         #  ARRIVE mission cannot show it because it completes immediately.
         self.c.run_frames(120)
-        self.hold("j", frames=12)
+        self.hold("j", frames=25)
         self.assertEqual(self.mission(), 2)
         self.assertEqual(self.byte("MIS_COMPLETE"), 0, "the new mission started complete")
 
     def test_the_campaign_ends_rather_than_wrapping(self):
         self.c.write_ram(self.sym["MIS_INDEX"], bytes([MIS_COUNT - 1]))
         self.c.write_ram(self.sym["MIS_COMPLETE"], b"\x01")
-        self.hold("j", frames=12)
+        self.hold("j", frames=25)
         self.assertEqual(self.mission(), MIS_COUNT - 1,
                          "jumped past the last mission")
 
@@ -183,16 +187,16 @@ class TestFleetPersistence(CampaignFixture):
         before, _ = self.fleet()
         self.assertGreater(before, 5)
         self.c.run_frames(120)
-        self.hold("j", frames=12)
+        self.hold("j", frames=25)
         after, _ = self.fleet()
         self.assertEqual(after, before, "the fleet changed size crossing a jump")
 
     def test_losses_are_permanent(self):
         """'Ό,τι χάνεται, χάνεται οριστικά.'"""
         self.c.run_frames(120)
-        self.hold("j", frames=12)                 # mission 2
+        self.hold("j", frames=25)                 # mission 2
         self.c.run_frames(120)
-        self.hold("j", frames=12)                 # mission 3, with a picket
+        self.hold("j", frames=25)                 # mission 3, with a picket
 
         before, _ = self.fleet()
         #  Take two ships out by hand rather than waiting on the battle.
@@ -207,16 +211,16 @@ class TestFleetPersistence(CampaignFixture):
         self.assertEqual(killed, 2)
 
         self.assertTrue(self.play_until_complete())
-        self.hold("j", frames=12)
+        self.hold("j", frames=25)
         after, _ = self.fleet()
         self.assertEqual(after, before - 2,
                          "losses did not survive the jump -- the fleet healed")
 
     def test_the_enemy_does_not_come_with_you(self):
         self.c.run_frames(120)
-        self.hold("j", frames=12)
+        self.hold("j", frames=25)
         self.c.run_frames(120)
-        self.hold("j", frames=12)                 # mission 3 has a picket
+        self.hold("j", frames=25)                 # mission 3 has a picket
         self.assertGreater(self.fleet()[1], 0)
 
         #  Wipe them and jump: the next mission's enemy must be its own.
@@ -226,9 +230,46 @@ class TestFleetPersistence(CampaignFixture):
         self.c.run_frames(60)
         self.assertEqual(self.byte("MIS_COMPLETE"), 1)
         expected = self.descriptor(3)[12]
-        self.hold("j", frames=12)
+        self.hold("j", frames=25)
         self.assertEqual(self.fleet()[1], expected,
                          "the wrong number of enemies crossed into mission 4")
+
+    def test_moth_slot_follows_the_mothership_when_the_fleet_packs_down(self):
+        """fleet_restore closes the gaps left by the dead, so the Mothership
+        moves. moth_slot has to move with it.
+
+        It did not, and the consequence was not a cosmetic one. With two
+        interceptors lost the fleet reloads into slots 0..13 and the
+        Mothership comes home to 13, but moth_slot still said 15 -- which
+        mis_setup had just filled with an enemy. The defeat check then watched
+        an enemy interceptor, and the moment the fleet shot it down the
+        campaign ended with "the Mothership was lost".
+        """
+        self.c.run_frames(120)
+        self.hold("j", frames=25)                 # mission 2
+        self.c.run_frames(120)
+        self.hold("j", frames=25)                 # mission 3, with a picket
+
+        killed = 0
+        for slot in range(48):
+            f = self.ent(slot, ENT_FLAGS)
+            if (f & F_ACTIVE) and not (f & F_ENEMY) and self.ent(slot, ENT_CLASS) == 0:
+                self.c.write_ram(self.sym["ENTITIES"] + slot * ENT_SIZE + ENT_FLAGS, b"\x00")
+                killed += 1
+                if killed == 2:
+                    break
+        self.assertEqual(killed, 2)
+
+        self.assertTrue(self.play_until_complete())
+        self.hold("j", frames=25)                 # mission 4 lays out its own enemies
+
+        slot = self.byte("MOTH_SLOT")
+        flags = self.ent(slot, ENT_FLAGS)
+        self.assertTrue(flags & F_ACTIVE, "moth_slot points at an empty slot")
+        self.assertFalse(flags & F_ENEMY, "moth_slot points at an ENEMY ship")
+        self.assertEqual(self.ent(slot, ENT_CLASS), 1,
+                         "moth_slot does not point at a Mothership")
+        self.assertEqual(self.byte("MIS_FAILED"), 0)
 
     def test_the_saved_fleet_holds_the_hull_of_every_ship(self):
         """A damaged ship must arrive damaged, not repaired."""
@@ -238,7 +279,7 @@ class TestFleetPersistence(CampaignFixture):
         self.c.write_ram(self.sym["ENTITIES"] + slot * ENT_SIZE + ENT_HULL, bytes([77]))
 
         self.c.run_frames(120)
-        self.hold("j", frames=12)
+        self.hold("j", frames=25)
 
         hulls = [self.ent(s, ENT_HULL) for s in range(48)
                  if (self.ent(s, ENT_FLAGS) & F_ACTIVE)

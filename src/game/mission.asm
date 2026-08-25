@@ -33,6 +33,7 @@ MIS_ENEMY_PTR       equ 13              ; -> 6-byte positions
 MIS_PATCH_COUNT     equ 15
 MIS_PATCH_PTR       equ 16              ; -> 8-byte patches
 MIS_OBJECTIVE       equ 18
+MIS_TEXT            equ 19            ; index into mission_text_table
 MIS_SIZE            equ 20
 
 ;  What winning looks like.
@@ -41,6 +42,14 @@ MIS_OBJ_SURVIVE     equ 1               ; still have a Mothership after a while
 MIS_OBJ_ARRIVE      equ 2               ; nothing to fight; just be there
 
 MIS_SURVIVE_TICKS   equ 200             ; game frames for MIS_OBJ_SURVIVE
+
+;  The briefing screen (section 10). Three lines, and the tone the design asks
+;  for: "λίγο κείμενο, πολλή σιωπή".
+BRIEF_LINES         equ 3
+BRIEF_X             equ 8
+BRIEF_TITLE_Y       equ 60
+BRIEF_TEXT_Y        equ 84
+BRIEF_LINE_STEP     equ 12
 
 
 ; ----------------------------------------------------------------------------
@@ -55,7 +64,130 @@ mis_init:
     ld (mis_saved),a                    ; nothing banked yet
     ld hl,0
     ld (mis_timer),hl
+    jp mis_brief_open
+
+
+; ----------------------------------------------------------------------------
+;  mis_brief_open -- hold the mission on its briefing screen
+;  Uses: AF, HL
+; ----------------------------------------------------------------------------
+mis_brief_open:
+    ld a,1
+    ld (mis_briefing),a
     ret
+
+
+; ----------------------------------------------------------------------------
+;  mis_brief_draw -- the static screen: name, three lines, and a prompt
+;
+;  Drawn into the back buffer like everything else, and drawn EVERY frame
+;  rather than once -- it is a page-flipping display, so a screen painted once
+;  would flicker between the briefing and whatever the other buffer holds.
+;  Uses: everything
+; ----------------------------------------------------------------------------
+mis_brief_draw:
+    ;  Wipe the whole tactical area; the strip below belongs to the HUD.
+    ld bc,#0000
+    ld a,(spr_clip_bottom)
+    ld e,a
+    ld d,SCR_BYTES_PER_LINE
+    xor a
+    call scr_fill_rect
+
+    call mis_descriptor
+    ld b,BRIEF_X
+    ld c,BRIEF_TITLE_Y
+    call txt_draw                       ; HL is already the name
+
+    ;  The three lines live in their own table, indexed by MIS_TEXT.
+    call mis_descriptor
+    ld de,MIS_TEXT
+    add hl,de
+    ld a,(hl)
+    ld l,a
+    ld h,0
+    add hl,hl                           ; three pointers a mission
+    ld d,h
+    ld e,l
+    add hl,hl
+    add hl,de                           ; * 6
+    ld de,mission_text_table
+    add hl,de
+    ld (mis_text_ptr),hl
+
+    ld a,BRIEF_TEXT_Y
+    ld (mis_text_y),a
+    ld a,BRIEF_LINES
+    ld (mis_text_left),a
+
+@mis_brief_line:
+    ld hl,(mis_text_ptr)
+    ld e,(hl)
+    inc hl
+    ld d,(hl)
+    inc hl
+    ld (mis_text_ptr),hl
+    ex de,hl
+    ld b,BRIEF_X
+    ld a,(mis_text_y)
+    ld c,a
+    call txt_draw
+
+    ld hl,mis_text_y
+    ld a,(hl)
+    add a,BRIEF_LINE_STEP
+    ld (hl),a
+    ld hl,mis_text_left
+    dec (hl)
+    jr nz,@mis_brief_line
+
+    ld hl,mis_brief_prompt
+    ld b,BRIEF_X
+    ld c,BRIEF_TEXT_Y + BRIEF_LINES * BRIEF_LINE_STEP + 12
+    jp txt_draw
+
+
+; ----------------------------------------------------------------------------
+;  mis_brief_key -- ENTER dismisses the briefing
+;  Uses: everything
+; ----------------------------------------------------------------------------
+mis_brief_key:
+    ld a,KEY_ENTER
+    call key_hit
+    ret nc
+    xor a
+    ld (mis_briefing),a
+
+    ;  The briefing paints the whole tactical area and records no dirty
+    ;  rectangle for any of it, so nothing would ever erase the text -- it sat
+    ;  under the battle for the rest of the mission. Wipe it explicitly, once
+    ;  into each of the two buffers.
+    ld a,2
+    ld (mis_wipe),a
+    ret
+
+
+; ----------------------------------------------------------------------------
+;  mis_wipe_screen -- clear the tactical area of the back buffer
+;
+;  Called for two frames after a briefing closes, which is one per screen
+;  buffer. Cheaper and clearer than making the briefing record eighty
+;  rectangles it will never look at again.
+;  Uses: everything
+; ----------------------------------------------------------------------------
+mis_wipe_screen:
+    ld hl,mis_wipe
+    ld a,(hl)
+    or a
+    ret z
+    dec (hl)
+
+    ld bc,#0000
+    ld a,(spr_clip_bottom)
+    ld e,a
+    ld d,SCR_BYTES_PER_LINE
+    xor a
+    jp scr_fill_rect
 
 
 ; ----------------------------------------------------------------------------
@@ -344,6 +476,7 @@ mis_jump:
     ld (mis_index),a
     call fleet_restore
     call mis_setup
+    call mis_brief_open                 ; every mission opens on its briefing
     scf
     ret
 
@@ -434,6 +567,22 @@ fleet_restore:
     ldir
     ld (fleet_ptr),hl
 
+    ;  The fleet packs down as ships are lost, so the Mothership almost never
+    ;  lands back in the slot it left -- after two losses it comes home to 13,
+    ;  not 15. Follow it. moth_slot is what the defeat check reads, and a
+    ;  stale one points at whatever the NEXT mission spawns into that slot:
+    ;  an enemy interceptor, whose death then reads as losing the colony.
+    ld a,(mis_scan)
+    call ent_addr
+    ld de,ENT_CLASS
+    add hl,de
+    ld a,(hl)
+    cp CLASS_MOTHERSHIP
+    jr nz,@fleet_load_next
+    ld a,(mis_scan)
+    ld (moth_slot),a
+
+@fleet_load_next:
     ld hl,mis_scan
     inc (hl)
     ld hl,mis_left
@@ -460,3 +609,10 @@ mis_left:           defb 0
 fleet_ptr:          defw 0
 fleet_src:          defw 0
 fleet_count:        defb 0
+
+mis_briefing:       defb 0
+mis_wipe:           defb 0
+mis_text_ptr:       defw 0
+mis_text_y:         defb 0
+mis_text_left:      defb 0
+mis_brief_prompt:   defb "ENTER",0

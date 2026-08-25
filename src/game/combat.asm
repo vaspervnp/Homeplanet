@@ -23,7 +23,19 @@
 
 CBT_RANGE           equ 40              ; camera-scale units, so ~10000 world
 CBT_COOLDOWN        equ 6               ; frames between shots
-CBT_DAMAGE          equ 24              ; hull points a hit takes off
+
+;  Homeplanet.md section 8's balance triangle:
+;      Interceptor -> Bomber -> Frigate -> Interceptor
+;
+;  A matrix, not a single damage number, because the whole point is that a
+;  class is defined by what it is good against. Rows are the shooter, columns
+;  the target; the value is hull points a hit takes off.
+;
+;  Only the three classes that exist have real rows. The rest of section 8
+;  arrives with its art, and this table is where its numbers go -- keeping the
+;  matrix square from the start means adding a class is adding a row and a
+;  column rather than rewriting how damage works.
+CBT_DAMAGE_BASE     equ 24
 
 ;  Explosions live for a few frames and grow as they go.
 EXPL_MAX            equ 6
@@ -56,6 +68,7 @@ cbt_init:
 cbt_update:
     call cbt_age_explosions
     call cbt_retarget_one
+    call cbt_move_enemies
 
     xor a
     ld (cbt_index),a
@@ -81,6 +94,109 @@ cbt_update:
 
 
 ; ----------------------------------------------------------------------------
+;  cbt_move_enemies -- the Vekhar close on what they are shooting at
+;
+;  They have no formations and no orders: an enemy simply flies at its target
+;  until it is inside weapons range, then holds. That is enough to make a
+;  battle happen instead of waiting to be come to -- and it means a fleet that
+;  sits still still gets a fight.
+;
+;  Only enemies. The player's ships are steered by their squadron's station,
+;  and two systems moving the same ship by the same step cancel exactly, which
+;  is a lesson the harvesters already taught.
+;  Uses: everything
+; ----------------------------------------------------------------------------
+cbt_move_enemies:
+    xor a
+    ld (cbt_scan),a
+@cbt_move_one:
+    ld a,(cbt_scan)
+    call ent_addr
+    ld (cbt_ent),hl
+    ld de,ENT_FLAGS
+    add hl,de
+    ld a,(hl)
+    bit 0,a
+    jr z,@cbt_move_next                 ; empty slot
+    and ENT_F_ENEMY
+    jr nz,@cbt_move_go                  ; theirs: always closes
+
+    ;  Ours closes only when the player said so. `A` used to set a target and
+    ;  nothing else, so an attacking squadron aimed from wherever its station
+    ;  happened to be while the Vekhar -- who always close -- massed on it. A
+    ;  fleet that cannot concentrate loses an even fight, and it did: eight
+    ;  against eight with identical hulls went 8-0 to them.
+    ld hl,(cbt_ent)
+    ld de,ENT_ORDER
+    add hl,de
+    ld a,(hl)
+    cp ENT_ORDER_ATTACK
+    jr nz,@cbt_move_next
+
+@cbt_move_go:
+    ld hl,(cbt_ent)
+    ld de,ENT_TARGET
+    add hl,de
+    ld a,(hl)
+    cp ENT_MAX
+    jr nc,@cbt_move_next                ; nothing to close on
+    ld (cbt_target),a
+
+    call ent_is_active
+    jr nc,@cbt_move_next
+
+    ;  Already close enough to shoot? Then hold station and shoot.
+    call cbt_in_range
+    jr c,@cbt_move_next
+
+    ld a,(cbt_target)
+    call ent_addr
+    ld (cbt_move_dst),hl
+    ld hl,(cbt_ent)
+    ld (phase4_coord_ptr),hl
+
+    ld a,3
+    ld (cbt_axis),a
+@cbt_move_axis:
+    ld hl,(cbt_move_dst)
+    ld e,(hl)
+    inc hl
+    ld d,(hl)
+    inc hl
+    ld (cbt_move_dst),hl
+    ld (phase4_tgt),de
+
+    ld hl,(phase4_coord_ptr)
+    ld e,(hl)
+    inc hl
+    ld d,(hl)
+    ld (phase4_cur),de
+    dec hl
+
+    push hl
+    call phase4_approach
+    ex de,hl
+    pop hl
+    ld (hl),e
+    inc hl
+    ld (hl),d
+    inc hl
+    ld (phase4_coord_ptr),hl
+
+    ld hl,cbt_axis
+    dec (hl)
+    jr nz,@cbt_move_axis
+
+@cbt_move_next:
+    ld hl,cbt_scan
+    inc (hl)
+    ld a,(hl)
+    cp ENT_MAX
+    jp c,@cbt_move_one
+    ret
+
+
+; ----------------------------------------------------------------------------
 ;  cbt_fire_if_able -- one ship's turn
 ;  In : (cbt_ent) -> the shooter
 ;  Uses: everything
@@ -102,11 +218,33 @@ cbt_fire_if_able:
     add hl,de
     ld a,(hl)
     cp ENT_MAX
-    ret nc                              ; nothing targeted
+    jr nc,@cbt_reacquire                ; nothing targeted
     ld (cbt_target),a
 
     call ent_is_active
-    ret nc                              ; the target is already wreckage
+    jr c,@cbt_aimed                     ; the target is still flying
+
+    ;  The target is wreckage. Find another NOW rather than waiting for the
+    ;  round-robin in cbt_retarget_one, which only reaches this ship once
+    ;  every ENT_MAX frames.
+    ;
+    ;  Waiting punished exactly the thing a fleet is supposed to do. Ships
+    ;  that are close together all pick the same nearest enemy, so a kill
+    ;  left the WHOLE squadron with a dead target and idle for up to 48
+    ;  frames, while the Vekhar -- strung out, each aiming at a different
+    ;  ship -- lost only the few that had been aiming at it. Eight against
+    ;  eight with identical hulls went 8-0 to them because of it.
+@cbt_reacquire:
+    call cbt_find_enemy
+    ld hl,(cbt_ent)
+    ld de,ENT_TARGET
+    add hl,de
+    ld a,(cbt_target)
+    ld (hl),a
+    cp ENT_MAX
+    ret nc                              ; there is genuinely nobody left
+
+@cbt_aimed:
 
     call cbt_hostile
     ret nc                              ; never shoot your own side
@@ -124,13 +262,19 @@ cbt_fire_if_able:
     inc (hl)
     call snd_fire
 
-    ;  Damage.
+    ;  Damage, from the balance matrix.
+    call cbt_damage_for
+    ld (cbt_damage),a
     ld a,(cbt_target)
     call ent_addr
     ld de,ENT_HULL
     add hl,de
     ld a,(hl)
-    sub CBT_DAMAGE
+    ld c,a
+    ld a,(cbt_damage)
+    ld b,a
+    ld a,c
+    sub b
     jr c,@cbt_destroyed
     or a
     jr z,@cbt_destroyed
@@ -141,6 +285,42 @@ cbt_fire_if_able:
     ld (hl),0
     ld a,(cbt_target)
     jp cbt_kill
+
+
+; ----------------------------------------------------------------------------
+;  cbt_damage_for -- what (cbt_ent) does to (cbt_target)
+;  Out: A = hull points
+;  Uses: everything
+; ----------------------------------------------------------------------------
+cbt_damage_for:
+    ld hl,(cbt_ent)
+    ld de,ENT_CLASS
+    add hl,de
+    ld a,(hl)
+    cp CLASS_COUNT
+    jr c,@cbt_shooter_ok
+    xor a
+@cbt_shooter_ok:
+    add a,a
+    add a,a                             ; CLASS_COUNT columns, rounded to 4
+    ld c,a
+
+    ld a,(cbt_target)
+    call ent_addr
+    ld de,ENT_CLASS
+    add hl,de
+    ld a,(hl)
+    cp CLASS_COUNT
+    jr c,@cbt_target_ok
+    xor a
+@cbt_target_ok:
+    add a,c
+    ld l,a
+    ld h,0
+    ld de,cbt_damage_matrix
+    add hl,de
+    ld a,(hl)
+    ret
 
 
 ; ----------------------------------------------------------------------------
@@ -274,11 +454,16 @@ cbt_age_explosions:
 
 
 ; ----------------------------------------------------------------------------
-;  cbt_in_range -- is (cbt_target) close enough to (cbt_ent) to shoot?
-;  Out: CF set if it is
+;  cbt_distance -- how far (cbt_target) is from (cbt_ent)
+;  Out: A = Manhattan distance on the >>8 coordinates, saturating at 255
 ;  Uses: everything
+;
+;  Separate from the range test because targeting needs the NUMBER, not a
+;  yes/no. An enemy that could only acquire targets already inside weapons
+;  range could never acquire one at all: it needs a target to fly towards, and
+;  it needs to fly to get in range. The picket sat at its spawn point forever.
 ; ----------------------------------------------------------------------------
-cbt_in_range:
+cbt_distance:
     ld a,(cbt_target)
     call ent_addr
     ld (cbt_other),hl
@@ -318,19 +503,29 @@ cbt_in_range:
 @cbt_positive:
     ld hl,cbt_dist
     add a,(hl)
-    jr c,@cbt_too_far                   ; the sum overflowed a byte: miles away
+    jr c,@cbt_saturate
     ld (hl),a
-    cp CBT_RANGE
-    jr nc,@cbt_too_far
 
     ld hl,cbt_axis
     dec (hl)
     jr nz,@cbt_axis_loop
-    scf
+    ld a,(cbt_dist)
     ret
 
-@cbt_too_far:
-    or a
+@cbt_saturate:
+    ld a,255
+    ld (cbt_dist),a
+    ret
+
+
+; ----------------------------------------------------------------------------
+;  cbt_in_range -- is (cbt_target) close enough to (cbt_ent) to shoot?
+;  Out: CF set if it is
+;  Uses: everything
+; ----------------------------------------------------------------------------
+cbt_in_range:
+    call cbt_distance
+    cp CBT_RANGE
     ret
 
 
@@ -373,6 +568,21 @@ cbt_retarget_one:
     ld (cbt_target),a
     call ent_is_active
     jr nc,@cbt_need_target
+
+    ;  A target the PLAYER chose is not the AI's to overwrite. `A` and `G`
+    ;  would otherwise last until the round-robin came round to that ship and
+    ;  quietly pointed it somewhere else -- which made the order look like it
+    ;  had done nothing. A dead target still falls through to a fresh search
+    ;  above, so this cannot strand a ship.
+    ld hl,(cbt_ent)
+    ld de,ENT_ORDER
+    add hl,de
+    ld a,(hl)
+    cp ENT_ORDER_ATTACK
+    ret z
+    cp ENT_ORDER_GUARD
+    ret z
+
     call cbt_in_range
     ret c
 
@@ -387,10 +597,17 @@ cbt_retarget_one:
 
 
 ; ----------------------------------------------------------------------------
-;  cbt_find_enemy -- the nearest entity on the other side, or none
+;  cbt_find_enemy -- the NEAREST entity on the other side, or none
 ;  In : (cbt_ent) = the searcher
 ;  Out: (cbt_target) = a slot index, or #FF
 ;  Uses: everything
+;
+;  At ANY distance, not just within weapons range: this is what an enemy flies
+;  towards, and it has to be able to pick something before it can close on it.
+;  Firing checks the range separately.
+;
+;  One entity does this per frame (see cbt_retarget_one), so the O(n) sweep
+;  costs a frame's worth of work spread over the whole table.
 ; ----------------------------------------------------------------------------
 cbt_find_enemy:
     ld hl,(cbt_ent)
@@ -402,6 +619,7 @@ cbt_find_enemy:
 
     ld a,#FF
     ld (cbt_best),a
+    ld (cbt_best_dist),a                ; nothing found yet is "infinitely far"
     xor a
     ld (cbt_scan),a
 
@@ -423,12 +641,13 @@ cbt_find_enemy:
 
     ld a,(cbt_scan)
     ld (cbt_target),a
-    call cbt_in_range
-    jr nc,@cbt_search_next
-
+    call cbt_distance
+    ld hl,cbt_best_dist
+    cp (hl)
+    jr nc,@cbt_search_next              ; something closer is already held
+    ld (hl),a
     ld a,(cbt_scan)
     ld (cbt_best),a
-    jr @cbt_search_done                 ; near enough is good enough
 
 @cbt_search_next:
     ld hl,cbt_scan
@@ -454,13 +673,25 @@ cbt_other:          defw 0
 cbt_a_ptr:          defw 0
 cbt_target:         defb #FF
 cbt_best:           defb #FF
+cbt_best_dist:      defb #FF
 cbt_side:           defb 0
 cbt_axis:           defb 0
 cbt_dist:           defb 0
 
 ;  Counters the tests and the HUD read.
+cbt_damage:         defb 0
+cbt_move_dst:       defw 0
 cbt_shots:          defb 0
 cbt_kills:          defb 0
 
 ;  x, y, z, timer -- timer 0 means the slot is free.
 cbt_explosions:     defs EXPL_MAX * EXPL_SIZE, 0
+
+;  Rows are the shooter, columns the target, four columns a row so the index
+;  is a shift rather than a multiply.
+;
+;                    vs INT   vs MTH   vs HAR    --
+cbt_damage_matrix:
+    defb  24,      10,      40,      0           ; interceptor: anti-fighter
+    defb  40,      24,      40,      0           ; mothership:  heavy guns
+    defb   4,       2,       4,      0           ; harvester:   barely armed

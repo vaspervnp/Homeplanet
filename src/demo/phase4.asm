@@ -86,6 +86,7 @@ demo_init:
     ld (phase4_hud_dirty),a
 
     call form_init
+    call grid_init
     call cbt_init
     call eco_init
     call mis_init
@@ -200,6 +201,21 @@ phase4_spawn_fleet:
 ; ----------------------------------------------------------------------------
 demo_update:
     call key_scan
+
+    ;  While the briefing is up nothing else runs: no orders, no simulation,
+    ;  no battle. Section 10 wants a static screen, and static means static.
+    ld a,(mis_briefing)
+    or a
+    jr z,@p4_playing
+    call mis_brief_key
+    call phase4_select_list
+    call mis_brief_draw
+    call phase4_rects_reset
+    ld hl,demo_frames
+    inc (hl)
+    ret
+
+@p4_playing:
     call phase4_commands
     call order_update
 
@@ -227,10 +243,19 @@ demo_update:
 
     call phase4_select_list
     call phase4_erase
+    call mis_wipe_screen
     call order_focus
     call cam_build_matrix
+    call grid_update
     call phase4_project
     call phase4_sort
+    ;  The plane goes down before the ships, so a ship over it hides it.
+    ld a,(view_sensors)
+    or a
+    jr nz,@p4_no_grid
+    call grid_draw
+@p4_no_grid:
+
     ld a,(view_sensors)
     or a
     jr z,@p4_tactical
@@ -356,6 +381,11 @@ phase4_fly:
     add hl,de
     ld a,(hl)
     cp ENT_ORDER_HARVEST
+    jr z,@p4_next_fly
+    ;  Same again for a ship told to attack: cbt_move_enemies now closes it on
+    ;  its target, and two systems stepping the same ship by PHASE4_STEP in
+    ;  different directions cancel exactly.
+    cp ENT_ORDER_ATTACK
     jr z,@p4_next_fly
 
     ld hl,(phase4_ent)
@@ -556,7 +586,9 @@ phase4_erase:
     ld hl,(phase4_count)
     ld a,(hl)
     or a
-    ret z
+    jr nz,@p4_have_rects
+    jp phase4_rects_reset
+@p4_have_rects:
     ld b,a
     ld hl,(phase4_rects)
 @p4_rect:
@@ -576,6 +608,29 @@ phase4_erase:
     pop hl
     pop bc
     djnz @p4_rect
+
+    ;  The list has been consumed; start an empty one for this frame. Miss
+    ;  this and the count only ever grows -- it reached 244 in a 71-slot array
+    ;  and was writing rectangles over whatever came after it.
+    jp phase4_rects_reset
+
+
+; ----------------------------------------------------------------------------
+;  phase4_rects_reset -- start a fresh dirty list for this frame
+;
+;  Called once, immediately after the old list has been erased, because FOUR
+;  things append to it now -- the reference plane, the ships, the explosions
+;  and the move disc -- and whichever drew first used to reset the list and
+;  throw the others' rectangles away.
+;  Uses: AF, HL
+; ----------------------------------------------------------------------------
+phase4_rects_reset:
+    xor a
+    ld (phase4_rect_count),a
+    ld hl,(phase4_rects)
+    ld (phase4_rect_ptr),hl
+    ld hl,(phase4_count)
+    ld (hl),a
     ret
 
 
@@ -799,11 +854,6 @@ phase4_vis_addr:
 ;  phase4_draw -- blit the visible ships, far to near
 ; ----------------------------------------------------------------------------
 phase4_draw:
-    xor a
-    ld (phase4_rect_count),a
-    ld hl,(phase4_rects)
-    ld (phase4_rect_ptr),hl
-
     ld a,(phase4_visible)
     or a
     jr z,@p4_done
@@ -842,11 +892,6 @@ phase4_draw:
 ;  Uses: everything
 ; ----------------------------------------------------------------------------
 phase4_draw_sensor:
-    xor a
-    ld (phase4_rect_count),a
-    ld hl,(phase4_rects)
-    ld (phase4_rect_ptr),hl
-
     ld a,(phase4_visible)
     or a
     jp z,@p4_sensor_done
@@ -1655,7 +1700,7 @@ phase4_slot_next:   defs SQUAD_MAX + 1, 0
 
 phase4_drawn_a:     defb 0
 phase4_drawn_b:     defb 0
-PHASE4_RECT_SLOTS        equ ENT_MAX + EXPL_MAX + 1   ; ships, explosions, the disc
+PHASE4_RECT_SLOTS        equ ENT_MAX + EXPL_MAX + GRID_POINTS + 1  ; ships, explosions, plane, disc
 phase4_rects_a:     defs PHASE4_RECT_SLOTS * 4, 0
 phase4_rects_b:     defs PHASE4_RECT_SLOTS * 4, 0
 

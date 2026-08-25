@@ -45,8 +45,12 @@ class SpriteFixture(unittest.TestCase):
     def poke_byte(self, name, value):
         self.c.write_ram(self.sym[name], bytes([value & 0xFF]))
 
-    def blit(self, x, y, w=TIER_C_W_BYTES, hgt=TIER_C_H, block=None):
+    def blit(self, x, y, w=TIER_C_W_BYTES, hgt=TIER_C_H, block=None, enemy=False):
         """Set up spr_* and call spr_blit. Returns (carry, rect)."""
+        #  Always written, never left to whatever the last test wanted: the
+        #  fixture is per-class, so a stray enemy flag would recolour the
+        #  sprite in every test that ran after it.
+        self.poke_byte("SPR_ENEMY", 0x80 if enemy else 0x00)
         self.poke_word("SPR_SRC", block if block is not None else self.sym["INTERCEPTOR_C"])
         self.poke_word("SPR_X", x)
         self.poke_word("SPR_Y", y)
@@ -137,6 +141,60 @@ class TestBlitter(SpriteFixture):
                 if not inside:
                     self.assertEqual(ram[h.screen_offset(y, x)], 0x5A,
                                      f"byte ({x},{y}) outside the sprite was modified")
+
+
+class TestEnemyRecolour(SpriteFixture):
+    """Section 2: the enemy flies the same sprites in ink 3, for free.
+
+    spr_blit ORs the high nibble of each data byte down into the low one, so
+    every pen-1 pixel (high plane only) becomes pen 3 (both planes) and pen 2
+    is left alone. One sprite set, two sides.
+
+    Worth testing here rather than only on a live screen: on screen the
+    picket can be perfectly hidden behind the fleet by the painter's
+    algorithm, and then a broken recolour and a correct one look identical.
+    """
+
+    def pens(self, x, y, w=TIER_C_W_BYTES, hgt=TIER_C_H):
+        """Count the pixels of each pen in the blitted rectangle."""
+        base = self.back_buffer()
+        counts = {}
+        for row in range(hgt):
+            line = self.c.read_ram(base + h.screen_offset(y + row, x), w)
+            for byte in line:
+                for shift in range(4):
+                    pen = ((byte >> (7 - shift)) & 1) | (((byte >> (3 - shift)) & 1) << 1)
+                    counts[pen] = counts.get(pen, 0) + 1
+        return counts
+
+    def test_pen_1_becomes_pen_3_and_pen_2_is_untouched(self):
+        self.clear_back()
+        self.blit(20, 40)
+        friendly = self.pens(20, 40)
+
+        self.clear_back()
+        self.blit(20, 40, enemy=True)
+        hostile = self.pens(20, 40)
+
+        self.assertGreater(friendly.get(1, 0), 0, "the sprite has no pen-1 pixels to recolour")
+        self.assertEqual(hostile.get(1, 0), 0, "an enemy ship still has friendly-coloured pixels")
+        self.assertEqual(hostile.get(3, 0), friendly.get(1, 0),
+                         "pen 1 did not turn into pen 3 one for one")
+        self.assertEqual(hostile.get(2, 0), friendly.get(2, 0),
+                         "the recolour disturbed pen 2")
+        self.assertEqual(hostile.get(0, 0), friendly.get(0, 0),
+                         "the recolour leaked into the transparent pixels")
+
+    def test_the_flag_does_not_stick(self):
+        """It is a global, set per ship by the caller every single blit."""
+        self.clear_back()
+        self.blit(20, 40, enemy=True)
+        self.assertGreater(self.pens(20, 40).get(3, 0), 0)
+
+        self.clear_back()
+        self.blit(20, 40)
+        self.assertEqual(self.pens(20, 40).get(3, 0), 0,
+                         "a friendly ship came out in the enemy colour")
 
 
 class TestClipping(SpriteFixture):

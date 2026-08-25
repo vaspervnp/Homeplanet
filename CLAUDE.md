@@ -554,6 +554,13 @@ a class.
 Only the DATA is recoloured, never the background showing through the mask —
 a friendly ship behind an enemy stays white.
 
+Do not test this by counting pen-3 pixels on a live screen and nothing else.
+Once the enemy closes on its target it parks *behind* the fleet, where the
+painter's algorithm correctly hides every last enemy pixel — and a blank count
+then looks exactly like a broken recolour. `TestEnemyRecolour` in
+`test_phase3.py` drives `spr_blit` directly and compares the pen histogram
+with and without `spr_enemy`, which separates "not drawn" from "not coloured".
+
 ### Never trust a slot index
 
 `ENT_TARGET` holds an entity index, and a zeroed field names **slot 0, not
@@ -563,6 +570,60 @@ the first slot, and the fleet shot one of its own before it ever met an enemy.
 `cbt_fire_if_able` checks the sides at the moment of firing rather than only
 when a target is chosen. Stale indices, recycled slots and zeroed fields all
 name *something*.
+
+### A fleet has to be able to concentrate
+
+Three separate things conspired to make the player's fleet lose fights it
+should win. Eight friendly interceptors against eight enemy ones, identical
+hulls and identical guns, ended **8-0 to the enemy** every time — and the
+mechanics are symmetric, so the cause was never the damage numbers.
+
+1. **`A` set a target and nothing else.** `ENT_ORDER_ATTACK` was written by
+   `order.asm` and read only by `cbt_retarget_one`, to stop the AI overwriting
+   it. Nothing ever *moved* the ship. So an attacking squadron aimed from
+   wherever its formation slot happened to be, while the Vekhar — who always
+   close — massed on it. `cbt_move_enemies` now closes anything hostile *or*
+   under an attack order, and `phase4_fly` skips attackers for the same reason
+   it skips harvesters: two systems stepping one ship by `PHASE4_STEP` in
+   different directions cancel exactly.
+2. **Retargeting was round-robin at one ship a frame.** Ships close together
+   all pick the same nearest enemy, so a single kill left the *whole* squadron
+   holding a dead target and idle for up to `ENT_MAX` frames, while a strung-out
+   enemy — each ship aiming at a different target — lost only the few that had
+   been aiming at the casualty. **Concentrating fire was punished.**
+   `cbt_fire_if_able` now re-acquires the moment it finds its target is
+   wreckage; the round-robin stays as the slow path for drift.
+3. The default formation is wider than the gun. `FORM_SPACING` 2200 spreads a
+   16-ship squadron 13200 units corner to corner — a Manhattan diameter of
+   ~103 range-units against `CBT_RANGE` 40. This one is *not* fixed: it is what
+   makes "hold formation" a genuinely worse tactic than "attack", and pressing
+   `A` is the answer. Raising `CBT_RANGE` to 56 was tried and made missions 3
+   and 4 worse, because it lets the enemy's ball reach more of the spread.
+
+Measured campaign cost with the fleet holding station over the Mothership and
+attacking: missions 1-5 cost **one ship**. Mission 6 (`enemies_scatter`) must
+be fought by *holding*, not chasing — 9 of 14 survive that way and the
+Mothership dies if the fleet leaves it. That asymmetry is the design's, not a
+bug: §8 makes losing the Mothership the end of the game.
+
+### Never trust a slot index, part two: `moth_slot`
+
+`fleet_restore` packs survivors down into slots `0..n-1`, so after two losses
+the Mothership comes home to slot 13, not 15. `moth_slot` was not updated —
+and `mis_setup` had just spawned an **enemy interceptor** into slot 15. The
+defeat check then watched that enemy, and the moment the fleet shot it down
+the campaign ended with "the Mothership was lost", at mission 5, every run.
+
+Anything that caches an entity index across `fleet_save`/`fleet_restore` has
+this bug waiting for it. `fleet_restore` now re-finds the Mothership by class
+as it loads.
+
+### The harness counts 50 Hz frames, the game runs at 12.5 fps
+
+`run_frames(n)` advances *emulator* frames. `DEMO_TICKS_PER_FRAME` is 4, so
+**one game frame is four of them**. A test that waits `CBT_COOLDOWN` frames for
+a weapon to come round waits a quarter of the time it thinks it does. Multiply
+by `TICKS_PER_GAME_FRAME` when a test is timing game logic.
 
 ### Loading, and AMSDOS's workspace
 
