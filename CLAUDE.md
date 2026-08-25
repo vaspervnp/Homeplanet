@@ -139,6 +139,15 @@ Local labels start with `@` and are scoped to the enclosing global label.
 symbol and the build will fail with "there is already an alias with the same
 name". Do not distinguish an equate from a label by case alone.
 
+**`@` labels are scoped to the FILE, not to the enclosing routine.** Two
+routines in one file cannot both have an `@positive`. Give them names that say
+which routine they belong to.
+
+**`ASSERT` is evaluated where it stands**, so it cannot see anything included
+later. The table-layout invariants therefore live at the bottom of
+`src/main.asm`, after `gen/tables.asm`, not next to the code that relies on
+them.
+
 ### Register contracts
 
 Every routine's header comment states `In:`, `Out:` and `Uses:`. Keep them
@@ -162,21 +171,46 @@ per scanline from loops whose parameters live in `BC`/`DE`.
 - The interrupt handler may only touch `AF` and `HL`, and it must save them.
 - Self-modifying code is fine and often the right answer — see the
   `@fill_byte equ $+1` patch in `scr_fill_rect`. Comment it every time.
+- **A routine that returns a flag must have that flag tested immediately.**
+  `ADD HL,DE` writes the carry. `proj_point` returns visibility in CF, and
+  advancing a pointer before checking it silently clipped every entity.
 
-### Frame budget
+### Frame budget — measured, not estimated
 
 12.5 fps, one frame per 4 VSyncs, ~265,000 T-states. Section 6 of the design
-document has the allocation. When adding to the frame loop, say what it costs.
+document has the allocation, but **its per-entity figure is optimistic** — see
+the measurements below. When adding to the frame loop, measure what it costs;
+`tests/test_phase1.py` shows the technique (loop the routine N times, count PAL
+frames). Note the gate array steals cycles, so real timings run ~25-30% above
+a hand count of the instruction table.
+
+| Routine | Measured | Design §6 |
+|---|---|---|
+| `proj_point` (one entity, full pipeline) | ~4,560 T | 1,200 T |
+| `proj_rotate` (9 multiplies, m01 skipped) | ~2,790 T | — |
+| `cam_build_matrix` (once per frame) | ~3,360 T | — |
+| 24 entities projected | ~109,000 T (41% of a frame) | 29,000 T |
+
+A general 3×3 rotation will not fit 1,200 T on a 4 MHz Z80: nine table-driven
+multiplies alone are more than that. 24 entities still fit the frame, but
+§6's total needs revising. The 100 background stars must use the cheap path in
+§5.4 (no translation, no perspective divide, cached unless the camera moves) —
+they cannot go through `proj_point`.
 
 ---
 
 ## Graphics pipeline
 
-Sprites are drawn in **RetroTools**, exported as a `.retrotools.json` project
-backup, and converted by:
+Ship sprites are generated from 3D models by `tools/mkships.py` (`make ships`),
+which renders 8 yaw views per size tier, dithers them, and writes a
+`.retrotools.json` project into `art/`. Those files are **source art** — open
+them in RetroTools to retouch by hand, and the retouched version is what
+ships. Anything drawn from scratch in RetroTools goes through the same path.
 
 ```bash
-python3 tools/rt2sprite.py ships.retrotools.json --out src/gen/spr_ships.asm
+make ships                                   # models -> art/*.json -> src/gen/*.asm
+python3 tools/mkships.py --contact-sheet     # PNG previews in build/ships/
+python3 tools/rt2sprite.py art/frigate.retrotools.json --out src/gen/spr_frigate.asm
 ```
 
 The converter reads the project JSON, **not** RetroTools' own `.asm` export.
@@ -239,10 +273,35 @@ consecutive pages), `qsq_lo`/`qsq_hi` (quarter squares for multiplication),
 Design document section 13 lists ten phases.
 
 - **Phase 0 — done.** Boot, Mode 1, double buffering, page flip on the VSYNC
-  edge, per-buffer dirty rectangles, disc image that boots. 18 tests.
-- **Phase 1 — next.** Rotation and projection. The quarter-square and sine
-  tables are already generated and tested; what is missing is the signed
-  multiply, the 3×3 camera matrix, `recip_z`, and the per-entity projection.
+  edge, per-buffer dirty rectangles, disc image that boots.
+- **Phase 1 — done.** Signed multiply, orbit camera matrix, per-entity
+  projection with clipping. The Z80 is verified **bit-exact** against the
+  Python model in `tools/gentables.py` over thousands of random inputs —
+  that model is the specification, and if you change a shift you change it in
+  both places. 100 points run at ~7 fps (see the budget table above for why
+  that is expected, and fine).
+- **Phase 3 — partly done, out of order.** The sprite pipeline exists
+  (`mkships.py` → `art/*.json` → `rt2sprite.py`) and three classes are drawn,
+  but nothing blits them yet. That is Phase 2.
+- **Phase 2 — next.** The masked sprite blitter and dirty rectangles for it.
+  The data is already in the right layout: mask/data pairs, row-major, one
+  block per (frame, pre-shift).
 
-`src/demo/phase0.asm` is the Phase 0 acceptance test running on the CPC
+`src/demo/phase1.asm` is the Phase 1 acceptance test running on the CPC
 itself. Delete it when Phase 4 puts real entities on screen.
+
+### Known open questions
+
+- **Enemy sprites need no separate storage.** In Mode 1 the pen bit-0 plane is
+  the high nibble and bit-1 the low, so `data OR ((data >> 4) AND #0F)` turns
+  every pen 1 into pen 3 and leaves pens 0 and 2 alone — three instructions in
+  the blitter instead of a second 5.6 KB copy per class. `--faction enemy`
+  exists for hand-retouched variants; do not ship both sets by default.
+- **Sprite memory is 17% over §5.1** (5.62 KB per class, not 4.8 KB) because
+  every sprite is stored one byte wider than it is, to give the 2-pixel
+  pre-shift somewhere to land. Three classes = 16.9 KB, which does not fit one
+  16 KB bank. Adding the second pitch level doubles it. §14 already lists the
+  mitigation: 6 yaw views instead of 8.
+- **Tier A (8×6) barely distinguishes the classes.** Bow-on, a frigate is 6×2
+  and an interceptor 4×2. Class identity at that size is carried by bulk, not
+  shape, with a 2-pixel margin.

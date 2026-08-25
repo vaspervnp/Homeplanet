@@ -3,6 +3,7 @@
 # ============================================================================
 #  make          assemble -> build/homeplanet.dsk + build/home.bin
 #  make tables   regenerate the lookup tables
+#  make ships    re-render the ship sprites + contact sheets
 #  make test     assemble, then run the emulator test suite
 #  make run      assemble and screenshot the running game
 #  make clean
@@ -32,7 +33,7 @@ RASMFLAGS := -I $(SRC_DIR) -I . -eo
 
 ASM_SOURCES := $(shell find $(SRC_DIR) -name '*.asm' -not -path '$(GEN_DIR)/*')
 
-.PHONY: all tables test run clean dsk-list
+.PHONY: all tables ships test run clean dsk-list
 
 all: $(DISC_RAW)
 
@@ -50,6 +51,14 @@ $(TABLES): tools/gentables.py
 
 tables:
 	$(PYTHON) tools/gentables.py
+
+# Ship sprites. Not part of `all`: the projects in art/ are checked in, and
+# re-rendering them is something you do when you have changed a model, not
+# every build. Look at build/ships/*.png afterwards -- the 8x6 tier is the one
+# that decides whether a class reads, and no test can tell you that.
+ships:
+	$(PYTHON) tools/mkships.py --contact-sheet
+	$(PYTHON) tools/mkships.py --faction enemy --contact-sheet
 
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)

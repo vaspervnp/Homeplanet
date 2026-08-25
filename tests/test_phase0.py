@@ -64,17 +64,34 @@ class TestPageFlip(unittest.TestCase):
     def setUpClass(cls):
         cls.c = h.boot_quick(frames=40)
 
-    def test_display_alternates_every_frame(self):
-        seen = []
-        for _ in range(20):
-            self.c.run_frames(1)
-            seen.append(h.crtc_page(self.c))
+    def test_display_alternates_every_game_frame(self):
+        """One flip per GAME frame, not per PAL frame.
 
+        The loop is paced to 12.5 fps and the projection is heavy, so several
+        PAL frames pass between flips. Sampling per PAL frame would just
+        measure the frame rate; sample per game frame instead, which is the
+        invariant that actually matters.
+        """
+        sym = h.symbols()
+        tick = sym["PHASE1_FRAMES"]
+
+        seen = []
+        last = self.c.read_ram(tick, 1)[0]
+        for _ in range(400):
+            self.c.run_frames(1)
+            now = self.c.read_ram(tick, 1)[0]
+            if now != last:
+                last = now
+                seen.append(h.crtc_page(self.c))
+            if len(seen) >= 8:
+                break
+
+        self.assertGreaterEqual(len(seen), 6, "the game loop is barely advancing")
         self.assertNotIn(-1, seen, "CRTC parked on neither buffer")
         self.assertEqual(set(seen), {h.SCREEN_A, h.SCREEN_B}, "only one buffer ever shown")
 
         stuck = [i for i in range(1, len(seen)) if seen[i] == seen[i - 1]]
-        self.assertEqual(stuck, [], f"buffer did not flip on frames {stuck}: {seen}")
+        self.assertEqual(stuck, [], f"buffer did not flip on game frames {stuck}: {seen}")
 
     def test_r13_offset_stays_zero(self):
         """Only R12 changes; a stray R13 would shift the whole picture."""
@@ -118,41 +135,11 @@ class TestDrawing(unittest.TestCase):
         got = h.find_block(self.c, back, byte)
         self.assertEqual(got, (x, y, w, ht))
 
-    def test_static_frame_is_in_both_buffers(self):
-        """demo_init draws the border once into each; nothing redraws it."""
-        for base in (h.SCREEN_A, h.SCREEN_B):
-            for line in (0, 1, 198, 199):
-                row = [h.peek_pixel_byte(self.c, base, line, x) for x in range(80)]
-                self.assertEqual(
-                    row, [h.SOLID_INK[2]] * 80,
-                    f"buffer #{base:04X} line {line} is not a solid border",
-                )
 
-    def test_moving_blocks_leave_no_trail(self):
-        """The red block is 4x12 bytes, so exactly 48 bytes of it may exist.
-
-        It is drawn after the white one and never overlaps the border, so its
-        count is exact every frame. Any extra is a dirty rectangle that was
-        never erased -- which with double buffering is the classic bug, since
-        the back buffer holds the frame from TWO ticks ago, not one.
-        """
-        for _ in range(24):
-            self.c.run_frames(1)
-            front = h.front_buffer(self.c)
-            n = h.count_byte(self.c, front, h.SOLID_INK[3])
-            self.assertEqual(n, 4 * 12, f"buffer #{front:04X} holds {n} red bytes, want 48")
-
-    def test_blocks_move_one_byte_per_frame(self):
-        """Position must advance by exactly one byte column and one line."""
-        positions = []
-        for _ in range(8):
-            self.c.run_frames(1)
-            positions.append(h.find_block(self.c, h.front_buffer(self.c), h.SOLID_INK[3]))
-
-        for prev, cur in zip(positions, positions[1:]):
-            self.assertEqual((cur[2], cur[3]), (4, 12), "red block changed size")
-            self.assertEqual(abs(cur[0] - prev[0]), 1, f"x jumped: {prev} -> {cur}")
-            self.assertEqual(abs(cur[1] - prev[1]), 1, f"y jumped: {prev} -> {cur}")
+#  The moving-block and static-frame tests that used to live here belonged to
+#  the Phase 0 demo, which Phase 1 replaced. What they really covered -- that
+#  each buffer erases only what IT is holding -- is now tested against the
+#  Phase 1 point lists in tests/test_phase1.py (test_no_pixel_trails).
 
 
 class TestTables(unittest.TestCase):

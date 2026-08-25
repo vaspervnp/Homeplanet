@@ -3,8 +3,8 @@
 ; ============================================================================
 ;  Build with:  make          (see CLAUDE.md)
 ;
-;  Phase 0: boot into Mode 1, run a double-buffered 50 Hz loop, prove that the
-;  page flip lands on the VSYNC edge and never tears.
+;  Phase 1: the 3D pipeline. A camera orbits a lattice of 100 world points at
+;  12.5 fps -- one rotation matrix per frame, one projection per point.
 ; ----------------------------------------------------------------------------
 
     include "equ/hardware.asm"
@@ -21,10 +21,11 @@ game_main:
     ld sp,STACK_TOP                     ; before any CALL, obviously
     call sys_boot                       ; one-way: firmware is gone after this
 
-    call demo_init
+    call phase1_init
 
 @frame_loop:
-    call demo_update                    ; draw into the back buffer
+    call phase1_update                  ; draw into the back buffer
+    call phase1_wait_frame              ; hold the loop to 4 VSYNCs = 12.5 fps
     call scr_wait_vsync
     call scr_flip                       ; back becomes front
     jr @frame_loop
@@ -36,7 +37,10 @@ game_main:
     include "sys/boot.asm"
     include "sys/irq.asm"
     include "sys/screen.asm"
-    include "demo/phase0.asm"
+    include "math/mul.asm"
+    include "math/cam.asm"
+    include "math/proj.asm"
+    include "demo/phase1.asm"
 
 ; ----------------------------------------------------------------------------
 ;  Generated lookup tables. Must come last: they are page-aligned and would
@@ -45,6 +49,22 @@ game_main:
     include "gen/tables.asm"
 
 code_end:
+
+; ----------------------------------------------------------------------------
+;  Table layout invariants.
+;
+;  The lookup routines index these tables by page register -- qsq_f does
+;  `inc h : inc h` to cross from the low plane to the high one, scr_line_addr
+;  does a single `inc h`. That only works if the generator lays them out
+;  exactly so. Check it here rather than at the point of use, because RASM
+;  evaluates ASSERT where it stands and the tables are included last.
+; ----------------------------------------------------------------------------
+    assert qsq_hi == qsq_lo + 512,          "quarter-square planes are not 512 bytes apart"
+    assert scr_line_hi == scr_line_lo + 256, "screen line planes are not on consecutive pages"
+    assert (qsq_lo & 255) == 0,             "qsq_lo is not page aligned"
+    assert (scr_line_lo & 255) == 0,        "scr_line_lo is not page aligned"
+    assert (sin7 & 255) == 0,               "sin7 is not page aligned"
+    assert (recip & 255) == 0,              "recip is not page aligned"
 
 ; ----------------------------------------------------------------------------
 ;  The low 16K is the whole world below the bank window. If we ever spill past
