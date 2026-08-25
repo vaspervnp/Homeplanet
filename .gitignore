@@ -1,0 +1,4 @@
+build/
+src/gen/
+__pycache__/
+*.pyc
