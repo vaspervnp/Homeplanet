@@ -39,6 +39,9 @@ ENT_ORDER_GUARD     equ 3
 ENT_ORDER_HARVEST   equ 4
 ENT_ORDER_DOCK      equ 5
 
+;  ENT_TARGET holds a slot index; this means nobody.
+ENT_NO_TARGET       equ #FF
+
 
 ; ----------------------------------------------------------------------------
 ;  ent_addr -- HL = &entities[A]
@@ -75,6 +78,22 @@ ent_clear_all:
     ld (hl),0
     ld bc,ENT_MAX * ENT_SIZE - 1
     ldir
+
+    ;  A zeroed ENT_TARGET names slot 0, not "nobody". Every spawn would
+    ;  otherwise come up aimed at whatever is in the first slot.
+    xor a
+    ld (ent_index),a
+@ent_untarget:
+    ld a,(ent_index)
+    call ent_addr
+    ld de,ENT_TARGET
+    add hl,de
+    ld (hl),ENT_NO_TARGET
+    ld hl,ent_index
+    inc (hl)
+    ld a,(hl)
+    cp ENT_MAX
+    jr c,@ent_untarget
     ret
 
 
@@ -96,4 +115,5 @@ ent_is_active:
 ; ============================================================================
 ;  Storage
 ; ============================================================================
+ent_index:          defb 0
 entities:           defs ENT_MAX * ENT_SIZE, 0

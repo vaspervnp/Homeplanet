@@ -38,6 +38,7 @@ game_main:
     include "sys/irq.asm"
     include "sys/screen.asm"
     include "sys/keyboard.asm"
+    include "sys/sound.asm"
     include "math/mul.asm"
     include "math/cam.asm"
     include "math/proj.asm"
@@ -49,6 +50,7 @@ game_main:
     include "game/shipclass.asm"
     include "game/formation.asm"
     include "game/order.asm"
+    include "game/combat.asm"
     include "demo/phase4.asm"
 
 ; ----------------------------------------------------------------------------

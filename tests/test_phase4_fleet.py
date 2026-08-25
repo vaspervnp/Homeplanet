@@ -140,14 +140,13 @@ class TestFleet(unittest.TestCase):
         self.assertNotEqual(shots[0], shots[1], "orbiting did not redraw anything")
         self.assertNotEqual(shots[1], shots[2])
 
-    #  MEASURED at 7.3-8.3 fps for 20 ships, depending on how far the fleet is
-    #  spread (spread ships sit closer to the camera and draw at a bigger tier), against the design's 12.5 fps target.
-    #  The frame breaks down roughly as: blitting 168k T-states, projection
-    #  113k, erasing 72k, z-sort 54k, formation flight 55k. See CLAUDE.md for
-    #  what that means for section 6's budget.
+    #  MEASURED at 5.8-6.5 fps for the 24 entities section 6 budgets a frame
+    #  for, against its 12.5 fps target. Roughly: blitting 182k T-states,
+    #  projection 118k, erasing 75k, z-sort 73k, formation flight 52k, combat
+    #  28k. CLAUDE.md has the breakdown and where the headroom is.
     #
     #  A floor, not the goal. If it drops, something got slower.
-    MEASURED_FPS_FLOOR = 7.0
+    MEASURED_FPS_FLOOR = 5.0
 
     def test_frame_rate_does_not_regress(self):
         before = self.c.read_ram(self.sym["DEMO_FRAMES"], 1)[0]
@@ -158,7 +157,7 @@ class TestFleet(unittest.TestCase):
         fps = ((after - before) % 256) / (pal_frames / 50)
         self.assertGreaterEqual(
             fps, self.MEASURED_FPS_FLOOR,
-            f"{fps:.1f} fps for 20 ships, was {self.MEASURED_FPS_FLOOR}+",
+            f"{fps:.1f} fps for 24 entities, was {self.MEASURED_FPS_FLOOR}+",
         )
 
 

@@ -27,8 +27,8 @@ sys.path.insert(0, __file__.rsplit("/", 2)[0])
 from tests import harness as h
 
 #  Scratch addresses in the slack between the end of the code and the stack.
-STUB = 0x3000
-RESULT = 0x2F00
+STUB = h.STUB
+RESULT = h.RESULT
 
 KEY_ROWS = 10
 
@@ -86,6 +86,13 @@ class KeyboardFixture(unittest.TestCase):
     def setUpClass(cls):
         cls.c = h.boot_quick(frames=30)
         cls.sym = h.symbols()
+
+    @classmethod
+    def tearDownClass(cls):
+        #  One machine for the whole class, freed when the class is done.
+        #  See harness.close for why leaving it to the garbage collector is
+        #  not good enough.
+        h.close(getattr(cls, "c", None))
 
     def setUp(self):
         #  Whatever a previous test left held, let go of -- and give the

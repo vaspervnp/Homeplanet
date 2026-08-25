@@ -16,6 +16,7 @@
 
 SPR_MAX_W_BYTES     equ 8               ; tier C is 7; one spare
 SPR_UNIT_BYTES      equ 7               ; size of one blit unit, in opcodes
+SPR_ENEMY_UNIT      equ 17              ; the recolouring unit is longer
 
 
 ; ----------------------------------------------------------------------------
@@ -150,7 +151,13 @@ spr_blit:
     ld h,0
     ld (spr_row_advance),hl
 
-    ;  Entry point into the unrolled run: draw_w units back from the end.
+    ;  Entry point into the unrolled run: draw_w units back from its end.
+    ;  Enemies go down a different run with a longer unit, so both the size
+    ;  and the end address depend on which.
+    ld a,(spr_enemy)
+    or a
+    jr nz,@spr_enemy_entry
+
     ld a,c                              ; draw_w
     ld l,a
     ld h,0
@@ -160,9 +167,26 @@ spr_blit:
     ld e,a
     ld d,0
     or a
-    sbc hl,de                           ; w * 7
+    sbc hl,de                           ; w * SPR_UNIT_BYTES
     ex de,hl
     ld hl,spr_row_end
+    jr @spr_have_entry
+
+@spr_enemy_entry:
+    ld a,c
+    ld l,a
+    ld h,0
+    add hl,hl
+    add hl,hl
+    add hl,hl
+    add hl,hl                           ; w * 16
+    ld e,a
+    ld d,0
+    add hl,de                           ; w * 17 = SPR_ENEMY_UNIT
+    ex de,hl
+    ld hl,spr_erow_end
+
+@spr_have_entry:
     or a
     sbc hl,de
     ld (spr_call_entry),hl              ; patches the CALL below
@@ -220,10 +244,51 @@ spr_row_start:
 spr_row_end:
     ret
 
+
+; ----------------------------------------------------------------------------
+;  The same run again, recolouring pen 1 as pen 3 on the way past.
+;
+;  Enemies are the same ships in the enemy colour (Homeplanet.md section 2),
+;  and in Mode 1 that costs no storage at all. A byte holds pixels A B C D as
+;  A0 B0 C0 D0 A1 B1 C1 D1, so the pen's bit 0 lives in the high nibble and
+;  its bit 1 in the low one. Pen 1 is %01 and pen 3 is %11, so
+;
+;      data OR ((data >> 4) AND #0F)
+;
+;  turns every pen 1 into a pen 3 and leaves pens 0 and 2 exactly where they
+;  are. A whole second copy of every sprite library would be 5.6 KB a class;
+;  this is four instructions.
+;
+;  Only the DATA is recoloured, never the background that shows through the
+;  mask -- a friendly ship behind an enemy stays white.
+; ----------------------------------------------------------------------------
+spr_erow_start:
+    repeat SPR_MAX_W_BYTES
+    ld a,(de)
+    and (hl)
+    inc hl
+    ld c,(hl)
+    inc hl
+    or c
+    ld b,a
+    ld a,c
+    rrca
+    rrca
+    rrca
+    rrca
+    and #0F
+    or b
+    ld (de),a
+    inc de
+    rend
+spr_erow_end:
+    ret
+
     ;  The entry-offset arithmetic above assumes each unit is exactly
     ;  SPR_UNIT_BYTES long. Adding an instruction to the unit without updating
     ;  that constant would enter the run at the wrong place, mid-instruction.
     assert spr_row_end - spr_row_start == SPR_MAX_W_BYTES * SPR_UNIT_BYTES, "blit unit is not SPR_UNIT_BYTES long"
+    assert spr_erow_end - spr_erow_start == SPR_MAX_W_BYTES * SPR_ENEMY_UNIT, "enemy blit unit is not SPR_ENEMY_UNIT long"
 
 
 ; ============================================================================
@@ -237,6 +302,9 @@ spr_row_end:
 ;  Callers that want the whole screen (the blitter's own tests) set this to
 ;  SCR_HEIGHT_PX.
 spr_clip_bottom:    defb SCR_HEIGHT_PX
+
+;  Set before spr_blit to draw the sprite in the enemy colour.
+spr_enemy:          defb 0
 
 spr_src:            defw 0              ; input: block address
 spr_x:              defw 0              ; input: left edge, signed, in bytes

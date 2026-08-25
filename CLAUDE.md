@@ -163,6 +163,14 @@ grep -hoE '^@[a-z_0-9]+' $(find src -name '*.asm') | sort | uniq -d
 **`JR` reaches ±127 bytes.** A shared error exit at the end of a long routine
 will be out of range; use `JP`. RASM reports it as "relative offset N too far".
 
+**Test scratch memory comes from the build, not from a magic address.** The
+tests poke stubs at `harness.STUB` and read results at `harness.RESULT`, both
+derived from `CODE_END`. They used to be hard-coded `#3000` and `#2F00`, which
+were free space right up until the code grew and `sin7` landed exactly on
+`#3000` — after which every test that called a routine silently overwrote the
+sine table first, and the failure surfaced in whichever *other* test built a
+camera matrix next.
+
 **`SBC HL,DE` overflows, and the sign bit lies when it does.** Two points on
 one world axis can be 65534 apart, which does not fit in the register holding
 their difference. The true sign is `S XOR P/V`, so test `P/V` *immediately* —
@@ -229,17 +237,24 @@ multiplies alone are more than that. The 100 background stars must therefore
 use the cheap path in §5.4 (no translation, no perspective divide, cached
 unless the camera moves) — they cannot go through `proj_point`.
 
-A whole frame, 20 ships, measured (~7.3–8.3 fps against the 12.5 target):
+A whole frame, 24 entities — the number §6 budgets for — measured at
+**5.8–6.5 fps against the 12.5 target**:
 
 | Stage | T-states |
 |---|---|
-| `phase4_draw` (20 masked blits) | 168,000 |
-| `phase4_project` | 113,000 |
-| `phase4_erase` (dirty rectangles) | 72,000 |
-| `phase4_sort` (z order) | 54,000 |
-| `phase4_fly` (formation movement) | 55,000 |
-| `phase4_hud` | 800 |
-| **total** | **~460,000** |
+| `phase4_draw` (masked blits) | 182,000 |
+| `phase4_project` | 118,000 |
+| `phase4_erase` (dirty rectangles) | 75,000 |
+| `phase4_sort` (z order) | 73,000 |
+| `phase4_fly` (formation movement) | 52,000 |
+| `cbt_update` (targeting, firing, damage) | 28,000 |
+| `phase4_hud`, explosions | 2,000 |
+| `snd_update` (in the interrupt, 3 voices live) | 4,400 |
+| **total** | **~530,000** |
+
+Combat is cheap; the cost is the entity count. Going from 21 entities to 31
+cost about a third of the frame, which is why the demo now runs the 24 §6
+asks for rather than as many as would fit on screen.
 
 Where the remaining headroom is, in the order worth taking it:
 
@@ -255,6 +270,10 @@ Where the remaining headroom is, in the order worth taking it:
 - Fewer ships at tier C: the thresholds in `tools/gentables.py` decide how
   many 24×16 sprites are on screen, and tier C is four times the pixels of
   tier B.
+
+Enemies blit through a second unrolled run that recolours as it goes, at 17
+bytes a unit against 7 — about 1.75× a friendly sprite. It is still far
+cheaper than a second copy of every sprite library.
 
 ---
 
@@ -347,6 +366,14 @@ Design document section 13 lists ten phases.
 - **Phase 4 — done.** The 20-byte entity record from section 7, keyboard
   matrix scanning, an 8×8 font and the HUD strip, squadrons, and formation
   flight. 20 ships at ~8 fps.
+- **Phase 6 — done.** Both fleets fire, hulls take damage, ships die and leave
+  explosions, and the AY plays a tone for a shot and noise for a kill.
+  Targeting is round-robin — one entity re-targets per frame — so no frame
+  pays for a full search.
+
+  Two things §6 asks for that are **not** in: the §8 balance triangle (every
+  class does the same damage) and enemy movement (the picket holds station, so
+  the player brings the fight to it).
 - **Phase 5 — done, and §9 is closed** except for the three commands that
   need content from later phases (see the control table above). Camera, zoom,
   pause, move disc, formations, sensor view, Mothership, docking and target
@@ -434,6 +461,44 @@ next *active* squadron instead, because merging with an empty one would be a
 no-op and the HUD only lists the active ones. All the commands are
 edge-triggered — holding `d` divides once, not once a frame — and
 `tests/test_squad.py` presses real keys in the emulator to prove it.
+
+### Sound and the keyboard share port A
+
+The PSG is reached through PPI port A, and so is `key_scan`. Port A is a
+bidirectional bus whose direction lives in the PPI control word, so the two
+have a contract: **port A output, port C `PSG_INACTIVE` is the resting state.**
+`key_scan` runs `DI`…`EI` from the main loop and restores it; `snd_update`
+runs from the interrupt, re-asserts the direction rather than trusting it, and
+drops port C back on every write. Break either half and the keyboard goes deaf
+or the sound freezes mid-envelope — and the symptom lands in whichever test
+runs next.
+
+Envelopes are in **software**. The AY has one shared envelope generator, so
+two overlapping effects would retrigger each other; amplitude bit 4 is never
+set and R11-R13 are never written. Mixer bit 6 must stay 0 or the PSG's port A
+becomes an output and the keyboard stops working — there is a build-time
+assert for it.
+
+### Enemies cost no sprite data
+
+Pen 3 is both bit planes set and pen 1 is only the high one, so
+`data OR ((data >> 4) AND #0F)` turns every pen-1 pixel into pen 3 and leaves
+pens 0 and 2 alone. `spr_erow_start` is the same unrolled blit with those four
+instructions folded in. A second copy of every sprite library would be 5.6 KB
+a class.
+
+Only the DATA is recoloured, never the background showing through the mask —
+a friendly ship behind an enemy stays white.
+
+### Never trust a slot index
+
+`ENT_TARGET` holds an entity index, and a zeroed field names **slot 0, not
+"nobody"** — so every freshly spawned ship came up aimed at whatever was in
+the first slot, and the fleet shot one of its own before it ever met an enemy.
+`ent_clear_all` now writes `ENT_NO_TARGET`, and more importantly
+`cbt_fire_if_able` checks the sides at the moment of firing rather than only
+when a target is chosen. Stale indices, recycled slots and zeroed fields all
+name *something*.
 
 ### Loading, and AMSDOS's workspace
 

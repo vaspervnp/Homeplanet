@@ -26,8 +26,8 @@ LAST_CHAR = 90
 CHAR_W_BYTES = 2
 CHAR_H = 8
 
-STUB = 0x3000                  # scratch, in the slack between code and stack
-STRBUF = 0x2E00                # ditto, for strings we hand to txt_draw
+STUB = h.STUB                  # scratch, in the slack between code and stack
+STRBUF = h.DATA                # ditto, for strings we hand to txt_draw
 
 
 def decode_mode1(byte: int) -> list[int]:

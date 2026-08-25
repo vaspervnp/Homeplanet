@@ -43,8 +43,8 @@ class EmuFixture(unittest.TestCase):
         """
         addr = self.sym[symbol]
         stub = b"\xF3" + setup + bytes([0xCD, addr & 0xFF, addr >> 8, 0x18, 0xFE])
-        self.c.write_ram(0x3000, stub)
-        self.c.set_pc(0x3000)
+        self.c.write_ram(h.STUB, stub)
+        self.c.set_pc(h.STUB)
         self.c.run_frames(frames)
 
     def word(self, symbol: str) -> int:
@@ -72,12 +72,12 @@ class TestMultiply(EmuFixture):
         load = [0x21, b & 0xFF, a & 0xFF] if reg_hl else [0x01, b & 0xFF, a & 0xFF]
         stub = bytes([0xF3] + load
                      + [0xCD, addr & 0xFF, addr >> 8]
-                     + [0x22, 0x00, 0x2F]                # ld (#2F00),hl
+                     + [0x22, h.RESULT & 0xFF, h.RESULT >> 8]                # ld (#2F00),hl
                      + [0x18, 0xFE])
-        self.c.write_ram(0x3000, stub)
-        self.c.set_pc(0x3000)
+        self.c.write_ram(h.STUB, stub)
+        self.c.set_pc(h.STUB)
         self.c.run_frames(2)
-        lo, hi = self.c.read_ram(0x2F00, 2)
+        lo, hi = self.c.read_ram(h.RESULT, 2)
         return lo | (hi << 8)
 
     def test_mul_u8_exhaustive_edges(self):
@@ -121,11 +121,11 @@ class TestShift(EmuFixture):
         for v in list(range(-32768, 32768, 617)) + [-32768, -1, 0, 1, 32767, 16256, -16384]:
             stub = bytes([0xF3, 0x21, v & 0xFF, (v >> 8) & 0xFF,
                           0xCD, addr & 0xFF, addr >> 8,
-                          0x22, 0x00, 0x2F, 0x18, 0xFE])
-            self.c.write_ram(0x3000, stub)
-            self.c.set_pc(0x3000)
+                          0x22, h.RESULT & 0xFF, h.RESULT >> 8, 0x18, 0xFE])
+            self.c.write_ram(h.STUB, stub)
+            self.c.set_pc(h.STUB)
             self.c.run_frames(2)
-            lo, hi = self.c.read_ram(0x2F00, 2)
+            lo, hi = self.c.read_ram(h.RESULT, 2)
             self.assertEqual(lo | (hi << 8), (v >> 7) & 0xFFFF, f"{v} >> 7")
 
 
@@ -171,23 +171,23 @@ class TestProjection(EmuFixture):
             poke_word(sym[name], focus[i])
 
         # the point itself goes in scratch RAM at #2F10
-        self.c.write_ram(0x2F10, b"".join(s16(v) for v in point))
+        self.c.write_ram(h.DATA, b"".join(s16(v) for v in point))
 
         build = sym["CAM_BUILD_MATRIX"]
         proj = sym["PROJ_POINT"]
         stub = bytes([0xF3]) + bytes(setup) + bytes([
             0xCD, build & 0xFF, build >> 8,
-            0x21, 0x10, 0x2F,                       # ld hl,#2F10
+            0x21, h.DATA & 0xFF, h.DATA >> 8,                       # ld hl,#2F10
             0xCD, proj & 0xFF, proj >> 8,
             0x9F,                                   # sbc a,a  -> #FF if CF else 0
-            0x32, 0x00, 0x2F,                       # ld (#2F00),a
+            0x32, h.RESULT & 0xFF, h.RESULT >> 8,                       # ld (#2F00),a
             0x18, 0xFE,
         ])
-        self.c.write_ram(0x3000, stub)
-        self.c.set_pc(0x3000)
+        self.c.write_ram(h.STUB, stub)
+        self.c.set_pc(h.STUB)
         self.c.run_frames(3)
 
-        if self.c.read_ram(0x2F00, 1)[0] == 0:
+        if self.c.read_ram(h.RESULT, 1)[0] == 0:
             return None
         return (self.word("PROJ_SX"), self.byte("PROJ_SY"), self.byte("PROJ_Z"))
 
@@ -249,19 +249,19 @@ class TestProjectionCost(EmuFixture):
     def test_proj_point_stays_within_budget(self):
         import struct
 
-        self.c.write_ram(0x2E00, struct.pack("<hhh", 4000, -2500, 6000))
+        self.c.write_ram(h.DATA, struct.pack("<hhh", 4000, -2500, 6000))
         addr = self.sym["PROJ_POINT"]
         iters = 800
-        body = [0x21, 0x00, 0x2E, 0xCD, addr & 0xFF, addr >> 8]
+        body = [0x21, h.DATA & 0xFF, h.DATA >> 8, 0xCD, addr & 0xFF, addr >> 8]
         stub = ([0xF3] + [0x01] + list(struct.pack("<H", iters)) + [0xC5] + body
                 + [0xC1, 0x0B, 0x78, 0xB1, 0x20, (256 - (len(body) + 7)) & 0xFF]
-                + [0x3E, 0xAA, 0x32, 0x10, 0x2F, 0x18, 0xFE])
-        self.c.write_ram(0x2F10, b"\x00")
-        self.c.write_ram(0x3000, bytes(stub))
-        self.c.set_pc(0x3000)
+                + [0x3E, 0xAA, 0x32, h.DATA & 0xFF, h.DATA >> 8, 0x18, 0xFE])
+        self.c.write_ram(h.DATA, b"\x00")
+        self.c.write_ram(h.STUB, bytes(stub))
+        self.c.set_pc(h.STUB)
 
         frames = 0
-        while self.c.read_ram(0x2F10, 1)[0] != 0xAA and frames < 600:
+        while self.c.read_ram(h.DATA, 1)[0] != 0xAA and frames < 600:
             self.c.run_frames(1)
             frames += 1
         self.assertLess(frames, 600, "the timing loop never finished")

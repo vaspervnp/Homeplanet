@@ -37,6 +37,31 @@ DISC_SYM = os.path.join(BUILD, "disc.sym")
 
 LOADER_ORG = 0x4000
 
+
+def _scratch_base() -> int:
+    """Somewhere the tests can poke stubs and results without hitting the game.
+
+    Tests used to hard-code #3000 and #2F00. That was free space once; the
+    code and its tables have since grown past it, and sin7 now LIVES at
+    #3000 -- so every test that called a routine was quietly overwriting the
+    sine table first, and the failures showed up somewhere else entirely, in
+    whichever test happened to build a camera matrix next.
+
+    So take it from the build: everything above code_end is free by
+    construction, and main.asm already asserts that the stack (growing down
+    from #4000) never reaches it.
+    """
+    base = (symbols()["CODE_END"] + 0x0F) & ~0x0F
+    limit = 0x4000 - 256 - SCRATCH_SIZE
+    if base > limit:
+        raise RuntimeError(
+            f"no room for test scratch: code_end is #{base:04X}, limit #{limit:04X}"
+        )
+    return base
+
+
+SCRATCH_SIZE = 0x60
+
 #  How long to let the firmware run before we take over. The game programs
 #  CRTC R12/R13 and nothing else -- it inherits the standard 40x25 display the
 #  firmware sets up, exactly as it would on a real machine loaded from BASIC.
@@ -79,6 +104,13 @@ def symbols(path: str = SYM) -> dict[str, int]:
     return out
 
 
+#  Laid out as: the stub, then a word of result, then a data block.
+SCRATCH = _scratch_base()
+STUB = SCRATCH
+RESULT = SCRATCH + 0x40
+DATA = SCRATCH + 0x50
+
+
 def boot_quick(frames: int = 40) -> cpc.CPC:
     """Let the firmware boot, then drop DISC.BIN in at #4000 and jump to it.
 
@@ -97,6 +129,19 @@ def boot_quick(frames: int = 40) -> cpc.CPC:
     if frames:
         c.run_frames(frames)
     return c
+
+
+def close(c) -> None:
+    """Free an emulator as soon as the test that owns it is done with it.
+
+    unittest keeps test instances alive for the whole run, so a fixture that
+    builds a machine per test leaves dozens of them live at once -- and they
+    interfere: keystrokes stop registering in some of them, and the symptom
+    surfaces in whichever test happens to run next rather than in the one
+    that leaked. Fixtures with a per-test setUp should call this in tearDown.
+    """
+    if c is not None:
+        c.__del__()
 
 
 def boot_disc(frames: int = 400) -> cpc.CPC:

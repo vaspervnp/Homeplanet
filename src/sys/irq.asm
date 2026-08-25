@@ -24,7 +24,10 @@ sys_irq:
     ld hl,sys_tick_50hz                 ; free-running 50 Hz counter
     inc (hl)
 
-    ; TODO(phase 6): call snd_update here -- one AY frame per 50 Hz tick.
+    ;  One AY frame per 50 Hz tick. snd_update saves everything beyond AF and
+    ;  HL itself -- see its header, and the PPI contract it shares with
+    ;  key_scan.
+    call snd_update
 
 @not_50hz:
     pop hl

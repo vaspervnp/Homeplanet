@@ -23,7 +23,10 @@
 ;  giving it a new destination.
 ; ----------------------------------------------------------------------------
 
-PHASE4_SHIPS        equ 20              ; how many the demo starts with
+;  15 + 8 + the Mothership is 24 entities, which is the number section 6
+;  budgets a frame for. It was 31, and the frame rate said so.
+PHASE4_SHIPS        equ 15              ; friendly ships the demo starts with
+PHASE4_ENEMIES      equ 8
 
 ;  World units a ship closes on its slot each frame. Fast enough that a split
 ;  resolves in a couple of seconds, slow enough to read as flight.
@@ -78,6 +81,7 @@ demo_init:
     ld (phase4_hud_dirty),a
 
     call form_init
+    call cbt_init
     call ent_clear_all
     call phase4_spawn_fleet
     jp squad_init
@@ -179,6 +183,73 @@ phase4_spawn_fleet:
     inc hl
     inc de
     djnz @p4_moth_pos
+
+    ;  ...and the Vekhar picket the fleet has to get through. They hold
+    ;  station: enemy movement is not written yet, so they wait to be reached.
+    ld a,PHASE4_SHIPS + 1
+    ld (phase4_index),a
+@p4_enemy:
+    ld a,(phase4_index)
+    call ent_addr
+    push hl
+
+    ;  Spread them in a line across the fleet's path.
+    ld a,(phase4_index)
+    sub PHASE4_SHIPS + 1
+    ld (phase4_slotno),a
+    ld c,a
+    ld b,0
+    ld hl,phase4_enemy_line
+    add hl,bc
+    add hl,bc
+    ld c,(hl)
+    inc hl
+    ld b,(hl)                           ; BC = this one's X
+    pop hl
+    push hl
+    ld (hl),c
+    inc hl
+    ld (hl),b
+    inc hl
+    ld (hl),0
+    inc hl
+    ld (hl),0                           ; Y = 0
+    inc hl
+    ld bc,PHASE4_ENEMY_Z
+    ld (hl),c
+    inc hl
+    ld (hl),b
+    pop hl
+
+    push hl
+    ld de,ENT_FLAGS
+    add hl,de
+    ld (hl),ENT_F_ACTIVE + ENT_F_ENEMY
+    pop hl
+    push hl
+    ld de,ENT_HULL
+    add hl,de
+    ld (hl),200
+    pop hl
+    push hl
+    ld de,ENT_CLASS
+    add hl,de
+    ld (hl),CLASS_INTERCEPTOR
+    pop hl
+    push hl
+    ld de,ENT_SQUAD
+    add hl,de
+    ld (hl),SQUAD_NONE                  ; not one of the player's squadrons
+    pop hl
+    ld de,ENT_TARGET
+    add hl,de
+    ld (hl),#FF
+
+    ld hl,phase4_index
+    inc (hl)
+    ld a,(hl)
+    cp PHASE4_SHIPS + 1 + PHASE4_ENEMIES
+    jr c,@p4_enemy
     ret
 
 
@@ -196,13 +267,16 @@ demo_update:
     or a
     jr nz,@p4_frozen
     call phase4_fly
+    call cbt_update
     ;  Sensors run the battle at triple speed (section 9): the view exists for
     ;  the long transits, and there is nothing to look at while they happen.
     ld a,(view_sensors)
     or a
     jr z,@p4_frozen
     call phase4_fly
+    call cbt_update
     call phase4_fly
+    call cbt_update
 @p4_frozen:
 
     call phase4_select_list
@@ -219,6 +293,7 @@ demo_update:
 @p4_tactical:
     call phase4_draw
 @p4_drawn:
+    call phase4_draw_explosions
     call phase4_draw_disc
     call phase4_hud
 
@@ -635,6 +710,16 @@ phase4_cache:
     add a,a
     add a,a
     or c
+    ld c,a
+    ld hl,(phase4_ent)
+    ld de,ENT_FLAGS
+    add hl,de
+    ld a,(hl)
+    and ENT_F_ENEMY
+    jr z,@p4_friendly
+    ld a,#80                            ; bit 7 marks the other side
+@p4_friendly:
+    or c
     pop hl
     ld (hl),a
     inc hl
@@ -926,16 +1011,20 @@ phase4_blit_one:
     ld a,(hl)
     ld (phase4_view),a
     inc hl
-    ld a,(hl)                           ; (class << 2) | tier
+    ld a,(hl)                           ; enemy | (class << 2) | tier
     ld (phase4_sx),de
 
     ld c,a
+    and #80
+    ld (spr_enemy),a                    ; recolour pen 1 as pen 3 if set
+    ld a,c
     and 3
     push af                             ; the tier
     ld a,c
+    and #7F
     rrca
     rrca
-    and #3F
+    and #1F
     ld b,a                              ; B = class
     pop af
     ld c,a                              ; C = tier
@@ -1028,6 +1117,90 @@ phase4_blit_one:
     ld (phase4_rect_ptr),de
     ld hl,phase4_rect_count
     inc (hl)
+    ret
+
+
+; ----------------------------------------------------------------------------
+;  phase4_draw_explosions -- a red mark where each ship died
+;
+;  Drawn after the ships and in both views: a kill is the one thing the player
+;  must not miss, and in the sensor view it is the only thing that happens.
+;  The mark does not grow -- it is a cross for a few frames and then it is
+;  gone -- which is as much as twenty pixels of drawing buys.
+;  Uses: everything
+; ----------------------------------------------------------------------------
+phase4_draw_explosions:
+    ld hl,cbt_explosions
+    ld (phase4_expl_ptr),hl
+    ld a,EXPL_MAX
+    ld (phase4_expl_left),a
+
+@p4_expl_one:
+    ld hl,(phase4_expl_ptr)
+    push hl
+    ld de,6
+    add hl,de
+    ld a,(hl)                           ; timer
+    pop hl
+    or a
+    jr z,@p4_expl_next
+
+    call proj_point
+    jr nc,@p4_expl_next
+
+    ld hl,(proj_sx)
+    ld a,(proj_sy)
+    ld c,a
+    ld a,INK_ENEMY
+    call gfx_cross
+
+    ;  Record it for erasing, the same shape as the sensor crosses.
+    ld a,(proj_sy)
+    or a
+    jr z,@p4_expl_y0
+    dec a
+@p4_expl_y0:
+    ld (phase4_disc_rect + 1),a
+    ld a,3
+    ld (phase4_disc_rect + 2),a
+    ld (phase4_disc_rect + 3),a
+
+    ld hl,(proj_sx)
+    srl h
+    rr l
+    srl h
+    rr l
+    ld a,l
+    or a
+    jr z,@p4_expl_x0
+    dec a
+@p4_expl_x0:
+    ld (phase4_disc_rect + 0),a
+
+    ld hl,phase4_disc_rect
+    ld de,(phase4_rect_ptr)
+    ld b,4
+@p4_expl_copy:
+    ld a,(hl)
+    ld (de),a
+    inc hl
+    inc de
+    djnz @p4_expl_copy
+    ld (phase4_rect_ptr),de
+    ld hl,phase4_rect_count
+    inc (hl)
+    ld hl,(phase4_count)
+    ld a,(phase4_rect_count)
+    ld (hl),a
+
+@p4_expl_next:
+    ld hl,(phase4_expl_ptr)
+    ld de,EXPL_SIZE
+    add hl,de
+    ld (phase4_expl_ptr),hl
+    ld hl,phase4_expl_left
+    dec (hl)
+    jr nz,@p4_expl_one
     ret
 
 
@@ -1357,6 +1530,8 @@ phase4_sort_n:      defb 0
 phase4_sort_i:      defb 0
 phase4_sort_j:      defb 0
 
+phase4_expl_ptr:    defw 0
+phase4_expl_left:   defb 0
 phase4_disc_flat:   defs 6, 0
 phase4_disc_tx:     defw 0
 phase4_disc_ty:     defb 0
@@ -1376,6 +1551,12 @@ phase4_hud_shadow_sel: defb #FF
 phase4_hud_text:    defb " 0:",0        ; the marker and digit are patched in
 phase4_hud_blank:   defb "     ",0
 
+PHASE4_ENEMY_Z      equ 22000
+
+;  Where the picket sits, spread across X.
+phase4_enemy_line:
+    defw -12000, -8500, -5000, -1500, 1500, 5000, 8500, 12000
+
 demo_tick0:         defb 0
 demo_frames:        defb 0
 
@@ -1383,8 +1564,9 @@ phase4_slot_next:   defs SQUAD_MAX + 1, 0
 
 phase4_drawn_a:     defb 0
 phase4_drawn_b:     defb 0
-phase4_rects_a:     defs (ENT_MAX + 1) * 4, 0    ; +1 for the move disc
-phase4_rects_b:     defs (ENT_MAX + 1) * 4, 0
+PHASE4_RECT_SLOTS        equ ENT_MAX + EXPL_MAX + 1   ; ships, explosions, the disc
+phase4_rects_a:     defs PHASE4_RECT_SLOTS * 4, 0
+phase4_rects_b:     defs PHASE4_RECT_SLOTS * 4, 0
 
 phase4_vis:         defs ENT_MAX * PHASE4_VIS_SIZE, 0
 phase4_order:       defs ENT_MAX, 0

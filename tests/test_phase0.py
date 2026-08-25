@@ -134,8 +134,8 @@ class TestDrawing(unittest.TestCase):
             0xCD, fill & 0xFF, fill >> 8,           # call scr_fill_rect
             0x18, 0xFE,                             # jr $
         ])
-        self.c.write_ram(0x3000, stub)
-        self.c.set_pc(0x3000)
+        self.c.write_ram(h.STUB, stub)
+        self.c.set_pc(h.STUB)
         self.c.run_frames(3)
 
         back = self.c.read_ram(self.sym["SCR_BACK_PAGE"], 1)[0] << 8

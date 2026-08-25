@@ -41,6 +41,10 @@ class SquadFixture(unittest.TestCase):
         #  would make the tests order-dependent.
         self.c = h.boot_quick(frames=200)
 
+    def tearDown(self):
+        #  Free it now; see harness.close.
+        h.close(getattr(self, "c", None))
+
     def counts(self):
         """Ships per squadron, as squadron 1..9."""
         return list(self.c.read_ram(self.sym["SQUAD_COUNT"], 10))[1:]

@@ -41,6 +41,7 @@ sys_boot:
     ld bc,GA_PORT * 256 + GA_BANK_4
     out (c),c
 
+    call snd_init                       ; silence, before anything can be heard
     call scr_set_palette
     call scr_init_crtc
 

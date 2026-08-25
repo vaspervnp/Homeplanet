@@ -57,13 +57,13 @@ class SpriteFixture(unittest.TestCase):
         stub = bytes([0xF3,
                       0xCD, addr & 0xFF, addr >> 8,
                       0x9F,                                  # sbc a,a
-                      0x32, 0x00, 0x2F,                      # ld (#2F00),a
+                      0x32, h.RESULT & 0xFF, h.RESULT >> 8,                      # ld (#2F00),a
                       0x18, 0xFE])
-        self.c.write_ram(0x3000, stub)
-        self.c.set_pc(0x3000)
+        self.c.write_ram(h.STUB, stub)
+        self.c.set_pc(h.STUB)
         self.c.run_frames(3)
 
-        carry = self.c.read_ram(0x2F00, 1)[0] == 0xFF
+        carry = self.c.read_ram(h.RESULT, 1)[0] == 0xFF
         rect = tuple(self.c.read_ram(self.sym["SPR_RECT"], 4))
         return carry, rect
 
