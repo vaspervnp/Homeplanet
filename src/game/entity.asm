@@ -26,6 +26,11 @@ ENT_ORDER           equ 13              ; MOVE / ATTACK / GUARD / ...
 ENT_TARGET          equ 14              ; entity index
 ENT_DEST            equ 15              ; 4 bytes, reserved for the packed
                                         ; 12-bit order destination
+
+;  A harvester's hold, borrowed from the first of those reserved bytes.
+;  Deliberately NOT ENT_TIMER: combat decrements that every frame as a weapon
+;  cooldown, and a hold that drains itself would be a puzzling thing to debug.
+ENT_LOAD            equ 15
 ENT_TIMER           equ 19              ; weapon cooldown / general counter
 
 ENT_F_ACTIVE        equ %00000001
@@ -109,6 +114,34 @@ ent_is_active:
     add hl,de
     ld a,(hl)
     rra                                 ; ENT_F_ACTIVE is bit 0 -> carry
+    ret
+
+
+; ----------------------------------------------------------------------------
+;  ent_find_free -- the first slot not in use
+;  Out: CF set and A = the slot, or CF clear if the table is full
+;  Uses: everything
+; ----------------------------------------------------------------------------
+ent_find_free:
+    xor a
+    ld (ent_index),a
+@ent_free_try:
+    ld a,(ent_index)
+    call ent_addr
+    ld de,ENT_FLAGS
+    add hl,de
+    bit 0,(hl)
+    jr nz,@ent_free_next
+    ld a,(ent_index)
+    scf
+    ret
+@ent_free_next:
+    ld hl,ent_index
+    inc (hl)
+    ld a,(hl)
+    cp ENT_MAX
+    jr c,@ent_free_try
+    or a
     ret
 
 

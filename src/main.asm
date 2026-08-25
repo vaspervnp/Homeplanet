@@ -51,6 +51,7 @@ game_main:
     include "game/formation.asm"
     include "game/order.asm"
     include "game/combat.asm"
+    include "game/economy.asm"
     include "demo/phase4.asm"
 
 ; ----------------------------------------------------------------------------

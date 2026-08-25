@@ -366,6 +366,11 @@ Design document section 13 lists ten phases.
 - **Phase 4 — done.** The 20-byte entity record from section 7, keyboard
   matrix scanning, an 8×8 font and the HUD strip, squadrons, and formation
   flight. 20 ships at ~8 fps.
+- **Phase 7 — done.** Resource patches, harvesters, RU, and a build panel;
+  `H` and `B` are live. The loop closes: build a harvester, send it out, and
+  what it mines pays for the next ship. What is NOT in: build costs for the
+  classes that have no art yet (Scout, Bomber, Frigate, Salvage Corvette,
+  Destroyer), and a build *queue* — the yard takes one order at a time.
 - **Phase 6 — done.** Both fleets fire, hulls take damage, ships die and leave
   explosions, and the AY plays a tone for a shot and noise for a kill.
   Targeting is round-robin — one entity re-targets per frame — so no frame
@@ -413,9 +418,13 @@ limit: bank 4 has ~10 KB spare, enough for a second class. Add it to
 | `R` | station the squadron on the Mothership |
 | `,` / `.` | step the target through live entities |
 | `A` / `G` | attack / guard — writes the order, nothing acts on it yet |
+| `H` | send the selected squadron's **harvesters** to work |
+| `B` | open the build panel; `,`/`.` pick a class, ENTER orders it |
 
-**Not implemented, and deliberately:** `H` (harvest) needs harvesters and
-resources, which is Phase 7; `B` (build) is the same; `J` (jump) is Phase 8.
+**Not implemented, and deliberately:** `J` (jump) is Phase 8.
+
+While the build panel is open it takes over `,`, `.` and `ENTER` — one pair of
+keys, two meanings, decided by the mode the player can see on screen.
 
 `TAB` is bound and correct per the hardware matrix but **unverified** — the
 emulator's keymap has no TAB entry, so no test can press it. `S` does the same
@@ -461,6 +470,30 @@ next *active* squadron instead, because merging with an empty one would be a
 no-op and the HUD only lists the active ones. All the commands are
 edge-triggered — holding `d` divides once, not once a frame — and
 `tests/test_squad.py` presses real keys in the emulator to prove it.
+
+### The economy
+
+Four resource patches with a stock that runs down; harvesters fly out, fill a
+hold, fly back to the Mothership and turn it into RU. A harvester's whole
+state is its `ENT_ORDER` plus its hold, so there is no harvester table to keep
+in step with the entity list — the same reasoning as `squad_count`.
+
+Three things that bit, all of them the same shape — two systems writing the
+same thing:
+
+- **The hold lives in `ENT_LOAD`, not `ENT_TIMER`.** Combat decrements
+  `ENT_TIMER` every frame as a weapon cooldown, and a hold that drains itself
+  is a puzzling thing to debug.
+- **`phase4_fly` skips ships that are harvesting.** Both it and `eco_update`
+  step by `PHASE4_STEP`, so they cancelled exactly: the harvester sat
+  vibrating in place while the RU never moved.
+- **Mining clamps at zero.** The last scoop took a patch below zero and a
+  16-bit stock wrapped to 65534, turning an exhausted field into an
+  inexhaustible one.
+
+`H` only orders **harvesters**, which §9 marks explicitly. Ordering the whole
+squadron out put fifteen interceptors on a patch and mined the map dry in
+seconds — the economy is meant to be a choice, not a free action.
 
 ### Sound and the keyboard share port A
 

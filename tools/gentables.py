@@ -107,18 +107,6 @@ def quarter_squares() -> list[int]:
     return [(n * n) // 4 for n in range(512)]
 
 
-def sine_table() -> list[int]:
-    """sin(angle) in 8.8 fixed point, 256 angles to the turn.
-
-    Cosine is the same table read at (angle + 64) & 255, so nothing separate
-    is stored for it.
-    """
-    return [
-        round(TRIG_ONE * math.sin(2.0 * math.pi * i / TRIG_STEPS))
-        for i in range(TRIG_STEPS)
-    ]
-
-
 def signed_quarter_squares() -> list[int]:
     """f(s) = floor(s^2 / 4), indexed by s as a 9-bit TWO'S COMPLEMENT number.
 
@@ -326,24 +314,9 @@ def render() -> str:
         "",
     ]
 
-    # --- sine ---------------------------------------------------------------
-    sin = sine_table()
-    sin_lo, sin_hi = _split_planes(sin)
-    lines += [
-        "; ---------------------------------------------------------------------------",
-        ";  sin_lo / sin_hi -- sin(a) * 256, 256 angles to the turn, two's complement.",
-        ";  cos(a) = sin((a + 64) & 255). Page-aligned: ld h,HIGH(sin_lo) : ld l,angle",
-        "; ---------------------------------------------------------------------------",
-        f"TRIG_ONE     equ {TRIG_ONE}",
-        f"TRIG_STEPS   equ {TRIG_STEPS}",
-        f"TRIG_QUARTER equ {TRIG_QUARTER}",
-        "",
-        "    align 256",
-        _defb_block("sin_lo", sin_lo),
-        "    align 256",
-        _defb_block("sin_hi", sin_hi),
-        "",
-    ]
+    #  The 8.8 sine table that used to live here is gone. cam_build_matrix
+    #  wants single-byte trig and reads sin7 below; nothing ever read the
+    #  two-plane 8.8 version, and it was 512 bytes of the low 16K.
 
     # --- signed quarter squares --------------------------------------------
     f9 = signed_quarter_squares()
@@ -368,6 +341,8 @@ def render() -> str:
         ";  What cam_build_matrix reads: ld h,HIGH(sin7) : ld l,angle : ld a,(hl)",
         "; ---------------------------------------------------------------------------",
         f"MAT_ONE equ {MAT_ONE}",
+        f"TRIG_STEPS   equ {TRIG_STEPS}",
+        f"TRIG_QUARTER equ {TRIG_QUARTER}",
         "",
         "    align 256",
         _defb_block("sin7", sin7_table()),

@@ -58,6 +58,10 @@ HUD_ENTRY_CHARS     equ 5               ; ">n:cc"
 HUD_ENTRY_BYTES     equ HUD_ENTRY_CHARS * 2
 HUD_PER_ROW         equ 5
 
+;  The right-hand half of the strip: resources above, the yard below.
+HUD_RU_X            equ 56
+HUD_YARD_X          equ 44
+
 
 ; ----------------------------------------------------------------------------
 ;  demo_init
@@ -82,6 +86,7 @@ demo_init:
 
     call form_init
     call cbt_init
+    call eco_init
     call ent_clear_all
     call phase4_spawn_fleet
     jp squad_init
@@ -268,6 +273,7 @@ demo_update:
     jr nz,@p4_frozen
     call phase4_fly
     call cbt_update
+    call eco_update
     ;  Sensors run the battle at triple speed (section 9): the view exists for
     ;  the long transits, and there is nothing to look at while they happen.
     ld a,(view_sensors)
@@ -275,8 +281,10 @@ demo_update:
     jr z,@p4_frozen
     call phase4_fly
     call cbt_update
+    call eco_update
     call phase4_fly
     call cbt_update
+    call eco_update
 @p4_frozen:
 
     call phase4_select_list
@@ -399,6 +407,17 @@ phase4_fly:
     ld de,ENT_FLAGS
     add hl,de
     bit 0,(hl)
+    jr z,@p4_next_fly
+
+    ;  A ship that has been sent to work has left the formation. Without
+    ;  this, phase4_fly drags it back towards its slot exactly as fast as
+    ;  eco_update pushes it towards the patch -- both step by PHASE4_STEP --
+    ;  and the harvester sits there vibrating while the RU never moves.
+    ld hl,(phase4_ent)
+    ld de,ENT_ORDER
+    add hl,de
+    ld a,(hl)
+    cp ENT_ORDER_HARVEST
     jr z,@p4_next_fly
 
     ld hl,(phase4_ent)
@@ -1383,7 +1402,62 @@ phase4_hud:
     ld (phase4_hud_x),a
     ld a,SQUAD_MAX - HUD_PER_ROW
     ld (phase4_hud_left),a
-    jp phase4_hud_row
+    call phase4_hud_row
+
+    ; --- resources (section 5.5) ------------------------------------------
+    ld hl,phase4_hud_ru_label
+    ld b,HUD_RU_X
+    ld c,HUD_ROW_A_Y
+    call txt_draw
+    ld a,(eco_ru)                       ; the low byte: RU never nears 65535
+    ld b,HUD_RU_X + 3 * TXT_CHAR_W_BYTES
+    ld c,HUD_ROW_A_Y
+    ld d,3
+    call txt_draw_num
+
+    ; --- the yard ---------------------------------------------------------
+    ;  '*' while a ship is on the slipway, '>' while the panel is open and
+    ;  offering one, blank otherwise.
+    ld a,(eco_build_class)
+    cp CLASS_COUNT
+    jr nc,@p4_yard_idle
+    ld c,a
+    ld a,'*'
+    jr @p4_yard_show
+@p4_yard_idle:
+    ld a,(eco_build_open)
+    or a
+    jr z,@p4_yard_blank
+    ld a,(eco_build_pick)
+    ld l,a
+    ld h,0
+    ld de,eco_build_order
+    add hl,de
+    ld c,(hl)
+    ld a,'>'
+
+@p4_yard_show:
+    ld (phase4_yard_text),a
+    ld a,c
+    add a,a
+    add a,a                             ; four bytes a tag: marker + 3 letters
+    ld l,a
+    ld h,0
+    ld de,phase4_class_tag
+    add hl,de
+    ld de,phase4_yard_text + 1
+    ld bc,3
+    ldir
+    ld hl,phase4_yard_text
+    ld b,HUD_YARD_X
+    ld c,HUD_ROW_B_Y
+    jp txt_draw
+
+@p4_yard_blank:
+    ld hl,phase4_yard_blank
+    ld b,HUD_YARD_X
+    ld c,HUD_ROW_B_Y
+    jp txt_draw
 
 
 ; ----------------------------------------------------------------------------
@@ -1412,6 +1486,27 @@ phase4_hud_changed:
     ld a,(squad_sel)
     ld hl,phase4_hud_shadow_sel
     cp (hl)
+    jr nz,@p4_hud_diff
+
+    ;  Resources and the yard live in the same strip. The build TIMER is
+    ;  deliberately not compared: it changes every frame while a ship is on
+    ;  the slipway, and redrawing the strip for a countdown nobody is reading
+    ;  would undo the whole point of the dirty flag.
+    ld hl,(eco_ru)
+    ld de,(phase4_hud_shadow_ru)
+    or a
+    sbc hl,de
+    jr nz,@p4_hud_diff
+    ld a,(eco_build_class)
+    ld hl,phase4_hud_shadow_yard
+    cp (hl)
+    jr nz,@p4_hud_diff
+    ld a,(eco_build_open)
+    add a,a
+    ld hl,eco_build_pick
+    add a,(hl)
+    ld hl,phase4_hud_shadow_pick
+    cp (hl)
     ret z
 
 @p4_hud_diff:
@@ -1421,6 +1516,15 @@ phase4_hud_changed:
     ldir
     ld a,(squad_sel)
     ld (phase4_hud_shadow_sel),a
+    ld hl,(eco_ru)
+    ld (phase4_hud_shadow_ru),hl
+    ld a,(eco_build_class)
+    ld (phase4_hud_shadow_yard),a
+    ld a,(eco_build_open)
+    add a,a
+    ld hl,eco_build_pick
+    add a,(hl)
+    ld (phase4_hud_shadow_pick),a
     ld a,2
     ld (phase4_hud_dirty),a
     ret
@@ -1548,6 +1652,19 @@ phase4_hud_n:       defb 0
 phase4_hud_dirty:   defb 0
 phase4_hud_shadow:  defs SQUAD_MAX + 1, #FF
 phase4_hud_shadow_sel: defb #FF
+phase4_hud_shadow_ru:  defw #FFFF
+phase4_hud_shadow_yard: defb #FE
+phase4_hud_shadow_pick: defb #FE
+
+phase4_hud_ru_label: defb "RU ",0
+phase4_yard_text:    defb " XXX",0
+phase4_yard_blank:   defb "    ",0
+
+;  Three letters a class, in class order.
+phase4_class_tag:
+    defb "INT",0                        ; interceptor
+    defb "MTH",0                        ; mothership
+    defb "HAR",0                        ; harvester
 phase4_hud_text:    defb " 0:",0        ; the marker and digit are patched in
 phase4_hud_blank:   defb "     ",0
 

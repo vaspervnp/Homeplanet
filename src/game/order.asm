@@ -91,6 +91,12 @@ order_update:
     ld a,KEY_ENTER
     call key_hit
     jr nc,@ord_no_enter
+    ld a,(eco_build_open)
+    or a
+    jr z,@ord_enter_disc
+    call eco_queue                      ; the panel owns ENTER while it is up
+    jr @ord_no_enter
+@ord_enter_disc:
     ld a,(disc_active)
     or a
     jr nz,@ord_confirm
@@ -120,6 +126,41 @@ order_update:
     call key_hit
     call c,order_dock
 
+    ld a,KEY_H
+    call key_hit
+    call c,eco_set_harvest
+
+    ld a,KEY_B
+    call key_hit
+    jr nc,@ord_no_build
+    ld hl,eco_build_open
+    ld a,(hl)
+    xor 1
+    ld (hl),a
+@ord_no_build:
+
+    ;  While the build panel is open, `,` and `.` pick a class instead of
+    ;  walking the target. One pair of keys, two meanings, decided by the mode
+    ;  the player can see on screen.
+    ld a,(eco_build_open)
+    or a
+    jr z,@ord_target_keys
+
+    ld a,KEY_PERIOD
+    call key_hit
+    jr nc,@ord_no_pick_next
+    ld a,1
+    call eco_pick_step
+@ord_no_pick_next:
+    ld a,KEY_COMMA
+    call key_hit
+    jr nc,@ord_no_pick_prev
+    ld a,-1
+    call eco_pick_step
+@ord_no_pick_prev:
+    jr @ord_after_target_keys
+
+@ord_target_keys:
     ld a,KEY_PERIOD
     call key_hit
     jr nc,@ord_no_next_target
@@ -133,6 +174,7 @@ order_update:
     ld a,-1
     call order_target_step
 @ord_no_prev_target:
+@ord_after_target_keys:
 
     ld a,KEY_A
     call key_hit
@@ -153,6 +195,7 @@ order_update:
     jr nc,@ord_no_esc
     xor a
     ld (disc_active),a
+    ld (eco_build_open),a
 @ord_no_esc:
     jp order_focus
 

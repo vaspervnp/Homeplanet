@@ -13,7 +13,13 @@
 
 CLASS_INTERCEPTOR   equ 0
 CLASS_MOTHERSHIP    equ 1
-CLASS_COUNT         equ 2
+CLASS_HARVESTER     equ 2
+CLASS_COUNT         equ 3
+
+;  Classes the yard will build, which is every class up to but not including
+;  the Mothership... except the Mothership is class 1, so the buildable ones
+;  are named explicitly by eco_build_order instead.
+CLASS_BUILDABLE     equ 2
 
 ;  How many size tiers to draw a class ABOVE what its distance alone would
 ;  give. The tiers are a distance ladder, not a size one, so without this a
@@ -24,6 +30,7 @@ CLASS_COUNT         equ 2
 class_tier_bias:
     defb 0                              ; interceptor
     defb 1                              ; mothership
+    defb 0                              ; harvester
 
 ;  Per tier: base address, width in bytes, height, half width and half height
 ;  in pixels (for centring), and the size of one (frame, pre-shift) block.
@@ -107,6 +114,24 @@ class_tiers:
     defw interceptor_c_block_sz
 
     ; --- mothership, wearing the frigate's sprites ----------------------
+    defw frigate_a
+    defb frigate_a_w_bytes, frigate_a_h
+    defb frigate_a_w_px / 2, frigate_a_h / 2
+    defw frigate_a_block_sz
+
+    defw frigate_b
+    defb frigate_b_w_bytes, frigate_b_h
+    defb frigate_b_w_px / 2, frigate_b_h / 2
+    defw frigate_b_block_sz
+
+    defw frigate_c
+    defb frigate_c_w_bytes, frigate_c_h
+    defb frigate_c_w_px / 2, frigate_c_h / 2
+    defw frigate_c_block_sz
+
+    ; --- harvester: the frigate's hull again, at fighter scale -----------
+    ;  A working ship, blunter than an interceptor. It has no art of its own
+    ;  yet; when it gets some, this table is the only thing that changes.
     defw frigate_a
     defb frigate_a_w_bytes, frigate_a_h
     defb frigate_a_w_px / 2, frigate_a_h / 2

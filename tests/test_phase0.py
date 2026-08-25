@@ -191,16 +191,15 @@ class TestTables(unittest.TestCase):
             for b in range(0, 256, 5):
                 self.assertEqual(f[a + b] - f[abs(a - b)], a * b, f"{a}*{b}")
 
-    def test_sine(self):
-        want = gentables.sine_table()
-        lo = self._plane("SIN_LO", 256)
-        hi = self._plane("SIN_HI", 256)
-        got = [l | (hgh << 8) for l, hgh in zip(lo, hi)]
-        got = [v - 0x10000 if v >= 0x8000 else v for v in got]
-        self.assertEqual(got, want)
+    #  The 8.8 sine table this used to check is gone: nothing read it, and it
+    #  was 512 bytes of the low 16K. cam_build_matrix uses sin7, which
+    #  tests/test_phase1.py checks by comparing the whole matrix against the
+    #  model.
 
     def test_tables_are_page_aligned(self):
-        for name in ("QSQ_LO", "QSQ_HI", "SIN_LO", "SIN_HI"):
+        """Every table the code indexes with `ld h,page : ld l,index`."""
+        for name in ("QSQ_LO", "QSQ_HI", "F9_LO", "F9_HI",
+                     "SIN7", "RECIP", "TIER_LUT", "SCR_LINE_LO"):
             self.assertEqual(self.sym[name] & 0xFF, 0, f"{name} is not page aligned")
 
 
