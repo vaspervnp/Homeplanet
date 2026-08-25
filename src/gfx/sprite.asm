@@ -70,10 +70,10 @@ spr_blit:
     ld a,h
     or a
     jp nz,spr_reject                    ; y >= 256, off the bottom
-    ld a,SCR_HEIGHT_PX
+    ld a,(spr_clip_bottom)
     sub l
     jp z,spr_reject
-    jp c,spr_reject                     ; y >= 200
+    jp c,spr_reject                     ; below the viewport
     cp b
     jr nc,@height_ok
     ld b,a                              ; clamp
@@ -229,6 +229,15 @@ spr_row_end:
 ; ============================================================================
 ;  State
 ; ============================================================================
+;  First scanline the tactical view may NOT touch. The HUD owns the strip
+;  below it, and clipping here rather than redrawing the HUD every frame is
+;  worth about 90,000 T-states a frame -- the HUD only has to be redrawn when
+;  it actually changes, which is almost never.
+;
+;  Callers that want the whole screen (the blitter's own tests) set this to
+;  SCR_HEIGHT_PX.
+spr_clip_bottom:    defb SCR_HEIGHT_PX
+
 spr_src:            defw 0              ; input: block address
 spr_x:              defw 0              ; input: left edge, signed, in bytes
 spr_y:              defw 0              ; input: top edge, signed, in lines

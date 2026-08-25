@@ -33,6 +33,7 @@ BUILD = os.path.join(ROOT, "build")
 DISC_RAW = os.path.join(BUILD, "disc.raw")
 DSK = os.path.join(BUILD, "homeplanet.dsk")
 SYM = os.path.join(BUILD, "homeplanet.sym")
+DISC_SYM = os.path.join(BUILD, "disc.sym")
 
 LOADER_ORG = 0x4000
 
@@ -61,14 +62,14 @@ def build() -> None:
 _SYM_LINE = re.compile(r"^(\S+)\s+#([0-9A-Fa-f]+)\s")
 
 
-def symbols() -> dict[str, int]:
+def symbols(path: str = SYM) -> dict[str, int]:
     """Parse RASM's symbol file into {NAME: address}.
 
     Format is `NAME #ADDR B<bank> <kind>`, one per line. RASM upper-cases
     every label, so look symbols up in upper case.
     """
     out: dict[str, int] = {}
-    with open(SYM, encoding="utf-8", errors="replace") as f:
+    with open(path, encoding="utf-8", errors="replace") as f:
         for line in f:
             m = _SYM_LINE.match(line)
             if m:
@@ -89,7 +90,10 @@ def boot_quick(frames: int = 40) -> cpc.CPC:
     c.run_frames(BOOT_FRAMES)
     with open(DISC_RAW, "rb") as f:
         c.write_ram(LOADER_ORG, f.read())
-    c.set_pc(LOADER_ORG)
+    #  Not LOADER_ORG: the stub lives at the TOP of the image, above #8000,
+    #  because it has to page bank 4 into #4000 and would otherwise page
+    #  itself out mid-instruction. See src/disc.asm.
+    c.set_pc(symbols(DISC_SYM)["DISC_STUB"])
     if frames:
         c.run_frames(frames)
     return c
@@ -159,6 +163,16 @@ def crtc_page(c: cpc.CPC) -> int:
 def screen_offset(y: int, x_byte: int) -> int:
     """Byte offset of (x_byte, y) from a buffer base -- the CPC interleave."""
     return ((y & 7) * 0x800) + ((y >> 3) * 80) + x_byte
+
+
+def read_cpu(c: cpc.CPC, addr: int, size: int) -> bytes:
+    """Read the way the CPU sees memory, honouring the bank paging.
+
+    read_ram() indexes the base 64K by address, so #4000 always gives it
+    bank 1 -- but the game runs with extended bank 4 in that window, holding
+    the sprite library. Anything reading #4000-#7FFF must come through here.
+    """
+    return bytes(c.peek((addr + i) & 0xFFFF) for i in range(size))
 
 
 def peek_pixel_byte(c: cpc.CPC, base: int, y: int, x_byte: int) -> int:

@@ -33,8 +33,12 @@ sys_boot:
     ld bc,GA_PORT * 256 + GA_GAME_ROMMODE
     out (c),c
 
-    ; --- base RAM configuration -------------------------------------------
-    ld bc,GA_PORT * 256 + GA_BANK_DEFAULT
+    ; --- RAM configuration ------------------------------------------------
+    ;  Bank 4 stays in the #4000 window for the whole run: it holds the sprite
+    ;  library, which src/disc.asm put there at load time. Selecting the
+    ;  power-on layout here instead would page it straight back out and every
+    ;  sprite would draw from whatever BASIC left in bank 1.
+    ld bc,GA_PORT * 256 + GA_BANK_4
     out (c),c
 
     call scr_set_palette

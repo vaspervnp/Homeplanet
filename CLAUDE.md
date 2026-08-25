@@ -108,20 +108,33 @@ gives you a CRTC that has never been initialised. `harness.boot_quick` runs
 #0000-#003F   RST vectors; our IM 1 handler is JP'd from #0038
 #0040-#3FFF   code + lookup tables + entity data        (16 KB)
               ...stack grows DOWN from #4000 into the slack
-#4000-#7FFF   BANK WINDOW — extended banks 4-7
-              sprite libraries, mission data, text, music
+#4000-#7FFF   BANK WINDOW — extended bank 4, the sprite library
 #8000-#BFFF   screen buffer B
 #C000-#FFFF   screen buffer A
 ```
 
 Everything touched per frame must live below `#4000`, because the `#4000`
-window is being paged underneath it.
+window is paged underneath it.
 
-`src/main.asm` asserts at build time that code+tables stay clear of the stack,
-and prints how many bytes are left. Watch that number.
+`src/main.asm` asserts at build time that code+tables stay clear of the stack
+and prints how many bytes are left in both the low 16K and bank 4. Watch both
+numbers.
 
-Banking: `OUT (#7Fxx), #C4..#C7` pages extended bank 4..7 into `#4000`.
-`#C0` is the power-on layout. Equates in `src/equ/hardware.asm`.
+### Banking
+
+`OUT (#7Fxx), #C4..#C7` pages extended bank 4..7 into `#4000`; `#C0` is the
+power-on layout. Equates in `src/equ/hardware.asm`.
+
+**Bank 4 is paged in for the whole run** and holds the sprite library, so
+`sys_boot` selects it rather than the default layout. Getting the data there
+is the awkward part, and `src/disc.asm` explains it at length: the stub cannot
+live at `#4000` any more, because the instant it pages bank 4 in, the window
+stops being the RAM the stub is executing from. Both the stub and the sprite
+image therefore sit above `#8000`, which the paging leaves alone.
+
+In tests, `read_ram()` indexes the base 64K by address and will hand you
+bank 1 for `#4000`. Use `harness.read_cpu()` for anything in the window — it
+goes through `peek`, which honours the paging.
 
 ---
 
@@ -196,13 +209,38 @@ a hand count of the instruction table.
 | `proj_point` (one entity, full pipeline) | ~4,560 T | 1,200 T |
 | `proj_rotate` (9 multiplies, m01 skipped) | ~2,790 T | — |
 | `cam_build_matrix` (once per frame) | ~3,360 T | — |
-| 24 entities projected | ~109,000 T (41% of a frame) | 29,000 T |
 
 A general 3×3 rotation will not fit 1,200 T on a 4 MHz Z80: nine table-driven
-multiplies alone are more than that. 24 entities still fit the frame, but
-§6's total needs revising. The 100 background stars must use the cheap path in
-§5.4 (no translation, no perspective divide, cached unless the camera moves) —
-they cannot go through `proj_point`.
+multiplies alone are more than that. The 100 background stars must therefore
+use the cheap path in §5.4 (no translation, no perspective divide, cached
+unless the camera moves) — they cannot go through `proj_point`.
+
+A whole frame, 20 ships, measured (~7.3–8.3 fps against the 12.5 target):
+
+| Stage | T-states |
+|---|---|
+| `phase4_draw` (20 masked blits) | 168,000 |
+| `phase4_project` | 113,000 |
+| `phase4_erase` (dirty rectangles) | 72,000 |
+| `phase4_sort` (z order) | 54,000 |
+| `phase4_fly` (formation movement) | 55,000 |
+| `phase4_hud` | 800 |
+| **total** | **~460,000** |
+
+Where the remaining headroom is, in the order worth taking it:
+
+- **Blitting.** 46 T a byte is close to the floor for a masked blit, but the
+  per-row overhead is ~185 T of `scr_line_addr` and address arithmetic, about
+  a third of a tier-C sprite. Stepping the screen address incrementally
+  between scanlines would take most of that back.
+- **The z-sort at 54,000 T** is O(n²) because the list is rebuilt in entity
+  order every frame, so it is never nearly sorted. Caching each entry's depth
+  beside its index would cut the comparison from ~140 T to ~40 T.
+- **`phase4_fly` and `phase4_project` both walk all 48 slots** to find 20 live
+  ones. A high-water mark would nearly halve that.
+- Fewer ships at tier C: the thresholds in `tools/gentables.py` decide how
+  many 24×16 sprites are on screen, and tier C is four times the pixels of
+  tier B.
 
 ---
 
@@ -289,19 +327,53 @@ Design document section 13 lists ten phases.
   that is expected, and fine).
 - **Phases 2 and 3 — done.** Masked sprite blitter with full clipping,
   per-buffer dirty rectangles, z-sorted draw order, yaw view and size tier
-  chosen per entity. A squadron of 16 interceptors orbits at ~8 fps. The
-  blitter is verified pixel-exact against a Python model of
-  `(screen AND mask) OR data`, including that a clipped sprite writes nothing
-  outside its clipped rectangle.
-- **Phase 4 — next.** Entities proper: the 20-byte record from section 7,
-  movement, formations, and the reference grid at Y=0.
+  chosen per entity. The blitter is verified pixel-exact against a Python
+  model of `(screen AND mask) OR data`, including that a clipped sprite writes
+  nothing outside its clipped rectangle.
+- **Phase 4 — done.** The 20-byte entity record from section 7, keyboard
+  matrix scanning, an 8×8 font and the HUD strip, squadrons, and formation
+  flight. 20 ships at ~8 fps.
+- **Phase 5 — next.** The rest of section 9: the move disc, camera controls on
+  the cursor keys, zoom, and the sensor view. The reference grid at Y=0
+  (section 4.1) is still not drawn.
 
-`src/demo/phase3.asm` is the Phase 2/3 acceptance test running on the CPC
-itself. Replace it when Phase 4 brings real entities.
+`src/demo/phase4.asm` is the acceptance test running on the CPC itself.
 
-**Only one ship class is linked in.** Three would be 16.9 KB of sprite data
-and the low 16K has ~3.8 KB spare. Multi-class needs the `#4000` bank window,
-which nothing pages yet.
+**Only one ship class is linked in**, but that is now a choice rather than a
+limit: bank 4 has ~10 KB spare, enough for a second class. Add it to
+`SHIP_CLASSES` in the Makefile and to the include list in `src/main.asm`.
+
+### Squadrons
+
+Nine of them, numbered 1-9. A squadron is ACTIVE if and only if it has ships
+in it — there is no separate flag, which makes "a squadron left with no ships
+is deactivated" true by construction. `squad_count` is derived by recounting
+the entity table, never maintained incrementally: running totals drift once
+ships start dying, and a 48-slot recount is only ~2,000 T.
+
+| Key | Effect |
+|---|---|
+| `1`-`9` | select that squadron, if it has ships |
+| `d` | divide the selection in half; the new half takes the next free number |
+| `m` | move one ship to the next number, creating it if need be |
+| `n` | move one ship to the previous number; for 1 that is 9 |
+| `c` | combine the selection with the next ACTIVE squadron |
+
+Two judgement calls worth knowing about. `m`/`n` step numerically and wrap
+(1 → 9 going back), because they explicitly create the target; `c` takes the
+next *active* squadron instead, because merging with an empty one would be a
+no-op and the HUD only lists the active ones. All the commands are
+edge-triggered — holding `d` divides once, not once a frame — and
+`tests/test_squad.py` presses real keys in the emulator to prove it.
+
+### The HUD
+
+Owns the strip below `HUD_TOP` (line 168). `spr_clip_bottom` keeps the
+tactical view out of it, which is what lets the HUD be redrawn only when it
+changes rather than every frame — worth ~90,000 T. `phase4_hud_changed`
+compares the counts against a shadow copy rather than having each command
+remember to flag itself, because ships dying will change the counts with
+nobody pressing anything.
 
 ### Known open questions
 

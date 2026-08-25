@@ -3,8 +3,8 @@
 ; ============================================================================
 ;  Build with:  make          (see CLAUDE.md)
 ;
-;  Phases 2 and 3: masked sprite blitting. A squadron of interceptors sits in
-;  3D while the camera orbits, each picking its yaw view and size tier.
+;  Phase 4: entities and squadrons. A fleet flies in formation while the
+;  camera orbits; the player carves it into squadrons from the keyboard.
 ; ----------------------------------------------------------------------------
 
     include "equ/hardware.asm"
@@ -37,17 +37,15 @@ game_main:
     include "sys/boot.asm"
     include "sys/irq.asm"
     include "sys/screen.asm"
+    include "sys/keyboard.asm"
     include "math/mul.asm"
     include "math/cam.asm"
     include "math/proj.asm"
     include "gfx/sprite.asm"
-    include "demo/phase3.asm"
-
-; ----------------------------------------------------------------------------
-;  Sprite data. Only one class fits under #4000 alongside the code and
-;  tables; three would be 16.9 KB. Multi-class needs the #4000 bank window.
-; ----------------------------------------------------------------------------
-    include "gen/spr_interceptor.asm"
+    include "gfx/text.asm"
+    include "game/entity.asm"
+    include "game/squad.asm"
+    include "demo/phase4.asm"
 
 ; ----------------------------------------------------------------------------
 ;  Generated lookup tables. Must come last: they are page-aligned and would
@@ -90,3 +88,25 @@ code_end:
 ;  actually gets it to #0040 -- see the long explanation there.
 ; ----------------------------------------------------------------------------
     save "build/home.raw", CODE_START, code_end - CODE_START
+
+
+; ============================================================================
+;  Bank 4 -- the sprite library
+; ============================================================================
+;  Assembled at #4000 but NOT part of the low-memory image: src/disc.asm pages
+;  extended bank 4 into the window and copies this there at load time, so the
+;  labels below resolve to bank-4 addresses and the low 16K keeps its space.
+;
+;  Nothing pages this back out, so #4000-#7FFF is the sprite library for the
+;  whole run. Missions that need different libraries will page banks 5-7.
+; ----------------------------------------------------------------------------
+    org BANK_WINDOW
+bank4_start:
+    include "gen/spr_interceptor.asm"
+bank4_end:
+
+    assert bank4_end <= BANK_WINDOW + BANK_WINDOW_SIZE, "sprite library overflows the bank window"
+
+    print "bank 4:", {hex}BANK_WINDOW, "..", {hex}bank4_end, " free:", BANK_WINDOW + BANK_WINDOW_SIZE - bank4_end
+
+    save "build/sprites.raw", BANK_WINDOW, bank4_end - BANK_WINDOW

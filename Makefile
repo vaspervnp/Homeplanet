@@ -28,8 +28,10 @@ TABLES := $(GEN_DIR)/tables.asm
 
 DSK      := $(BUILD_DIR)/homeplanet.dsk
 GAME_RAW := $(BUILD_DIR)/home.raw
+SPRITE_RAW := $(BUILD_DIR)/sprites.raw
 DISC_RAW := $(BUILD_DIR)/disc.raw
 SYM      := $(BUILD_DIR)/homeplanet.sym
+DISC_SYM := $(BUILD_DIR)/disc.sym
 
 # -I src -I .  include paths: src/ for sources, . so disc.asm can INCBIN build/
 # -eo          overwrite files already present in the .dsk
@@ -45,11 +47,11 @@ all: $(DISC_RAW)
 # Two stages, and the order matters: disc.asm INCBINs the game blob, so the
 # game has to exist first. See src/disc.asm for why the game cannot simply be
 # loaded at #0040 and run.
-$(GAME_RAW) $(SYM): $(ASM_SOURCES) $(TABLES) $(SPRITES) | $(BUILD_DIR)
+$(GAME_RAW) $(SPRITE_RAW) $(SYM) &: $(ASM_SOURCES) $(TABLES) $(SPRITES) | $(BUILD_DIR)
 	$(RASM) $(MAIN) $(RASMFLAGS) -s -sa -ec -os $(SYM)
 
-$(DISC_RAW) $(DSK): $(GAME_RAW) $(DISC)
-	$(RASM) $(DISC) $(RASMFLAGS)
+$(DISC_RAW) $(DSK) $(DISC_SYM) &: $(GAME_RAW) $(SPRITE_RAW) $(DISC)
+	$(RASM) $(DISC) $(RASMFLAGS) -s -sa -ec -os $(DISC_SYM)
 
 $(TABLES): tools/gentables.py
 	$(PYTHON) tools/gentables.py

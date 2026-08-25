@@ -117,9 +117,15 @@ class TestDrawing(unittest.TestCase):
         two bytes wide no matter what it was asked for.
         """
         fill = self.sym["SCR_FILL_RECT"]
-        # 0x3C is not a solid-pen byte, so it cannot collide with anything the
-        # demo has already drawn into this buffer.
         x, y, w, ht, byte = 3, 5, 8, 4, 0x3C
+
+        #  Blank the buffer first. Sprite data contains arbitrary bytes, so
+        #  there is no fill value that cannot also occur in a ship the demo
+        #  has already drawn here, and find_block would take the bounding box
+        #  of both.
+        back = self.c.read_ram(self.sym["SCR_BACK_PAGE"], 1)[0] << 8
+        for line in range(200):
+            self.c.write_ram(back + h.screen_offset(line, 0), bytes(80))
         stub = bytes([
             0xF3,                                   # di
             0x01, y, x,                             # ld bc  -> B=x, C=y
