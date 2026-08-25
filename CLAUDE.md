@@ -495,12 +495,14 @@ Making `FLEET.DAT` real needs the µPD765 driven directly — roughly 400 bytes
 of FDC code, and the low 16K has under 2 KB left. The other option is moving a
 screen buffer, which touches the whole rendering path.
 
-**`DISC.BIN` is also close to its ceiling**: it loads at `#4000` and must
-finish below `#A700`, and it currently ends around `#A66C` — about 600 bytes
-of headroom. Uninitialised bank data (the fleet buffer) is deliberately
-declared *after* `bank4_end` so it costs nothing in the file. Another ship
-class will not fit; per-mission loading, which §10 wants anyway, needs the
-same FDC work.
+**`DISC.BIN` used to be close to its ceiling**: it loads at `#4000` and must
+finish below `#A700`, and it once ended around `#A66C` — 148 bytes of
+headroom, with a second ship class already impossible. The sprite library is
+now RLE-compressed (`tools/packsprites.py`, 12767 → 6818 bytes), which brought
+the file to 21938 bytes ending near `#9592` and left roughly **4.4 KB**.
+Uninitialised bank data (the fleet buffer) is deliberately declared *after*
+`bank4_end` so it costs nothing in the file. Per-mission loading, which §10
+wants anyway, still needs the same FDC work.
 
 ### The economy
 
