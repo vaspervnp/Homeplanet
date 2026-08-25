@@ -43,8 +43,10 @@ game_main:
     include "math/proj.asm"
     include "gfx/sprite.asm"
     include "gfx/text.asm"
+    include "gfx/line.asm"
     include "game/entity.asm"
     include "game/squad.asm"
+    include "game/order.asm"
     include "demo/phase4.asm"
 
 ; ----------------------------------------------------------------------------

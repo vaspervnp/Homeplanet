@@ -119,12 +119,22 @@ class TestFleet(unittest.TestCase):
                                  f"buffer #{front:04X} holds {lit} lit bytes, "
                                  f"more than the whole squadron could cover")
 
-    def test_the_fleet_is_moving(self):
+    def test_the_fleet_redraws_as_the_camera_moves(self):
+        """Phase 5 handed the camera to the player, so drive it.
+
+        This used to rely on the demo orbiting by itself. It does not any
+        more, and that is the point of Phase 5 rather than a regression.
+        """
+        import cpc
+
         shots = []
         for _ in range(3):
-            self.c.run_frames(8)
+            self.c.key_down(cpc.KEY_RIGHT)
+            self.c.run_frames(40)
+            self.c.key_up(cpc.KEY_RIGHT)
+            self.c.run_frames(10)
             shots.append(bytes(self.c.read_ram(h.front_buffer(self.c), 0x4000)))
-        self.assertNotEqual(shots[0], shots[1], "the camera is not orbiting")
+        self.assertNotEqual(shots[0], shots[1], "orbiting did not redraw anything")
         self.assertNotEqual(shots[1], shots[2])
 
     #  MEASURED at 7.3-8.3 fps for 20 ships, depending on how far the fleet is

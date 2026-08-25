@@ -163,6 +163,13 @@ grep -hoE '^@[a-z_0-9]+' $(find src -name '*.asm') | sort | uniq -d
 **`JR` reaches ±127 bytes.** A shared error exit at the end of a long routine
 will be out of range; use `JP`. RASM reports it as "relative offset N too far".
 
+**Key ids are MATRIX POSITIONS, not a dense enumeration.** `KEY_1` and
+`KEY_2` are in row 8, `KEY_3` and `KEY_4` in row 7, `KEY_9` and `KEY_0` up in
+row 4. Deriving a digit's id with `KEY_1 + n` gets you `ESC`, `Q`, `TAB`, `A`
+and `Z` — use `key_digit`. This shipped once, and made squadrons 3-9
+unreachable while a test that pressed `5` and asserted nothing happened passed
+anyway.
+
 **`ASSERT` is evaluated where it stands**, so it cannot see anything included
 later. The table-layout invariants therefore live at the bottom of
 `src/main.asm`, after `gen/tables.asm`, not next to the code that relies on
@@ -333,15 +340,42 @@ Design document section 13 lists ten phases.
 - **Phase 4 — done.** The 20-byte entity record from section 7, keyboard
   matrix scanning, an 8×8 font and the HUD strip, squadrons, and formation
   flight. 20 ships at ~8 fps.
-- **Phase 5 — next.** The rest of section 9: the move disc, camera controls on
-  the cursor keys, zoom, and the sensor view. The reference grid at Y=0
-  (section 4.1) is still not drawn.
+- **Phase 5 — mostly done.** Camera on the cursor keys, four zoom steps,
+  tactical pause, and the move disc with its height line. Still missing from
+  section 9: the sensor view (`TAB`), attack/guard/harvest orders, the build
+  screen and the jump.
+- **Not drawn yet: the reference grid at Y=0** (section 4.1). It wants a
+  cheaper projection than `proj_point` — a 5×5 lattice through the full
+  pipeline is 114,000 T-states, which is a quarter of the frame for a
+  backdrop. The grid is regular, so its projected points are related and can
+  be stepped rather than each one transformed; that is the job.
 
 `src/demo/phase4.asm` is the acceptance test running on the CPC itself.
 
 **Only one ship class is linked in**, but that is now a choice rather than a
 limit: bank 4 has ~10 KB spare, enough for a second class. Add it to
 `SHIP_CLASSES` in the Makefile and to the include list in `src/main.asm`.
+
+### Controls
+
+| Key | Effect |
+|---|---|
+| cursor keys | orbit the camera; drive the move disc while it is open |
+| `Z` / `X` | zoom in / out, four steps |
+| `SPACE` | tactical pause — the battle freezes, orders do not |
+| `ENTER` | open the move disc; again to confirm |
+| `ESC` | cancel the disc |
+| SHIFT + up/down | raise and lower the disc instead of moving it across |
+
+**The design's §9 puts the move order on `M` and docking on `D`, and those
+keys now belong to the squadron commands.** So the move disc opens and
+confirms with `ENTER` — which §9 already had as the confirm key — and cancels
+with `ESC`. Docking will be `R`. One equate each if that turns out wrong.
+
+Disc movement is camera-relative so "right" means right on screen. The yaw is
+rounded to one of eight octants and the step vector comes from a table, so it
+costs no multiplies; at 45° granularity the difference from a true rotation is
+not visible on a 320-pixel screen.
 
 ### Squadrons
 

@@ -87,6 +87,9 @@ KEY_CUR_LEFT        equ 1*8 + 0
 
 KEY_SPACE           equ 5*8 + 7
 KEY_TAB             equ 8*8 + 4
+KEY_ESC             equ 8*8 + 2
+KEY_R               equ 6*8 + 2
+KEY_S               equ 7*8 + 4
 KEY_ENTER           equ 2*8 + 2         ; the big RETURN, not the numeric one
 KEY_SHIFT           equ 2*8 + 5
 
@@ -195,7 +198,7 @@ key_down:
 ; ----------------------------------------------------------------------------
 key_hit:
     ld hl,key_edge
-    ; fall through
+    ; fall through -- nothing may be inserted between here and key_bit
 
 ; ----------------------------------------------------------------------------
 ;  key_bit -- CF = bit (A and 7) of the byte at HL + (A >> 3)
@@ -222,13 +225,38 @@ key_bit:
     ld h,a                              ; park the row byte; HL is done as a
     pop af                              ; pointer now
     and 7
-    or a
+    inc a                               ; n+1 rotates puts bit n in the carry
     ld l,a
     ld a,h
 @key_bit_shift:
     rrca                                ; DEC does not touch CF, so the flag
     dec l                               ; survives to the RET
     jr nz,@key_bit_shift
+    ret
+
+
+; ----------------------------------------------------------------------------
+;  key_digit -- key id of a digit key
+;  In : A = 0..9, the digit
+;  Out: A = its key id
+;  Uses: AF, HL
+;
+;  The digits are scattered across four matrix rows in an order that is not the
+;  numeric one (see the table above: 1 and 2 are in row 8, 3 and 4 in row 7, 0
+;  and 9 up in row 4), so `KEY_1 + n` is NOT the id of digit n+1 -- it walks
+;  into ESC, Q, TAB and A. Anything that loops over the squadron number keys
+;  has to come through here:
+;
+;      ld a,c : inc a : call key_digit : call key_hit
+; ----------------------------------------------------------------------------
+key_digit:
+    ld hl,key_digit_ids
+    add a,l
+    ld l,a
+    jr nc,@key_digit_same_page
+    inc h
+@key_digit_same_page:
+    ld a,(hl)
     ret
 
 
@@ -241,3 +269,8 @@ key_bit:
 ;  pressed" starting state.
 key_state:          defs KEY_ROWS, 0    ; held now
 key_edge:           defs KEY_ROWS, 0    ; went down at the last scan
+
+;  Digit '0' to '9', in numeric order. Indexed by key_digit.
+key_digit_ids:
+    defb KEY_0, KEY_1, KEY_2, KEY_3, KEY_4
+    defb KEY_5, KEY_6, KEY_7, KEY_8, KEY_9

@@ -70,11 +70,10 @@ demo_init:
     ld a,(sys_tick_50hz)
     ld (demo_tick0),a
 
-    ld hl,150
-    ld (cam_dist),hl
     xor a
     ld (cam_yaw),a
     ld (cam_pitch),a
+    call order_init
 
     ld a,HUD_TOP
     ld (spr_clip_bottom),a
@@ -101,8 +100,8 @@ phase4_spawn_fleet:
     call ent_addr
     push hl
 
-    ;  Position: the squadron 1 home, so the fleet unpacks from one point.
-    ld de,phase4_home
+    ;  Position: squadron 1's station, so the fleet unpacks from one point.
+    ld de,squad_dest
     ld b,6
 @p4_copy_pos:
     ld a,(de)
@@ -147,15 +146,21 @@ phase4_spawn_fleet:
 demo_update:
     call key_scan
     call phase4_commands
-    call phase4_fly
+    call order_update
+
+    ;  SPACE freezes the battle but not the orders (Homeplanet.md section 9):
+    ;  the player can still re-plan while everything holds station.
+    ld a,(order_paused)
+    or a
+    call z,phase4_fly
 
     call phase4_select_list
     call phase4_erase
-    call phase4_move_camera
     call cam_build_matrix
     call phase4_project
     call phase4_sort
     call phase4_draw
+    call phase4_draw_disc
     call phase4_hud
 
     ld hl,demo_frames
@@ -188,24 +193,26 @@ demo_wait_frame:
 ;  Uses: everything
 ; ----------------------------------------------------------------------------
 phase4_commands:
-    ;  Number keys. KEY_1..KEY_9 are consecutive ids, so one loop covers them.
-    ld c,0
+    ;  Number keys. The ids are MATRIX POSITIONS, not a dense enumeration --
+    ;  1 and 2 sit in row 8 while 9 and 0 are up in row 4 -- so the id for a
+    ;  digit has to come out of key_digit. Walking up from KEY_1 gets you
+    ;  ESC, Q, TAB, A and Z, and squadrons 3 to 9 become unreachable.
+    ld c,1
 @p4_number:
-    ld a,KEY_1
-    add a,c
+    ld a,c
+    call key_digit
     push bc
     call key_hit
     pop bc
     jr nc,@p4_next_number
     ld a,c
-    inc a                               ; id offset -> squadron number
     push bc
     call squad_select
     pop bc
 @p4_next_number:
     inc c
     ld a,c
-    cp SQUAD_MAX
+    cp SQUAD_MAX + 1
     jr c,@p4_number
 
     ld a,KEY_D
@@ -295,7 +302,7 @@ phase4_step_to_slot:
     ld a,(phase4_squad)
     dec a                               ; squadrons are 1-based
     call phase4_times6
-    ld de,phase4_home
+    ld de,squad_dest
     add hl,de
     ld (phase4_home_ptr),hl
 
@@ -455,24 +462,6 @@ phase4_erase:
     pop hl
     pop bc
     djnz @p4_rect
-    ret
-
-
-; ----------------------------------------------------------------------------
-;  phase4_move_camera -- a slow orbit, so every yaw view gets exercised
-; ----------------------------------------------------------------------------
-phase4_move_camera:
-    ld hl,cam_yaw
-    inc (hl)
-
-    ld hl,phase4_pitch_phase
-    inc (hl)
-    ld a,(hl)
-    call cam_sin
-    sra a
-    sra a
-    sra a
-    ld (cam_pitch),a
     ret
 
 
@@ -827,6 +816,145 @@ phase4_blit_one:
 
 
 ; ----------------------------------------------------------------------------
+;  phase4_draw_disc -- the move cursor and its height line
+;
+;  Two projections: the disc itself, and the point directly below it on the
+;  Y=0 reference plane. The line between them is what tells the player how
+;  high the order is -- without it a cursor in a 3D void is unreadable, which
+;  is the whole problem section 9 is solving.
+;
+;  The line is drawn at the disc's screen x rather than tracked properly. The
+;  two points differ only in world Y, and row 0 of the camera matrix is
+;  (cy, 0, sy) -- structurally independent of Y -- so they differ only through
+;  the perspective divide. At these distances that is under a pixel.
+;
+;  Uses: everything
+; ----------------------------------------------------------------------------
+phase4_draw_disc:
+    ld a,(disc_active)
+    or a
+    ret z
+
+    ;  Where the order sits, and the point directly below it on the plane.
+    ld hl,(disc_pos + 0)
+    ld (phase4_disc_flat + 0),hl
+    ld hl,0
+    ld (phase4_disc_flat + 2),hl
+    ld hl,(disc_pos + 4)
+    ld (phase4_disc_flat + 4),hl
+
+    ld hl,phase4_disc_flat
+    call proj_point
+    ld a,0
+    jr nc,@p4_disc_no_base
+    ld a,(proj_sy)
+    ld (phase4_disc_by),a
+    ld a,1
+@p4_disc_no_base:
+    ld (phase4_disc_has_base),a
+
+    ld hl,disc_pos
+    call proj_point
+    ret nc                              ; the order is off screen entirely
+
+    ld hl,(proj_sx)
+    ld (phase4_disc_tx),hl
+    ld a,(proj_sy)
+    ld (phase4_disc_ty),a
+
+    ;  If the base is off screen there is no stem to draw, only the marker.
+    ld a,(phase4_disc_has_base)
+    or a
+    ld a,(phase4_disc_ty)
+    ld b,1                              ; a stem of one line: just the marker row
+    ld c,a
+    jr z,@p4_disc_have_stem
+
+    ;  Smaller screen y is the top of the stem; the difference is its height.
+    ld a,(phase4_disc_ty)
+    ld b,a
+    ld a,(phase4_disc_by)
+    cp b
+    jr nc,@p4_disc_top_is_upper
+    ld c,a                              ; the base is higher up the screen
+    ld a,b
+    sub c
+    ld b,a
+    jr @p4_disc_have_stem
+@p4_disc_top_is_upper:
+    ld c,b
+    sub c
+    ld b,a
+
+@p4_disc_have_stem:
+    inc b                               ; include the last row
+    ld a,c
+    ld (phase4_disc_rect + 1),a
+    ld a,b
+    ld (phase4_disc_rect + 3),a
+
+    ld hl,(phase4_disc_tx)
+    ld a,DISC_INK_STEM
+    call gfx_vline
+
+    ld hl,(phase4_disc_tx)
+    ld a,(phase4_disc_ty)
+    ld c,a
+    ld a,DISC_INK_TOP
+    call gfx_cross
+
+    ;  One rectangle covering stem and marker, so the next pass through this
+    ;  buffer erases the lot. The cross reaches one pixel either side of the
+    ;  stem and one row above and below it, hence the margins.
+    ;
+    ;  x is SIXTEEN bit here. Shifting only the low byte was the bug that left
+    ;  a comb of stems down the screen: the rectangle was recorded somewhere
+    ;  else entirely and erased nothing.
+    ld hl,(phase4_disc_tx)
+    srl h
+    rr l
+    srl h
+    rr l                                ; x >> 2, in bytes
+    ld a,l
+    or a
+    jr z,@p4_disc_x_at_edge
+    dec a                               ; a byte of margin for the cross
+@p4_disc_x_at_edge:
+    ld (phase4_disc_rect + 0),a
+    ld a,3
+    ld (phase4_disc_rect + 2),a
+
+    ld hl,phase4_disc_rect + 1
+    ld a,(hl)
+    or a
+    jr z,@p4_disc_y_at_edge
+    dec (hl)                            ; a row of margin above
+    inc hl
+    inc hl
+    inc (hl)
+@p4_disc_y_at_edge:
+    ld hl,phase4_disc_rect + 3
+    inc (hl)                            ; ...and below
+
+    ld hl,phase4_disc_rect
+    ld de,(phase4_rect_ptr)
+    ld b,4
+@p4_disc_copy:
+    ld a,(hl)
+    ld (de),a
+    inc hl
+    inc de
+    djnz @p4_disc_copy
+    ld (phase4_rect_ptr),de
+    ld hl,phase4_rect_count
+    inc (hl)
+    ld hl,(phase4_count)
+    ld a,(phase4_rect_count)
+    ld (hl),a
+    ret
+
+
+; ----------------------------------------------------------------------------
 ;  phase4_hud -- the squadron strip (Homeplanet.md section 5.5)
 ;
 ;  Two rows of five: squadrons 1-5 above, 6-9 below. Every slot is drawn every
@@ -1013,6 +1141,14 @@ phase4_sort_n:      defb 0
 phase4_sort_i:      defb 0
 phase4_sort_j:      defb 0
 
+phase4_disc_flat:   defs 6, 0
+phase4_disc_tx:     defw 0
+phase4_disc_ty:     defb 0
+phase4_disc_bx:     defw 0
+phase4_disc_by:     defb 0
+phase4_disc_has_base: defb 0
+phase4_disc_rect:   defs 4, 0
+
 phase4_hud_squad:   defb 0
 phase4_hud_x:       defb 0
 phase4_hud_y:       defb 0
@@ -1024,7 +1160,6 @@ phase4_hud_shadow_sel: defb #FF
 phase4_hud_text:    defb " 0:",0        ; the marker and digit are patched in
 phase4_hud_blank:   defb "     ",0
 
-phase4_pitch_phase: defb 0
 demo_tick0:         defb 0
 demo_frames:        defb 0
 
@@ -1032,8 +1167,8 @@ phase4_slot_next:   defs SQUAD_MAX + 1, 0
 
 phase4_drawn_a:     defb 0
 phase4_drawn_b:     defb 0
-phase4_rects_a:     defs ENT_MAX * 4, 0
-phase4_rects_b:     defs ENT_MAX * 4, 0
+phase4_rects_a:     defs (ENT_MAX + 1) * 4, 0    ; +1 for the move disc
+phase4_rects_b:     defs (ENT_MAX + 1) * 4, 0
 
 phase4_vis:         defs ENT_MAX * PHASE4_VIS_SIZE, 0
 phase4_order:       defs ENT_MAX, 0
@@ -1057,21 +1192,6 @@ phase4_tiers:
 
 ;  Where each squadron sits. Spread along X so a split is visible as one group
 ;  peeling away from another, rather than as a number changing.
-phase4_home:
-    ;  Squadron 1 sits at the middle of the battle and the rest fan out around
-    ;  it, so a split reads as a group peeling away from the centre. Spread in
-    ;  Z as well as X: that is what puts ships at different depths and so at
-    ;  different size tiers.
-    defw      0,  2000,      0           ; 1
-    defw -18000, -3000,   8000           ; 2
-    defw  18000,  3000,  -8000           ; 3
-    defw -12000, -2000,  16000           ; 4
-    defw  12000,  2500, -16000           ; 5
-    defw  -6000, -3000, -12000           ; 6
-    defw   6000,  2000,  12000           ; 7
-    defw -24000, -2500,   4000           ; 8
-    defw  24000,  3000,  -4000           ; 9
-
 phase4_offset:
 oz = 0
     repeat 4

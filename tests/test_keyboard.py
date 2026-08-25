@@ -63,6 +63,8 @@ PRESSABLE = [
     ("j", "KEY_J"),
     ("m", "KEY_M"),
     ("n", "KEY_N"),
+    ("r", "KEY_R"),
+    ("s", "KEY_S"),
     ("x", "KEY_X"),
     ("z", "KEY_Z"),
     (0x20, "KEY_SPACE"),
@@ -71,6 +73,7 @@ PRESSABLE = [
     (0x08, "KEY_CUR_LEFT"),
     (0x09, "KEY_CUR_RIGHT"),
     (0x0D, "KEY_ENTER"),
+    (0x03, "KEY_ESC"),
 ]
 
 ALL_IDS = [name for _, name in PRESSABLE] + ["KEY_TAB", "KEY_SHIFT"]
@@ -121,6 +124,21 @@ class KeyboardFixture(unittest.TestCase):
 
     def hit(self, key):
         return self._query("KEY_HIT", key)
+
+    def digit_down(self, digit):
+        """key_digit(digit) -> key_down, the way a squadron-number loop does."""
+        digit_addr = self.sym["KEY_DIGIT"]
+        down_addr = self.sym["KEY_DOWN"]
+        self._run_stub([0xF3,                                   # di
+                        0x3E, digit,                            # ld a,digit
+                        0xCD, digit_addr & 0xFF, digit_addr >> 8,
+                        0x32, RESULT + 1 & 0xFF, RESULT + 1 >> 8,
+                        0xCD, down_addr & 0xFF, down_addr >> 8,
+                        0x9F,                                   # sbc a,a
+                        0x32, RESULT & 0xFF, RESULT >> 8,
+                        0x18, 0xFE])                            # jr $
+        result = self.c.read_ram(RESULT, 2)
+        return result[0] == 0xFF, result[1]
 
     def state(self):
         """The raw 10-byte held-state array. A 1 bit means the key is down."""
@@ -225,6 +243,36 @@ class TestScan(KeyboardFixture):
             self.assertTrue(self.down("KEY_N"), f"scan {i} lost the key")
             self.assertEqual(sum(bin(b).count("1") for b in self.state()), 1)
         self.release("n")
+
+
+class TestDigits(KeyboardFixture):
+    """key_digit: digit -> key id.
+
+    The squadron keys are the game's busiest input and the one place where the
+    obvious shortcut is wrong: the digits are not consecutive in the matrix, so
+    `KEY_1 + n` lands on ESC, Q, TAB and A instead of on 3, 4, 5 and 6.
+    """
+
+    def test_every_digit_maps_to_its_own_key(self):
+        for digit in range(10):
+            with self.subTest(digit=digit):
+                self.press(str(digit))
+                self.scan()
+                down, key_id = self.digit_down(digit)
+                self.assertEqual(key_id, self.sym[f"KEY_{digit}"],
+                                 f"key_digit({digit}) returned #{key_id:02X}")
+                self.assertTrue(down, f"pressed {digit}, key_digit missed it")
+                self.release(str(digit))
+
+    def test_a_digit_does_not_answer_for_its_neighbours(self):
+        self.press("7")
+        self.scan()
+        for digit in range(10):
+            down, _ = self.digit_down(digit)
+            self.assertEqual(down, digit == 7,
+                             f"'7' held but key_digit({digit}) says "
+                             f"{'down' if down else 'up'}")
+        self.release("7")
 
 
 class TestEdges(KeyboardFixture):

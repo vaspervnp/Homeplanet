@@ -160,6 +160,41 @@ class TestDeactivation(SquadFixture):
         self.tap("5")
         self.assertEqual(self.selected(), 1, "selected a squadron with no ships")
 
+    def test_every_digit_from_1_to_9_selects_its_own_squadron(self):
+        """Guards a bug this suite previously passed straight over.
+
+        The command loop used to derive each digit's key id by counting up
+        from KEY_1, which is only right for 1 and 2: the ids are matrix
+        positions, and 3 onwards are in different rows. Squadrons 3-9 were
+        unreachable and Q, TAB, A and Z selected them instead -- and
+        test_an_empty_squadron_cannot_be_selected passed anyway, because it
+        pressed '5' and asserted that NOTHING happened.
+
+        So: make every squadron real first, then insist each digit picks its
+        own.
+        """
+        #  Assign the squadrons directly. Pressing 'm' repeatedly would not do
+        #  it -- 'm' always moves out of the SELECTION, so eight taps just pile
+        #  eight ships into squadron 2. What is under test here is the digit
+        #  keys, not how the fleet got spread out.
+        ent = self.sym["ENTITIES"]
+        for i in range(9):
+            self.c.write_ram(ent + i * 20 + 12, bytes([i + 1]))
+        counts = [0] * 10
+        for i in range(20):
+            squadron = i + 1 if i < 9 else 1
+            counts[squadron] += 1
+        self.c.write_ram(self.sym["SQUAD_COUNT"], bytes(counts))
+
+        counts = self.counts()
+        self.assertEqual([n > 0 for n in counts], [True] * 9,
+                         f"could not populate every squadron: {counts}")
+
+        for squadron in range(1, 10):
+            self.tap(str(squadron), frames=20)
+            self.assertEqual(self.selected(), squadron,
+                             f"pressing '{squadron}' selected {self.selected()}")
+
     def test_selecting_an_active_squadron_works(self):
         self.tap("d")
         self.tap("2")
