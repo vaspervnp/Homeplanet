@@ -21,39 +21,43 @@
 ;  Layout of the file, and why
 ;  ---------------------------
 ;      #4000  game image      -> copied down to #0040
-;      #8000  sprite library  -> copied into extended bank 4 at #4000
+;      after  sprite library  -> staged at #C000, then into bank 4 at #4000
 ;      after  the stub
 ;
-;  The stub CANNOT live at #4000 like it used to. It now has to page bank 4
-;  into the #4000 window, and the instant it does, the window stops being the
-;  RAM the stub is sitting in and the CPU starts fetching sprite data as code.
-;  So the stub is assembled at the top of the file, above #8000, in bank 2 --
-;  which the #4000 paging does not touch. The AMSDOS header carries a separate
-;  execution address, so starting there costs nothing.
+;  The stub CANNOT live at #4000. It has to page bank 4 into the #4000 window,
+;  and the instant it does, the window stops being the RAM the stub is sitting
+;  in and the CPU starts fetching sprite data as code. So the stub is
+;  assembled at the very top of the file and runs from there; the AMSDOS
+;  header carries a separate execution address, so that costs nothing.
 ;
-;  The sprite library has to sit above #8000 for the same reason: it is the
-;  SOURCE of the copy that runs after bank 4 is paged in, so it must live
-;  somewhere the paging leaves alone. Hence the gap between the two images.
-;  It costs a few KB of zeros in a file on a 178 KB-free disc.
+;  The sprite library has the same problem in reverse: it is the SOURCE of the
+;  copy that runs after bank 4 is paged in, so it cannot be sitting in the
+;  window at the time. It used to be parked above #8000 for that reason, but
+;  a second ship class pushed the file past #A700 -- where AMSDOS keeps its
+;  workspace -- and the load corrupted the loader.
 ;
-;  #8000-#BFFF is screen B, so both the library and the stub are sitting in a
-;  screen buffer while this runs. That is fine: sys_boot clears both screens,
-;  and by then the copy is long done.
+;  So it goes via SCREEN A instead. #C000-#FFFF is 16K of RAM that nothing
+;  needs until sys_boot clears it, it is untouched by the #4000 paging, and it
+;  is exactly one bank big. The file stays packed and well clear of AMSDOS.
 ; ----------------------------------------------------------------------------
 
     include "equ/hardware.asm"
     include "equ/memmap.asm"
 
-GAME_LOAD           equ #4000           ; where AMSDOS drops the game image
-SPRITE_LOAD         equ #8000           ; above the bank window, so paging spares it
+GAME_LOAD           equ #4000           ; where AMSDOS drops the whole file
+SPRITE_STAGE        equ #C000           ; screen A, used as scratch during load
+
+;  AMSDOS keeps its workspace from #A700 up. Load past that and the transfer
+;  corrupts the very code doing it, which shows up as a disc that boots to a
+;  dead machine while `boot_quick` -- which pokes the image straight into RAM
+;  -- keeps working perfectly. Assert it rather than rediscover it.
+AMSDOS_WORKSPACE    equ #A700
 
     org GAME_LOAD
 
 game_image:
     incbin "build/home.raw"
 game_image_end:
-
-    org SPRITE_LOAD
 
 sprite_image:
     incbin "build/sprites.raw"
@@ -72,18 +76,25 @@ disc_stub:
     ld bc,GA_PORT * 256 + GA_GAME_ROMMODE
     out (c),c
 
+    ;  Stage the sprite library in screen A first: it is about to be sitting
+    ;  in the window we are going to page out from under it.
+    ld hl,sprite_image
+    ld de,SPRITE_STAGE
+    ld bc,sprite_image_end - sprite_image
+    ldir
+
     ;  Game down to #0040, while bank 1 is still in the window.
     ld hl,game_image
     ld de,CODE_START
     ld bc,game_image_end - game_image
     ldir
 
-    ;  Now swap bank 4 into the window and fill it. Everything this reads from
-    ;  is above #8000, so the swap cannot pull the ground away.
+    ;  Now swap bank 4 in and fill it from the staged copy, which the paging
+    ;  cannot touch.
     ld bc,GA_PORT * 256 + GA_BANK_4
     out (c),c
 
-    ld hl,sprite_image
+    ld hl,SPRITE_STAGE
     ld de,BANK_WINDOW
     ld bc,sprite_image_end - sprite_image
     ldir
@@ -93,8 +104,8 @@ disc_stub:
 disc_stub_end:
 
     assert game_image_end - game_image <= CODE_LIMIT - CODE_START, "game image will not fit under #4000"
-    assert game_image_end <= SPRITE_LOAD, "game image runs into the sprite library"
     assert sprite_image_end - sprite_image <= BANK_WINDOW_SIZE, "sprite library will not fit in a bank"
+    assert disc_stub_end < AMSDOS_WORKSPACE, "DISC.BIN loads over AMSDOS's workspace and will corrupt its own loader"
 
     run disc_stub
 

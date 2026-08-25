@@ -30,31 +30,12 @@ SQUAD_NONE          equ 0
 
 
 ; ----------------------------------------------------------------------------
-;  squad_init -- put every active ship into squadron 1
+;  squad_init -- settle the selection once the fleet exists
 ;  Uses: everything
 ; ----------------------------------------------------------------------------
 squad_init:
-    xor a
-    ld (squad_index),a
-@sq_ship:
-    ld a,(squad_index)
-    call ent_addr
-    push hl
-    ld de,ENT_FLAGS
-    add hl,de
-    bit 0,(hl)
-    pop hl
-    jr z,@sq_next
-    ld de,ENT_SQUAD
-    add hl,de
-    ld (hl),1
-@sq_next:
-    ld hl,squad_index
-    inc (hl)
-    ld a,(hl)
-    cp ENT_MAX
-    jr c,@sq_ship
-
+    ;  Membership is set when the ships are created -- the Mothership belongs
+    ;  to no squadron and a blanket sweep here would drag it into one.
     ld a,1
     ld (squad_sel),a
     jp squad_refresh
@@ -193,6 +174,8 @@ squad_select:
     ret z                               ; empty squadrons cannot be selected
     ld a,b
     ld (squad_sel),a
+    xor a
+    ld (sel_mothership),a               ; a squadron now has the camera
     ret
 
 

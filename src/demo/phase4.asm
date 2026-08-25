@@ -25,9 +25,6 @@
 
 PHASE4_SHIPS        equ 20              ; how many the demo starts with
 
-PHASE4_SLOTS        equ 16              ; formation slots per squadron
-PHASE4_SLOT_MASK    equ PHASE4_SLOTS - 1
-
 ;  World units a ship closes on its slot each frame. Fast enough that a split
 ;  resolves in a couple of seconds, slow enough to read as flight.
 PHASE4_STEP         equ 600
@@ -38,7 +35,7 @@ PHASE4_V_SX         equ 0               ; 2 bytes
 PHASE4_V_SY         equ 2
 PHASE4_V_Z          equ 3
 PHASE4_V_VIEW       equ 4
-PHASE4_V_TIER       equ 5
+PHASE4_V_CLASSTIER  equ 5           ; (class << 2) | tier
 
 ;  Tier descriptor, 8 bytes, indexed by tier_lut.
 PHASE4_T_SIZE       equ 8
@@ -80,6 +77,7 @@ demo_init:
     ld a,2
     ld (phase4_hud_dirty),a
 
+    call form_init
     call ent_clear_all
     call phase4_spawn_fleet
     jp squad_init
@@ -122,6 +120,16 @@ phase4_spawn_fleet:
     ld (hl),255
     pop hl
     push hl
+    ld de,ENT_SQUAD
+    add hl,de
+    ld (hl),1                           ; the fleet starts as one squadron
+    pop hl
+    push hl
+    ld de,ENT_CLASS
+    add hl,de
+    ld (hl),CLASS_INTERCEPTOR
+    pop hl
+    push hl
     ld de,ENT_YAW
     add hl,de
     ld a,(phase4_index)
@@ -137,6 +145,40 @@ phase4_spawn_fleet:
     ld a,(hl)
     cp PHASE4_SHIPS
     jr c,@p4_ship
+
+    ;  ...and the Mothership, which belongs to no squadron: it is the fleet's
+    ;  base, not part of it, and `0` selects it separately.
+    ld a,PHASE4_SHIPS
+    ld (moth_slot),a
+    call ent_addr
+    push hl
+    ld de,ENT_FLAGS
+    add hl,de
+    ld (hl),ENT_F_ACTIVE
+    pop hl
+    push hl
+    ld de,ENT_CLASS
+    add hl,de
+    ld (hl),CLASS_MOTHERSHIP
+    pop hl
+    push hl
+    ld de,ENT_SQUAD
+    add hl,de
+    ld (hl),SQUAD_NONE
+    pop hl
+    push hl
+    ld de,ENT_HULL
+    add hl,de
+    ld (hl),255
+    pop hl
+    ld de,order_mothership_pos
+    ld b,6
+@p4_moth_pos:
+    ld a,(de)
+    ld (hl),a
+    inc hl
+    inc de
+    djnz @p4_moth_pos
     ret
 
 
@@ -152,14 +194,31 @@ demo_update:
     ;  the player can still re-plan while everything holds station.
     ld a,(order_paused)
     or a
-    call z,phase4_fly
+    jr nz,@p4_frozen
+    call phase4_fly
+    ;  Sensors run the battle at triple speed (section 9): the view exists for
+    ;  the long transits, and there is nothing to look at while they happen.
+    ld a,(view_sensors)
+    or a
+    jr z,@p4_frozen
+    call phase4_fly
+    call phase4_fly
+@p4_frozen:
 
     call phase4_select_list
     call phase4_erase
+    call order_focus
     call cam_build_matrix
     call phase4_project
     call phase4_sort
+    ld a,(view_sensors)
+    or a
+    jr z,@p4_tactical
+    call phase4_draw_sensor
+    jr @p4_drawn
+@p4_tactical:
     call phase4_draw
+@p4_drawn:
     call phase4_draw_disc
     call phase4_hud
 
@@ -230,6 +289,10 @@ phase4_commands:
     ld a,KEY_C
     call key_hit
     call c,squad_combine
+
+    ld a,KEY_F
+    call key_hit
+    call c,form_cycle
     ret
 
 
@@ -268,7 +331,7 @@ phase4_fly:
     add hl,de
     ld a,(hl)
     or a
-    jr z,@p4_next_fly
+    jr z,@p4_next_fly                   ; unassigned: the Mothership holds station
     cp SQUAD_MAX + 1
     jr nc,@p4_next_fly
     ld (phase4_squad),a
@@ -306,11 +369,11 @@ phase4_step_to_slot:
     add hl,de
     ld (phase4_home_ptr),hl
 
+    ld a,(phase4_squad)
+    ld b,a
     ld a,(phase4_slotno)
-    and PHASE4_SLOT_MASK                ; more ships than slots: share them
-    call phase4_times6
-    ld de,phase4_offset
-    add hl,de
+    ld c,a
+    call form_slot_addr                 ; the squadron's own shape
     ld (phase4_off_ptr),hl
 
     ld hl,(phase4_ent)                  ; ENT_X is offset 0
@@ -362,16 +425,14 @@ phase4_step_to_slot:
 
 
 ; ----------------------------------------------------------------------------
-;  phase4_approach -- one axis, one step
-;  In : (phase4_cur), (phase4_tgt)
-;  Out: HL = the new value, snapped to the target if within one step
-;  Uses: AF, DE, HL
-; ----------------------------------------------------------------------------
 phase4_approach:
     ld hl,(phase4_tgt)
     ld de,(phase4_cur)
     or a
-    sbc hl,de                           ; HL = how far there is to go
+    sbc hl,de                           ; how far there is to go
+    jp pe,@p4_far                       ; ...if that even fit. Test P/V HERE:
+                                        ; the OR below overwrites it.
+
     ld a,h
     or l
     jr z,@p4_arrive
@@ -382,7 +443,7 @@ phase4_approach:
     ld de,PHASE4_STEP
     or a
     sbc hl,de
-    jr c,@p4_arrive                        ; less than a step away: snap
+    jr c,@p4_arrive                     ; less than a step away: snap
     ld hl,(phase4_cur)
     add hl,de
     ret
@@ -391,7 +452,7 @@ phase4_approach:
     ld de,PHASE4_STEP
     add hl,de                           ; distance + step
     bit 7,h
-    jr z,@p4_arrive                        ; within a step of the target
+    jr z,@p4_arrive                     ; within a step of the target
     ld hl,(phase4_cur)
     or a
     sbc hl,de
@@ -399,6 +460,27 @@ phase4_approach:
 
 @p4_arrive:
     ld hl,(phase4_tgt)
+    ret
+
+@p4_far:
+    ;  Every axis of the world is 16-bit signed, so two points can be 65534
+    ;  apart and `target - current` does not fit in the register that is
+    ;  holding it. When SBC overflows, the sign bit LIES -- the true sign is
+    ;  S XOR P/V -- and a ship at one end of the map reads a target at the
+    ;  other end as being behind it and flies away from it, forever.
+    ;
+    ;  Nothing to check for arrival on this path: overflowing means more than
+    ;  32767 away, which is a long way past one step.
+    ld de,PHASE4_STEP
+    bit 7,h
+    jr nz,@p4_far_forward
+    ld hl,(phase4_cur)
+    or a
+    sbc hl,de
+    ret
+@p4_far_forward:
+    ld hl,(phase4_cur)
+    add hl,de
     ret
 
 
@@ -536,11 +618,23 @@ phase4_cache:
     ld (hl),a
     inc hl
 
+    ;  Size tier from depth, packed with the class: the blitter needs both to
+    ;  name a sprite block, and the design gives this record six bytes.
     push hl
+    ld hl,(phase4_ent)
+    ld de,ENT_CLASS
+    add hl,de
+    ld b,(hl)                           ; B = class
     ld a,(proj_z)
     ld l,a
     ld h,tier_lut / 256
     ld a,(hl)
+    call class_apply_bias               ; capital ships draw a tier larger
+    ld c,a
+    ld a,b
+    add a,a
+    add a,a
+    or c
     pop hl
     ld (hl),a
     inc hl
@@ -699,6 +793,124 @@ phase4_draw:
 
 
 ; ----------------------------------------------------------------------------
+;  phase4_draw_sensor -- one dot per entity, and nothing else
+;
+;  Section 9's stripped-back view. The Mothership gets a cross rather than a
+;  dot so the fleet's anchor is still findable among them.
+;  Uses: everything
+; ----------------------------------------------------------------------------
+phase4_draw_sensor:
+    xor a
+    ld (phase4_rect_count),a
+    ld hl,(phase4_rects)
+    ld (phase4_rect_ptr),hl
+
+    ld a,(phase4_visible)
+    or a
+    jp z,@p4_sensor_done
+    ld (phase4_remaining),a
+    xor a
+    ld (phase4_index),a
+
+@p4_sensor_one:
+    ld a,(phase4_index)
+    call phase4_vis_addr
+
+    ld e,(hl)
+    inc hl
+    ld d,(hl)
+    inc hl
+    ld a,(hl)                           ; screen y
+    ld (phase4_sy),a
+    inc hl
+    inc hl                              ; skip the depth
+    inc hl                              ; skip the view
+    ld a,(hl)                           ; (class << 2) | tier
+    ld (phase4_sx),de
+    rrca
+    rrca
+    and #3F
+    ld (phase4_view),a                  ; reuse: the class
+
+    ld hl,(phase4_sx)
+    ld a,(phase4_sy)
+    ld c,a
+    ld a,(phase4_view)
+    or a
+    jr nz,@p4_sensor_capital
+
+    ;  A fighter: a single pixel.
+    ld b,1
+    ld a,DISC_INK_TOP
+    call gfx_vline
+    ld a,1
+    ld (phase4_disc_rect + 2),a
+    ld a,1
+    ld (phase4_disc_rect + 3),a
+    ld a,(phase4_sy)
+    ld (phase4_disc_rect + 1),a
+    jr @p4_sensor_rect_x
+
+@p4_sensor_capital:
+    ld a,DISC_INK_STEM
+    call gfx_cross
+    ld a,3
+    ld (phase4_disc_rect + 2),a
+    ld a,3
+    ld (phase4_disc_rect + 3),a
+    ld a,(phase4_sy)
+    or a
+    jr z,@p4_sensor_y0
+    dec a
+@p4_sensor_y0:
+    ld (phase4_disc_rect + 1),a
+
+@p4_sensor_rect_x:
+    ;  x is SIXTEEN bit -- shifting only the low byte is the bug that left a
+    ;  comb of stems on screen the first time round.
+    ld hl,(phase4_sx)
+    srl h
+    rr l
+    srl h
+    rr l                                ; HL = x in bytes
+    ld a,l
+    ld hl,phase4_disc_rect + 2
+    ld b,(hl)
+    dec b
+    jr z,@p4_sensor_x_store             ; a single-pixel dot needs no margin
+    or a
+    jr z,@p4_sensor_x_store             ; already hard against the left edge
+    dec a                               ; a byte of margin for the cross
+@p4_sensor_x_store:
+    ld (phase4_disc_rect + 0),a
+
+    ld hl,phase4_disc_rect
+    ld de,(phase4_rect_ptr)
+    ld b,4
+@p4_sensor_copy:
+    ld a,(hl)
+    ld (de),a
+    inc hl
+    inc de
+    djnz @p4_sensor_copy
+    ld (phase4_rect_ptr),de
+    ld hl,phase4_rect_count
+    inc (hl)
+
+    ld hl,phase4_index
+    inc (hl)
+    ld hl,phase4_remaining
+    dec (hl)
+    jp nz,@p4_sensor_one
+
+@p4_sensor_done:
+    ld hl,(phase4_count)
+    ld a,(phase4_rect_count)
+    ld (hl),a
+    ret
+
+
+; ----------------------------------------------------------------------------
 ;  phase4_blit_one
 ;  In : HL -> a visible-list entry
 ; ----------------------------------------------------------------------------
@@ -714,16 +926,20 @@ phase4_blit_one:
     ld a,(hl)
     ld (phase4_view),a
     inc hl
-    ld a,(hl)                           ; tier
+    ld a,(hl)                           ; (class << 2) | tier
     ld (phase4_sx),de
 
-    ld l,a
-    ld h,0
-    add hl,hl
-    add hl,hl
-    add hl,hl                           ; * PHASE4_T_SIZE
-    ld de,phase4_tiers
-    add hl,de
+    ld c,a
+    and 3
+    push af                             ; the tier
+    ld a,c
+    rrca
+    rrca
+    and #3F
+    ld b,a                              ; B = class
+    pop af
+    ld c,a                              ; C = tier
+    call class_tier_addr
 
     ld e,(hl)
     inc hl
@@ -1172,38 +1388,3 @@ phase4_rects_b:     defs (ENT_MAX + 1) * 4, 0
 
 phase4_vis:         defs ENT_MAX * PHASE4_VIS_SIZE, 0
 phase4_order:       defs ENT_MAX, 0
-
-;  Tier descriptors: far, middle, near -- matching tier_lut's 0/1/2.
-phase4_tiers:
-    defw interceptor_a
-    defb interceptor_a_w_bytes, interceptor_a_h
-    defb interceptor_a_w_px / 2, interceptor_a_h / 2
-    defw interceptor_a_block_sz
-
-    defw interceptor_b
-    defb interceptor_b_w_bytes, interceptor_b_h
-    defb interceptor_b_w_px / 2, interceptor_b_h / 2
-    defw interceptor_b_block_sz
-
-    defw interceptor_c
-    defb interceptor_c_w_bytes, interceptor_c_h
-    defb interceptor_c_w_px / 2, interceptor_c_h / 2
-    defw interceptor_c_block_sz
-
-;  Where each squadron sits. Spread along X so a split is visible as one group
-;  peeling away from another, rather than as a number changing.
-phase4_offset:
-oz = 0
-    repeat 4
-ox = 0
-        repeat 4
-            defw (ox * 2 - 3) * 2200
-            defw 0
-            defw (oz * 2 - 3) * 2200
-ox = ox + 1
-        rend
-oz = oz + 1
-    rend
-phase4_offset_end:
-
-    assert (phase4_offset_end - phase4_offset) / 6 == PHASE4_SLOTS, "formation lattice is not 16 slots"

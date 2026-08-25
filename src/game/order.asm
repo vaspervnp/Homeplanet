@@ -53,6 +53,10 @@ order_init:
     xor a
     ld (disc_active),a
     ld (order_paused),a
+    ld (sel_mothership),a
+    ld (view_sensors),a
+    ld a,ORDER_NO_TARGET
+    ld (order_target),a
     ld a,1
     ld (cam_zoom),a
     jp order_apply_zoom
@@ -96,11 +100,241 @@ order_update:
     call order_disc_confirm
 @ord_no_enter:
 
+    ld a,KEY_0
+    call key_hit
+    call c,order_select_mothership
+
+    ;  TAB is what section 9 asks for. `S` does the same thing because the
+    ;  emulator's keymap has no TAB entry at all, so the TAB binding cannot be
+    ;  pressed in a test and is unverified -- it is right per the hardware
+    ;  matrix, but nothing here proves it.
+    ld a,KEY_TAB
+    call key_hit
+    call c,order_toggle_view
+
+    ld a,KEY_S
+    call key_hit
+    call c,order_toggle_view
+
+    ld a,KEY_R
+    call key_hit
+    call c,order_dock
+
+    ld a,KEY_PERIOD
+    call key_hit
+    jr nc,@ord_no_next_target
+    ld a,1
+    call order_target_step
+@ord_no_next_target:
+
+    ld a,KEY_COMMA
+    call key_hit
+    jr nc,@ord_no_prev_target
+    ld a,-1
+    call order_target_step
+@ord_no_prev_target:
+
+    ld a,KEY_A
+    call key_hit
+    jr nc,@ord_no_attack
+    ld a,ENT_ORDER_ATTACK
+    call order_issue
+@ord_no_attack:
+
+    ld a,KEY_G
+    call key_hit
+    jr nc,@ord_no_guard
+    ld a,ENT_ORDER_GUARD
+    call order_issue
+@ord_no_guard:
+
     ld a,KEY_ESC
     call key_hit
-    ret nc
+    jr nc,@ord_no_esc
     xor a
     ld (disc_active),a
+@ord_no_esc:
+    jp order_focus
+
+
+; ----------------------------------------------------------------------------
+;  order_dock -- the `R` key: station the squadron on the Mothership
+;
+;  Section 9 calls this `D`, which the squadron commands took. This one is
+;  fully live: docking is just a move order whose destination happens to be
+;  wherever the Mothership is.
+;  Uses: everything
+; ----------------------------------------------------------------------------
+order_dock:
+    ld a,(moth_slot)
+    call ent_addr                       ; ENT_X is offset 0
+    push hl
+    call order_dest_addr
+    ex de,hl
+    pop hl
+    ld bc,6
+    ldir
+    ret
+
+
+; ----------------------------------------------------------------------------
+;  order_target_step -- `,` and `.` walk the target through live entities
+;  In : A = +1 to go forward, -1 to go back
+;  Out: (order_target) = an active entity index, or ORDER_NO_TARGET
+;  Uses: everything
+;
+;  Wraps, and skips empty slots, so the player never has to know that the
+;  entity table is sparse.
+; ----------------------------------------------------------------------------
+ORDER_NO_TARGET     equ #FF
+
+order_target_step:
+    ld (order_step),a
+    ld a,(order_target)
+    cp ENT_MAX
+    jr c,@ord_tgt_from
+    xor a
+    dec a                               ; start one before slot 0 going forward
+@ord_tgt_from:
+    ld c,a
+    ld b,ENT_MAX                        ; give up after a full lap
+
+@ord_tgt_try:
+    ld a,(order_step)
+    add a,c
+    cp ENT_MAX
+    jr c,@ord_tgt_in_range
+    or a
+    jr z,@ord_tgt_in_range
+    bit 7,a
+    jr z,@ord_tgt_wrap_low
+    ld a,ENT_MAX - 1                    ; walked off the bottom
+    jr @ord_tgt_in_range
+@ord_tgt_wrap_low:
+    xor a                               ; walked off the top
+@ord_tgt_in_range:
+    ld c,a
+    push bc
+    call ent_is_active
+    pop bc
+    jr c,@ord_tgt_found
+    djnz @ord_tgt_try
+
+    ld a,ORDER_NO_TARGET
+    ld (order_target),a
+    ret
+
+@ord_tgt_found:
+    ld a,c
+    ld (order_target),a
+    ret
+
+
+; ----------------------------------------------------------------------------
+;  order_issue -- give every ship in the selection an order
+;  In : A = the ENT_ORDER_* code
+;  Out: -
+;  Uses: everything
+;
+;  The order and its target land in the entity records; NOTHING ACTS ON THEM
+;  YET. Combat is phase 6. This is here so the control surface of section 9 is
+;  complete and so the records carry what phase 6 will need, not because
+;  pressing A does anything you can see.
+; ----------------------------------------------------------------------------
+order_issue:
+    ld (order_pending),a
+    xor a
+    ld (order_index),a
+@ord_issue_one:
+    ld a,(order_index)
+    call ent_addr
+    push hl
+    ld de,ENT_SQUAD
+    add hl,de
+    ld a,(hl)
+    ld hl,squad_sel
+    cp (hl)
+    pop hl
+    jr nz,@ord_issue_next
+
+    push hl
+    ld de,ENT_ORDER
+    add hl,de
+    ld a,(order_pending)
+    ld (hl),a
+    pop hl
+    ld de,ENT_TARGET
+    add hl,de
+    ld a,(order_target)
+    ld (hl),a
+
+@ord_issue_next:
+    ld hl,order_index
+    inc (hl)
+    ld a,(hl)
+    cp ENT_MAX
+    jr c,@ord_issue_one
+    ret
+
+
+; ----------------------------------------------------------------------------
+;  order_toggle_view -- the TAB key
+;
+;  Section 9: the sensor view is "fully stripped back -- only dots, link lines
+;  and the edges of the map. Very cheap to draw, so a longer range and faster
+;  time (fast-forward x3) are allowed there."
+;
+;  The cheapness is the point. A dot per entity instead of a masked sprite is
+;  most of a frame back, and that is what pays for running the simulation
+;  three times as fast while the fleet is in transit.
+;  Uses: AF, HL
+; ----------------------------------------------------------------------------
+order_toggle_view:
+    ld hl,view_sensors
+    ld a,(hl)
+    xor 1
+    ld (hl),a
+    ret
+
+
+; ----------------------------------------------------------------------------
+;  order_focus -- point the camera at whatever is selected
+;
+;  Section 4.3: the camera orbits "the Mothership or the selected squadron".
+;  Without this, selecting a squadron does nothing you can see -- the view
+;  stays wherever it was and the player has to fly to their own fleet.
+;
+;  It follows the squadron's STATION rather than the ships' centre of mass, so
+;  the view settles the instant an order is given instead of drifting along
+;  behind the formation.
+;  Uses: everything
+; ----------------------------------------------------------------------------
+order_focus:
+    ld a,(sel_mothership)
+    or a
+    jr z,@ord_focus_squadron
+
+    ld a,(moth_slot)
+    call ent_addr                       ; ENT_X is offset 0
+    jr @ord_focus_copy
+
+@ord_focus_squadron:
+    call order_dest_addr
+
+@ord_focus_copy:
+    ld de,cam_focus_x
+    ld bc,6
+    ldir
+    ret
+
+
+; ----------------------------------------------------------------------------
+;  order_select_mothership -- the `0` key
+;  Uses: AF
+; ----------------------------------------------------------------------------
+order_select_mothership:
+    ld a,1
+    ld (sel_mothership),a
     ret
 
 
@@ -453,6 +687,28 @@ disc_sign:          defb 0
 disc_negate:        defb 0
 
 order_paused:       defb 0
+
+;  Set when the player has selected the Mothership with `0` rather than a
+;  squadron. Kept separate from squad_sel: the Mothership is not squadron
+;  zero, it is not in a squadron at all.
+sel_mothership:     defb 0
+
+;  0 = the tactical view, 1 = sensors.
+view_sensors:       defb 0
+VIEW_FAST_FORWARD   equ 3               ; simulation steps per frame in sensors
+
+;  Which entity `,` and `.` have walked to, and the order waiting to be
+;  written into the squadron's records.
+order_target:       defb ORDER_NO_TARGET
+order_step:         defb 0
+order_pending:      defb 0
+order_index:        defb 0
+moth_slot:          defb 0
+
+;  Where the Mothership sits. It does not fly to formations; the fleet forms
+;  up around it.
+order_mothership_pos:
+    defw 0, 0, 0
 
 ;  The camera's "right" direction on the Y=0 plane, per octant of yaw, already
 ;  scaled to one frame's movement. Forward is the entry two octants on.

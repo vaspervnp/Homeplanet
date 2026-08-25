@@ -163,6 +163,13 @@ grep -hoE '^@[a-z_0-9]+' $(find src -name '*.asm') | sort | uniq -d
 **`JR` reaches ±127 bytes.** A shared error exit at the end of a long routine
 will be out of range; use `JP`. RASM reports it as "relative offset N too far".
 
+**`SBC HL,DE` overflows, and the sign bit lies when it does.** Two points on
+one world axis can be 65534 apart, which does not fit in the register holding
+their difference. The true sign is `S XOR P/V`, so test `P/V` *immediately* —
+an `OR` or `LD A,H : OR L` in between destroys it. A ship at one end of the
+map read a target at the other end as being behind it and flew away from it
+forever. See `phase4_approach`.
+
 **Key ids are MATRIX POSITIONS, not a dense enumeration.** `KEY_1` and
 `KEY_2` are in row 8, `KEY_3` and `KEY_4` in row 7, `KEY_9` and `KEY_0` up in
 row 4. Deriving a digit's id with `KEY_1 + n` gets you `ESC`, `Q`, `TAB`, `A`
@@ -340,10 +347,16 @@ Design document section 13 lists ten phases.
 - **Phase 4 — done.** The 20-byte entity record from section 7, keyboard
   matrix scanning, an 8×8 font and the HUD strip, squadrons, and formation
   flight. 20 ships at ~8 fps.
-- **Phase 5 — mostly done.** Camera on the cursor keys, four zoom steps,
-  tactical pause, and the move disc with its height line. Still missing from
-  section 9: the sensor view (`TAB`), attack/guard/harvest orders, the build
-  screen and the jump.
+- **Phase 5 — done, and §9 is closed** except for the three commands that
+  need content from later phases (see the control table above). Camera, zoom,
+  pause, move disc, formations, sensor view, Mothership, docking and target
+  selection all work.
+- **Two ship classes now link in**, which is what proved the bank window
+  works. The Mothership wears the Frigate's sprites until it has its own; see
+  `src/game/shipclass.asm`. Capital ships get a **tier bias** so they draw a
+  size larger than their distance alone would give — without it a Mothership
+  at 200 units is exactly as big as a fighter at 200 units and the fleet reads
+  as a swarm of identical specks.
 - **Not drawn yet: the reference grid at Y=0** (section 4.1). It wants a
   cheaper projection than `proj_point` — a 5×5 lattice through the full
   pipeline is 114,000 T-states, which is a quarter of the frame for a
@@ -360,12 +373,34 @@ limit: bank 4 has ~10 KB spare, enough for a second class. Add it to
 
 | Key | Effect |
 |---|---|
+| `1`-`9` | select a squadron (see below) |
+| `0` | select the Mothership |
 | cursor keys | orbit the camera; drive the move disc while it is open |
 | `Z` / `X` | zoom in / out, four steps |
 | `SPACE` | tactical pause — the battle freezes, orders do not |
 | `ENTER` | open the move disc; again to confirm |
 | `ESC` | cancel the disc |
 | SHIFT + up/down | raise and lower the disc instead of moving it across |
+| `F` | cycle the formation: Loose → Wedge → Sphere → Wall |
+| `TAB` (or `S`) | tactical view ↔ sensors |
+| `R` | station the squadron on the Mothership |
+| `,` / `.` | step the target through live entities |
+| `A` / `G` | attack / guard — writes the order, nothing acts on it yet |
+
+**Not implemented, and deliberately:** `H` (harvest) needs harvesters and
+resources, which is Phase 7; `B` (build) is the same; `J` (jump) is Phase 8.
+
+`TAB` is bound and correct per the hardware matrix but **unverified** — the
+emulator's keymap has no TAB entry, so no test can press it. `S` does the same
+thing and is tested.
+
+The camera orbits whatever is selected (§4.3) — the squadron's *station*
+rather than its centre of mass, so the view settles the moment an order is
+given instead of drifting along behind the formation.
+
+`A` and `G` write `ENT_ORDER` and `ENT_TARGET` into the selected squadron's
+records and stop there. The control surface of §9 is complete; the behaviour
+behind it is Phase 6.
 
 **The design's §9 puts the move order on `M` and docking on `D`, and those
 keys now belong to the squadron commands.** So the move disc opens and
@@ -399,6 +434,20 @@ next *active* squadron instead, because merging with an empty one would be a
 no-op and the HUD only lists the active ones. All the commands are
 edge-triggered — holding `d` divides once, not once a frame — and
 `tests/test_squad.py` presses real keys in the emulator to prove it.
+
+### Loading, and AMSDOS's workspace
+
+`DISC.BIN` is one file loaded at `#4000`, and **AMSDOS keeps its workspace from
+`#A700` up** — load past that and the transfer corrupts the very code doing
+it. The failure is nasty because `harness.boot_quick()` pokes the image
+straight into RAM and keeps working perfectly; only `boot_disc()` catches it.
+`src/disc.asm` asserts the file ends below `#A700`.
+
+The sprite library is staged through **screen A** (`#C000`) on the way into
+bank 4: it cannot simply sit above `#8000` any more, because a second ship
+class pushed the file past AMSDOS. Screen A is 16K of RAM nothing needs until
+`sys_boot` clears it, it is untouched by the `#4000` paging, and it is exactly
+one bank big.
 
 ### The HUD
 

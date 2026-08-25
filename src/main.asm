@@ -46,6 +46,8 @@ game_main:
     include "gfx/line.asm"
     include "game/entity.asm"
     include "game/squad.asm"
+    include "game/shipclass.asm"
+    include "game/formation.asm"
     include "game/order.asm"
     include "demo/phase4.asm"
 
@@ -105,6 +107,7 @@ code_end:
     org BANK_WINDOW
 bank4_start:
     include "gen/spr_interceptor.asm"
+    include "gen/spr_frigate.asm"
 bank4_end:
 
     assert bank4_end <= BANK_WINDOW + BANK_WINDOW_SIZE, "sprite library overflows the bank window"

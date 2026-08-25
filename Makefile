@@ -19,7 +19,7 @@ BUILD_DIR := build
 
 # Sprite data the game links in. Adding a class here will overflow the low
 # 16K until something pages the #4000 bank window.
-SHIP_CLASSES := interceptor
+SHIP_CLASSES := interceptor frigate
 SPRITES := $(patsubst %,$(GEN_DIR)/spr_%.asm,$(SHIP_CLASSES))
 
 MAIN   := $(SRC_DIR)/main.asm

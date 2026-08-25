@@ -37,7 +37,10 @@ class TestFleet(unittest.TestCase):
                 "sy": raw[i * 6 + 2],
                 "z": raw[i * 6 + 3],
                 "view": raw[i * 6 + 4],
-                "tier": raw[i * 6 + 5],
+                #  Byte 5 packs the class into the top bits and the tier into the
+                #  bottom two -- the record is six bytes and both are needed.
+                "tier": raw[i * 6 + 5] & 3,
+                "ship_class": raw[i * 6 + 5] >> 2,
             }
             for i in range(n)
         ]

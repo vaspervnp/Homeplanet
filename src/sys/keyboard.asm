@@ -88,6 +88,8 @@ KEY_CUR_LEFT        equ 1*8 + 0
 KEY_SPACE           equ 5*8 + 7
 KEY_TAB             equ 8*8 + 4
 KEY_ESC             equ 8*8 + 2
+KEY_COMMA           equ 4*8 + 7
+KEY_PERIOD          equ 3*8 + 7
 KEY_R               equ 6*8 + 2
 KEY_S               equ 7*8 + 4
 KEY_ENTER           equ 2*8 + 2         ; the big RETURN, not the numeric one
