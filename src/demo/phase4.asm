@@ -62,6 +62,8 @@ HUD_PER_ROW         equ 5
 HUD_RU_X            equ 56
 HUD_YARD_X          equ 44
 HUD_MIS_X           equ 56
+;  What is left of row A after the RU figure, one character clear of it.
+HUD_HELP_X          equ 70
 
 
 ; ----------------------------------------------------------------------------
@@ -92,6 +94,12 @@ demo_init:
     call mis_init
     call ent_clear_all
     call phase4_spawn_fleet
+    ;  Spawn the starting fleet first and THEN look for a save: a disc with
+    ;  one on it sets mis_saved, and fleet_restore replaces what we just
+    ;  spawned. A disc without one leaves both alone, which is how a new game
+    ;  starts on mission 1 with sixteen ships.
+    call fleet_disc_load
+    call fleet_restore
     call mis_setup                      ; the mission places the enemy, not us
     jp squad_init
 
@@ -206,10 +214,24 @@ demo_update:
     ;  no battle. Section 10 wants a static screen, and static means static.
     ld a,(mis_briefing)
     or a
-    jr z,@p4_playing
+    jr z,@p4_check_help
     call mis_brief_key
     call phase4_select_list
     call mis_brief_draw
+    call phase4_rects_reset
+    ld hl,demo_frames
+    inc (hl)
+    ret
+
+    ;  The key list stops the world for the same reason the briefing does, and
+    ;  is checked after it so a briefing is never covered by one.
+@p4_check_help:
+    ld a,(help_shown)
+    or a
+    jr z,@p4_playing
+    call help_key
+    call phase4_select_list
+    call help_draw
     call phase4_rects_reset
     ld hl,demo_frames
     inc (hl)
@@ -298,6 +320,15 @@ demo_wait_frame:
 ;  Uses: everything
 ; ----------------------------------------------------------------------------
 phase4_commands:
+    ;  `?` puts the key list up. Checked first and returning at once, so no
+    ;  other command can act on the same frame the page opens.
+    ld a,KEY_SLASH
+    call key_hit
+    jr nc,@p4_no_help
+    call help_open
+    ret
+@p4_no_help:
+
     ;  Number keys. The ids are MATRIX POSITIONS, not a dense enumeration --
     ;  1 and 2 sit in row 8 while 9 and 0 are up in row 4 -- so the id for a
     ;  digit has to come out of key_digit. Walking up from KEY_1 gets you
@@ -1398,6 +1429,13 @@ phase4_hud:
     ld d,3
     call txt_draw_num
 
+    ;  The way out of not knowing the keys. Five characters is all the strip
+    ;  has left after the RU figure -- the last glyph starts at byte 78 of 80.
+    ld hl,phase4_hud_help
+    ld b,HUD_HELP_X
+    ld c,HUD_ROW_A_Y
+    call txt_draw
+
     ; --- the mission -------------------------------------------------------
     ;  Its number and whether the jump is open. Twelve characters of name
     ;  would not fit beside the squadron list, so the name lives on the
@@ -1678,6 +1716,7 @@ phase4_hud_shadow_pick: defb #FE
 phase4_hud_shadow_mis:  defb #FE
 
 phase4_hud_ru_label: defb "RU ",0
+phase4_hud_help:     defb "?HELP",0
 phase4_hud_mis_label: defb "M",0
 phase4_hud_jump:     defb "JUMP",0
 phase4_hud_hold:     defb "    ",0

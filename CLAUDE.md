@@ -118,7 +118,8 @@ window is paged underneath it.
 
 `src/main.asm` asserts at build time that code+tables stay clear of the stack
 and prints how many bytes are left in both the low 16K and bank 4. Watch both
-numbers.
+numbers: the low 16K is down to **512 bytes**, so anything sizeable now has to
+go in the bank and be reached through the window (the help text does).
 
 ### Banking
 
@@ -144,13 +145,16 @@ goes through `peek`, which honours the paging.
 
 `<subsystem>_<verb>` for routines, `<subsystem>_<noun>` for data:
 `scr_fill_rect`, `scr_line_addr`, `sys_boot`, `demo_update`.
-Subsystem prefixes: `sys_`, `scr_`, `snd_`, `ent_`, `cam_`, `hud_`, `spr_`.
+Subsystem prefixes: `sys_`, `scr_`, `snd_`, `ent_`, `cam_`, `hud_`, `spr_`,
+`fdc_`, `help_`.
 
 Local labels start with `@` and are scoped to the enclosing global label.
 
 **RASM is case-insensitive.** `demo_objects` and `DEMO_OBJECTS` are the same
 symbol and the build will fail with "there is already an alias with the same
-name". Do not distinguish an equate from a label by case alone.
+name". Do not distinguish an equate from a label by case alone — a routine
+`fdc_motor` beside a port equate `FDC_MOTOR` is the same collision, and it is
+an easy one to walk into because the two read as different kinds of thing.
 
 **`@` labels are GLOBAL.** Not per-routine, not even per-file — two routines
 anywhere in the build cannot both have an `@no_carry`. Prefix them with the
@@ -366,12 +370,12 @@ Design document section 13 lists ten phases.
 - **Phase 4 — done.** The 20-byte entity record from section 7, keyboard
   matrix scanning, an 8×8 font and the HUD strip, squadrons, and formation
   flight. 20 ships at ~8 fps.
-- **Phases 8 and 9 — the mechanism is done, the content is not.** Eight
-  missions as data in bank 4, objectives (clear / survive / arrive), `J` to
-  jump when the objective is met, and the fleet carrying between them with
-  losses permanent. What is missing is authoring, not engineering: the
-  briefing screens §10 asks for, and balance tuning that needs someone to
-  play it. Mission 5 as it stands eats the fleet.
+- **Phases 8 and 9 — done.** Eight missions as data in bank 4, objectives
+  (clear / survive / arrive), `J` to jump when the objective is met, briefing
+  screens, and the fleet carrying between them with losses permanent — now
+  through `FLEET.DAT` on the disc, so it survives the power going off too.
+  Played as the design intends, missions 1-5 cost one ship. What is left is
+  authoring and taste, not engineering.
 - **Phase 7 — done.** Resource patches, harvesters, RU, and a build panel;
   `H` and `B` are live. The loop closes: build a harvester, send it out, and
   what it mines pays for the next ship. What is NOT in: build costs for the
@@ -426,8 +430,9 @@ limit: bank 4 has ~10 KB spare, enough for a second class. Add it to
 | `A` / `G` | attack / guard — writes the order, nothing acts on it yet |
 | `H` | send the selected squadron's **harvesters** to work |
 | `B` | open the build panel; `,`/`.` pick a class, ENTER orders it |
+| `?` | the key list; `ESC` goes back |
 
-**Not implemented, and deliberately:** `J` (jump) is Phase 8.
+`J` jumps when the objective is met, and writes the save on its way out.
 
 While the build panel is open it takes over `,`, `.` and `ENTER` — one pair of
 keys, two meanings, decided by the mode the player can see on screen.
@@ -484,16 +489,40 @@ where the resources are, and what winning looks like. Adding a mission is
 adding a row. The player's ships are never rebuilt by `mis_setup` — they are
 already in the entity table, either freshly spawned or restored from the bank.
 
-**The fleet is banked, not saved to disc, and that is a real limitation.**
-§11 wants the firmware brought back "on the screens between missions" to reach
-the drive. It cannot be: the memory map puts screen B at `#8000-#BFFF`, right
-on top of AMSDOS's workspace at `#A700`, so the moment the game clears its
-second screen the firmware is gone for good. A fleet survives a mission but
-not a power cycle.
+**The fleet is on the disc, written by our own FDC code** — `src/sys/fdc.asm`.
+§11 suggests bringing the firmware back "on the screens between missions" to
+reach the drive, and that route is closed for good: screen B sits at
+`#8000-#BFFF`, right on top of AMSDOS's workspace at `#A700`, so the first
+time the game clears its second screen the firmware is gone. So the µPD765 is
+driven directly. `J` writes the save; `demo_init` looks for one at boot.
 
-Making `FLEET.DAT` real needs the µPD765 driven directly — roughly 400 bytes
-of FDC code, and the low 16K has under 2 KB left. The other option is moving a
-screen buffer, which touches the whole rendering path.
+It goes to **two raw sectors, track 39 `#C1` and `#C2`, and is not an AMSDOS
+file.** A real file needs directory allocation, which is several hundred bytes
+more than the low 16K has (512 left). AMSDOS hands out blocks from track 2
+upward and `DISC.BIN` takes about five tracks, so the last one is a long way
+from anything it would use — but copy another file onto this disc with CP/M
+and it may land on the save.
+
+Three things to know before touching it:
+
+- **The controller may refuse the command**, and then it skips the execution
+  phase entirely and goes straight to handing back its seven result bytes.
+  Code that pumps 512 bytes at it regardless waits on an RQM that never comes.
+  That is *the* failure mode — no disc in the drive is the common case, since
+  `boot_quick` never inserts one — and it hangs the whole suite. `fdc_sector_rw`
+  tests `FDC_ST_EXM` before transferring.
+- **EOT must equal R.** It is the last sector of the transfer, so for a single
+  sector it is the sector itself. The emulator asserts on this rather than
+  returning an error.
+- **All seven result bytes have to be read.** The controller sits in the result
+  phase until the last one goes and ignores anything sent to it meanwhile.
+
+The header (magic, mission index, ship count) sits *in front of* the fleet in
+the same bank-4 block, padded to two whole sectors, so a save is two writes
+from one address instead of a gather. `fleet_disc_load` checks the magic and
+range-checks the mission index: a blank disc, another game's disc and a
+half-written save all arrive there, and two of them would index off the
+mission table.
 
 **`DISC.BIN` used to be close to its ceiling**: it loads at `#4000` and must
 finish below `#A700`, and it once ended around `#A66C` — 148 bytes of
@@ -623,9 +652,20 @@ as it loads.
 ### The harness counts 50 Hz frames, the game runs at 12.5 fps
 
 `run_frames(n)` advances *emulator* frames. `DEMO_TICKS_PER_FRAME` is 4, so
-**one game frame is four of them**. A test that waits `CBT_COOLDOWN` frames for
-a weapon to come round waits a quarter of the time it thinks it does. Multiply
+**one game frame is four of them** — and the game does not hit 12.5 fps, so in
+practice it is nearer **ten**. A test that waits `CBT_COOLDOWN` frames for a
+weapon to come round waits a fraction of the time it thinks it does. Multiply
 by `TICKS_PER_GAME_FRAME` when a test is timing game logic.
+
+The nastier version of this: **every command is edge-triggered, so a test that
+presses the same key twice must leave it up long enough for `key_scan` to
+observe the release.** `test_phase5` released for 15 emulator frames, which at
+the real frame rate is one scan if the phase happened to suit and none if it
+did not — so the second press was not a press at all. It passed for a long
+time on that coin landing right, and what finally tipped it over was adding
+the FDC probe to `demo_init`, which shifted the boot by a fifth of a second
+and changed nothing else. If a keyboard test starts failing after an unrelated
+change, suspect the release window before you suspect the change.
 
 ### Loading, and AMSDOS's workspace
 
@@ -640,6 +680,22 @@ bank 4: it cannot simply sit above `#8000` any more, because a second ship
 class pushed the file past AMSDOS. Screen A is 16K of RAM nothing needs until
 `sys_boot` clears it, it is untouched by the `#4000` paging, and it is exactly
 one bank big.
+
+### The help page
+
+`?` (which is SHIFT + `/`; the matrix only ever reports the physical key, so
+`KEY_SLASH` catches it either way) puts §9's control table on the screen, and
+`ESC` puts it away. It works exactly like the mission briefing and shares its
+two obligations: **repaint every frame**, because the display page-flips and a
+screen painted once alternates with whatever the other buffer holds; and set
+`mis_wipe` on the way out, because it covers the tactical area without
+recording a dirty rectangle for any of it, so nothing else will ever erase it.
+
+The strings are in bank 4 with the mission texts — 400-odd bytes against the
+512 the low 16K has left in total. `src/game/helptext.asm` is the layout: two
+columns of `HELP_ROWS` zero-terminated strings, walked in order, so the order
+in the file is the order on screen. Keep every line inside 19 characters;
+`txt_draw` clips at the screen edge, not at the column.
 
 ### The HUD
 

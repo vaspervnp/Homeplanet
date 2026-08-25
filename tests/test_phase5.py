@@ -60,11 +60,20 @@ class ControlFixture(unittest.TestCase):
         return tuple(self.word("SQUAD_DEST", base + i * 2, signed=True) for i in range(3))
 
     # -- pressing things ----------------------------------------------------
+    #  Long enough for key_scan to see the key up BETWEEN two presses. Every
+    #  command here is edge-triggered, so a second press with no observed
+    #  release is not a second press at all -- and run_frames counts 50Hz
+    #  frames while the game scans the keyboard once per GAME frame, which is
+    #  four of them at the 12.5fps target and ten at the ~5fps this actually
+    #  runs at. Fifteen frames was one scan if the phase happened to suit and
+    #  none if it did not; it passed for years on the coin landing right.
+    RELEASE_FRAMES = 30
+
     def hold(self, key, frames=40):
         self.c.key_down(key)
         self.c.run_frames(frames)
         self.c.key_up(key)
-        self.c.run_frames(15)
+        self.c.run_frames(self.RELEASE_FRAMES)
 
     def hold_shifted(self, key, frames=60):
         """Hold SHIFT and a cursor key together.
@@ -78,7 +87,7 @@ class ControlFixture(unittest.TestCase):
         self.c.run_frames(frames)
         self.c.key_up(key)
         self.c.key_up("Q")
-        self.c.run_frames(15)
+        self.c.run_frames(self.RELEASE_FRAMES)
 
     def open_disc(self):
         self.hold(cpc.KEY_ENTER, frames=25)

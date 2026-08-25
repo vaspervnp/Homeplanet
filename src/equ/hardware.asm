@@ -71,6 +71,24 @@ PPI_CONTROL         equ #F7
 
 PPI_B_VSYNC         equ %00000001
 
+; --- uPD765 floppy controller -----------------------------------------------
+;  Full 16-bit port addresses: these go in BC, so the high byte selects the
+;  device and the low byte the register.
+FDC_MOTOR           equ #FA7E           ; bit 0 = motor on
+FDC_STATUS          equ #FB7E           ; main status register, read only
+FDC_DATA            equ #FB7F           ; data register
+
+;  Main status register bits worth naming.
+FDC_ST_RQM          equ %10000000       ; the controller wants a byte moved
+FDC_ST_DIO          equ %01000000       ; 1 = it has one FOR us, 0 = it wants one
+FDC_ST_EXM          equ %00100000       ; an execution phase is under way
+FDC_ST_BUSY0        equ %00000001       ; drive 0 is still stepping
+
+FDC_CMD_READ        equ #46             ; READ DATA, MFM
+FDC_CMD_WRITE       equ #45             ; WRITE DATA, MFM
+FDC_CMD_SEEK        equ #0F
+FDC_CMD_SENSE_INT   equ #08
+
 ; --- AY-3-8912 (driven through the PPI) -------------------------------------
 PSG_INACTIVE        equ %00000000
 PSG_READ            equ %01000000

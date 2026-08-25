@@ -39,6 +39,7 @@ game_main:
     include "sys/screen.asm"
     include "sys/keyboard.asm"
     include "sys/sound.asm"
+    include "sys/fdc.asm"
     include "math/mul.asm"
     include "math/cam.asm"
     include "math/proj.asm"
@@ -54,6 +55,7 @@ game_main:
     include "game/combat.asm"
     include "game/economy.asm"
     include "game/mission.asm"
+    include "game/help.asm"
     include "demo/phase4.asm"
 
 ; ----------------------------------------------------------------------------
@@ -114,6 +116,7 @@ bank4_start:
     include "gen/spr_interceptor.asm"
     include "gen/spr_frigate.asm"
     include "game/campaign.asm"
+    include "game/helptext.asm"
 bank4_end:
 
 ; ----------------------------------------------------------------------------
@@ -124,10 +127,19 @@ bank4_end:
 ;  bytes to DISC.BIN for nothing, and DISC.BIN has to finish below #A700
 ;  where AMSDOS keeps its workspace. That ceiling is close now.
 ; ----------------------------------------------------------------------------
+;  The header goes in front of the fleet inside the same block, padded out to
+;  a whole number of sectors, so a save is two 512-byte writes from one
+;  address rather than a gather -- which is what keeps the FDC code small
+;  enough to fit what is left of the low 16K.
+fleet_block:
+    defs FLEET_HDR_SIZE, 0              ; magic, magic, mission index, count
 fleet_buffer:
     defs ENT_MAX * ENT_SIZE, 0
+    defs FLEET_BLOCK_SIZE - FLEET_HDR_SIZE - ENT_MAX * ENT_SIZE, 0
 bank4_limit:
 
+    assert fleet_buffer == fleet_block + FLEET_HDR_SIZE, "the fleet must follow its header"
+    assert bank4_limit - fleet_block == FLEET_BLOCK_SIZE, "the save block is not whole sectors"
     assert bank4_limit <= BANK_WINDOW + BANK_WINDOW_SIZE, "bank 4 contents overflow the window"
 
     print "bank 4:", {hex}BANK_WINDOW, "..", {hex}bank4_limit, " image:", bank4_end - BANK_WINDOW, " free:", BANK_WINDOW + BANK_WINDOW_SIZE - bank4_limit

@@ -13,15 +13,15 @@
 ;
 ;  WHERE THE FLEET IS KEPT
 ;  -----------------------
-;  In bank 4, not on disc, and that is a real limitation rather than a
-;  shortcut. Section 11 wants the firmware brought back "on the screens
-;  between missions" to reach the disc -- but the memory map puts screen B at
-;  #8000-#BFFF, right on top of AMSDOS's workspace at #A700. The moment the
-;  game clears its second screen the firmware is gone for good, and there is
-;  no bringing it back.
+;  In bank 4 between missions, and on the DISC across a power cycle. The two
+;  are the same block: fleet_save packs the survivors into the bank, and
+;  fleet_disc_save puts that block on the disc on the way out of a jump.
 ;
-;  So a saved fleet survives a mission but not a power cycle. Making FLEET.DAT
-;  real needs the uPD765 driven directly -- see the note in CLAUDE.md.
+;  Section 11 wants the firmware brought back "on the screens between
+;  missions" to reach the drive, and that cannot be done -- the memory map
+;  puts screen B at #8000-#BFFF, right on top of AMSDOS's workspace at #A700,
+;  so the moment the game clears its second screen the firmware is gone for
+;  good. src/sys/fdc.asm drives the uPD765 itself instead.
 ; ----------------------------------------------------------------------------
 
 MIS_COUNT           equ 8
@@ -474,6 +474,11 @@ mis_jump:
     ld a,(mis_index)
     inc a
     ld (mis_index),a
+    ;  And out to the disc, so it survives the power going off too. The
+    ;  mission index is stamped in by fleet_disc_save, so it has to happen
+    ;  after the increment: what is saved is where the player is going, not
+    ;  the mission they have just finished.
+    call fleet_disc_save
     call fleet_restore
     call mis_setup
     call mis_brief_open                 ; every mission opens on its briefing

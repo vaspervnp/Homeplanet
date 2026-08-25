@@ -90,6 +90,10 @@ KEY_TAB             equ 8*8 + 4
 KEY_ESC             equ 8*8 + 2
 KEY_COMMA           equ 4*8 + 7
 KEY_PERIOD          equ 3*8 + 7
+;  The help key. `?` is SHIFT + `/`, and the matrix only ever reports the
+;  physical key, so reading `/` catches it whether or not SHIFT is down --
+;  and nothing else is bound to `/` for an unshifted press to collide with.
+KEY_SLASH           equ 3*8 + 6
 KEY_R               equ 6*8 + 2
 KEY_S               equ 7*8 + 4
 KEY_ENTER           equ 2*8 + 2         ; the big RETURN, not the numeric one

@@ -260,6 +260,16 @@ def read_cpu(c: cpc.CPC, addr: int, size: int) -> bytes:
     return bytes(c.peek((addr + i) & 0xFFFF) for i in range(size))
 
 
+def write_cpu(c: cpc.CPC, addr: int, data: bytes) -> None:
+    """Write the way the CPU sees memory, honouring the bank paging.
+
+    The mirror of read_cpu, and needed for the same reason: write_ram() would
+    put the bytes in bank 1 where nothing will ever look at them.
+    """
+    for i, byte in enumerate(data):
+        c.poke((addr + i) & 0xFFFF, byte)
+
+
 def peek_pixel_byte(c: cpc.CPC, base: int, y: int, x_byte: int) -> int:
     return c.read_ram(base + screen_offset(y, x_byte), 1)[0]
 
