@@ -100,8 +100,16 @@ press("x", down=40, up=20, note="zoom out")
 press("f", down=25, up=30, note="F -- change formation")
 record(120)
 
+press(cpc.KEY_ESC, note="ESC -- the orders menu")
+record(90, "the orders, with their shortcuts")
+press(cpc.KEY_DOWN, down=25, up=30, note="down")
+press(cpc.KEY_DOWN, down=25, up=30, note="down")
+record(60)
+press(cpc.KEY_ESC, note="ESC -- back out of it")
+record(40)
+
 press("/", note="? -- the key list")
-record(240, "reading the controls")
+record(200, "reading the controls")
 press(cpc.KEY_ESC, note="ESC -- back to the battle")
 record(60)
 

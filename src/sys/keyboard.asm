@@ -280,3 +280,4 @@ key_edge:           defs KEY_ROWS, 0    ; went down at the last scan
 key_digit_ids:
     defb KEY_0, KEY_1, KEY_2, KEY_3, KEY_4
     defb KEY_5, KEY_6, KEY_7, KEY_8, KEY_9
+

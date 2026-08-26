@@ -463,6 +463,7 @@ limit: bank 4 has ~10 KB spare, enough for a second class. Add it to
 | `A` / `G` | attack / guard — writes the order, nothing acts on it yet |
 | `H` | send the selected squadron's **harvesters** to work |
 | `B` | open the build panel; `,`/`.` pick a class, ENTER orders it |
+| `ESC` | the orders menu — cursor keys pick, `ENTER` runs it |
 | `?` | the key list; `ESC` goes back |
 | `SPACE` | on the title screen, start the game |
 
@@ -775,6 +776,35 @@ showed up as "the HUD comes and goes":
   the rest of the game, because the HUD does not clear its strip, it draws
   labels onto it.
 
+### The orders menu
+
+`ESC` puts §9's commands on the screen with their shortcuts beside them,
+cursor keys walk the list, `ENTER` runs one. It stops the world like the
+briefing and the help page.
+
+**It does not know what any command means.** Each entry in
+`src/game/menutext.asm` carries a *key id*, and choosing one **injects that
+key** — `key_inject` writes its bit into `key_edge` and `demo_update` falls
+through into the playing path so `phase4_commands` acts on it in the same
+frame. A menu that called `order_issue` and `eco_build_open` itself would be a
+second copy of that dispatch, and the two would drift the first time a command
+grew a precondition. Adding an order to the menu is adding a row.
+
+Two things this depends on:
+
+- **`key_scan` rebuilds `key_edge` from the hardware every frame**, so an
+  injected edge left for the *next* frame is wiped before anything reads it.
+  That is why the menu falls through rather than returning.
+- **`key_edge` is cleared before the injected bit goes in.** The `ESC` that
+  opened the menu is still in there, and `order_update` reads `ESC` as
+  "cancel" — so choosing MOVE DISC would have opened the disc and cancelled it
+  on the same frame. `ESC` only opens the menu when `disc_active` and
+  `eco_build_open` are both clear; while either is up it still means cancel.
+
+`key_inject` is the mirror of `key_bit` and has to agree with it: `key_bit`
+reads the flag out with `RRCA`, so bit n of the row byte **is** key n of that
+row — no reversal.
+
 ### The help page
 
 `?` (which is SHIFT + `/`; the matrix only ever reports the physical key, so
@@ -785,8 +815,12 @@ screen painted once alternates with whatever the other buffer holds; and set
 `mis_wipe` on the way out, because it covers the tactical area without
 recording a dirty rectangle for any of it, so nothing else will ever erase it.
 
-The strings are in bank 4 with the mission texts — 400-odd bytes against the
-512 the low 16K has left in total. `src/game/helptext.asm` is the layout: two
+The page's CODE is in bank 4 too, along with the menu and the title. The rule
+that emerged: **anything that only runs while the game is stopped belongs in
+the bank.** The low 16K is for the frame loop. Moving the help page and the
+menu's two keyboard helpers out is what bought back the 512 bytes the orders
+menu spent — and the tests notice immediately, because `HELP_SHOWN` then has
+to be read with `read_cpu`. `src/game/helptext.asm` is the layout: two
 columns of `HELP_ROWS` zero-terminated strings, walked in order, so the order
 in the file is the order on screen. Keep every line inside 19 characters;
 `txt_draw` clips at the screen edge, not at the column.

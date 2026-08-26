@@ -242,10 +242,30 @@ demo_update:
 @p4_check_help:
     ld a,(help_shown)
     or a
-    jr z,@p4_playing
+    jr z,@p4_check_menu
     call help_key
     call phase4_select_list
     call help_draw
+    call phase4_rects_reset
+    ld hl,demo_frames
+    inc (hl)
+    ret
+
+    ;  The orders menu. Choosing an entry injects that entry's key and closes,
+    ;  and then we deliberately fall THROUGH into the playing path so
+    ;  phase4_commands acts on it in this same frame -- key_scan rebuilds
+    ;  key_edge from the hardware every frame, so an injected edge left for
+    ;  the next one would be wiped before anything read it.
+@p4_check_menu:
+    ld a,(menu_shown)
+    or a
+    jr z,@p4_playing
+    call menu_key
+    ld a,(menu_shown)
+    or a
+    jr z,@p4_playing                    ; finished with: let the order happen
+    call phase4_select_list
+    call menu_draw
     call phase4_rects_reset
     ld hl,demo_frames
     inc (hl)
@@ -342,6 +362,22 @@ phase4_commands:
     call help_open
     ret
 @p4_no_help:
+
+    ;  ESC brings up the orders -- but only when it is not already spoken for.
+    ;  order_update reads it as "cancel", and cancelling the move disc or the
+    ;  build panel is what the player means while either of those is open.
+    ld a,KEY_ESC
+    call key_hit
+    jr nc,@p4_no_menu
+    ld a,(disc_active)
+    or a
+    jr nz,@p4_no_menu
+    ld a,(eco_build_open)
+    or a
+    jr nz,@p4_no_menu
+    call menu_open
+    ret
+@p4_no_menu:
 
     ;  Number keys. The ids are MATRIX POSITIONS, not a dense enumeration --
     ;  1 and 2 sit in row 8 while 9 and 0 are up in row 4 -- so the id for a

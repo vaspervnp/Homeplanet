@@ -55,7 +55,6 @@ game_main:
     include "game/combat.asm"
     include "game/economy.asm"
     include "game/mission.asm"
-    include "game/help.asm"
     include "demo/phase4.asm"
 
 ; ----------------------------------------------------------------------------
@@ -122,8 +121,11 @@ bank4_start:
 ;  before the first mission, so it has no business competing for the low 16K
 ;  that everything in the frame loop has to share.
     include "gfx/bigtext.asm"
+    include "game/help.asm"
+    include "game/menu.asm"
     include "game/title.asm"
     include "game/titletext.asm"
+    include "game/menutext.asm"
 bank4_end:
 
 ; ----------------------------------------------------------------------------

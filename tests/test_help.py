@@ -39,7 +39,10 @@ class HelpFixture(unittest.TestCase):
         h.close(getattr(self, "c", None))
 
     def byte(self, name):
-        return self.c.read_ram(self.sym[name], 1)[0]
+        #  read_cpu, not read_ram: the help page moved into bank 4 when the
+        #  low 16K ran out, and read_ram would hand back bank 1 -- whatever
+        #  the sprite library happens to have at that address.
+        return h.read_cpu(self.c, self.sym[name], 1)[0]
 
     def press(self, key, frames=25):
         self.c.key_down(key)
