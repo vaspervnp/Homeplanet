@@ -24,7 +24,10 @@ from tests import harness as h
 ENT_SIZE = 20
 ENT_HULL, ENT_FLAGS, ENT_CLASS = 10, 11, 9
 F_ACTIVE, F_ENEMY = 1, 2
-NAMES = {0: "int", 1: "moth", 2: "harv"}
+#  src/game/shipclass.asm. All eight of section 8's classes exist now, so a
+#  run that spends its RU can show up as any of them.
+NAMES = {0: "int", 1: "moth", 2: "harv", 3: "scout",
+         4: "bomb", 5: "frig", 6: "salv", 7: "dest"}
 
 s = h.symbols()
 c = h.boot_quick(frames=300)

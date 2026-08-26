@@ -17,9 +17,14 @@ SRC_DIR   := src
 GEN_DIR   := $(SRC_DIR)/gen
 BUILD_DIR := build
 
-# Sprite data the game links in. Adding a class here will overflow the low
-# 16K until something pages the #4000 bank window.
-SHIP_CLASSES := interceptor frigate
+# All eight classes of Homeplanet.md section 8. Two of them (interceptor,
+# frigate) live in bank 4 and travel inside DISC.BIN; the other six are banks
+# 5-7 and go on the DISC as raw sectors, because DISC.BIN has about 2 KB of
+# headroom under AMSDOS's workspace and one packed library is nearly 4.
+# Which bank a class is in is decided in src/main.asm; this list only says
+# which projects get converted.
+SHIP_CLASSES := interceptor frigate mothership harvester scout bomber \
+                salvage destroyer
 SPRITES := $(patsubst %,$(GEN_DIR)/spr_%.asm,$(SHIP_CLASSES))
 
 MAIN   := $(SRC_DIR)/main.asm
@@ -34,6 +39,11 @@ DISC_RAW := $(BUILD_DIR)/disc.raw
 SYM      := $(BUILD_DIR)/homeplanet.sym
 DISC_SYM := $(BUILD_DIR)/disc.sym
 
+# The three extended banks lib_load reads off the disc at boot. They are NOT
+# part of DISC.BIN -- see src/sys/libload.asm.
+LIB_RAW  := $(BUILD_DIR)/bank5.raw $(BUILD_DIR)/bank6.raw $(BUILD_DIR)/bank7.raw
+BANKED   := $(BUILD_DIR)/.banks-written
+
 # -I src -I .  include paths: src/ for sources, . so disc.asm can INCBIN build/
 # -eo          overwrite files already present in the .dsk
 # -s -sa -ec   export every symbol for the tests (RASM upper-cases them anyway)
@@ -43,13 +53,18 @@ ASM_SOURCES := $(shell find $(SRC_DIR) -name '*.asm' -not -path '$(GEN_DIR)/*')
 
 .PHONY: all tables ships test run clean dsk-list
 
-all: $(DISC_RAW)
+all: $(BANKED)
 
 # Two stages, and the order matters: disc.asm INCBINs the game blob, so the
 # game has to exist first. See src/disc.asm for why the game cannot simply be
 # loaded at #0040 and run.
-$(GAME_RAW) $(SPRITE_RAW) $(SYM) &: $(ASM_SOURCES) $(TABLES) $(SPRITES) | $(BUILD_DIR)
+#
+# rasmoutput.cpr is a side effect of the BANK directive -- RASM writes a
+# cartridge whenever a source uses banks, and there is no flag to say no.
+# Nothing reads it.
+$(GAME_RAW) $(SPRITE_RAW) $(LIB_RAW) $(SYM) &: $(ASM_SOURCES) $(TABLES) $(SPRITES) | $(BUILD_DIR)
 	$(RASM) $(MAIN) $(RASMFLAGS) -s -sa -ec -os $(SYM)
+	rm -f rasmoutput.cpr
 
 # Packing the library is what keeps DISC.BIN under AMSDOS's workspace;
 # tools/packsprites.py explains the format.
@@ -65,6 +80,15 @@ $(SPRITE_RLE): $(SPRITE_RAW) tools/packsprites.py
 $(DISC_RAW) $(DSK) $(DISC_SYM) &: $(GAME_RAW) $(SPRITE_RLE) $(DISC)
 	rm -f $(DSK)
 	$(RASM) $(DISC) $(RASMFLAGS) -s -sa -ec -os $(DISC_SYM)
+
+# ...and then the three sprite banks go on as raw sectors, after AMSDOS has
+# laid DISC.BIN down. This step must come last and must be redone every time
+# the .dsk is minted -- the `rm -f` above throws the previous copy away with
+# everything else on the image. The stamp file is what makes that a make
+# dependency rather than a thing to remember.
+$(BANKED): $(DSK) $(LIB_RAW) $(SYM) tools/discbanks.py
+	$(PYTHON) tools/discbanks.py $(DSK) $(SYM) $(LIB_RAW)
+	touch $@
 
 $(TABLES): tools/gentables.py
 	$(PYTHON) tools/gentables.py
@@ -89,10 +113,10 @@ ships:
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
 
-test: $(DISC_RAW)
+test: $(BANKED)
 	$(PYTHON) -m tests.run
 
-run: $(DISC_RAW)
+run: $(BANKED)
 	$(PYTHON) tools/run.py
 
 # What AMSDOS actually sees on the disc.
@@ -100,7 +124,7 @@ dsk-list: $(DSK)
 	$(IDSK) $(DSK) -l
 
 clean:
-	rm -rf $(BUILD_DIR) $(GEN_DIR)
+	rm -rf $(BUILD_DIR) $(GEN_DIR) rasmoutput.cpr
 
 #  A recorded round, straight out of the emulator through ffmpeg. Boots from
 #  the .dsk like a user would, so it exercises the real loader.

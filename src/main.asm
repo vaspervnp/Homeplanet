@@ -10,6 +10,22 @@
     include "equ/hardware.asm"
     include "equ/memmap.asm"
 
+; ----------------------------------------------------------------------------
+;  RASM's BANK directive, and why the build needs it now.
+;
+;  There are four 16K images in this file and three of them are assembled at
+;  #4000: the game's bank 4, and the two-libraries-each banks 5, 6 and 7 that
+;  hold the ship classes DISC.BIN has no room for. A plain second `org #4000`
+;  is an error ("located in a previous ORG section") because RASM has one
+;  output image per bank -- so each gets its own workspace.
+;
+;  Labels are shared across banks, which is the whole point: class_tiers is in
+;  bank 0 (the low 16K) and holds the addresses of sprites in banks 2-4, and
+;  those resolve to #4000-#7FFF as they should, because that is where the
+;  window will be when they are paged in.
+; ----------------------------------------------------------------------------
+    BANK 0                              ; the low 16K, #0040-#3FFF
+
     org CODE_START
     run game_main
 
@@ -40,6 +56,7 @@ game_main:
     include "sys/keyboard.asm"
     include "sys/sound.asm"
     include "sys/fdc.asm"
+    include "sys/libload.asm"
     include "math/mul.asm"
     include "math/cam.asm"
     include "math/proj.asm"
@@ -113,13 +130,20 @@ code_end:
 ;  extended bank 4 into the window and copies this there at load time, so the
 ;  labels below resolve to bank-4 addresses and the low 16K keeps its space.
 ;
-;  Nothing pages this back out, so #4000-#7FFF is the sprite library for the
-;  whole run. Missions that need different libraries will page banks 5-7.
+;  Bank 4 is the RESTING state of the window, and it holds two things that
+;  could not be more different: the interceptor and frigate sprite libraries,
+;  and all the code that only runs while the game is stopped. Six more
+;  libraries live in banks 5-7 and are read off the disc by lib_load; the one
+;  rule that keeps that safe is in game/shipclass.asm.
 ; ----------------------------------------------------------------------------
+    BANK 1
+
     org BANK_WINDOW
 bank4_start:
     include "gen/spr_interceptor.asm"
     include "gen/spr_frigate.asm"
+    include "game/classdata.asm"
+    include "game/formdata.asm"
     include "game/campaign.asm"
     include "game/helptext.asm"
 ;  The title screen RUNS from the bank. Nothing pages bank 4 out, so #4000
@@ -167,3 +191,114 @@ bank4_limit:
     print "bank 4:", {hex}BANK_WINDOW, "..", {hex}bank4_limit, " image:", bank4_end - BANK_WINDOW, " free:", BANK_WINDOW + BANK_WINDOW_SIZE - bank4_limit
 
     save "build/sprites.raw", BANK_WINDOW, bank4_end - BANK_WINDOW
+
+
+; ============================================================================
+;  Banks 5, 6 and 7 -- the six ship classes DISC.BIN cannot carry
+; ============================================================================
+;  These are NOT in DISC.BIN. They go on the disc as raw sectors and lib_load
+;  reads them in at boot -- src/sys/libload.asm has the arithmetic and the
+;  reason. Two 5.62 KB libraries a bank, which is what LIB_SECTORS is sized
+;  for; the assert below is what stops a third being added by accident.
+;
+;  Nothing but sprite data may go in here. Bank 4 is paged out while one of
+;  these is under the window, so code assembled here could only ever run in a
+;  world where the game's own static screens do not exist.
+; ----------------------------------------------------------------------------
+    BANK 2
+
+    org BANK_WINDOW
+bank5_start:
+    include "gen/spr_mothership.asm"
+    include "gen/spr_harvester.asm"
+bank5_end:
+    save "build/bank5.raw", BANK_WINDOW, bank5_end - BANK_WINDOW
+
+    BANK 3
+
+    org BANK_WINDOW
+bank6_start:
+    include "gen/spr_scout.asm"
+    include "gen/spr_bomber.asm"
+bank6_end:
+    save "build/bank6.raw", BANK_WINDOW, bank6_end - BANK_WINDOW
+
+    BANK 4
+
+    org BANK_WINDOW
+bank7_start:
+    include "gen/spr_salvage.asm"
+    include "gen/spr_destroyer.asm"
+bank7_end:
+    save "build/bank7.raw", BANK_WINDOW, bank7_end - BANK_WINDOW
+
+    print "bank 5:", bank5_end - BANK_WINDOW, " bank 6:", bank6_end - BANK_WINDOW, " bank 7:", bank7_end - BANK_WINDOW, " of", LIB_SECTORS * FDC_SECTOR_SIZE, "each"
+
+;  lib_load reads a fixed LIB_SECTORS sectors into each bank, because a
+;  per-bank length would be a fourth thing to keep in step between the
+;  assembler, the disc writer and the loader. So every bank has to fit that,
+;  and the images are padded out to it on the disc rather than here.
+    assert bank5_end - BANK_WINDOW <= LIB_SECTORS * FDC_SECTOR_SIZE, "bank 5 does not fit LIB_SECTORS sectors"
+    assert bank6_end - BANK_WINDOW <= LIB_SECTORS * FDC_SECTOR_SIZE, "bank 6 does not fit LIB_SECTORS sectors"
+    assert bank7_end - BANK_WINDOW <= LIB_SECTORS * FDC_SECTOR_SIZE, "bank 7 does not fit LIB_SECTORS sectors"
+
+;  The whole library area has to stay clear of the tracks AMSDOS hands out for
+;  DISC.BIN, and of the fleet save at the far end of the disc.
+    assert LIB_TRACK + LIB_BANKS * LIB_TRACKS_PER_BANK <= FLEET_TRACK, "the sprite libraries run into the fleet save"
+
+; ----------------------------------------------------------------------------
+;  Per-class table invariants.
+;
+;  Every per-class table is indexed by ENT_CLASS and has to be exactly
+;  CLASS_COUNT entries long. A table one short reads the first byte of
+;  whatever follows it, and the symptom is a Destroyer that costs whatever the
+;  next table happens to begin with -- which is a plausible number, so nothing
+;  looks wrong.
+; ----------------------------------------------------------------------------
+    assert class_hull - class_tier_bias == CLASS_COUNT,   "class_tier_bias is not CLASS_COUNT entries"
+    assert class_fallback - class_hull == CLASS_COUNT,    "class_hull is not CLASS_COUNT entries"
+    assert class_tag - class_fallback == CLASS_COUNT,     "class_fallback is not CLASS_COUNT entries"
+    assert class_tag_end - class_tag == CLASS_COUNT * 4,  "class_tag is not CLASS_COUNT tags"
+    assert eco_class_cost - eco_build_order == CLASS_BUILDABLE, "eco_build_order does not offer CLASS_BUILDABLE classes"
+    assert eco_class_frames - eco_class_cost == CLASS_COUNT, "eco_class_cost is not CLASS_COUNT entries"
+    assert cbt_damage_matrix - eco_class_frames == CLASS_COUNT, "eco_class_frames is not CLASS_COUNT entries"
+    assert cbt_damage_matrix_end - cbt_damage_matrix == CLASS_COUNT * CLASS_COUNT, "the damage matrix is not CLASS_COUNT square"
+    assert class_sprite_end - class_sprite == CLASS_COUNT * CLASS_SPRITE_STRIDE, "class_sprite is not CLASS_COUNT rows"
+    assert class_geom_end - class_geom == CLASS_TIERS * CLASS_GEOM_SIZE, "class_geom is not CLASS_TIERS rows"
+    assert eco_patch_seed_end - eco_patch_seed == ECO_PATCH_COUNT * ECO_PATCH_SIZE, "the patch seed is not ECO_PATCH_COUNT patches"
+    assert form_offsets_end - form_offsets == FORM_COUNT * FORM_STRIDE, "a formation is not FORM_SLOTS slots"
+
+;  cbt_damage_for indexes the matrix with three `add a,a`, so the row stride is
+;  hard-coded at 8. Eight classes fill it exactly; a ninth would silently
+;  overlap two rows.
+    assert CLASS_COUNT == 8, "cbt_damage_for's row stride is hand-coded as 8"
+
+; ----------------------------------------------------------------------------
+;  class_geom is ONE table for all eight classes, because tools/mkships.py
+;  renders every class from the same TIERS list. That is true by construction
+;  today and would stop being true the moment somebody hand-retouched a sprite
+;  to a different size in RetroTools -- at which point the blitter would read
+;  it with the interceptor's stride and draw a smear.
+;
+;  Checked by summing each field across the eight classes against eight times
+;  the reference, per tier: it is six lines instead of forty-eight, and for two
+;  classes to slip past they would have to be wrong by equal and opposite
+;  amounts in both the width and the block size at once.
+; ----------------------------------------------------------------------------
+    assert interceptor_a_w_bytes * CLASS_COUNT == interceptor_a_w_bytes + mothership_a_w_bytes + harvester_a_w_bytes + scout_a_w_bytes + bomber_a_w_bytes + frigate_a_w_bytes + salvage_a_w_bytes + destroyer_a_w_bytes, "tier A is not the same width in every class"
+    assert interceptor_b_w_bytes * CLASS_COUNT == interceptor_b_w_bytes + mothership_b_w_bytes + harvester_b_w_bytes + scout_b_w_bytes + bomber_b_w_bytes + frigate_b_w_bytes + salvage_b_w_bytes + destroyer_b_w_bytes, "tier B is not the same width in every class"
+    assert interceptor_c_w_bytes * CLASS_COUNT == interceptor_c_w_bytes + mothership_c_w_bytes + harvester_c_w_bytes + scout_c_w_bytes + bomber_c_w_bytes + frigate_c_w_bytes + salvage_c_w_bytes + destroyer_c_w_bytes, "tier C is not the same width in every class"
+    assert interceptor_a_block_sz * CLASS_COUNT == interceptor_a_block_sz + mothership_a_block_sz + harvester_a_block_sz + scout_a_block_sz + bomber_a_block_sz + frigate_a_block_sz + salvage_a_block_sz + destroyer_a_block_sz, "tier A blocks are not the same size in every class"
+    assert interceptor_b_block_sz * CLASS_COUNT == interceptor_b_block_sz + mothership_b_block_sz + harvester_b_block_sz + scout_b_block_sz + bomber_b_block_sz + frigate_b_block_sz + salvage_b_block_sz + destroyer_b_block_sz, "tier B blocks are not the same size in every class"
+    assert interceptor_c_block_sz * CLASS_COUNT == interceptor_c_block_sz + mothership_c_block_sz + harvester_c_block_sz + scout_c_block_sz + bomber_c_block_sz + frigate_c_block_sz + salvage_c_block_sz + destroyer_c_block_sz, "tier C blocks are not the same size in every class"
+
+;  The blitter's unrolled run is entered SPR_UNIT_BYTES back from its end per
+;  byte of width, so a sprite wider than the run walks off into whatever
+;  follows it.
+    assert interceptor_c_w_bytes <= SPR_MAX_W_BYTES, "tier C is wider than the unrolled blit run"
+
+;  class_sprite and class_geom are read AFTER class_tier_addr has paged bank 4
+;  out, so neither may live in the window.
+    assert class_sprite < BANK_WINDOW, "class_sprite is in the bank window and would page itself out"
+    assert class_geom < BANK_WINDOW, "class_geom is in the bank window and would page itself out"
+    assert class_bank < BANK_WINDOW, "class_bank is in the bank window"

@@ -407,10 +407,150 @@ def _frigate() -> Ship:
                 note="battle line; 120 RU (section 8)")
 
 
-#  Section 15's MVP is Interceptor, Bomber, Frigate. The remaining classes from
-#  section 8 -- Mothership, Harvester, Scout, Salvage Corvette, Destroyer --
-#  drop in here as more entries; nothing else needs to change.
-SHIPS = {s.key: s for s in (_interceptor(), _bomber(), _frigate())}
+def _scout() -> Ship:
+    """A needle with a sensor head. The smallest thing in the fleet.
+
+    It has to be told apart from the interceptor, which is also a small dart,
+    and at these sizes "smaller" is not available -- `span` normalises every
+    class into the same box. So the difference is PROPORTION: the interceptor
+    is a wedge that is widest at the back, the scout is a stick with a bulb on
+    the front and a mast on top. Broadside it reads as a T; the interceptor
+    reads as a triangle.
+    """
+    #  The dish is a ring seen edge-on from every yaw, which is what makes the
+    #  bulb survive to tier B. A sphere would have been a blob.
+    dish = prism(0.62, 0.80, hw0=0.42, hh0=0.44, hw1=0.34, hh1=0.36)
+    boom = prism(-0.95, 0.66, hw0=0.11, hh0=0.13, hw1=0.09, hh1=0.10)
+    mast = prism(-0.42, 0.10, hw0=0.06, hh0=0.40, y0=0.48,
+                 hw1=0.05, hh1=0.30, y1=0.40)
+    keel = prism(-0.30, 0.20, hw0=0.06, hh0=0.24, y0=-0.34,
+                 hw1=0.05, hh1=0.18, y1=-0.28)
+    tail = prism(-1.12, -0.88, hw0=0.19, hh0=0.21)
+    parts = [dish, boom, mast, keel, tail]
+    return Ship("scout", "Scout", span=0.72, parts=parts,
+                note="reconnaissance; 25 RU (section 8)")
+
+
+def _harvester() -> Ship:
+    """A catamaran: two hoppers either side of an open scoop. No weapons.
+
+    Deliberately the only WIDE-AND-FLAT class. The bomber is also blunt, but
+    it is blunt with a raised spine, so at tier A the bomber is a mass with a
+    bump on top and the harvester is a mass with a notch in the middle. That
+    notch is the whole silhouette: the gap between the hoppers is a real hole
+    in the sprite, and largest_component would delete a hopper if the two ever
+    stopped touching, so the cross-beams below are not decoration.
+    """
+    hopper = prism(-0.86, 0.52, hw0=0.30, hh0=0.42, x0=0.62,
+                   hw1=0.26, hh1=0.34, x1=0.58)
+    #  The beams tie the two hulls together, and they are deep rather than
+    #  wide so they still read when the ship is seen bow-on.
+    beam_f = prism(0.16, 0.44, hw0=0.66, hh0=0.13, y0=-0.10)
+    beam_r = prism(-0.72, -0.44, hw0=0.66, hh0=0.15, y0=-0.06)
+    #  The scoop hangs UNDER the gap, so head-on the ship is two blocks and a
+    #  bar rather than two loose blocks.
+    scoop = prism(-0.30, 0.86, hw0=0.34, hh0=0.24, y0=-0.40,
+                  hw1=0.44, hh1=0.30, y1=-0.44)
+    parts = [hopper, mirror_x(hopper), beam_f, beam_r, scoop]
+    return Ship("harvester", "Harvester", span=0.94, parts=parts,
+                note="resource collection; 40 RU (section 8)")
+
+
+def _salvage() -> Ship:
+    """A tug: a heavy engine block behind a two-pronged grapple.
+
+    The fork is the identity -- nothing else in the fleet has a hole at the
+    bow. It has to be a SIDEWAYS fork, x0 = +-0.40 with a gap between, and
+    that is not obvious: the first version put one prong above the centreline
+    and one below, both at x = 0, which reads perfectly broadside and turns
+    into a solid blob head-on. At 8x6 head-on the corvette was then byte-for-
+    byte the Mothership, and tests/test_ships.py said so.
+
+    Made of vertical plates rather than horizontal ones for the reason at the
+    top of this section: a flat panel is seen edge-on from every one of the
+    eight views and contributes a one-pixel stick.
+    """
+    prong = prism(0.15, 1.10, hw0=0.15, hh0=0.34, x0=0.40,
+                  hw1=0.12, hh1=0.26, x1=0.46)
+    #  The yoke ties the prongs to the hull. Without it they are two loose
+    #  blocks and largest_component deletes one of them.
+    yoke = prism(0.10, 0.42, hw0=0.56, hh0=0.20)
+    spine = prism(-0.60, 0.25, hw0=0.22, hh0=0.26, hw1=0.18, hh1=0.30)
+    #  Squat, wide, and unmistakably the back end: a tug is all engine.
+    block = prism(-1.10, -0.50, hw0=0.40, hh0=0.46, hw1=0.34, hh1=0.40)
+    #  A derrick over the engine block, leaning forward. Without it the ship
+    #  is symmetric about both the vertical AND the fore-aft axis at 8x6, and
+    #  the eight yaw views collapse into five distinct shapes -- a rotation
+    #  that produces five pictures is one the player reads as stuttering.
+    #  Vertical structure is what survives to tier A; see the note at the top
+    #  of this section.
+    derrick = prism(-0.80, -0.10, hw0=0.10, hh0=0.34, y0=0.66,
+                    hw1=0.08, hh1=0.20, y1=0.52)
+    parts = [prong, mirror_x(prong), yoke, spine, block, derrick]
+    return Ship("salvage", "Salvage Corvette", span=0.88, parts=parts,
+                note="capture; 90 RU (section 8)")
+
+
+def _destroyer() -> Ship:
+    """The heavy capital: a deep hull carrying TWO towers.
+
+    The frigate is the other long class, so the pair have to be told apart at
+    a glance. The frigate is a bar with one tower amidships; the destroyer is
+    a deeper bar with a tower at each end and a gap between them. Two bumps
+    against one is a cue that survives the dither, which a difference of
+    proportion alone would not.
+    """
+    hull = prism(-1.60, 1.50, hw0=0.40, hh0=0.50, hw1=0.24, hh1=0.30)
+    stern = prism(-1.85, -1.50, hw0=0.44, hh0=0.54, hw1=0.42, hh1=0.52)
+    #  Both towers stand a full half-hull proud, with a hull-length gap
+    #  between them. Anything shorter merged into one bump at tier B and the
+    #  destroyer became a fat frigate.
+    tower_f = prism(0.10, 0.85, hw0=0.26, hh0=0.42, y0=0.78,
+                    hw1=0.20, hh1=0.30, y1=0.66)
+    tower_r = prism(-1.40, -0.65, hw0=0.28, hh0=0.46, y0=0.82,
+                    hw1=0.22, hh1=0.34, y1=0.70)
+    keel = prism(-1.10, 0.70, hw0=0.24, hh0=0.22, y0=-0.66,
+                 hw1=0.17, hh1=0.16, y1=-0.58)
+    #  Same trick as the frigate's sponsons: amidships, so they never touch
+    #  the XZ radius the size fit normalises against, and they keep the
+    #  bow-on view from collapsing to a dot.
+    battery = prism(-1.00, 0.10, hw0=0.50, hh0=0.28, x0=0.72,
+                    hw1=0.36, hh1=0.20, x1=0.60)
+    parts = [hull, stern, tower_f, tower_r, keel, battery, mirror_x(battery)]
+    return Ship("destroyer", "Destroyer", span=1.00, parts=parts,
+                note="heavy capital; 250 RU, from mission 5 (section 8)")
+
+
+def _mothership() -> Ship:
+    """Sixty thousand sleepers in a box.
+
+    Not a warship and it must not look like one: no fins, no nose, nothing
+    swept. A deep rectangular slab with a spine along the top and a bank of
+    engines across the stern -- the only class whose silhouette is basically
+    a rectangle, which is exactly the read wanted for "the thing you are
+    protecting". The tier bias in shipclass.asm draws it a size larger again.
+    """
+    core = prism(-1.30, 1.30, hw0=0.62, hh0=0.72, hw1=0.54, hh1=0.62)
+    bow = prism(1.30, 1.62, hw0=0.54, hh0=0.62, hw1=0.44, hh1=0.46)
+    spine = prism(-1.10, 0.95, hw0=0.30, hh0=0.26, y0=0.92,
+                  hw1=0.26, hh1=0.22, y1=0.86)
+    ventral = prism(-0.90, 0.80, hw0=0.34, hh0=0.24, y0=-0.90,
+                    hw1=0.28, hh1=0.20, y1=-0.84)
+    #  The engine bank is wider than the hull, so the stern-on view is the
+    #  widest thing the fleet has and the Mothership is identifiable even
+    #  when it is running away.
+    engines = prism(-1.62, -1.24, hw0=0.86, hh0=0.52, hw1=0.80, hh1=0.46)
+    parts = [core, bow, spine, ventral, engines]
+    return Ship("mothership", "Mothership", span=1.00, parts=parts,
+                note="base, construction, jump; not buildable (section 8)")
+
+
+#  All eight classes of section 8. Adding one is a function above and a row in
+#  src/game/shipclass.asm; where its library LIVES is the Makefile's business.
+SHIPS = {s.key: s for s in (
+    _interceptor(), _bomber(), _frigate(), _scout(),
+    _harvester(), _salvage(), _destroyer(), _mothership(),
+)}
 
 
 # ---------------------------------------------------------------------------

@@ -25,19 +25,10 @@ ECO_LOAD_MAX        equ 60              ; RU a harvester carries
 ECO_LOAD_RATE       equ 3               ; RU mined per frame in contact
 ECO_START_RU        equ 120
 
-;  Ship costs, Homeplanet.md section 8. Indexed by class.
-;  What the yard will offer, in the order , and . step through.
-eco_build_order:
-    defb CLASS_INTERCEPTOR
-    defb CLASS_HARVESTER
-
-eco_class_cost:
-    defb 35                             ; interceptor
-    defb 0                              ; mothership -- not buildable
-    defb 40                             ; harvester
-
-;  Frames of construction per ship. Cheap ships are quick.
-ECO_BUILD_FRAMES    equ 40
+;  eco_build_order, eco_class_cost and eco_class_frames are in
+;  game/classdata.asm, in bank 4 with the rest of the per-class tables. They
+;  are read when the player presses ENTER, which is never inside the one
+;  window where bank 4 is paged out.
 
 
 ; ----------------------------------------------------------------------------
@@ -409,13 +400,21 @@ eco_spawn_built:
     add hl,de
     ld (hl),ENT_F_ACTIVE
     ld hl,(eco_ent)
-    ld de,ENT_HULL
-    add hl,de
-    ld (hl),255
-    ld hl,(eco_ent)
     ld de,ENT_CLASS
     add hl,de
     ld a,(eco_build_class)
+    ld (hl),a
+    ld hl,(eco_ent)
+    ld de,ENT_HULL
+    add hl,de
+    ld a,(eco_build_class)
+    push hl
+    ld l,a
+    ld h,0
+    ld de,class_hull
+    add hl,de
+    ld a,(hl)
+    pop hl
     ld (hl),a
     ld hl,(eco_ent)
     ld de,ENT_TARGET
@@ -446,6 +445,13 @@ eco_queue:
     cp CLASS_COUNT
     jr c,@eco_busy                      ; one at a time
 
+    ;  Checked here as well as in eco_pick_step, because the pick is a byte in
+    ;  RAM and the panel is not the only thing that can move it -- the orders
+    ;  menu injects keys, and a class that is off the list one mission is on
+    ;  it the next.
+    call eco_pick_allowed
+    jr nc,@eco_busy
+
     ld a,(eco_build_pick)
     ld l,a
     ld h,0
@@ -471,7 +477,11 @@ eco_queue:
 
     ld a,(eco_pick_class)
     ld (eco_build_class),a
-    ld a,ECO_BUILD_FRAMES
+    ld l,a
+    ld h,0
+    ld de,eco_class_frames
+    add hl,de
+    ld a,(hl)
     ld (eco_build_timer),a
     scf
     ret
@@ -481,12 +491,49 @@ eco_queue:
 
 
 ; ----------------------------------------------------------------------------
+;  eco_pick_allowed -- may the currently picked class be ordered yet?
+;  Out: CF set if it may
+;  Uses: AF, DE, HL
+;
+;  Section 8 gives the Destroyer as "διαθέσιμο από την 5η αποστολή" and gives
+;  no such condition to anything else, so this is one test rather than a table
+;  of unlock missions. It becomes a table the moment a second class needs one.
+; ----------------------------------------------------------------------------
+eco_pick_allowed:
+    ld a,(eco_build_pick)
+    ld l,a
+    ld h,0
+    ld de,eco_build_order
+    add hl,de
+    ld a,(hl)
+    cp CLASS_DESTROYER
+    jr nz,@eco_allow
+    ld a,(mis_index)                    ; missions count from zero
+    cp CLASS_DESTROYER_MIS
+    jr c,@eco_deny
+@eco_allow:
+    scf
+    ret
+@eco_deny:
+    or a
+    ret
+
+
+; ----------------------------------------------------------------------------
 ;  eco_pick_step -- , and . walk the build selection
 ;  In : A = +1 or -1
-;  Uses: AF, HL
+;  Uses: everything
+;
+;  A class that is not available yet is STEPPED OVER rather than shown and
+;  refused: the panel has room for one three-letter tag, so an entry the
+;  player can see but cannot order looks like a bug in the ENTER key. The loop
+;  cannot spin, because the classes with no unlock condition are always there.
 ; ----------------------------------------------------------------------------
 eco_pick_step:
+    ld (eco_pick_dir),a
+@eco_pick_try:
     ld hl,eco_build_pick
+    ld a,(eco_pick_dir)
     add a,(hl)
     cp CLASS_BUILDABLE
     jr c,@eco_pick_ok
@@ -496,6 +543,8 @@ eco_pick_step:
     xor a
 @eco_pick_ok:
     ld (hl),a
+    call eco_pick_allowed
+    jr nc,@eco_pick_try
     ret
 
 
@@ -558,6 +607,7 @@ eco_axis:           defb 0
 eco_dist:           defb 0
 eco_new_slot:       defb 0
 eco_pick_class:     defb 0
+eco_pick_dir:       defb 0
 eco_amount:         defb 0
 
 eco_build_open:     defb 0              ; the panel is showing
@@ -567,15 +617,5 @@ eco_build_timer:    defb 0
 
 eco_patches:        defs ECO_PATCH_COUNT * ECO_PATCH_SIZE, 0
 
-;  Where the fields are, and how much is in them. Placed off to the sides so
-;  harvesting takes a ship away from the battle line -- which is the decision
-;  the economy is supposed to force.
-eco_patch_seed:
-    defw  -6500,   250, -1500
-    defw 900
-    defw   6500,  -250,  1500
-    defw 900
-    defw  -1500,   500,  6500
-    defw 700
-    defw   1500,  -500, -6500
-    defw 700
+;  eco_patch_seed -- where the fields are and how much is in them -- is in
+;  game/classdata.asm, in bank 4. It is copied once, by eco_init.

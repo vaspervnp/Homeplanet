@@ -153,6 +153,33 @@ def dismiss_title(c: cpc.CPC) -> None:
     raise RuntimeError("could not get past the title screen")
 
 
+def wait_for_briefing(c: cpc.CPC, frames: int = 80) -> bool:
+    """Give a briefing that is on its way a chance to appear.
+
+    A jump is not instant. mis_jump increments mis_index, writes the fleet to
+    the DISC -- a kilobyte, with the drive spinning up, so about a third of a
+    second -- and only then opens the briefing. For that whole stretch
+    mis_index already says the new mission and mis_briefing still says zero.
+
+    dismiss_briefing used to read the flag once and return when it was clear,
+    so a test that pressed J and looked immediately found no briefing, decided
+    there was nothing to do, and then sent the NEXT command into a briefing
+    screen that had appeared in the meantime -- where nothing runs. Two
+    campaign tests failed with "1 != 2" and neither of them was about discs.
+
+    Bounded, because a refused jump never puts a briefing up at all and that
+    is a legitimate thing for a test to check.
+    """
+    sym = symbols()
+    if "MIS_BRIEFING" not in sym:
+        return False
+    for _ in range(frames // 5):
+        if c.read_ram(sym["MIS_BRIEFING"], 1)[0]:
+            return True
+        c.run_frames(5)
+    return False
+
+
 def dismiss_briefing(c: cpc.CPC) -> None:
     """Press ENTER past a mission briefing, if one is up.
 
@@ -165,6 +192,7 @@ def dismiss_briefing(c: cpc.CPC) -> None:
     sym = symbols()
     if "MIS_BRIEFING" not in sym:
         return
+    wait_for_briefing(c)
     for _ in range(6):
         if not c.read_ram(sym["MIS_BRIEFING"], 1)[0]:
             return
@@ -175,18 +203,34 @@ def dismiss_briefing(c: cpc.CPC) -> None:
     raise RuntimeError("could not get past the mission briefing")
 
 
-def boot_quick(frames: int = 40, briefing: bool = False) -> cpc.CPC:
+def boot_quick(frames: int = 40, briefing: bool = False,
+               disc: bool = True) -> cpc.CPC:
     """Let the firmware boot, then drop DISC.BIN in at #4000 and jump to it.
 
-    This is exactly what `RUN"DISC` ends up doing, minus the disc emulation --
-    the same relocating stub runs, so the code under test is identical. Use
-    boot_disc() when the thing being tested IS the disc image.
+    This is exactly what `RUN"DISC` ends up doing, minus AMSDOS loading the
+    file -- the same relocating stub runs, so the code under test is
+    identical. Use boot_disc() when the thing being tested IS the loading.
+
+    THE DISC IS IN THE DRIVE, and it has to be. Six of the eight sprite
+    libraries do not fit inside DISC.BIN and live on the disc as raw sectors;
+    lib_load reads them into banks 5-7 during demo_init. Boot without one and
+    the game runs perfectly well but wears stand-in art, which is what
+    `disc=False` is for -- and what the fallback tests use.
+
+    The image is handed to the emulator as BYTES, and cpcemu keeps its own
+    copy, so a test that saves the fleet writes into that copy and not into
+    build/homeplanet.dsk. One test cannot leave a campaign half-played for the
+    next one.
 
     The opening briefing is dismissed unless `briefing` is set: it stops the
     whole game, so a test that left it up would be testing a static screen.
     """
     c = cpc.CPC()
     c.run_frames(BOOT_FRAMES)
+    if disc:
+        with open(DSK, "rb") as f:
+            if not c.insert_disc(f.read()):
+                raise RuntimeError(f"insert_disc failed for {DSK}")
     with open(DISC_RAW, "rb") as f:
         c.write_ram(LOADER_ORG, f.read())
     #  Not LOADER_ORG: the stub lives at the TOP of the image, above #8000,

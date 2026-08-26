@@ -24,18 +24,11 @@
 CBT_RANGE           equ 40              ; camera-scale units, so ~2500 world
 CBT_COOLDOWN        equ 6               ; frames between shots
 
-;  Homeplanet.md section 8's balance triangle:
-;      Interceptor -> Bomber -> Frigate -> Interceptor
-;
-;  A matrix, not a single damage number, because the whole point is that a
-;  class is defined by what it is good against. Rows are the shooter, columns
-;  the target; the value is hull points a hit takes off.
-;
-;  Only the three classes that exist have real rows. The rest of section 8
-;  arrives with its art, and this table is where its numbers go -- keeping the
-;  matrix square from the start means adding a class is adding a row and a
-;  column rather than rewriting how damage works.
-CBT_DAMAGE_BASE     equ 24
+;  Damage comes from cbt_damage_matrix -- eight classes square, section 8's
+;  balance triangle written out. It lives in game/classdata.asm with the rest
+;  of the per-class data, which is in bank 4; cbt_damage_for reads it with the
+;  window at its resting state, which is the only state cbt_update ever runs
+;  in. See the header of game/shipclass.asm for what "resting state" means.
 
 ;  Explosions live for a few frames and grow as they go.
 EXPL_MAX            equ 6
@@ -302,7 +295,8 @@ cbt_damage_for:
     xor a
 @cbt_shooter_ok:
     add a,a
-    add a,a                             ; CLASS_COUNT columns, rounded to 4
+    add a,a
+    add a,a                             ; * CLASS_COUNT, which is 8
     ld c,a
 
     ld a,(cbt_target)
@@ -708,11 +702,6 @@ cbt_kills:          defb 0
 ;  x, y, z, timer -- timer 0 means the slot is free.
 cbt_explosions:     defs EXPL_MAX * EXPL_SIZE, 0
 
-;  Rows are the shooter, columns the target, four columns a row so the index
-;  is a shift rather than a multiply.
-;
-;                    vs INT   vs MTH   vs HAR    --
-cbt_damage_matrix:
-    defb  24,      10,      40,      0           ; interceptor: anti-fighter
-    defb  40,      24,      40,      0           ; mothership:  heavy guns
-    defb   4,       2,       4,      0           ; harvester:   barely armed
+;  The balance triangle's damage matrix is in game/classdata.asm, in bank 4
+;  with the rest of the per-class data -- cbt_damage_for reads it with bank 4
+;  under the window, which is where the window rests.

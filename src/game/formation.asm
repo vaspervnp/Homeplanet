@@ -106,84 +106,15 @@ squad_form:         defs SQUAD_MAX + 1, 0
 
 
 ; ============================================================================
-;  The shapes
+;  The shapes are in game/formdata.asm, in bank 4
 ; ============================================================================
-;  Everything below is in world units, and world units got four times smaller
-;  when WORLD_SHIFT went from 8 to 6 -- so every figure here is a quarter of
-;  what it was, and a formation is exactly the same size on screen. See the
-;  note in src/math/proj.asm.
-FORM_SPACING        equ 550
-
-;  --- Loose: a flat 4 x 4 lattice on the squadron's own XZ plane -----------
-;  The default. Spread out, nothing clever, easy to read at a glance.
-form_offsets:
-loz = 0
-    repeat 4
-lox = 0
-        repeat 4
-            defw (lox * 2 - 3) * FORM_SPACING
-            defw 0
-            defw (loz * 2 - 3) * FORM_SPACING
-lox = lox + 1
-        rend
-loz = loz + 1
-    rend
-
-;  --- Wedge: an arrowhead, point forward ----------------------------------
-;  Slot 0 leads; the rest fall back in widening pairs. Two ranks, so a
-;  sixteen-ship squadron still looks like one arrow rather than a queue.
-    defw      0, 0,  1100
-    defw   -550, 0,   550
-    defw    550, 0,   550
-    defw  -1100, 0,     0
-    defw   1100, 0,     0
-    defw  -1650, 0,  -550
-    defw   1650, 0,  -550
-    defw  -2200, 0, -1100
-    defw   2200, 0, -1100
-    defw      0, 0,     0
-    defw   -550, 0,  -550
-    defw    550, 0,  -550
-    defw  -1100, 0, -1100
-    defw   1100, 0, -1100
-    defw  -1650, 0, -1650
-    defw   1650, 0, -1650
-
-;  --- Sphere: a shell around the station ----------------------------------
-;  Two rings of six at different heights plus one above and one below. The
-;  point is that nothing is in anybody's line of fire, which matters once
-;  there is fire.
-    defw      0,   900,      0
-    defw      0,  -900,      0
-    defw    800,   350,      0
-    defw    400,   350,    700
-    defw   -400,   350,    700
-    defw   -800,   350,      0
-    defw   -400,   350,   -700
-    defw    400,   350,   -700
-    defw    800,  -350,      0
-    defw    400,  -350,    700
-    defw   -400,  -350,    700
-    defw   -800,  -350,      0
-    defw   -400,  -350,   -700
-    defw    400,  -350,   -700
-    defw    600,     0,    350
-    defw   -600,     0,   -350
-
-;  --- Wall: a 4 x 4 sheet standing upright --------------------------------
-;  Flat in XY with no depth, so the squadron presents its whole broadside at
-;  once. The counterpart to the wedge.
-way = 0
-    repeat 4
-wax = 0
-        repeat 4
-            defw (wax * 2 - 3) * FORM_SPACING
-            defw (way * 2 - 3) * FORM_SPACING
-            defw 0
-wax = wax + 1
-        rend
-way = way + 1
-    rend
-form_offsets_end:
-
-    assert (form_offsets_end - form_offsets) == FORM_COUNT * FORM_STRIDE, "a formation is not 16 slots"
+;  384 bytes of authored lattice, read by form_slot_offset when a ship is
+;  given a destination -- never inside the one window where bank 4 is paged
+;  out (see game/shipclass.asm). It moved there when section 8's eight ship
+;  classes took the low 16K past its ceiling, and it moved rather than
+;  something else because it is the largest thing in the frame loop's 16K
+;  that the frame loop does not touch per byte.
+;
+;  Same split as help.asm/helptext.asm and menu.asm/menutext.asm: the code
+;  that walks a table stays here, the table goes in the bank.
+; ----------------------------------------------------------------------------

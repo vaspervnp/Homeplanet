@@ -20,6 +20,7 @@ ENT_SIZE = 20
 ENT_CLASS, ENT_FLAGS, ENT_SQUAD, ENT_ORDER, ENT_LOAD = 9, 11, 12, 13, 15
 F_ACTIVE, F_ENEMY = 1, 2
 CLASS_INTERCEPTOR, CLASS_MOTHERSHIP, CLASS_HARVESTER = 0, 1, 2
+CLASS_BUILDABLE = 7
 ORDER_HARVEST = 4
 PATCH_COUNT, PATCH_SIZE = 4, 8
 COST = {CLASS_INTERCEPTOR: 35, CLASS_HARVESTER: 40}
@@ -71,8 +72,14 @@ class EconomyFixture(unittest.TestCase):
         self.c.run_frames(12)
 
     def set_pick(self, ship_class):
-        """Walk the build panel round to a class, wherever it starts."""
-        order = list(self.c.read_ram(self.sym["ECO_BUILD_ORDER"], 2))
+        """Walk the build panel round to a class, wherever it starts.
+
+        eco_build_order is in bank 4 with the rest of the per-class data, so
+        it has to be read through the CPU's view -- read_ram would hand back
+        bank 1 and index() would find the class at a fictional position.
+        """
+        order = list(h.read_cpu(self.c, self.sym["ECO_BUILD_ORDER"],
+                                CLASS_BUILDABLE))
         want = order.index(ship_class)
         for _ in range(len(order)):
             if self.byte("ECO_BUILD_PICK") == want:

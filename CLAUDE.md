@@ -13,7 +13,7 @@ document stays in Greek.
 
 ```bash
 make            # generate tables, assemble, produce build/homeplanet.dsk
-make test       # assemble, then run the emulator test suite (~3s)
+make test       # assemble, then run the emulator test suite (~7 min)
 make run        # assemble and screenshot the running game into build/shots/
 make tables     # regenerate the lookup tables only
 make dsk-list   # AMSDOS catalogue of the built disc
@@ -28,6 +28,13 @@ python3 -m unittest tests.test_phase0 -v     # one test module
 
 **Always `make test` before saying something works.** The emulator gives us
 the whole machine state; there is no reason to guess.
+
+313 tests, about **seven minutes**. It doubled when the sprite libraries moved
+onto the disc: every `boot_quick` now spins the drive up and reads 69 sectors,
+which is a second and a half of emulated time per machine and there are about
+a hundred machines. That is the price of testing the real loader instead of a
+poke, and it is worth it -- but do not add a fixture that boots per test
+method when a `setUpClass` would do.
 
 **The `.dsk` is minted fresh every build, and that `rm -f` in the Makefile is
 load-bearing.** RASM's `-eo` writes DISC.BIN *into* an existing image, and the
@@ -68,8 +75,12 @@ paging shows up), `pc`, `crtc_screen_addr`, `mode`, `decode_screen_ram`,
 
 Two entry points:
 
-- `harness.boot_quick()` — boot the firmware, drop `DISC.BIN` at `#4000`, jump.
-  Same code path as a real boot minus the FDC. Use this.
+- `harness.boot_quick()` — insert the `.dsk`, boot the firmware, drop
+  `DISC.BIN` at `#4000`, jump. Same code path as a real boot minus AMSDOS
+  loading the file. Use this. The disc IS needed: six of the eight sprite
+  libraries live on it as raw sectors and `lib_load` reads them at boot.
+  `boot_quick(disc=False)` skips it, and is how the stand-in fallback is
+  tested.
 - `harness.boot_disc()` — insert the `.dsk` and `RUN"DISC`. Slow; it is the
   only thing that proves the disc image is right.
 
@@ -124,49 +135,84 @@ gives you a CRTC that has never been initialised. `harness.boot_quick` runs
 #0000-#003F   RST vectors; our IM 1 handler is JP'd from #0038
 #0040-#3FFF   code + lookup tables + entity data        (16 KB)
               ...stack grows DOWN from #4000 into the slack
-#4000-#7FFF   BANK WINDOW — extended bank 4, the sprite library
+#4000-#7FFF   BANK WINDOW — bank 4 at rest; 5, 6 and 7 while blitting
 #8000-#BFFF   screen buffer B
 #C000-#FFFF   screen buffer A
 ```
 
-Everything touched per frame must live below `#4000`, because the `#4000`
-window is paged underneath it.
-
 `src/main.asm` asserts at build time that code+tables stay clear of the stack
-and prints how many bytes are left in both the low 16K and bank 4. Watch both
-numbers: the low 16K is down to **512 bytes**, so anything sizeable now has to
-go in the bank and be reached through the window (the help text does).
+and prints how many bytes are left in the low 16K and in every bank. Watch all
+of them: the low 16K has **512 bytes**, so anything sizeable goes in a bank and
+is reached through the window — the help text, the mission table, the formation
+lattices and all the per-class data do.
+
+**The low 16K's real floor is not `#4000`.** `tests/test_sound.py` puts 384
+bytes of stub above `CODE_END` and `harness` puts another 0x60 there, so the
+`free:` figure has to stay above about 450 — or a dozen test classes that have
+nothing to do with your change start failing with "no room for the test
+scratch".
 
 ### Banking
 
 `OUT (#7Fxx), #C4..#C7` pages extended bank 4..7 into `#4000`; `#C0` is the
 power-on layout. Equates in `src/equ/hardware.asm`.
 
-**Bank 4 is paged in for the whole run** and holds the sprite library, so
-`sys_boot` selects it rather than the default layout. Getting the data there
-is the awkward part, and `src/disc.asm` explains it at length: the stub cannot
-live at `#4000` any more, because the instant it pages bank 4 in, the window
-stops being the RAM the stub is executing from. Both the stub and the sprite
-image therefore sit above `#8000`, which the paging leaves alone.
+**All four banks are in use now**, and they are not the same kind of thing:
+
+| Bank | Holds | How it gets there |
+|---|---|---|
+| 4 | interceptor + frigate sprites; mission table; help, menu and title CODE; per-class data; formation lattices; the fleet buffer | inside `DISC.BIN` |
+| 5 | mothership + harvester sprites | raw sectors, read by `lib_load` |
+| 6 | scout + bomber sprites | " |
+| 7 | salvage + destroyer sprites | " |
+
+Getting bank 4 there is the awkward part, and `src/disc.asm` explains it at
+length: the loader stub cannot live at `#4000`, because the instant it pages
+bank 4 in, the window stops being the RAM the stub is executing from. The stub
+sits above `#8000` and the sprite image is staged through screen A.
+
+#### The one rule
+
+> **Bank 4 is the RESTING STATE of the window. The only code that leaves it is
+> `class_tier_addr`, and the only code that runs before it comes back is
+> `phase4_blit_one`.**
+
+`class_tier_addr` (`src/game/shipclass.asm`) selects a class's bank *and*
+returns its sprite address, in the same three instructions — so you cannot get
+an address without the library being under the window. That is deliberate, and
+it is why there is no separate `spr_select_bank` for somebody to forget.
+`phase4_blit_one` is a wrapper around `phase4_blit_body` for the matching
+reason: the body has two exits, the sprite was clipped away or it was drawn,
+and both have to return through `class_blit_done`.
+
+Everything read between those two points must be in the **low 16K**:
+`class_bank`, `class_sprite` and `class_geom` are there for that reason and
+`src/main.asm` asserts it. Everything else per-class — costs, hulls, the damage
+matrix, the tier bias, the three-letter tags — is in `game/classdata.asm`, in
+bank 4, because it is only ever read with the window at rest.
+
+`lib_load` breaks the rule on purpose, once, at boot: it has to, because the
+destination of the sector read IS the window. It is in the low 16K, it calls
+nothing in bank 4, and every exit path goes through one routine that puts bank
+4 back and re-enables interrupts.
 
 In tests, `read_ram()` indexes the base 64K by address and will hand you
 bank 1 for `#4000`. Use `harness.read_cpu()` (and `write_cpu()`) for anything
 in the window — they go through `peek`/`poke`, which honour the paging. This
 catches you the moment a variable moves into the bank: `title_shown` read back
-as 14 the first time, because `read_ram` was looking at bank 1.
+as 14 the first time, because `read_ram` was looking at bank 1, and
+`eco_build_order` did the same thing when the class tables moved.
 
-**The bank is executable RAM, not just data.** Nothing pages bank 4 out, so
-`#4000-#7FFF` runs code as happily as it holds sprites — and that is the
-escape hatch when the low 16K fills up. The title screen (`gfx/bigtext.asm`,
-`game/title.asm`) lives there for exactly that reason: it runs once, before
-the first mission, so it has no business competing for space with the frame
-loop. It went in the low 16K first and took `CODE_END` to `#3D00`, which left
-the *tests* no room for their scratch and broke seven classes that had nothing
-to do with it.
+**The bank is executable RAM, not just data.** `#4000-#7FFF` runs code as
+happily as it holds sprites — and that is the escape hatch when the low 16K
+fills up. The title screen (`gfx/bigtext.asm`, `game/title.asm`) lives there
+for exactly that reason: it runs once, before the first mission, so it has no
+business competing for space with the frame loop. It went in the low 16K first
+and took `CODE_END` to `#3D00`, which left the *tests* no room for their
+scratch and broke seven classes that had nothing to do with it.
 
-The rule that still holds is the original one: anything touched **per frame**
-must be below `#4000`, because a future mission that pages in bank 5 would
-pull it out from under itself mid-instruction.
+Banks 5-7 hold **sprite data only**, and must. Code assembled there could only
+run in the one moment bank 4 is out, which is the one moment nothing else can.
 
 ---
 
@@ -185,9 +231,19 @@ Local labels start with `@` and are scoped to the enclosing global label.
 symbol and the build will fail with "there is already an alias with the same
 name". Do not distinguish an equate from a label by case alone — a routine
 `fdc_motor` beside a port equate `FDC_MOTOR` is the same collision, and so is
-a routine `title_stars` beside a count `TITLE_STARS`. It is an easy one to
-walk into because the two read as different kinds of thing — both of those
-were written, and both failed the build, after this paragraph existed.
+a routine `title_stars` beside a count `TITLE_STARS`, and so is a variable
+`lib_track` beside a layout constant `LIB_TRACK`. It is an easy one to walk
+into because the two read as different kinds of thing — all three of those
+were written, and all three failed the build, after this paragraph existed.
+
+**`BANK n` gives each 16K image its own workspace, and labels are shared
+across them.** A second `org #4000` in one bank is an error ("located in a
+previous ORG section"); `src/main.asm` has four images, three of them at
+`#4000`, so it declares `BANK 0` through `BANK 4`. `save` resolves in
+whichever bank is current when the directive is read, so a `save` has to sit
+inside its own bank's section. Using `BANK` at all makes RASM write a
+`rasmoutput.cpr` cartridge into the working directory with no flag to stop it;
+the Makefile deletes it.
 
 **`@` labels are GLOBAL.** Not per-routine, not even per-file — two routines
 anywhere in the build cannot both have an `@no_carry`. Prefix them with the
@@ -269,6 +325,13 @@ a hand count of the instruction table.
 | `proj_point` (rejected by the distance clip) | ~260 T | — |
 | `proj_rotate` (9 multiplies, m01 skipped) | ~2,790 T | — |
 | `cam_build_matrix` (once per frame) | ~3,360 T | — |
+| paging a class's bank in and bank 4 back | ~30 T per entity | — |
+
+**Banking the sprite libraries costs about 1% of the frame.** Measured on
+mission 1 with 16 entities: 5.00 fps before, 4.95 fps after. Two `OUT`s an
+entity is nothing; the cost is the extra indirection in `class_tier_addr`,
+which now reads a bank and a sprite address from two tables instead of walking
+one. Worth knowing, and not worth optimising.
 
 A general 3×3 rotation will not fit 1,200 T on a 4 MHz Z80: nine table-driven
 multiplies alone are more than that. The 100 background stars must therefore
@@ -326,8 +389,21 @@ ships. Anything drawn from scratch in RetroTools goes through the same path.
 ```bash
 make ships                                   # models -> art/*.json -> src/gen/*.asm
 python3 tools/mkships.py --contact-sheet     # PNG previews in build/ships/
+python3 tools/mkships.py --ship scout --contact-sheet   # just the one you changed
 python3 tools/rt2sprite.py art/frigate.retrotools.json --out src/gen/spr_frigate.asm
 ```
+
+**All eight classes are modelled**, and the models are twenty lines of
+`prism()` each. Three rules decide every shape, and they are in the comment
+above `_interceptor()`: vertical structure is what a ship is made of at 8×6,
+wings must be CANTED or they are seen edge-on from all eight views, and beam
+matters as much as length or the head-on view collapses to a dot. A fourth,
+learned from the Salvage Corvette: a feature that distinguishes a class must
+be **sideways**, not vertical, or it survives broadside and vanishes head-on.
+
+The renderer normalises every class into the same sprite box, so "bigger" is
+not available — `span` and the shape carry it, and `class_tier_bias` gives the
+three capitals one more size step at the same distance.
 
 The converter reads the project JSON, **not** RetroTools' own `.asm` export.
 The reason is masks: RetroTools packs its mask at 1 bit per pixel MSB-first
@@ -388,7 +464,14 @@ of the editor drops straight in.
 
 ## Generated files
 
-`src/gen/` is generated and git-ignored. `tools/gentables.py` is the readable
+`src/gen/` is generated and git-ignored, and so is `build/bank5.raw` and its
+two siblings — the extended-bank images `tools/discbanks.py` writes onto the
+`.dsk`. `make` produces them in the same pass as `build/home.raw`, and the
+`build/.banks-written` stamp is what makes "put them on the disc" a make
+dependency rather than a thing to remember: `rm -f $(DSK)` mints a fresh image
+every build and throws the previous copy of them away with everything else.
+
+`tools/gentables.py` is the readable
 specification for every lookup table; the tests re-derive the numbers from it
 and compare against what is actually in the emulator's RAM, so a table that
 changes shape fails the tests instead of quietly corrupting the projection.
@@ -428,27 +511,38 @@ Design document section 13 lists ten phases.
   authoring and taste, not engineering.
 - **Phase 7 — done.** Resource patches, harvesters, RU, and a build panel;
   `H` and `B` are live. The loop closes: build a harvester, send it out, and
-  what it mines pays for the next ship. What is NOT in: build costs for the
-  classes that have no art yet (Scout, Bomber, Frigate, Salvage Corvette,
-  Destroyer), and a build *queue* — the yard takes one order at a time.
+  what it mines pays for the next ship. **All seven of §8's buildable classes
+  are on the list**, at §8's prices, with the Destroyer gated to mission 5.
+  What is NOT in: a build *queue* — the yard takes one order at a time.
 - **Phase 6 — done.** Both fleets fire, hulls take damage, ships die and leave
   explosions, and the AY plays a tone for a shot and noise for a kill.
   Targeting is round-robin — one entity re-targets per frame — so no frame
   pays for a full search.
 
-  Two things §6 asks for that are **not** in: the §8 balance triangle (every
-  class does the same damage) and enemy movement (the picket holds station, so
-  the player brings the fight to it).
+  **The §8 balance triangle is in**: `cbt_damage_matrix` in
+  `game/classdata.asm` is eight classes square, and the three legs —
+  Interceptor → Bomber → Frigate → Interceptor — are the only place the
+  triangle exists, because movement, range and cooldown are identical for
+  every class. Hull is *not* the other half of it: a hull is one byte, so
+  "tougher" tops out at 255 and the interceptor is already there. What makes a
+  capital ship hard to kill is the column under it being small.
+
+  Still **not** in: enemy composition. The Vekhar field interceptors and
+  nothing else, so the triangle is a thing the player's fleet has and the
+  enemy does not use. Giving `campaign.asm` a class per enemy row is the job,
+  and it is data, not engineering.
 - **Phase 5 — done, and §9 is closed** except for the three commands that
   need content from later phases (see the control table above). Camera, zoom,
   pause, move disc, formations, sensor view, Mothership, docking and target
   selection all work.
-- **Two ship classes now link in**, which is what proved the bank window
-  works. The Mothership wears the Frigate's sprites until it has its own; see
-  `src/game/shipclass.asm`. Capital ships get a **tier bias** so they draw a
-  size larger than their distance alone would give — without it a Mothership
-  at 200 units is exactly as big as a fighter at 200 units and the fleet reads
-  as a swarm of identical specks.
+- **All eight classes of §8 exist, with their own art.** Interceptor,
+  Mothership, Harvester, Scout, Bomber, Frigate, Salvage Corvette, Destroyer —
+  each a model in `tools/mkships.py` and a 5.62 KB sprite library. Nothing
+  wears a stand-in any more except when the disc cannot be read; see the
+  banking section for where they live. Capital ships (Mothership, Frigate,
+  Destroyer) get a **tier bias** so they draw a size larger than their distance
+  alone would give — without it a Mothership at 200 units is exactly as big as
+  a fighter at 200 units and the fleet reads as a swarm of identical specks.
 - **Not drawn yet: the reference grid at Y=0** (section 4.1). It wants a
   cheaper projection than `proj_point` — a 5×5 lattice through the full
   pipeline is 114,000 T-states, which is a quarter of the frame for a
@@ -457,9 +551,14 @@ Design document section 13 lists ten phases.
 
 `src/demo/phase4.asm` is the acceptance test running on the CPC itself.
 
-**Only one ship class is linked in**, but that is now a choice rather than a
-limit: bank 4 has ~10 KB spare, enough for a second class. Add it to
-`SHIP_CLASSES` in the Makefile and to the include list in `src/main.asm`.
+**A ninth class does not fit.** Bank 4 has ~240 bytes left and banks 5-7 hold
+two libraries each with 4.6 KB spare — enough for the data, but `LIB_SECTORS`
+sizes a bank's disc image at exactly two libraries, and a third would need a
+fourth bank the 6128 does not have in the `#7Fxx` window. The mitigations §14
+lists are the way out: 6 yaw views instead of 8 (−25%), or tiers shared between
+classes. Adding a class today means the Makefile's `SHIP_CLASSES`, a `BANK`
+section in `src/main.asm`, a row in `class_sprite`/`class_bank`, an entry in
+every table in `game/classdata.asm`, and a wider `LIB_BANKS`.
 
 ### Controls
 
@@ -489,6 +588,16 @@ limit: bank 4 has ~10 KB spare, enough for a second class. Add it to
 
 While the build panel is open it takes over `,`, `.` and `ENTER` — one pair of
 keys, two meanings, decided by the mode the player can see on screen.
+
+The panel offers all seven of §8's buildable classes, **cheapest first**, so
+walking the list with `.` is walking up a price ladder rather than guessing.
+A class that is not available yet is STEPPED OVER, not shown and refused: the
+readout is one three-letter tag wide, so an entry the player can see but
+cannot order looks like a broken ENTER key. Today the Destroyer is the only
+one with a condition (§8: from mission 5), and `eco_pick_allowed` is one test
+rather than a table of unlock missions — it becomes a table the second time a
+class needs one. `eco_queue` checks as well as the stepper, because the pick
+is a byte in RAM and the orders menu injects keys.
 
 `TAB` is bound and correct per the hardware matrix but **unverified** — the
 emulator's keymap has no TAB entry, so no test can press it. `S` does the same
@@ -551,10 +660,30 @@ driven directly. `J` writes the save; `demo_init` looks for one at boot.
 
 It goes to **two raw sectors, track 39 `#C1` and `#C2`, and is not an AMSDOS
 file.** A real file needs directory allocation, which is several hundred bytes
-more than the low 16K has (512 left). AMSDOS hands out blocks from track 2
-upward and `DISC.BIN` takes about five tracks, so the last one is a long way
+more than the low 16K has (512 left). AMSDOS hands out blocks from track 0
+upward and `DISC.BIN` takes about six tracks, so the last one is a long way
 from anything it would use — but copy another file onto this disc with CP/M
 and it may land on the save.
+
+**The sprite libraries are on the disc the same way**, tracks 12-20, read by
+`lib_load` at boot and written by `tools/discbanks.py` at build time. Same
+trade, same caveat, and the layout lives in exactly one place: the `LIB_*`
+equates in `src/sys/libload.asm`, which the Python tool reads back out of
+`build/homeplanet.sym` rather than keeping its own copy. A loader and a writer
+that disagree about where a sector is do not crash — they give you a bank full
+of the wrong ship, which reads as a rendering bug.
+
+They are stored **uncompressed**, unlike the bank-4 library. Bank 4 is packed
+because `DISC.BIN` has a hard ceiling under AMSDOS; the disc does not, so
+storing them raw means the sector read *is* the load — no decoder in a low 16K
+that has 512 bytes, and no staging buffer, because the controller writes
+straight into the window.
+
+**`boot_quick` now inserts the disc**, and has to: without one the game runs
+but six of the eight classes wear stand-ins. `boot_quick(disc=False)` is how
+the fallback is tested. `insert_disc` takes bytes and cpcemu keeps its own
+copy, so a test that jumps a mission writes into that copy and never into
+`build/homeplanet.dsk`.
 
 Three things to know before touching it:
 
@@ -570,7 +699,9 @@ three cases it has to survive are:
 
 - **The command is refused** — no disc, no such sector, write protected. The
   controller never enters the execution phase; it goes straight to the result
-  bytes. (No disc is the *common* case here: `boot_quick` never inserts one.)
+  bytes. (No disc used to be the *common* case here, because `boot_quick`
+  never inserted one. It does now, so this path is exercised by
+  `boot_quick(disc=False)` instead — keep something using it.)
 - **The transfer ends early** — we were too slow feeding it, so it gives up and
   leaves the execution phase part way through. A loop that only ever waits for
   "ready, wants a byte" then waits forever.
@@ -600,14 +731,18 @@ range-checks the mission index: a blank disc, another game's disc and a
 half-written save all arrive there, and two of them would index off the
 mission table.
 
-**`DISC.BIN` used to be close to its ceiling**: it loads at `#4000` and must
-finish below `#A700`, and it once ended around `#A66C` — 148 bytes of
-headroom, with a second ship class already impossible. The sprite library is
-now RLE-compressed (`tools/packsprites.py`, 12767 → 6818 bytes), which brought
-the file to 21938 bytes ending near `#9592` and left roughly **4.4 KB**.
-Uninitialised bank data (the fleet buffer) is deliberately declared *after*
-`bank4_end` so it costs nothing in the file. Per-mission loading, which §10
-wants anyway, still needs the same FDC work.
+**`DISC.BIN`'s ceiling is what decides where a sprite library can live.** It
+loads at `#4000` and must finish below `#A700`, so it has 26368 bytes to play
+with; it is currently 24849, ending near `#A0D1`, and that is **about 1.5 KB of
+headroom**. One RLE-packed library is 3-4 KB. That arithmetic is the whole
+reason six of the eight classes are read off the disc into banks 5-7 instead
+of travelling in the file — it is not a stylistic choice, and no amount of
+better packing gets 45 KB of sprites under a 1.5 KB gap.
+
+The bank-4 library stays RLE-compressed (`tools/packsprites.py`, 15118 → 9217
+bytes); without it the file would not fit at all. Uninitialised bank data (the
+fleet buffer) is deliberately declared *after* `bank4_end` so it costs nothing
+in the file.
 
 ### The economy
 
@@ -715,8 +850,24 @@ Mothership at mission 5. Neither was wrong -- they were different scripts. So
 run the tool rather than quoting prose, and treat any figure here as "that
 script, that build".
 
-Latest run: missions 1-6 cost **two ships** between them, mission 7 costs six,
-and mission 8 takes the fleet. Mission 8 is where the campaign currently ends.
+Latest run, with all eight classes in: missions 1-6 cost **two ships** between
+them, mission 7 costs four, and mission 8 takes the fleet. Mission 8 is where
+the campaign ends.
+
+```
+mis enemy  in out lost   hull  fleet
+  4     8  16  15    1   3345  int=14 moth=1
+  6     6  14  13    1   2595  int=12 moth=1
+  7    12  13   9    4   1167  int=8 moth=1
+  8    10   8   0    8      0  FAILED -- the Mothership was lost
+```
+
+That is the same shape as before the classes arrived, and it has to be: the
+script never spends its RU, so every ship in it is an interceptor, and the
+interceptor-versus-interceptor cell of the damage matrix is still 24. **The
+balance triangle changes nothing about the campaign as authored**, because the
+Vekhar field interceptors and nothing else. It will start to matter the moment
+`campaign.asm` gets a class column.
 
 ### Never trust a slot index, part two: `moth_slot`
 
@@ -747,6 +898,17 @@ time on that coin landing right, and what finally tipped it over was adding
 the FDC probe to `demo_init`, which shifted the boot by a fifth of a second
 and changed nothing else. If a keyboard test starts failing after an unrelated
 change, suspect the release window before you suspect the change.
+
+**And a jump is not instant.** `mis_jump` increments `mis_index`, writes a
+kilobyte of fleet to the DISC — with the drive spinning up, about a third of a
+second — and only then opens the briefing. For that whole stretch `mis_index`
+already says the new mission and `mis_briefing` still says zero.
+`dismiss_briefing` used to read the flag once and return when it was clear, so
+a test that pressed `J` and looked immediately concluded there was nothing to
+dismiss and sent its next command into a briefing screen that appeared a
+moment later, where nothing runs. Two campaign tests failed with `1 != 2` and
+neither of them was about discs. `harness.wait_for_briefing` is the fix, and it
+is bounded, because a refused jump legitimately never puts one up.
 
 ### Loading, and AMSDOS's workspace
 
@@ -931,9 +1093,31 @@ nobody pressing anything.
   exists for hand-retouched variants; do not ship both sets by default.
 - **Sprite memory is 17% over §5.1** (5.62 KB per class, not 4.8 KB) because
   every sprite is stored one byte wider than it is, to give the 2-pixel
-  pre-shift somewhere to land. Three classes = 16.9 KB, which does not fit one
-  16 KB bank. Adding the second pitch level doubles it. §14 already lists the
-  mitigation: 6 yaw views instead of 8.
+  pre-shift somewhere to land. Eight classes is **45 KB**, which is not one
+  bank and never was — it is three, and only fits because banks 5-7 are read
+  off the disc rather than carried in `DISC.BIN`. That is now settled rather
+  than open; what is still open is what happens when a NINTH thing needs
+  space, because there is no fourth spare bank. §14 lists the two answers: 6
+  yaw views instead of 8 (−25% each), and tiers shared between classes.
+  Adding the second pitch level §5.1 wants would double all of it and is
+  currently impossible.
 - **Tier A (8×6) barely distinguishes the classes.** Bow-on, a frigate is 6×2
   and an interceptor 4×2. Class identity at that size is carried by bulk, not
-  shape, with a 2-pixel margin.
+  shape, with a 2-pixel margin. Two tests in `test_ships.py` hold the line:
+  no two classes may share an 8×6 mask at any yaw, and no class may collapse
+  to fewer than six distinct views. Both have caught real models — the Salvage
+  Corvette's first fork was vertical, which reads perfectly broadside and is
+  byte-for-byte the Mothership head-on.
+- **The enemy is all interceptors**, so the §8 balance triangle only ever
+  applies to the player's own fleet. `campaign.asm`'s enemy rows are three
+  words of position each; a fourth byte for the class would make the Vekhar
+  field bombers and frigates, and that is the next thing worth doing to the
+  campaign.
+- **Two classes have their numbers but not their ROLE.** §8 gives the Salvage
+  Corvette "ρυμουλκεί εχθρικά ναυάγια στο Mothership" and the Scout "μεγάλη
+  εμβέλεια αισθητήρων". Both are buildable, both cost what §8 says, both have
+  art — and both behave like every other ship. Towing needs something to set
+  `ENT_F_DISABLED` (the flag exists and nothing writes it), a tow order, and a
+  reward for delivering one; the Scout needs the sensor view to be
+  range-limited before a longer range can mean anything. Neither is engineering
+  the memory arrangement blocks; they are simply not written yet.

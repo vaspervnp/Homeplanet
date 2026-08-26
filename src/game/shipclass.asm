@@ -1,41 +1,134 @@
 ; ============================================================================
-;  game/shipclass.asm -- what each ship class looks like
+;  game/shipclass.asm -- the eight classes of Homeplanet.md section 8
 ; ============================================================================
-;  One table, indexed by class and then by size tier, giving the blitter
-;  everything it needs. Entities carry a class in ENT_CLASS; the projection
-;  picks the tier from depth; between them they name a sprite block.
+;  Entities carry a class in ENT_CLASS; the projection picks a size tier from
+;  depth; between them they name a sprite block. This file turns (class, tier)
+;  into an address. Everything else that differs between classes -- cost,
+;  hull, damage row, tier bias, the three-letter tag -- is DATA and lives in
+;  game/classdata.asm, in bank 4.
 ;
-;  The Mothership has no art yet, so it borrows the Frigate's -- the biggest
-;  capital silhouette drawn so far. It reads as a capital ship at tier C,
-;  which is the point, and swapping it for its own sprites later is a change
-;  to this table and nothing else.
+;  WHICH BANK A CLASS LIVES IN, AND WHO IS ALLOWED TO PAGE
+;  ------------------------------------------------------
+;  A sprite library is 5.62 KB and there are eight of them -- 45 KB, which is
+;  nearly three banks. So they do not all live in bank 4:
+;
+;      bank 4   interceptor, frigate    inside DISC.BIN, always present
+;      bank 5   mothership, harvester   \
+;      bank 6   scout, bomber            > raw sectors on the disc,
+;      bank 7   salvage, destroyer      /  read in by lib_load at boot
+;
+;  Bank 4 is not just sprites any more: the title screen, the help page, the
+;  orders menu, the mission table and the fleet buffer all live there, and the
+;  first three of those are CODE that runs from #4000. Page another bank in
+;  while any of that is executing and it vanishes underneath the program
+;  counter.
+;
+;  So there is exactly one rule, and one routine that can break it:
+;
+;      BANK 4 IS THE RESTING STATE. The only code that leaves it is
+;      class_tier_addr, and the only code that runs before bank 4 comes back
+;      is phase4_blit_one -- which restores it on every exit path, because
+;      class_blit_done is the routine it returns through.
+;
+;  Making the paging part of class_tier_addr rather than a step beside it is
+;  deliberate: you cannot get a sprite's address without its library being
+;  under the window, because the same three instructions do both. A comment
+;  saying "remember to select the bank first" would have been forgotten once.
+;
+;  Everything touched between those two points is in the low 16K: the two
+;  tables below, the blitter in gfx/sprite.asm, and the screen at #8000 and
+;  #C000. src/main.asm asserts the first of those.
 ; ----------------------------------------------------------------------------
 
 CLASS_INTERCEPTOR   equ 0
 CLASS_MOTHERSHIP    equ 1
 CLASS_HARVESTER     equ 2
-CLASS_COUNT         equ 3
+CLASS_SCOUT         equ 3
+CLASS_BOMBER        equ 4
+CLASS_FRIGATE       equ 5
+CLASS_SALVAGE       equ 6
+CLASS_DESTROYER     equ 7
+CLASS_COUNT         equ 8
 
-;  Classes the yard will build, which is every class up to but not including
-;  the Mothership... except the Mothership is class 1, so the buildable ones
-;  are named explicitly by eco_build_order instead.
-CLASS_BUILDABLE     equ 2
+;  What the yard offers. The Mothership is not on the list -- section 8 gives
+;  it no cost, and there is only ever one.
+CLASS_BUILDABLE     equ 7
 
-;  How many size tiers to draw a class ABOVE what its distance alone would
-;  give. The tiers are a distance ladder, not a size one, so without this a
-;  capital ship at 200 units draws exactly as big as a fighter at 200 units
-;  and the fleet reads as a swarm of identical specks. A bias of one is the
-;  cheap stand-in for the larger sprite sheets capital ships will eventually
-;  have of their own.
-class_tier_bias:
-    defb 0                              ; interceptor
-    defb 1                              ; mothership
-    defb 0                              ; harvester
+;  Section 8 makes the Destroyer "διαθέσιμο από την 5η αποστολή". Missions are
+;  counted from zero internally, so mission 5 is index 4.
+CLASS_DESTROYER_MIS equ 4
 
-;  Per tier: base address, width in bytes, height, half width and half height
-;  in pixels (for centring), and the size of one (frame, pre-shift) block.
-CLASS_TIER_SIZE     equ 8
-CLASS_STRIDE        equ CLASS_TIER_SIZE * 3
+CLASS_TIERS         equ 3               ; far, middle, near
+
+
+; ----------------------------------------------------------------------------
+;  class_bank -- which extended bank holds each class's sprite library
+;
+;  RAM, not constants: class_use_fallback rewrites it when there is no disc to
+;  read the disc-resident libraries from, so a machine with no drive draws
+;  stand-ins instead of noise.
+; ----------------------------------------------------------------------------
+class_bank:
+    defb GA_BANK_4                      ; interceptor
+    defb GA_BANK_5                      ; mothership
+    defb GA_BANK_5                      ; harvester
+    defb GA_BANK_6                      ; scout
+    defb GA_BANK_6                      ; bomber
+    defb GA_BANK_4                      ; frigate
+    defb GA_BANK_7                      ; salvage corvette
+    defb GA_BANK_7                      ; destroyer
+
+
+; ----------------------------------------------------------------------------
+;  class_sprite -- where each (class, tier) starts. Three words a class.
+;
+;  This used to be an eight-byte descriptor per (class, tier) carrying the
+;  width, height and block size beside the address -- 192 bytes, and 126 of
+;  them were the same numbers written out twenty-four times. Every class uses
+;  the SAME three tiers, because tools/mkships.py renders all eight from one
+;  TIERS list, so the geometry belongs in one table and only the address is
+;  per class. The low 16K did not have the 126 bytes to spare.
+;
+;  Also RAM: class_use_fallback rewrites it. It has to stay in the low 16K,
+;  because it is read after class_tier_addr has paged bank 4 out.
+; ----------------------------------------------------------------------------
+CLASS_SPRITE_STRIDE equ CLASS_TIERS * 2
+
+class_sprite:
+    defw interceptor_a, interceptor_b, interceptor_c     ; bank 4
+    defw mothership_a,  mothership_b,  mothership_c      ; bank 5
+    defw harvester_a,   harvester_b,   harvester_c       ; bank 5
+    defw scout_a,       scout_b,       scout_c           ; bank 6
+    defw bomber_a,      bomber_b,      bomber_c          ; bank 6
+    defw frigate_a,     frigate_b,     frigate_c         ; bank 4
+    defw salvage_a,     salvage_b,     salvage_c         ; bank 7
+    defw destroyer_a,   destroyer_b,   destroyer_c       ; bank 7
+class_sprite_end:
+
+
+; ----------------------------------------------------------------------------
+;  class_geom -- the three tiers, shared by every class
+;
+;  Width in bytes, height in lines, half width and half height in pixels (for
+;  centring), and the size of one (frame, pre-shift) block. Written in terms
+;  of the interceptor's equates because one class has to be the reference;
+;  src/main.asm asserts that the other seven agree.
+; ----------------------------------------------------------------------------
+CLASS_GEOM_SIZE     equ 6
+
+class_geom:
+    defb interceptor_a_w_bytes, interceptor_a_h
+    defb interceptor_a_w_px / 2, interceptor_a_h / 2
+    defw interceptor_a_block_sz
+
+    defb interceptor_b_w_bytes, interceptor_b_h
+    defb interceptor_b_w_px / 2, interceptor_b_h / 2
+    defw interceptor_b_block_sz
+
+    defb interceptor_c_w_bytes, interceptor_c_h
+    defb interceptor_c_w_px / 2, interceptor_c_h / 2
+    defw interceptor_c_block_sz
+class_geom_end:
 
 
 ; ----------------------------------------------------------------------------
@@ -55,94 +148,93 @@ class_apply_bias:
     ld a,(hl)
     pop hl
     add a,l
-    cp 3
+    cp CLASS_TIERS
     ret c
-    ld a,2                              ; tier C is as large as it gets
+    ld a,CLASS_TIERS - 1                ; tier C is as large as it gets
     ret
 
 
 ; ----------------------------------------------------------------------------
-;  class_tier_addr -- HL = the descriptor for class B, tier C
+;  class_tier_addr -- page in class B's library and find its sprite
 ;  In : B = class, C = tier 0..2
-;  Out: HL -> eight bytes of descriptor
-;  Uses: AF, DE, HL
+;  Out: DE = the sprite block base, HL -> CLASS_GEOM_SIZE bytes of geometry
+;       ...and #4000-#7FFF is now class B's sprite library
+;  Uses: AF, BC, DE, HL
+;
+;  THIS LEAVES BANK 4 PAGED OUT. Everything from here until class_blit_done
+;  runs on the low 16K only -- see the header of this file.
 ; ----------------------------------------------------------------------------
 class_tier_addr:
-    ;  CLASS_STRIDE is 24, which is 16 + 8, so two shifts and an add.
     ld a,b
+    push af                             ; the class, for the address maths
+    push bc                             ; ...and the tier
+
     ld l,a
     ld h,0
-    add hl,hl
-    add hl,hl
-    add hl,hl                           ; class * 8
-    ld d,h
-    ld e,l
-    add hl,hl                           ; class * 16
-    add hl,de                           ; class * 24
+    ld de,class_bank
+    add hl,de
+    ld c,(hl)
+    ld b,GA_PORT
+    out (c),c                           ; the window is now this class's library
 
+    pop bc
+    pop af
+
+    ;  class * 6 + tier * 2
+    call class_sprite_addr
     ld a,c
     add a,a
-    add a,a
-    add a,a                             ; tier * 8
     ld e,a
     ld d,0
     add hl,de
+    ld e,(hl)
+    inc hl
+    ld d,(hl)                           ; DE = the sprite base
+    push de
 
-    ld de,class_tiers
+    ;  tier * 6, which is the same shape again
+    ld a,c
+    ld l,a
+    ld h,0
+    ld d,h
+    ld e,l
+    add hl,hl                           ; * 2
+    add hl,de                           ; * 3
+    add hl,hl                           ; * 6 = CLASS_GEOM_SIZE
+    ld de,class_geom
+    add hl,de
+    pop de
+    ret
+
+
+; ----------------------------------------------------------------------------
+;  class_sprite_addr -- HL = &class_sprite[A], all three tiers of one class
+;  In : A = class
+;  Out: HL
+;  Uses: AF, DE, HL
+; ----------------------------------------------------------------------------
+class_sprite_addr:
+    ld l,a
+    ld h,0
+    ld d,h
+    ld e,l
+    add hl,hl                           ; * 2
+    add hl,de                           ; * 3
+    add hl,hl                           ; * 6 = CLASS_SPRITE_STRIDE
+    ld de,class_sprite
     add hl,de
     ret
 
 
-; ============================================================================
-;  The table
-; ============================================================================
-class_tiers:
-    ; --- interceptor: far, middle, near --------------------------------
-    defw interceptor_a
-    defb interceptor_a_w_bytes, interceptor_a_h
-    defb interceptor_a_w_px / 2, interceptor_a_h / 2
-    defw interceptor_a_block_sz
-
-    defw interceptor_b
-    defb interceptor_b_w_bytes, interceptor_b_h
-    defb interceptor_b_w_px / 2, interceptor_b_h / 2
-    defw interceptor_b_block_sz
-
-    defw interceptor_c
-    defb interceptor_c_w_bytes, interceptor_c_h
-    defb interceptor_c_w_px / 2, interceptor_c_h / 2
-    defw interceptor_c_block_sz
-
-    ; --- mothership, wearing the frigate's sprites ----------------------
-    defw frigate_a
-    defb frigate_a_w_bytes, frigate_a_h
-    defb frigate_a_w_px / 2, frigate_a_h / 2
-    defw frigate_a_block_sz
-
-    defw frigate_b
-    defb frigate_b_w_bytes, frigate_b_h
-    defb frigate_b_w_px / 2, frigate_b_h / 2
-    defw frigate_b_block_sz
-
-    defw frigate_c
-    defb frigate_c_w_bytes, frigate_c_h
-    defb frigate_c_w_px / 2, frigate_c_h / 2
-    defw frigate_c_block_sz
-
-    ; --- harvester: the frigate's hull again, at fighter scale -----------
-    ;  A working ship, blunter than an interceptor. It has no art of its own
-    ;  yet; when it gets some, this table is the only thing that changes.
-    defw frigate_a
-    defb frigate_a_w_bytes, frigate_a_h
-    defb frigate_a_w_px / 2, frigate_a_h / 2
-    defw frigate_a_block_sz
-
-    defw frigate_b
-    defb frigate_b_w_bytes, frigate_b_h
-    defb frigate_b_w_px / 2, frigate_b_h / 2
-    defw frigate_b_block_sz
-
-    defw frigate_c
-    defb frigate_c_w_bytes, frigate_c_h
-    defb frigate_c_w_px / 2, frigate_c_h / 2
-    defw frigate_c_block_sz
+; ----------------------------------------------------------------------------
+;  class_blit_done -- put bank 4 back under the window
+;  Uses: AF, BC
+;
+;  The other half of class_tier_addr, and the reason phase4_blit_one is a
+;  wrapper rather than one routine: it has two exit paths -- the sprite was
+;  clipped away, or it was drawn -- and both have to come through here.
+; ----------------------------------------------------------------------------
+class_blit_done:
+    ld bc,GA_PORT * 256 + GA_BANK_4
+    out (c),c
+    ret

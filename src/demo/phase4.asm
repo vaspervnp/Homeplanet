@@ -75,6 +75,13 @@ PEN_RED             equ 3
 ;  demo_init
 ; ----------------------------------------------------------------------------
 demo_init:
+    ;  First, before anything can draw: the six sprite libraries that do not
+    ;  fit in DISC.BIN are still on the disc. If they cannot be read -- no
+    ;  drive, or the disc was taken out after RUN" -- lib_init puts the
+    ;  bank-4 stand-ins back and the game carries on looking like it did
+    ;  before there were eight classes.
+    call lib_init
+
     xor a
     ld (phase4_drawn_a),a
     ld (phase4_drawn_b),a
@@ -997,10 +1004,30 @@ phase4_draw_sensor:
 
 
 ; ----------------------------------------------------------------------------
-;  phase4_blit_one
+;  phase4_blit_one -- draw one visible entity, and leave the window as found
 ;  In : HL -> a visible-list entry
+;  Out: nothing. The body's carry is deliberately NOT passed on; the draw loop
+;       does not read it, and class_blit_done would destroy it anyway.
+;  Uses: everything
+;
+;  A wrapper, and it has to be one. class_tier_addr pages this class's sprite
+;  library into the #4000 window -- which pages BANK 4 out, and bank 4 holds
+;  the mission table, the fleet buffer and the code for every static screen.
+;  The body below has two exits, the sprite was clipped away or it was drawn,
+;  and both must put bank 4 back -- so the restore lives here, where there is
+;  only one of it. See the header of src/game/shipclass.asm.
 ; ----------------------------------------------------------------------------
 phase4_blit_one:
+    call phase4_blit_body
+    jp class_blit_done
+
+; ----------------------------------------------------------------------------
+;  phase4_blit_body -- everything above except putting bank 4 back
+;  In : HL -> a visible-list entry
+;  Out: CF set if anything was drawn
+;  Uses: everything, and leaves a foreign bank under the window
+; ----------------------------------------------------------------------------
+phase4_blit_body:
     ld e,(hl)
     inc hl
     ld d,(hl)
@@ -1029,13 +1056,12 @@ phase4_blit_one:
     ld b,a                              ; B = class
     pop af
     ld c,a                              ; C = tier
+    ;  DE = the sprite block for this (class, tier), and the window now holds
+    ;  that class's library. HL -> the tier's geometry, which is shared by
+    ;  every class because they are all rendered from the same three tiers.
     call class_tier_addr
-
-    ld e,(hl)
-    inc hl
-    ld d,(hl)
-    inc hl
     ld (phase4_base),de
+
     ld a,(hl)
     ld (spr_w),a
     inc hl
@@ -1473,7 +1499,7 @@ phase4_hud:
     add a,a                             ; four bytes a tag: marker + 3 letters
     ld l,a
     ld h,0
-    ld de,phase4_class_tag
+    ld de,class_tag
     add hl,de
     ld de,phase4_yard_text + 1
     ld bc,3
@@ -1722,10 +1748,6 @@ phase4_yard_text:    defb " XXX",0
 phase4_yard_blank:   defb "    ",0
 
 ;  Three letters a class, in class order.
-phase4_class_tag:
-    defb "INT",0                        ; interceptor
-    defb "MTH",0                        ; mothership
-    defb "HAR",0                        ; harvester
 phase4_hud_text:    defb " 0:",0        ; the marker and digit are patched in
 phase4_hud_blank:   defb "     ",0
 
