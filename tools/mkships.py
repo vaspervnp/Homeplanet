@@ -6,7 +6,8 @@
     python3 tools/mkships.py --faction enemy
     python3 tools/mkships.py --contact-sheet    # PNG previews at 8x zoom
 
-Design document section 5.2 asks for "model in a 3D program -> render 8 views".
+Design document section 5.2 asks for "model in a 3D program -> render 8 views";
+section 14's mitigation cut that to SIX -- see YAW_STEPS.
 There is no 3D program here and no numpy either, so the models are convex
 polyhedra written out in code and the renderer is the two hundred lines below:
 orthographic projection, a z-buffer, flat shading, supersampled and box-
@@ -106,7 +107,23 @@ AMBIENT = 0.14
 #  towards the top. It is also just what a ship near a star looks like.
 SKY_FILL = 0.45
 
-YAW_STEPS = 8                   # 8 views, 45 degrees apart (section 5.1)
+#  SIX views, 60 degrees apart. Section 5.1 asks for eight; section 14 lists
+#  "6 yaw views instead of 8" as the mitigation for "the sprite libraries do
+#  not fit", and they did not: eight classes at eight views is 45 KB against
+#  three banks of 16 KB, with bank 4 down to nine spare bytes and no fourth
+#  bank in the #7Fxx window to reach for.
+#
+#  Six is a quarter off every library (5760 -> 4320 bytes) and it costs a
+#  coarser turn. It is affordable here and not everywhere: at tier C a ship
+#  turns through six poses instead of eight, which reads as a turn because the
+#  silhouettes are still all different -- see the contact sheets. What it is
+#  NOT is free at tier A, where 8x6 has barely enough pixels to tell the
+#  classes apart in the first place.
+#
+#  SIX IS NOT A POWER OF TWO, which is the part that reaches into the Z80:
+#  phase4_cache used to pick a view with a shift and a mask. It multiplies
+#  now -- see the comment there.
+YAW_STEPS = 6
 
 #  TODO: section 5.1 wants 2 pitch levels ("horizontal / from above-below").
 #  Adding them is this tuple plus a bigger frame count -- render_frames(),
@@ -115,9 +132,10 @@ YAW_STEPS = 8                   # 8 views, 45 degrees apart (section 5.1)
 #  Frame index is (pitch_index * yaw_steps + yaw_index), so appending an angle
 #  here keeps the existing frames at the same indices.
 #  Cost check before doing it: it doubles every number in the byte table that
-#  this tool prints, i.e. ~5.6 KB -> ~11.3 KB per class, which does not fit the
-#  4.8 KB/class budget in section 5.1 without dropping to 6 yaw views
-#  (section 14 already lists that as the mitigation).
+#  this tool prints, i.e. ~4.2 KB -> ~8.4 KB per class. Six yaw views has
+#  already been spent -- it is what bought the room the eight-view libraries
+#  did not have -- so the second pitch level would have to find its 34 KB
+#  somewhere else entirely.
 PITCH_ANGLES = (0.0,)
 
 
@@ -290,7 +308,7 @@ class Ship:
         verts_all = [v for t in self.tris for v in t[:3]]
         #  The widest the ship can ever project to under yaw is its radius in
         #  the XZ plane, so normalising against that keeps the apparent size
-        #  constant across the 8 views instead of pulsing.
+        #  constant across the yaw views instead of pulsing.
         self.radius_xz = max(math.hypot(v[0], v[2]) for v in verts_all)
         self.half_y = max(abs(v[1]) for v in verts_all)
 
@@ -313,7 +331,7 @@ class Ship:
 #  The rule that decides these shapes: with pitch 0 the camera sits in the
 #  ship's horizontal plane, so the silhouette is the ship's SIDE ELEVATION,
 #  squeezed horizontally as yaw turns it away. A flat horizontal wing is seen
-#  edge-on from every one of the 8 views and contributes a one-pixel stick and
+#  edge-on from every one of the yaw views and contributes a one-pixel stick and
 #  nothing else -- the first version of the interceptor had a big delta wing
 #  and it vanished entirely at tier A. So:
 #
@@ -468,7 +486,7 @@ def _salvage() -> Ship:
 
     Made of vertical plates rather than horizontal ones for the reason at the
     top of this section: a flat panel is seen edge-on from every one of the
-    eight views and contributes a one-pixel stick.
+    every yaw view and contributes a one-pixel stick.
     """
     prong = prism(0.15, 1.10, hw0=0.15, hh0=0.34, x0=0.40,
                   hw1=0.12, hh1=0.26, x1=0.46)
@@ -480,8 +498,9 @@ def _salvage() -> Ship:
     block = prism(-1.10, -0.50, hw0=0.40, hh0=0.46, hw1=0.34, hh1=0.40)
     #  A derrick over the engine block, leaning forward. Without it the ship
     #  is symmetric about both the vertical AND the fore-aft axis at 8x6, and
-    #  the eight yaw views collapse into five distinct shapes -- a rotation
-    #  that produces five pictures is one the player reads as stuttering.
+    #  the yaw views collapse into fewer distinct shapes than there are views,
+    #  and a rotation that repeats a picture is one the player reads as
+    #  stuttering.
     #  Vertical structure is what survives to tier A; see the note at the top
     #  of this section.
     derrick = prism(-0.80, -0.10, hw0=0.10, hh0=0.34, y0=0.66,
@@ -917,7 +936,13 @@ def contact_sheet(doc: dict, path: str, zoom: int = 8):
     sheet_h = header + sum(rh + pad + 10 for _, _, rh, _ in rows) + pad
     img = Image.new("RGB", (sheet_w, sheet_h), (18, 18, 22))
     draw = ImageDraw.Draw(img)
-    draw.text((6, 4), f"{doc['name']}  --  yaw 0..315 in 45 deg steps",
+    #  The step is whatever the project actually has in it, not YAW_STEPS: a
+    #  sheet is drawn from a loaded .json as often as from a fresh render, and
+    #  a caption that lies about the angles is worse than none.
+    views = max(n for _, _, _, n in rows)
+    step = 360 // views
+    draw.text((6, 4),
+              f"{doc['name']}  --  yaw 0..{step * (views - 1)} in {step} deg steps",
               fill=(200, 200, 210))
 
     y = header
@@ -944,7 +969,7 @@ def contact_sheet(doc: dict, path: str, zoom: int = 8):
             img.paste(cell, (x0, y))
             draw.rectangle([x0 - 1, y - 1, x0 + rw, y + rh],
                            outline=(60, 60, 70))
-            draw.text((x0, y + rh + 1), f"{i * 45}", fill=(110, 110, 120))
+            draw.text((x0, y + rh + 1), f"{i * step}", fill=(110, 110, 120))
         y += rh + pad + 10
 
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)

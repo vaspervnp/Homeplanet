@@ -189,6 +189,15 @@ bank4_start:
     include "game/titletext.asm"
     include "game/menutext.asm"
     include "game/staticscreens.asm"
+;  Section 14's mitigation -- six yaw views instead of eight -- took the two
+;  bank-4 sprite libraries from 11520 bytes to 8640, and these three moved
+;  into what it freed. They are the same kind of thing as everything above
+;  them: the player's commands, and setting a mission up and taking it down.
+;  None of it runs with a foreign bank under the window. Their equates and
+;  their variables stayed in the low 16K -- see the head of each file.
+    include "game/ordercmd.asm"
+    include "game/squadcmd.asm"
+    include "game/campaignrun.asm"
 ;  The cached half of the marker pass. It runs only when the camera hash has
 ;  changed and always with the window at rest, so it is bank-4 code by the
 ;  same rule as everything above it -- but it is the ONLY thing here that runs
@@ -221,7 +230,11 @@ bank4_limit:
 ;  Printed before the assert for the same reason the low 16K's figure is.
     print "bank 4:", {hex}BANK_WINDOW, "..", {hex}bank4_limit, " image:", bank4_end - BANK_WINDOW, " free:", BANK_WINDOW + BANK_WINDOW_SIZE - bank4_limit
 
-;X    assert bank4_limit <= BANK_WINDOW + BANK_WINDOW_SIZE, "bank 4 contents overflow the window"
+;  Live again. It was commented out while bank 4 had nine bytes left and every
+;  build was a coin toss; six yaw views gave it a kilobyte back, so the guard
+;  can go back to doing its job. Overflowing the window does not fail loudly on
+;  its own -- the fleet buffer would simply wrap onto the sprite libraries.
+    assert bank4_limit <= BANK_WINDOW + BANK_WINDOW_SIZE, "bank 4 contents overflow the window"
 
 ;  The title is sized to the screen rather than centred on it: ten glyphs at
 ;  TXT_BIG_W_BYTES is exactly the 80-byte line. Checked here rather than beside
@@ -332,6 +345,17 @@ bank7_end:
     assert interceptor_a_block_sz * CLASS_COUNT == interceptor_a_block_sz + mothership_a_block_sz + harvester_a_block_sz + scout_a_block_sz + bomber_a_block_sz + frigate_a_block_sz + salvage_a_block_sz + destroyer_a_block_sz, "tier A blocks are not the same size in every class"
     assert interceptor_b_block_sz * CLASS_COUNT == interceptor_b_block_sz + mothership_b_block_sz + harvester_b_block_sz + scout_b_block_sz + bomber_b_block_sz + frigate_b_block_sz + salvage_b_block_sz + destroyer_b_block_sz, "tier B blocks are not the same size in every class"
     assert interceptor_c_block_sz * CLASS_COUNT == interceptor_c_block_sz + mothership_c_block_sz + harvester_c_block_sz + scout_c_block_sz + bomber_c_block_sz + frigate_c_block_sz + salvage_c_block_sz + destroyer_c_block_sz, "tier C blocks are not the same size in every class"
+
+;  ...and the same check for the FRAME count, which is the one that matters
+;  most now that it is six rather than eight. phase4_cache derives a view with
+;  a multiply by PHASE4_VIEWS and phase4_blit_body steps `view * shifts` blocks
+;  from the base, so a library rendered with a different number of yaw views
+;  does not draw the wrong picture -- it walks off the end of its own tier into
+;  the next one, and the ship at the far end of the table draws whatever
+;  follows the library.
+    assert PHASE4_VIEWS * CLASS_COUNT == interceptor_a_frames + mothership_a_frames + harvester_a_frames + scout_a_frames + bomber_a_frames + frigate_a_frames + salvage_a_frames + destroyer_a_frames, "tier A is not PHASE4_VIEWS yaw views in every class"
+    assert PHASE4_VIEWS * CLASS_COUNT == interceptor_b_frames + mothership_b_frames + harvester_b_frames + scout_b_frames + bomber_b_frames + frigate_b_frames + salvage_b_frames + destroyer_b_frames, "tier B is not PHASE4_VIEWS yaw views in every class"
+    assert PHASE4_VIEWS * CLASS_COUNT == interceptor_c_frames + mothership_c_frames + harvester_c_frames + scout_c_frames + bomber_c_frames + frigate_c_frames + salvage_c_frames + destroyer_c_frames, "tier C is not PHASE4_VIEWS yaw views in every class"
 
 ;  The blitter's unrolled run is entered SPR_UNIT_BYTES back from its end per
 ;  byte of width, so a sprite wider than the run walks off into whatever

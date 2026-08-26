@@ -29,12 +29,12 @@ python3 -m unittest tests.test_phase0 -v     # one test module
 **Always `make test` before saying something works.** The emulator gives us
 the whole machine state; there is no reason to guess.
 
-343 tests, about **five minutes**. It doubled when the sprite libraries moved
-onto the disc: every `boot_quick` now spins the drive up and reads 69 sectors,
-which is a second and a half of emulated time per machine and there are about
-a hundred machines. That is the price of testing the real loader instead of a
-poke, and it is worth it -- but do not add a fixture that boots per test
-method when a `setUpClass` would do.
+354 tests, about **six minutes**. It doubled when the sprite libraries moved
+onto the disc: every `boot_quick` spins the drive up and reads `LIB_SECTORS`
+per bank, which is a second and a half of emulated time per machine and there
+are about a hundred machines. That is the price of testing the real loader
+instead of a poke, and it is worth it -- but do not add a fixture that boots
+per test method when a `setUpClass` would do.
 
 **The `.dsk` is minted fresh every build, and that `rm -f` in the Makefile is
 load-bearing.** RASM's `-eo` writes DISC.BIN *into* an existing image, and the
@@ -144,10 +144,13 @@ gives you a CRTC that has never been initialised. `harness.boot_quick` runs
 and prints how many bytes are left in the low 16K and in every bank. Watch all
 of them, and watch the "hand-written code ends at" figure rather than `free:` —
 see "Where 700 bytes came from" for why the second one lies. The low 16K has
-**512 bytes of which about 130 are reachable**, and bank 4 has **9**, so
-anything sizeable goes in a bank and is reached through the window — the help
-text, the mission table, the formation shapes, all the per-class data and the
-cached half of the marker pass do.
+**2304 bytes of which about 1850 are reachable**, and bank 4 has **1032** —
+and both of those numbers are new. They were 512 and 9. See "Six yaw views,
+and where the space went" for what changed and what it bought; the short
+version is that the low 16K stopped being desperate and bank 4 is now the
+place most new code should go by default. The help text, the mission table,
+the formation shapes, the per-class data, the cached half of the marker pass,
+the player's commands and the campaign's setup and teardown all live there.
 
 **The low 16K's real floor is not `#4000`.** `tests/test_sound.py` puts 384
 bytes of stub above `CODE_END` and `harness` puts another 0x60 there, so the
@@ -164,7 +167,7 @@ power-on layout. Equates in `src/equ/hardware.asm`.
 
 | Bank | Holds | How it gets there |
 |---|---|---|
-| 4 | interceptor + frigate sprites; mission table; help, menu and title CODE; the cached marker projection; per-class data; formation shapes; the zoom table; the fleet buffer | inside `DISC.BIN` |
+| 4 | interceptor + frigate sprites; mission table; help, menu and title CODE; the §9 command code and the campaign's setup/teardown CODE; the cached marker projection; per-class data; formation shapes; the zoom table; the fleet buffer | inside `DISC.BIN` |
 | 5 | mothership + harvester sprites | raw sectors, read by `lib_load` |
 | 6 | scout + bomber sprites | " |
 | 7 | salvage + destroyer sprites | " |
@@ -213,6 +216,25 @@ for exactly that reason: it runs once, before the first mission, so it has no
 business competing for space with the frame loop. It went in the low 16K first
 and took `CODE_END` to `#3D00`, which left the *tests* no room for their
 scratch and broke seven classes that had nothing to do with it.
+
+**The test that decides whether something may go in the bank is narrower than
+"does it run while the game is stopped".** It is: *can this ever run between
+`class_tier_addr` and `class_blit_done`?* Nothing but `spr_blit` and
+`phase4_add_rect` can, so the frame loop's own simulation would be legal
+there too. `game/ordercmd.asm`, `game/squadcmd.asm` and `game/campaignrun.asm`
+went across on that reasoning; `game/combat.asm` and `game/economy.asm` did
+not, and the line is deliberate rather than forced — the low 16K is not
+desperate any more, and having the per-frame simulation in one place is worth
+more than the bytes. If it gets desperate again, those two are next and they
+are safe.
+
+**Code moves for free; data costs a hundred test call sites.** Every one of
+the three files above was SPLIT rather than moved: the routines went to the
+bank and the equates and variables stayed in the low 16K. Not because the
+frame loop cannot read a bank variable — it can, bank 4 is at rest — but
+because a variable in the bank has to be read with `read_cpu` rather than
+`read_ram`, and `order_paused`, `squad_count`, `disc_active`, `mis_index` and
+`moth_slot` are watched by half the suite.
 
 Banks 5-7 hold **sprite data only**, and must. Code assembled there could only
 run in the one moment bank 4 is out, which is the one moment nothing else can.
@@ -396,7 +418,8 @@ cheaper than a second copy of every sprite library.
 ## Graphics pipeline
 
 Ship sprites are generated from 3D models by `tools/mkships.py` (`make ships`),
-which renders 8 yaw views per size tier, dithers them, and writes a
+which renders `YAW_STEPS` yaw views per size tier — **six**, 60° apart —
+dithers them, and writes a
 `.retrotools.json` project into `art/`. Those files are **source art** — open
 them in RetroTools to retouch by hand, and the retouched version is what
 ships. Anything drawn from scratch in RetroTools goes through the same path.
@@ -411,7 +434,7 @@ python3 tools/rt2sprite.py art/frigate.retrotools.json --out src/gen/spr_frigate
 **All eight classes are modelled**, and the models are twenty lines of
 `prism()` each. Three rules decide every shape, and they are in the comment
 above `_interceptor()`: vertical structure is what a ship is made of at 8×6,
-wings must be CANTED or they are seen edge-on from all eight views, and beam
+wings must be CANTED or they are seen edge-on from every view, and beam
 matters as much as length or the head-on view collapses to a dot. A fourth,
 learned from the Salvage Corvette: a feature that distinguishes a class must
 be **sideways**, not vertical, or it survives broadside and vanishes head-on.
@@ -439,6 +462,95 @@ Pre-shifts of 0 and 2 pixels are stored and X is restricted to even positions
 transparent** — pen 0 is empty space in this game's palette.
 
 The converter warns if the project's inks are not the game's four.
+
+### Six yaw views, and where the space went
+
+§5.1 asks for eight views. §14 lists "6 όψεις yaw αντί για 8" as the
+mitigation for "the sprite libraries do not fit", and they did not: eight
+classes at eight views is 45 KB across three banks, bank 4 was down to **nine**
+spare bytes, and there is no fourth bank in the `#7Fxx` window to reach for.
+
+Six is a quarter off every library — **5760 bytes a class → 4320**, 45 KB →
+33.75 KB — and one number in `tools/mkships.py`. What it bought, measured:
+
+| | eight views | six views |
+|---|---|---|
+| library, per class | 5760 | 4320 |
+| bank 4 free | 9 | 1032 |
+| low 16K free | 512 | 2304 |
+| hand-written code ends at | `#31B3` | `#2A7A` |
+| `DISC.BIN` | 25179 | 23951 |
+| sectors read at boot | 69 | 51 |
+
+**The low 16K figure is the point, and it is not a direct consequence.**
+Freeing bank 4 does nothing on its own; what it does is make room for code to
+LEAVE the low 16K. `game/ordercmd.asm` (the §9 commands), `game/squadcmd.asm`
+(the squadron commands) and `game/campaignrun.asm` (mission setup, the
+objective check, jumping, the fleet block) are about 1900 bytes that moved
+across, and the low 16K went from 512 free to 2304. Freeing a bank is half a
+job.
+
+#### Six is not a power of two
+
+`phase4_cache` used to pick a view with `rrca` five times and `and 7`. There is
+no shift that divides by six, so it now does
+
+```
+view = round(diff * 6 / 256) = (diff * 6 + 128) >> 8
+```
+
+three `add hl,*` for the multiply and one for the rounding, plus a `cp 6` for
+the single range of inputs (heading ≥ 235) that rounds up to a whole turn.
+Hand-counted, that block goes from 121 T-states to 178 — **+57 per visible
+entity**, about 1,400 T of a 530,000 T frame, a quarter of one percent.
+Measured end to end against a pristine build of the previous commit, the frame
+rate is unchanged: the same `4.75, 5.00, 5.00, 5.00, 5.00` five-sample series
+on both — which `demo_wait_frame` quantising to whole 50 Hz ticks all but
+guarantees for a change this size.
+
+A table was the obvious alternative and is what this change exists to avoid.
+256 entries is a page, which is most of what six views just freed. 32 entries
+indexed by `diff >> 3` is affordable at 32 bytes and no faster once the index
+is built — and it rounds **twice**, so eight of the 256 headings come out one
+view away from where the arithmetic puts them.
+
+> **The rounding is a repair, not a translation, and it is the bug this found.**
+> Taking the top three bits *truncates*: it gives the pose the ship last
+> PASSED, not the nearest one, so every ship in the fleet was drawn up to 45°
+> behind its heading and always in the same direction. At six views that
+> becomes a whole 60° step — a fleet visibly flying crabwise. `+128` costs four
+> bytes and halves the worst case. `tests/test_phase4_fleet.TestViewIndex`
+> drives `phase4_cache` over all 256 headings and checks every one against the
+> model.
+
+`PHASE4_VIEWS` in `src/demo/phase4.asm` is the Z80's copy of the number and
+`src/main.asm` asserts it against the generated `*_frames` equates, per tier,
+for all eight classes. Get them out of step and the blitter does not draw the
+wrong picture — it steps `view * shifts` blocks off the end of its own tier
+into the next one.
+
+#### What six views actually costs, on screen
+
+Looked at, at tier C, one full turn per class, eight against six. It still
+reads as a turn: apparent length grows from head-on to oblique and shrinks
+back to stern-on, all six silhouettes are different, and the shading swaps
+side across the 180° mark so bow and stern are told apart.
+
+**The specific loss is that 90° and 270° are never sampled**, so no ship is
+ever seen exactly broadside. That falls unevenly:
+
+- **The Frigate loses most.** Its identity is "a long bar", and its 8-pixel
+  broadside at tier A becomes a 7-pixel three-quarter. The Salvage Corvette is
+  second, for the same reason — the derrick reads best side-on.
+- **The Mothership and Destroyer lose least.** Their identity is bulk, and
+  bulk survives any angle.
+- The Interceptor is unaffected in kind: it was a chevron head-on and a sliver
+  obliquely, and still is.
+
+`tools/mkships.py --contact-sheet` is how to look. The comparison sheets this
+was judged on are not checked in — regenerate them by rendering `art/` with
+`YAW_STEPS = 8` into a scratch directory and putting the tier C rows side by
+side.
 
 ### The palette is semantic, and the HUD uses it
 
@@ -576,7 +688,7 @@ Design document section 13 lists ten phases.
   see the zoom ladder below — and distant stacks consolidate at the wide end.
 - **All eight classes of §8 exist, with their own art.** Interceptor,
   Mothership, Harvester, Scout, Bomber, Frigate, Salvage Corvette, Destroyer —
-  each a model in `tools/mkships.py` and a 5.62 KB sprite library. Nothing
+  each a model in `tools/mkships.py` and a 4.22 KB sprite library. Nothing
   wears a stand-in any more except when the disc cannot be read; see the
   banking section for where they live. Capital ships (Mothership, Frigate,
   Destroyer) get a **tier bias** so they draw a size larger than their distance
@@ -589,14 +701,20 @@ Design document section 13 lists ten phases.
 
 `src/demo/phase4.asm` is the acceptance test running on the CPC itself.
 
-**A ninth class does not fit.** Bank 4 has ~9 bytes left and banks 5-7 hold
-two libraries each with 4.6 KB spare — enough for the data, but `LIB_SECTORS`
-sizes a bank's disc image at exactly two libraries, and a third would need a
-fourth bank the 6128 does not have in the `#7Fxx` window. The mitigations §14
-lists are the way out: 6 yaw views instead of 8 (−25%), or tiers shared between
-classes. Adding a class today means the Makefile's `SHIP_CLASSES`, a `BANK`
-section in `src/main.asm`, a row in `class_sprite`/`class_bank`, an entry in
-every table in `game/classdata.asm`, and a wider `LIB_BANKS`.
+**A ninth class fits now, and so do a tenth and an eleventh.** It did not
+before: bank 4 had nine bytes left, and banks 5-7 held two 5760-byte libraries
+each with `LIB_SECTORS` sizing their disc image at exactly that. Six yaw views
+made a library 4320 bytes, so **three** of them are 12960 — inside the 16 KB
+window, and 26 sectors against the 27 that `LIB_TRACKS_PER_BANK` already
+reserves. Nine libraries across banks 5-7 without asking the 6128 for a bank
+it does not have.
+
+`LIB_SECTORS` is 17 today, which is what two libraries need; a third per bank
+takes it to 26. Adding a class is the Makefile's `SHIP_CLASSES`, an `include`
+in the right `BANK` section of `src/main.asm`, a row in
+`class_sprite`/`class_bank`, and an entry in every table in
+`game/classdata.asm`. §14's other mitigation, tiers shared between classes, is
+not needed and should stay unspent.
 
 ### Controls
 
@@ -800,14 +918,16 @@ mission table.
 
 **`DISC.BIN`'s ceiling is what decides where a sprite library can live.** It
 loads at `#4000` and must finish below `#A700`, so it has 26368 bytes to play
-with; it is currently 25175, ending just under `#A207`, and that is **about 1.2 KB
-of headroom**. One RLE-packed library is 3-4 KB. That arithmetic is the whole
-reason six of the eight classes are read off the disc into banks 5-7 instead
-of travelling in the file — it is not a stylistic choice, and no amount of
-better packing gets 45 KB of sprites under a 1.5 KB gap.
+with; it is currently 23951, ending just under `#9D3F`, and that is **about
+2.4 KB of headroom**. One RLE-packed library is 2-3 KB. That arithmetic is the
+whole reason six of the eight classes are read off the disc into banks 5-7
+instead of travelling in the file — it is not a stylistic choice, and no amount
+of better packing gets 34 KB of sprites under a 2.4 KB gap.
 
-The bank-4 library stays RLE-compressed (`tools/packsprites.py`, 15118 → 9217
-bytes); without it the file would not fit at all. Uninitialised bank data (the
+The bank-4 image stays RLE-compressed (`tools/packsprites.py`, 14328 → 10111
+bytes); without it the file would not fit at all. It packs worse than it used
+to — 70% rather than 62% — because most of what six yaw views freed there was
+promptly filled with CODE, and code does not have runs of `#FF,#00` in it. Uninitialised bank data (the
 fleet buffer) is deliberately declared *after* `bank4_end` so it costs nothing
 in the file.
 
@@ -898,7 +1018,7 @@ assert for it.
 Pen 3 is both bit planes set and pen 1 is only the high one, so
 `data OR ((data >> 4) AND #0F)` turns every pen-1 pixel into pen 3 and leaves
 pens 0 and 2 alone. `spr_erow_start` is the same unrolled blit with those four
-instructions folded in. A second copy of every sprite library would be 5.6 KB
+instructions folded in. A second copy of every sprite library would be 4.2 KB
 a class.
 
 Only the DATA is recoloured, never the background showing through the mask —
@@ -929,7 +1049,7 @@ hulls and identical guns, ended **8-0 to the enemy** every time — and the
 mechanics are symmetric, so the cause was never the damage numbers.
 
 1. **`A` set a target and nothing else.** `ENT_ORDER_ATTACK` was written by
-   `order.asm` and read only by `cbt_retarget_one`, to stop the AI overwriting
+   `ordercmd.asm` and read only by `cbt_retarget_one`, to stop the AI overwriting
    it. Nothing ever *moved* the ship. So an attacking squadron aimed from
    wherever its formation slot happened to be, while the Vekhar — who always
    close — massed on it. `cbt_move_enemies` now closes anything hostile *or*
@@ -1340,6 +1460,12 @@ next page, `code_end` jumps from `#3D00` to `#3E00`, and a dozen test classes
 that have nothing to do with the change start failing because `test_sound`
 reserves `#180` of scratch above `CODE_END`.
 
+That was the ceiling for a long time and the hand-written code sat at `#31B3`,
+four bytes under it. It is `#2A7A` now — see "Six yaw views, and where the
+space went" — so there are seven whole pages of room before that edge is
+anywhere near again. The table above is still the list of shapes to look for
+when it is.
+
 Both `print` statements now come BEFORE their asserts. RASM stops at a failing
 assert, and "bank 4 contents overflow the window" without a number is a
 question rather than an answer; the figure goes negative and says exactly how
@@ -1473,25 +1599,38 @@ nobody pressing anything.
 - **Enemy sprites need no separate storage.** In Mode 1 the pen bit-0 plane is
   the high nibble and bit-1 the low, so `data OR ((data >> 4) AND #0F)` turns
   every pen 1 into pen 3 and leaves pens 0 and 2 alone — three instructions in
-  the blitter instead of a second 5.6 KB copy per class. `--faction enemy`
+  the blitter instead of a second 4.2 KB copy per class. `--faction enemy`
   exists for hand-retouched variants; do not ship both sets by default.
-- **Sprite memory is 17% over §5.1** (5.62 KB per class, not 4.8 KB) because
-  every sprite is stored one byte wider than it is, to give the 2-pixel
-  pre-shift somewhere to land. Eight classes is **45 KB**, which is not one
-  bank and never was — it is three, and only fits because banks 5-7 are read
-  off the disc rather than carried in `DISC.BIN`. That is now settled rather
-  than open; what is still open is what happens when a NINTH thing needs
-  space, because there is no fourth spare bank. §14 lists the two answers: 6
-  yaw views instead of 8 (−25% each), and tiers shared between classes.
-  Adding the second pitch level §5.1 wants would double all of it and is
-  currently impossible.
+- **Sprite memory is under §5.1's budget now** — 4.22 KB a class against
+  4.8 KB — and it is worth knowing why the two numbers do not line up cleanly.
+  Every sprite is stored one byte wider than it is, to give the 2-pixel
+  pre-shift somewhere to land, which is 17% over what §5.1's table counts;
+  §14's six yaw views takes 25% off. The two nearly cancel and the second one
+  wins. Eight classes is **33.75 KB**, still three banks, still only fitting
+  because banks 5-7 are read off the disc rather than carried in `DISC.BIN`.
+  This is no longer an open question: the ninth class fits, and so do the
+  tenth and eleventh. §14's other mitigation — tiers shared between classes —
+  is unspent and should stay that way.
+
+  **The second pitch level §5.1 wants is still out of reach.** It doubles
+  everything: 33.75 KB → 67.5 KB, which is more than four banks and there are
+  three. Six yaw views was the money that would have paid for it, and it has
+  been spent.
 - **Tier A (8×6) barely distinguishes the classes.** Bow-on, a frigate is 6×2
   and an interceptor 4×2. Class identity at that size is carried by bulk, not
   shape, with a 2-pixel margin. Two tests in `test_ships.py` hold the line:
-  no two classes may share an 8×6 mask at any yaw, and no class may collapse
-  to fewer than six distinct views. Both have caught real models — the Salvage
-  Corvette's first fork was vertical, which reads perfectly broadside and is
-  byte-for-byte the Mothership head-on.
+  no two classes may share an 8×6 mask at any yaw, and **every one of the six
+  views must be distinct**. That second one used to allow two of the eight
+  views to coincide; at six there is no slack to give away, and every class
+  clears it today. Both have caught real models — the Salvage Corvette's first
+  fork was vertical, which reads perfectly broadside and is byte-for-byte the
+  Mothership head-on.
+
+  Six views made this tier harder in one specific way: **90° is never
+  sampled**, so no class is ever seen exactly broadside, and the frigate's
+  8-pixel bar — the widest thing in the game at 8×6 — became a 7-pixel
+  three-quarter. It is still the widest, but the margin over the bomber is
+  gone.
 - **The enemy is all interceptors**, so the §8 balance triangle only ever
   applies to the player's own fleet. `campaign.asm`'s enemy rows are three
   words of position each; a fourth byte for the class would make the Vekhar

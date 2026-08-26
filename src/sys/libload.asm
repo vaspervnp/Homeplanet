@@ -42,7 +42,20 @@
 LIB_TRACK           equ 12              ; first track of the library area
 LIB_TRACKS_PER_BANK equ 3               ; 27 sectors, of which we use LIB_SECTORS
 LIB_BANKS           equ 3               ; banks 5, 6 and 7
-LIB_SECTORS         equ 23              ; 11776 bytes: two 5760-byte libraries
+
+;  8704 bytes: two 4320-byte libraries and a little padding. It was 23 when a
+;  library was 5760 bytes; section 14's six yaw views took a quarter off every
+;  one of them, and this number has to follow or every boot reads three
+;  kilobytes of nothing per bank -- 51 sectors at boot rather than 69.
+;
+;  That is a real saving on a real 6128 and it is NOT a measurable one under
+;  test: cpcemu resolves the controller's execution phase synchronously, so
+;  emulated sector reads are nearly free and timing the suite before and after
+;  gives you the machine's load, not the change. Do not go looking for it.
+;
+;  The assert in src/main.asm is what stops this being set too low; nothing
+;  stops it being set too high except this comment.
+LIB_SECTORS         equ 17
 
 LIB_FIRST_SECTOR    equ #C1
 LIB_LAST_SECTOR     equ #C9

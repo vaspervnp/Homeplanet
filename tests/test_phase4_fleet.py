@@ -52,15 +52,23 @@ class TestFleet(unittest.TestCase):
             self.assertTrue(0 <= v["sx"] < 320, v)
             self.assertTrue(0 <= v["sy"] < 200, v)
 
-    def test_all_eight_yaw_views_get_used(self):
-        """Phase 3: '8 όψεις'. One orbit must exercise every view."""
+    def test_every_yaw_view_gets_used(self):
+        """Phase 3: '8 όψεις' -- six of them, after section 14's mitigation.
+
+        The count comes out of the BUILD rather than being written down here,
+        so this tracks PHASE4_VIEWS instead of having to be remembered
+        alongside it. src/main.asm separately asserts that PHASE4_VIEWS is what
+        the art actually holds.
+        """
+        views = self.sym["PHASE4_VIEWS"]
         seen = set()
         for _ in range(40):
             self.c.run_frames(4)
             seen.update(v["view"] for v in self._visible())
-            if len(seen) == 8:
+            if len(seen) == views:
                 break
-        self.assertEqual(seen, set(range(8)), f"only views {sorted(seen)} appeared")
+        self.assertEqual(seen, set(range(views)),
+                         f"only views {sorted(seen)} of {views} appeared")
 
     def test_all_three_size_tiers_get_used(self):
         """Phase 3: '3 βαθμίδες'.
@@ -159,6 +167,116 @@ class TestFleet(unittest.TestCase):
             fps, self.MEASURED_FPS_FLOOR,
             f"{fps:.1f} fps for 24 entities, was {self.MEASURED_FPS_FLOOR}+",
         )
+
+
+def view_table(c, sym):
+    """Drive phase4_cache once per heading and collect the view byte it wrote.
+
+    The 256 answers go into phase4_vis -- the game's own visible list, which is
+    288 bytes, is rebuilt from scratch every frame, and is not going to be
+    rebuilt again because the stub ends in `jr $`. The test scratch is 0x60
+    bytes in total and this needs 256 of them.
+    """
+    ent = sym["ENTITIES"] + sym["ENT_YAW"]
+    out = sym["PHASE4_VIS"]
+
+    def w(addr):
+        return bytes([addr & 0xFF, addr >> 8])
+
+    head = (b"\xF3"                                  # di
+            + b"\xAF" + b"\x32" + w(sym["CAM_YAW"])  # xor a : ld (cam_yaw),a
+            + b"\x0E\x00")                           # ld c,0
+    body = (b"\x79" + b"\x32" + w(ent)               # ld a,c : ld (ent_yaw),a
+            + b"\x21" + w(sym["ENTITIES"])
+            + b"\x22" + w(sym["PHASE4_ENT"])
+            + b"\x21" + w(h.DATA)
+            + b"\x22" + w(sym["PHASE4_VIS_PTR"])
+            + b"\xC5"                                # push bc
+            + b"\xCD" + w(sym["PHASE4_CACHE"])
+            + b"\xC1"                                # pop bc
+            + b"\x3A" + w(h.DATA + 4)                # the view byte it wrote
+            + b"\x21" + w(out) + b"\x06\x00\x09"     # ld hl,out : ld b,0 : +bc
+            + b"\x77" + b"\x0C")                     # ld (hl),a : inc c
+    tail = (b"\x20" + bytes([-(len(body) + 2) & 0xFF])   # jr nz,body
+            + b"\x3E\xFF" + b"\x32" + w(h.RESULT)        # ld a,#FF : ld (done),a
+            + b"\x18\xFE")                               # jr $
+    stub = head + body + tail
+    if len(stub) > h.RESULT - h.STUB:
+        raise RuntimeError(f"the view stub outgrew the scratch ({len(stub)} bytes)")
+
+    c.write_ram(h.RESULT, b"\x00")
+    c.write_ram(h.STUB, stub)
+    c.set_pc(h.STUB)
+    for _ in range(40):
+        c.run_frames(1)
+        if c.read_ram(h.RESULT, 1)[0] == 0xFF:
+            break
+    else:
+        raise RuntimeError("the view stub never finished")
+    return list(c.read_ram(out, 256))
+
+
+class TestViewIndex(unittest.TestCase):
+    """Which of the six yaw views a heading picks -- all 256 of them.
+
+    Six views is section 14's mitigation and six is not a power of two, so
+    phase4_cache cannot shift and mask any more; it multiplies by six and
+    rounds. That is twelve instructions of arithmetic whose edges are exactly
+    where a bug would hide, and there are only 256 inputs -- so check every
+    one against the model, the way test_phase1 checks the projection.
+
+    Rounding is the half of this worth pinning down. The eight-view code
+    truncated, which drew every ship in the pose it had last passed rather
+    than the nearest one; at six views that error grows to a whole step and
+    the fleet reads as flying crabwise.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.c = h.boot_quick(frames=250)
+        cls.sym = h.symbols()
+        cls.views = cls.sym["PHASE4_VIEWS"]
+        cls.table = view_table(cls.c, cls.sym)
+
+    @classmethod
+    def tearDownClass(cls):
+        h.close(cls.c)
+
+    def expected(self, heading):
+        """round(heading * views / 256), wrapping a whole turn back to view 0."""
+        return ((heading * self.views + 128) >> 8) % self.views
+
+    def test_every_heading_picks_the_nearest_view(self):
+        wrong = [(a, self.table[a], self.expected(a))
+                 for a in range(256) if self.table[a] != self.expected(a)]
+        self.assertEqual(wrong, [], f"{len(wrong)} headings picked the wrong view")
+
+    def test_the_view_is_never_off_the_end_of_the_library(self):
+        """A view of 6 would index a seventh frame that is not there, and the
+        blitter would draw whatever follows the tier."""
+        self.assertEqual(max(self.table), self.views - 1)
+        self.assertEqual(min(self.table), 0)
+
+    def test_the_error_is_never_more_than_half_a_step(self):
+        """What rounding buys, stated as the thing the player sees.
+
+        Truncation would make this a whole step, and always in the same
+        direction -- every ship in the fleet drawn up to 60 degrees behind its
+        heading at once, which does not look like a coarse turn, it looks like
+        the fleet is flying sideways.
+        """
+        step = 256 / self.views
+        worst = max(min(abs(a - self.table[a] * step),
+                        abs(a - (self.table[a] + self.views) * step))
+                    for a in range(256))
+        self.assertLessEqual(worst, step / 2,
+                             f"worst heading error {worst:.1f} of 256ths")
+
+    def test_each_view_owns_about_a_sixth_of_the_circle(self):
+        """A multiply that dropped a bit would still produce 0..5 and still
+        look plausible in a screenshot; the histogram is what catches it."""
+        counts = [self.table.count(v) for v in range(self.views)]
+        self.assertLessEqual(max(counts) - min(counts), 1, counts)
 
 
 if __name__ == "__main__":

@@ -32,6 +32,13 @@ PHASE4_SHIPS        equ 15
 ;  resolves in a couple of seconds, slow enough to read as flight.
 PHASE4_STEP         equ 150
 
+;  How many pre-rendered yaw views a sprite library holds. Section 5.1 asks
+;  for eight; section 14's mitigation for "the libraries do not fit" is six,
+;  and six is what tools/mkships.py renders. src/main.asm asserts that this
+;  number and the art agree -- get them out of step and phase4_blit_body walks
+;  off the end of a sprite block into the next tier.
+PHASE4_VIEWS        equ 6
+
 ;  Screen cache per visible ship (Homeplanet.md section 7).
 PHASE4_VIS_SIZE     equ 6
 PHASE4_V_SX         equ 0               ; 2 bytes
@@ -797,24 +804,60 @@ phase4_cache:
     ld (hl),a
     inc hl
 
-    ;  View: the ship's heading as seen from the camera, in eighths of a turn.
+    ;  View: the ship's heading as seen from the camera, in SIXTHS of a turn.
+    ;
+    ;  This was `rrca` five times and `and 7`, and it stopped being able to be
+    ;  when section 14's mitigation took the libraries from eight views to six.
+    ;  256/6 is not an integer and there is no shift that divides by six, so
+    ;
+    ;      view = round(diff * 6 / 256) = (diff * 6 + 128) >> 8
+    ;
+    ;  which is three `add hl,*` for the multiply and one for the rounding.
+    ;
+    ;  HAND-COUNTED, the block below goes from 121 T-states to 178: +57 per
+    ;  VISIBLE entity, about 1,400 T of a 530,000 T frame, a quarter of one
+    ;  percent. (The gate array puts its ~25-30% on both, so the ratio holds.)
+    ;  Measured end to end against a build of the previous commit the frame
+    ;  rate does not move at all, and demo_wait_frame quantising to 50 Hz ticks
+    ;  means it could not have.
+    ;
+    ;  The obvious alternative -- a lookup table -- is what this change exists
+    ;  to avoid. 256 entries is a page, which is most of what six views just
+    ;  freed. 32 entries indexed by (diff >> 3) is affordable at 32 bytes and
+    ;  no faster than this by the time the index has been built, and it rounds
+    ;  TWICE: eight of the 256 headings come out one view away from the one
+    ;  the arithmetic picks. Twelve bytes of code that is exact beats a table
+    ;  that is nearly right.
+    ;
+    ;  ROUNDING, not truncation, and that is a repair rather than a
+    ;  translation. Taking the top three bits gave the pose the ship had last
+    ;  PASSED, not the nearest one -- every ship in the fleet drawn up to 45
+    ;  degrees behind its heading, always in the same direction. Six views
+    ;  makes that a bias of up to a whole 60-degree step, which is a fleet
+    ;  visibly flying crabwise. The `+128` costs four bytes and halves it.
     push hl
     ld hl,(phase4_ent)
     ld de,ENT_YAW
     add hl,de
     ld a,(hl)
+    ld hl,cam_yaw
+    sub (hl)                            ; A = heading relative to the camera
+    ld l,a
+    ld h,0
+    ld d,h
+    ld e,l
+    add hl,hl                           ; 2x
+    add hl,de                           ; 3x -- at most 765, so 16 bits is ample
+    add hl,hl                           ; 6x
+    ld de,128
+    add hl,de
+    ld a,h
+    cp PHASE4_VIEWS
+    jr c,@p4_view_ok
+    ;  Everything from 330 degrees up rounds to a full turn, which is view 0.
+    xor a
+@p4_view_ok:
     pop hl
-    ld d,a
-    ld a,(cam_yaw)
-    ld e,a
-    ld a,d
-    sub e
-    rrca
-    rrca
-    rrca
-    rrca
-    rrca
-    and 7
     ld (hl),a
     inc hl
 

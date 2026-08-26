@@ -137,14 +137,21 @@ class TestProjectShape(ShipProjects):
             for sprite in doc["sprites"]:
                 self.assertEqual(rt2sprite.identifier(sprite["name"]), sprite["name"])
 
-    def test_the_eight_yaw_views_are_actually_different(self):
-        """A rotation bug would give eight identical frames and still pass
-        every other test in this file."""
+    def test_every_yaw_view_is_actually_different(self):
+        """A rotation bug would give identical frames and still pass every
+        other test in this file.
+
+        This used to allow two of the eight views to coincide. At six there is
+        no slack left to allow: the whole point of section 14's mitigation is
+        that six views still read as a turn, and a class that spends one of
+        them on a repeat is showing five. Every class clears it today.
+        """
         for key, doc in self.friendly():
             for sprite in doc["sprites"]:
                 blobs = {f["pixels"] for f in sprite["frames"]}
-                self.assertGreaterEqual(len(blobs), 6,
-                                        f"{sprite['name']}: only {len(blobs)} distinct views")
+                self.assertEqual(len(blobs), mkships.YAW_STEPS,
+                                 f"{sprite['name']}: only {len(blobs)} distinct "
+                                 f"views out of {mkships.YAW_STEPS}")
 
     def test_rendering_is_deterministic(self):
         again = mkships.build_project("interceptor", "friendly")
@@ -280,27 +287,41 @@ class TestSilhouette(ShipProjects):
         ever collapsed into 'normalise everything into the box' -- which is the
         obvious thing to write and the wrong thing -- all three become the same
         smudge and this is the test that notices."""
-        area, widest, tallest = {}, {}, {}
+        area, widest, depth, rows = {}, {}, {}, {}
         for key, doc in self.friendly():
             sprite = doc["sprites"][0]
-            area[key] = widest[key] = tallest[key] = 0
+            area[key] = widest[key] = depth[key] = 0
+            rows[key] = []
             for frame in sprite["frames"]:
                 _, mask = frame_grid(sprite, frame)
+                tall = sum(1 for row in mask if any(row))
                 area[key] += sum(sum(row) for row in mask)
                 widest[key] = max(widest[key], max(sum(row) for row in mask))
-                tallest[key] = max(tallest[key],
-                                   sum(1 for row in mask if any(row)))
+                depth[key] += tall
+                rows[key].append(tall)
 
         self.assertLess(area["interceptor"], area["bomber"], area)
         self.assertLess(area["interceptor"], area["frigate"], area)
         #  The frigate is the longest thing on the board...
         self.assertGreater(widest["frigate"], widest["interceptor"], widest)
         self.assertGreaterEqual(widest["frigate"], widest["bomber"], widest)
-        #  ...and the bomber the deepest. Note that these are different axes:
-        #  the bomber covers MORE pixels than the frigate at tier A, because
-        #  the frigate is a two-row line and the bomber is a four-row mass.
-        self.assertGreater(tallest["bomber"], tallest["frigate"], tallest)
-        self.assertGreater(tallest["bomber"], tallest["interceptor"], tallest)
+
+        #  ...and the bomber the deepest, on a different axis: the frigate is
+        #  a bar and the bomber a mass.
+        #
+        #  Summed over the views, and matched view for view, rather than
+        #  "whose single deepest frame is deepest" -- which is what this used
+        #  to ask and which is not a property of the models at all. It asked
+        #  one sample out of eight and got 4 against the frigate's 3; at six
+        #  views the obliques land on 60 degrees instead of 45, the frigate
+        #  shows four rows there too, and the assertion failed with nothing
+        #  about either model having changed. A statistic that moves when the
+        #  sampling grid moves was measuring the grid.
+        for key in ("frigate", "interceptor"):
+            for i, (b, o) in enumerate(zip(rows["bomber"], rows[key])):
+                self.assertGreaterEqual(b, o, f"view {i}: bomber {b} vs {key} {o}")
+        self.assertGreater(depth["bomber"], depth["frigate"], rows)
+        self.assertGreater(depth["bomber"], depth["interceptor"], rows)
 
     def test_no_two_classes_share_a_silhouette_at_the_smallest_tier(self):
         for view in range(mkships.YAW_STEPS):
@@ -309,7 +330,8 @@ class TestSilhouette(ShipProjects):
                 frame = doc["sprites"][0]["frames"][view]
                 clash = seen.setdefault(frame["mask"], key)
                 self.assertEqual(clash, key,
-                                 f"yaw {view * 45}: {key} and {clash} are the "
+                                 f"yaw {view * (360 // mkships.YAW_STEPS)}: "
+                                 f"{key} and {clash} are the "
                                  f"same 8x6 shape")
                 seen[frame["mask"]] = key
 

@@ -86,10 +86,12 @@ Things that decide the shape:
   redrawing 40 characters every frame is not affordable.
 - Item 1 (paused) belongs **in this bar**, not in the bottom strip: it is the
   same idea — the game telling the player what state it is in.
-- **Memory is the blocker, not the code.** Six contexts of text is a few
-  hundred bytes and bank 4 has nine. This one needs the space found first, and
-  §14's mitigation (6 yaw views instead of 8, ~25% of a sprite library) is the
-  only large reserve left.
+- ~~**Memory is the blocker, not the code.**~~ It was: six contexts of text is
+  a few hundred bytes and bank 4 had nine. §14's mitigation has been spent —
+  six yaw views instead of eight — and bank 4 has **1032** bytes free with the
+  low 16K on **2304**. The text belongs in bank 4 beside the help page; the
+  drawing can go there too, since a context bar only redraws when the context
+  changes. Nothing is blocking this now but the writing.
 
 ## 4. Use the whole screen for the playfield
 
