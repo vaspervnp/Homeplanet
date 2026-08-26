@@ -68,3 +68,41 @@ Things that decide the shape:
   hundred bytes and bank 4 has nine. This one needs the space found first, and
   §14's mitigation (6 yaw views instead of 8, ~25% of a sprite library) is the
   only large reserve left.
+
+## 3. Use the whole screen for the playfield
+
+The tactical view does not fill the screen and at wide zoom it is not close.
+
+`sx = 160 + ((x * recip[z]) >> PROJ_SHIFT)` with `recip[z] = PROJ_K / z` and
+`PROJ_K = 160 << 7`, so the offset is `x * 160 / z`. `proj_deltas` clips `x` to
+a signed byte, so:
+
+| z | widest offset | screen used |
+|---|---|---|
+| 84 (`Z_NEAR`) | ±242 | all of it, and clipped |
+| 250 (widest zoom) | ±81 | 162 px of 320 |
+
+`PROJ_K` was chosen so that `x == z` — 45 degrees off axis — lands exactly on
+the screen edge. Content never gets near 45 degrees at the wide steps, so half
+the width is margin by construction. Vertically the same, against a playfield
+that is only 168 lines to begin with and about to lose more to a top bar.
+
+**The fix is a magnification between the perspective divide and the screen
+clip**: multiply the offset by a per-zoom factor before adding 160. It is not
+zoom — it shows the same world — it spreads that world across the screen it
+has. Ships keep their size, because the size tier comes from `proj_z` and this
+does not touch it.
+
+- `proj_scale` (`src/math/proj.asm`) is already a branch-free shift ladder with
+  its instructions patched per zoom step, and `order_apply_zoom` already LDIRs
+  those patches out of a table. A magnify ladder is the same shape and should
+  reuse it rather than grow a second one.
+- It lands in `proj_point`, which is **~4,960 T-states an entity and the
+  biggest single cost in the frame**. Two more shift ladders is real money;
+  measure it against `PROJ_POINT_BUDGET_T` before committing to it.
+- `tools/gentables.py` is the bit-exact reference model. Change the maths in
+  one and not the other and the differential tests compare against the wrong
+  answer.
+- Do the vertical at the same time and against the *actual* playfield bounds,
+  which are `spr_clip_top`..`spr_clip_bottom` once item 2 exists — otherwise
+  this gets done twice.
