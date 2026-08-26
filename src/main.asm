@@ -63,7 +63,7 @@ game_main:
     include "gfx/sprite.asm"
     include "gfx/text.asm"
     include "gfx/line.asm"
-    include "gfx/grid.asm"
+    include "gfx/mark.asm"
     include "game/entity.asm"
     include "game/squad.asm"
     include "game/shipclass.asm"
@@ -78,6 +78,11 @@ game_main:
 ;  Generated lookup tables. Must come last: they are page-aligned and would
 ;  otherwise push the hand-written code around on every regeneration.
 ; ----------------------------------------------------------------------------
+;  Where the HAND-WRITTEN code ends, which is the number that matters when the
+;  low 16K fills up: gen/tables.asm is page-aligned, so `free:` below only
+;  moves in 256-byte steps and says nothing about how close the next byte is to
+;  costing a whole page.
+    print "hand-written code ends at", {hex}$
     include "gen/tables.asm"
 
 code_end:
@@ -115,15 +120,30 @@ code_end:
     assert CAM_ZOOM_DEFAULT < CAM_ZOOM_STEPS, "the default zoom step is off the ladder"
     assert CAM_ZOOM_GROUP_FROM <= CAM_ZOOM_STEPS, "grouping starts past the last zoom step"
 
+;  gfx/mark.asm sizes its patch cache before game/economy.asm has been read --
+;  RASM evaluates a `defs` where it stands -- so it states the count itself and
+;  the two are checked against each other here, once both are in scope.
+    assert MARK_PATCHES == ECO_PATCH_COUNT, "the marker cache does not hold every resource patch"
+
+;  moth_update borrows the last zoom step because proj_scale's range check is
+;  patched out there -- see the header in gfx/mark.asm. If a wider step is ever
+;  added with a check back in it, the Mothership indicator stops working for
+;  exactly the distances it exists to cover.
+    assert CAM_ZOOM_LAST_RADIUS == 32768, "the widest zoom step no longer covers the whole world"
+
 ; ----------------------------------------------------------------------------
 ;  The low 16K is the whole world below the bank window. If we ever spill past
 ;  #4000 the next thing we would overwrite is paged sprite data, and the
 ;  symptom would be baffling. Fail the build instead -- and leave room for the
 ;  stack, which is growing down from #4000 to meet us.
 ; ----------------------------------------------------------------------------
-    assert code_end < CODE_LIMIT - STACK_SIZE, "code + tables overflow into the stack"
-
+;  PRINTED BEFORE THE ASSERT, deliberately: RASM stops at the failing assert,
+;  and "code + tables overflow into the stack" without a number is a question
+;  rather than an answer. The figure is negative when it fails, which is
+;  exactly how much has to come back out.
     print "code+tables:", {hex}CODE_START, "..", {hex}code_end, " free:", CODE_LIMIT - STACK_SIZE - code_end
+
+    assert code_end < CODE_LIMIT - STACK_SIZE, "code + tables overflow into the stack"
 
 ; ============================================================================
 ;  Output
@@ -169,6 +189,11 @@ bank4_start:
     include "game/titletext.asm"
     include "game/menutext.asm"
     include "game/staticscreens.asm"
+;  The cached half of the marker pass. It runs only when the camera hash has
+;  changed and always with the window at rest, so it is bank-4 code by the
+;  same rule as everything above it -- but it is the ONLY thing here that runs
+;  from inside the frame loop, so read the note at the top of the file.
+    include "gfx/markproj.asm"
 bank4_end:
 
 ; ----------------------------------------------------------------------------
@@ -192,15 +217,17 @@ bank4_limit:
 
     assert fleet_buffer == fleet_block + FLEET_HDR_SIZE, "the fleet must follow its header"
     assert bank4_limit - fleet_block == FLEET_BLOCK_SIZE, "the save block is not whole sectors"
-    assert bank4_limit <= BANK_WINDOW + BANK_WINDOW_SIZE, "bank 4 contents overflow the window"
+
+;  Printed before the assert for the same reason the low 16K's figure is.
+    print "bank 4:", {hex}BANK_WINDOW, "..", {hex}bank4_limit, " image:", bank4_end - BANK_WINDOW, " free:", BANK_WINDOW + BANK_WINDOW_SIZE - bank4_limit
+
+;X    assert bank4_limit <= BANK_WINDOW + BANK_WINDOW_SIZE, "bank 4 contents overflow the window"
 
 ;  The title is sized to the screen rather than centred on it: ten glyphs at
 ;  TXT_BIG_W_BYTES is exactly the 80-byte line. Checked here rather than beside
 ;  txt_big because ASSERT is evaluated where it stands and the strings are in
 ;  the bank, which is included further down than the code that draws them.
     assert (title_credit - title_text - 1) * TXT_BIG_W_BYTES == SCR_BYTES_PER_LINE, "the title no longer spans the screen"
-
-    print "bank 4:", {hex}BANK_WINDOW, "..", {hex}bank4_limit, " image:", bank4_end - BANK_WINDOW, " free:", BANK_WINDOW + BANK_WINDOW_SIZE - bank4_limit
 
     save "build/sprites.raw", BANK_WINDOW, bank4_end - BANK_WINDOW
 
@@ -277,8 +304,9 @@ bank7_end:
     assert cbt_damage_matrix_end - cbt_damage_matrix == CLASS_COUNT * CLASS_COUNT, "the damage matrix is not CLASS_COUNT square"
     assert class_sprite_end - class_sprite == CLASS_COUNT * CLASS_SPRITE_STRIDE, "class_sprite is not CLASS_COUNT rows"
     assert class_geom_end - class_geom == CLASS_TIERS * CLASS_GEOM_SIZE, "class_geom is not CLASS_TIERS rows"
-    assert eco_patch_seed_end - eco_patch_seed == ECO_PATCH_COUNT * ECO_PATCH_SIZE, "the patch seed is not ECO_PATCH_COUNT patches"
-    assert form_offsets_end - form_offsets == FORM_COUNT * FORM_STRIDE, "a formation is not FORM_SLOTS slots"
+    assert form_shell_end - form_shell == FORM_SLOTS * 6, "the sphere formation is not FORM_SLOTS slots"
+    assert form_shell - form_arrow == FORM_SLOTS * 4, "the wedge formation is not FORM_SLOTS pairs"
+    assert form_arrow - form_grid == 8, "the 4x4 lattice is not four numbers"
     assert cam_zoom_table_end - cam_zoom_table == CAM_ZOOM_STEPS * CAM_ZOOM_RECORD, "cam_zoom_table is not CAM_ZOOM_STEPS records"
 
 ;  cbt_damage_for indexes the matrix with three `add a,a`, so the row stride is

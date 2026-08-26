@@ -884,11 +884,6 @@ order_pending:      defb 0
 order_index:        defb 0
 moth_slot:          defb 0
 
-;  Where the Mothership sits. It does not fly to formations; the fleet forms
-;  up around it.
-order_mothership_pos:
-    defw 0, 0, 0
-
 ;  The camera's "right" direction on the Y=0 plane, per octant of yaw, already
 ;  scaled to one frame's movement. Forward is the entry two octants on.
 order_octant_step:

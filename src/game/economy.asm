@@ -39,10 +39,10 @@ eco_init:
     ld hl,ECO_START_RU
     ld (eco_ru),hl
 
-    ld hl,eco_patch_seed
-    ld de,eco_patches
-    ld bc,ECO_PATCH_COUNT * ECO_PATCH_SIZE
-    ldir
+    ;  The patches themselves are NOT seeded here. mis_setup wipes all four
+    ;  and copies the mission's own layout over them before the first frame,
+    ;  every mission including the first, so a starting set in bank 4 was
+    ;  thirty-two bytes and an LDIR that nothing ever read.
 
     xor a
     ld (eco_build_open),a
@@ -72,11 +72,12 @@ eco_update:
 ;  Uses: everything
 ; ----------------------------------------------------------------------------
 eco_run_harvesters:
-    xor a
+    ld hl,entities
+    ld (eco_walk),hl
+    ld a,ENT_MAX
     ld (eco_index),a
 @eco_ship:
-    ld a,(eco_index)
-    call ent_addr
+    ld hl,(eco_walk)
     ld (eco_ent),hl
 
     ld de,ENT_FLAGS
@@ -94,11 +95,13 @@ eco_run_harvesters:
     call eco_harvester_step
 
 @eco_next:
+    ld hl,(eco_walk)
+    ld de,ENT_SIZE
+    add hl,de
+    ld (eco_walk),hl
     ld hl,eco_index
-    inc (hl)
-    ld a,(hl)
-    cp ENT_MAX
-    jr c,@eco_ship
+    dec (hl)
+    jr nz,@eco_ship
     ret
 
 
@@ -205,118 +208,28 @@ eco_harvester_step:
 ;  Uses: everything
 ; ----------------------------------------------------------------------------
 eco_at_target:
-    ;  Steer: one step per axis, the same approach the formations use.
     ld hl,(eco_ent)
-    ld (phase4_coord_ptr),hl
-    ld hl,(eco_patch_ptr)
-    ld (eco_axis_ptr),hl
-    ld a,3
-    ld (eco_axis),a
-@eco_axis:
-    ld hl,(eco_axis_ptr)
-    ld e,(hl)
-    inc hl
-    ld d,(hl)
-    inc hl
-    ld (eco_axis_ptr),hl
-    ld (phase4_tgt),de
-
-    ld hl,(phase4_coord_ptr)
-    ld e,(hl)
-    inc hl
-    ld d,(hl)
-    ld (phase4_cur),de
-    dec hl
-
-    push hl
-    call phase4_approach
-    ex de,hl
-    pop hl
-    ld (hl),e
-    inc hl
-    ld (hl),d
-    inc hl
-    ld (phase4_coord_ptr),hl
-
-    ld hl,eco_axis
-    dec (hl)
-    jr nz,@eco_axis
-
+    ld de,(eco_patch_ptr)
+    call phase4_step_toward
     jp eco_range_check
 
 
 ; ----------------------------------------------------------------------------
-;  eco_range_check -- Manhattan distance between (cbt_ent) and (cbt_other_pos)
-;  In : (eco_ent) and (eco_patch_ptr)
+;  eco_range_check -- is (eco_ent) close enough to (eco_patch_ptr) to work?
 ;  Out: CF set if within ECO_HARVEST_RANGE
 ;  Uses: everything
+;
+;  The distance itself is combat's, because there is only one of them now: see
+;  dist_manhattan in game/combat.asm. This one lost its early exit on the first
+;  axis that was already too far, which is a few dozen T-states per harvester
+;  per frame against ninety bytes of the low 16K.
 ; ----------------------------------------------------------------------------
 eco_range_check:
-    ld hl,(eco_ent)
-    ld (eco_a_ptr),hl
     ld hl,(eco_patch_ptr)
-    ld (eco_b_ptr),hl
-    xor a
-    ld (eco_dist),a
-    ld a,3
-    ld (eco_axis),a
-
-@eco_dist_axis:
-    ld hl,(eco_a_ptr)
-    ld e,(hl)
-    inc hl
-    ld d,(hl)
-    inc hl
-    ld (eco_a_ptr),hl
-
-    ld hl,(eco_b_ptr)
-    ld c,(hl)
-    inc hl
-    ld b,(hl)
-    inc hl
-    ld (eco_b_ptr),hl
-
-    ld h,d
-    ld l,e
-    or a
-    sbc hl,bc
-
-    ;  The same |HL| >> WORLD_SHIFT that cbt_distance does, and for the same
-    ;  reason: ECO_HARVEST_RANGE is in camera units, so the shift has to match
-    ;  the projection's or a harvester docks from four times too far away.
-    ;  P/V first -- a difference that did not fit sixteen bits is far, and the
-    ;  sign bit lies about which way.
-    jp pe,@eco_far
-    bit 7,h
-    jr z,@eco_pos
-    xor a
-    sub l
-    ld l,a
-    sbc a,a
-    sub h
-    ld h,a
-@eco_pos:
-    ld a,h
-    cp PROJ_V_BIAS * 2
-    jr nc,@eco_far
-    add hl,hl
-    add hl,hl
-    ld a,h
-
-    ld hl,eco_dist
-    add a,(hl)
-    jr c,@eco_far
-    ld (hl),a
+    ex de,hl
+    ld hl,(eco_ent)
+    call dist_manhattan
     cp ECO_HARVEST_RANGE
-    jr nc,@eco_far
-
-    ld hl,eco_axis
-    dec (hl)
-    jr nz,@eco_dist_axis
-    scf
-    ret
-@eco_far:
-    or a
     ret
 
 
@@ -600,11 +513,7 @@ eco_ru:             defw 0              ; resource units in hand
 eco_index:          defb 0
 eco_ent:            defw 0
 eco_patch_ptr:      defw 0
-eco_axis_ptr:       defw 0
-eco_a_ptr:          defw 0
-eco_b_ptr:          defw 0
-eco_axis:           defb 0
-eco_dist:           defb 0
+eco_walk:           defw 0
 eco_new_slot:       defb 0
 eco_pick_class:     defb 0
 eco_pick_dir:       defb 0
@@ -615,7 +524,6 @@ eco_build_pick:     defb 0              ; which class the panel is offering
 eco_build_class:    defb #FF            ; what is on the slipway
 eco_build_timer:    defb 0
 
+;  Where the fields are and how much is left in them. Written only by
+;  mis_setup, out of the mission descriptor in bank 4.
 eco_patches:        defs ECO_PATCH_COUNT * ECO_PATCH_SIZE, 0
-
-;  eco_patch_seed -- where the fields are and how much is in them -- is in
-;  game/classdata.asm, in bank 4. It is copied once, by eco_init.

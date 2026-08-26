@@ -29,7 +29,7 @@ python3 -m unittest tests.test_phase0 -v     # one test module
 **Always `make test` before saying something works.** The emulator gives us
 the whole machine state; there is no reason to guess.
 
-324 tests, about **seven minutes**. It doubled when the sprite libraries moved
+343 tests, about **five minutes**. It doubled when the sprite libraries moved
 onto the disc: every `boot_quick` now spins the drive up and reads 69 sectors,
 which is a second and a half of emulated time per machine and there are about
 a hundred machines. That is the price of testing the real loader instead of a
@@ -142,9 +142,12 @@ gives you a CRTC that has never been initialised. `harness.boot_quick` runs
 
 `src/main.asm` asserts at build time that code+tables stay clear of the stack
 and prints how many bytes are left in the low 16K and in every bank. Watch all
-of them: the low 16K has **512 bytes**, so anything sizeable goes in a bank and
-is reached through the window — the help text, the mission table, the formation
-lattices and all the per-class data do.
+of them, and watch the "hand-written code ends at" figure rather than `free:` —
+see "Where 700 bytes came from" for why the second one lies. The low 16K has
+**512 bytes of which about 130 are reachable**, and bank 4 has **9**, so
+anything sizeable goes in a bank and is reached through the window — the help
+text, the mission table, the formation shapes, all the per-class data and the
+cached half of the marker pass do.
 
 **The low 16K's real floor is not `#4000`.** `tests/test_sound.py` puts 384
 bytes of stub above `CODE_END` and `harness` puts another 0x60 there, so the
@@ -161,7 +164,7 @@ power-on layout. Equates in `src/equ/hardware.asm`.
 
 | Bank | Holds | How it gets there |
 |---|---|---|
-| 4 | interceptor + frigate sprites; mission table; help, menu and title CODE; per-class data; formation lattices; the zoom table; the fleet buffer | inside `DISC.BIN` |
+| 4 | interceptor + frigate sprites; mission table; help, menu and title CODE; the cached marker projection; per-class data; formation shapes; the zoom table; the fleet buffer | inside `DISC.BIN` |
 | 5 | mothership + harvester sprites | raw sectors, read by `lib_load` |
 | 6 | scout + bomber sprites | " |
 | 7 | salvage + destroyer sprites | " |
@@ -505,6 +508,11 @@ table earns its page when it is read in a per-entity or per-scanline loop
 (`f9` is read eight times an entity and stays 1 KB), and not otherwise.
 `cam_sin` runs four times a **frame**.
 
+Four more have gone the same way since, out of bank 4 this time, and they paid
+for the marker pass: the Y=0 lattice, half of `form_offsets`, the title
+starfield and the briefing text's pointer table. See "Where 700 bytes came
+from".
+
 ---
 
 ## Where the project is
@@ -537,6 +545,8 @@ Design document section 13 lists ten phases.
   `H` and `B` are live. The loop closes: build a harvester, send it out, and
   what it mines pays for the next ship. **All seven of §8's buildable classes
   are on the list**, at §8's prices, with the Destroyer gated to mission 5.
+  Every mission fields two to four patches and they are DRAWN, in the tactical
+  view and in the sensor view, in the two inks described under "Markers".
   What is NOT in: a build *queue* — the yard takes one order at a time.
 - **Phase 6 — done.** Both fleets fire, hulls take damage, ships die and leave
   explosions, and the AY plays a tone for a shot and noise for a kill.
@@ -568,15 +578,14 @@ Design document section 13 lists ten phases.
   Destroyer) get a **tier bias** so they draw a size larger than their distance
   alone would give — without it a Mothership at 200 units is exactly as big as
   a fighter at 200 units and the fleet reads as a swarm of identical specks.
-- **Not drawn yet: the reference grid at Y=0** (section 4.1). It wants a
-  cheaper projection than `proj_point` — a 5×5 lattice through the full
-  pipeline is 114,000 T-states, which is a quarter of the frame for a
-  backdrop. The grid is regular, so its projected points are related and can
-  be stepped rather than each one transformed; that is the job.
+- **The reference plane at Y=0, the resource fields and the off-screen
+  Mothership indicator all draw through one pass** — see "Markers" below. All
+  three are fixed world points, so all three are cached against a hash of the
+  camera and cost nothing on the frames it has not moved.
 
 `src/demo/phase4.asm` is the acceptance test running on the CPC itself.
 
-**A ninth class does not fit.** Bank 4 has ~74 bytes left and banks 5-7 hold
+**A ninth class does not fit.** Bank 4 has ~9 bytes left and banks 5-7 hold
 two libraries each with 4.6 KB spare — enough for the data, but `LIB_SECTORS`
 sizes a bank's disc image at exactly two libraries, and a third would need a
 fourth bank the 6128 does not have in the `#7Fxx` window. The mitigations §14
@@ -599,6 +608,7 @@ every table in `game/classdata.asm`, and a wider `LIB_BANKS`.
 | `ESC` | cancel the disc |
 | SHIFT + up/down | raise and lower the disc instead of moving it across |
 | `F` | cycle the formation: Loose → Wedge → Sphere → Wall |
+| `O` | split the whole fleet into one squadron per class |
 | `TAB` (or `S`) | tactical view ↔ sensors |
 | `R` | station the squadron on the Mothership |
 | `,` / `.` | step the target through live entities |
@@ -661,6 +671,26 @@ ships start dying, and a 48-slot recount is only ~2,000 T.
 | `m` | move one ship to the next number, creating it if need be |
 | `n` | move one ship to the previous number; for 1 that is 9 |
 | `c` | combine the selection with the next ACTIVE squadron |
+| `o` | one squadron per CLASS, across the whole fleet |
+
+`o` is the one that scales. Carving a fleet up by hand is fine for three ships
+and hopeless for thirty, and the division that matters in a fight is by class,
+because §8's balance triangle is a statement about classes -- "send the bombers
+at the frigate" needs the bombers to be a squadron before it can be an order.
+
+**The number it hands out is the class index plus one, and nothing else.** That
+is what makes it worth having: press it again three missions later and the
+interceptors are squadron 1 again whatever was lost in between. A class with no
+ships leaves its number EMPTY rather than everything shuffling up -- numbers
+that move between missions are worse than numbers with gaps in them, because
+the player's fingers have already learned them. The Mothership is left out and
+so is its number, 2, which is therefore never handed out by this command.
+
+It is thirty instructions and lives in `game/staticscreens.asm`, in bank 4,
+because it runs on a keypress: writing `ENT_SQUAD` and calling `squad_refresh`
+is the whole of it, and everything else -- the HUD, the selection falling back
+if it emptied, each new squadron flying to its own station -- follows from
+`squad_count` being derived.
 
 Two judgement calls worth knowing about. `m`/`n` step numerically and wrap
 (1 → 9 going back), because they explicitly create the target; `c` takes the
@@ -766,7 +796,7 @@ mission table.
 
 **`DISC.BIN`'s ceiling is what decides where a sprite library can live.** It
 loads at `#4000` and must finish below `#A700`, so it has 26368 bytes to play
-with; it is currently 25054, ending just under `#A200`, and that is **about 1.3 KB
+with; it is currently 25175, ending just under `#A207`, and that is **about 1.2 KB
 of headroom**. One RLE-packed library is 3-4 KB. That arithmetic is the whole
 reason six of the eight classes are read off the disc into banks 5-7 instead
 of travelling in the file — it is not a stylistic choice, and no amount of
@@ -783,6 +813,17 @@ Four resource patches with a stock that runs down; harvesters fly out, fill a
 hold, fly back to the Mothership and turn it into RU. A harvester's whole
 state is its `ENT_ORDER` plus its hold, so there is no harvester table to keep
 in step with the entity list — the same reasoning as `squad_count`.
+
+**Every mission fields patches now**, two to four of them, and they are drawn
+(see "Markers"). Three missions used to field one or none, which meant the
+harvesters were baggage for a third of the campaign — and §7's economy is
+supposed to be a running choice, not something that turns up in a few missions.
+That was a data change in `game/campaign.asm` and nothing else.
+
+`eco_patch_seed` is gone. `eco_init` used to copy a starting set of patches out
+of bank 4 and `mis_setup` then wiped all four and copied the mission's own over
+the top, every mission including the first — thirty-two bytes and an LDIR that
+nothing ever read.
 
 Three things that bit, all of them the same shape — two systems writing the
 same thing:
@@ -1149,6 +1190,148 @@ the ×3 steps reject on different tests — a bound on the high byte against a
 check on the scaled value — and either edge off by one puts a ship somewhere
 it is not.
 
+### Markers: the world points that are not ships
+
+Three things share `src/gfx/mark.asm` because they are one problem — take a
+world point no entity owns, project it, draw a handful of pixels, and record a
+dirty rectangle so the next pass through that buffer erases them:
+
+- the **reference plane at Y=0** (§4.1), a 4×4 lattice of blue dots;
+- the **resource fields** (§7), a three-pixel cluster each;
+- the **Mothership when it is off screen**, a marker on the border of the view
+  showing which way it lies and how far above or below the camera it sits.
+
+There is one marker vocabulary — `mark_dot`, `mark_bar`, `mark_cross`,
+`mark_patch` — and every one of them appends its rectangle through
+`phase4_add_rect`. The move disc, the sensor view's dots and crosses and the
+explosion marks all go through it too; they each used to carry their own copy
+of the same ten instructions, which was thirty bytes apiece in a low 16K that
+has none.
+
+**It costs nothing on the frames the camera has not moved.** None of these
+points move — the lattice is fixed, a field is a fixed field, and the
+Mothership holds station — so the projection runs against a hash of yaw,
+pitch, zoom and the focus, exactly the way §5.4 caches the stars. Twenty-one
+points through `proj_point` is about 100,000 T-states, a fifth of a frame, and
+the player is not turning the camera on most frames. The cached half is
+`gfx/markproj.asm` and it lives **in bank 4**, because it only ever runs with
+the window at rest; it is the one piece of bank code reached from inside the
+frame loop, and the rule it must not break is the one in `game/shipclass.asm`.
+
+**The one thing NOT cached is a patch's ink**, because that is a function of a
+stock that runs down while the camera sits still. A cached colour would be
+telling the player yesterday's news about the only thing they have to act on.
+
+#### Which two inks, and why
+
+§2 gives three, and this is a real decision rather than a detail. Spending ink
+3 on a resource field would make a rich patch read as a hostile, which is the
+one mistake this palette cannot afford. So:
+
+| Ink | Means |
+|---|---|
+| 2 | there is stock in it — scenery, in the scenery ink; nothing to decide |
+| 1 | nearly mined out — the attention ink, because this is when the harvesters have to be sent somewhere else |
+
+A patch with no stock is not drawn at all, which also disposes of the empty
+slots: `mis_setup` zeroes the ones a mission does not use.
+
+The **shape** carries the rest, because both inks already mean something else.
+A patch is three pixels in a triangle: not a dot (the sensor view's fighters)
+and not a cross (its capitals, and the move disc).
+
+#### Which way an off-screen Mothership lies
+
+`proj_point` tells you for free that a point is off screen, but its clip path
+throws the rotated camera-space vector away — and past `PROJ_V_LIMIT` it never
+computes one at all. Rather than a second projection pipeline, `moth_update`
+**borrows the twelfth zoom step**: at `>>8` the visible radius is the whole
+16-bit world and `proj_scale`'s range check is patched out altogether, so
+`proj_deltas` cannot reject anything. Two LDIRs out and two back, on the frames
+the camera moves; `src/main.asm` asserts that the last step really is that wide.
+
+The border is a box twice as wide as it is tall, and the marker lands ON it by
+construction: scale (dx, dy) until `max(|dx|, 2|dy|)` is the half-width and
+whichever was the larger names the edge it touches. No dominance test and no
+case analysis. The scaling is the perspective divide's own table — `recip[n]`
+is `PROJ_K/n`, so `(v * recip[2m]) >> 7` is `v * 80 / m`, and the power-of-two
+normalisation that puts `m` in 64..127 first is what keeps both the index and
+the signed multiply inside a byte.
+
+Three things worth knowing:
+
+- **There is no front/behind test and none is needed.** `(rx, -ry)` is the
+  direction to turn the camera whether the Mothership is in front or behind: a
+  thing behind you and to the right is still found by turning right. Only
+  straight along the view axis has no answer, and that draws nothing.
+- **`160 + dx'` is SIGNED.** `dx'` reaches -160, so the high byte is `#FF` as
+  often as it is 1. A clamp that tested "is the high byte zero" and treated
+  everything else as 256.. put the left-hand marker on the RIGHT edge, and two
+  pans that should have been mirror images came out identical. Found by
+  screenshotting both, not by a test.
+- Eight or sixteen fixed compass points was the cheaper option and was
+  rejected: the marker would jump between them, and a bearing that jumps is one
+  the eye stops believing.
+
+The one case it does not cover is two points more than 32767 apart on one axis,
+where the subtract inside `proj_deltas` overflows. `DISC_LIMIT` is 30000, so a
+squadron sent to one end of the map with the Mothership past the middle can
+just about do it. There is no marker then.
+
+### Where 700 bytes came from
+
+The three items above needed about 700 bytes across a low 16K with 512 and a
+bank 4 with 74, and every one of them came out of something that was already
+there twice. Worth reading as a list of the shapes to look for:
+
+| Found | Bytes | What it was |
+|---|---|---|
+| `form_offsets` | 216 | Loose and Wall are the SAME 4×4 lattice, one flat and one on end; Wedge is flat so its Y is structurally zero. 384 bytes of `defw` became four numbers, sixteen pairs and one real 3D shape |
+| `help_col_right` | ~120 | the help page's right column was the orders menu written out a second time. It now DRAWS `menu_entries`, stepping over the key id in front of each string |
+| `title_star_table` | ~95 | forty stars as (x, y, pixel). The objection to generating them was TWINKLING, and twinkling comes from randomness — a xorshift reseeded to the same constant every frame lays the same field down every frame |
+| `dist_manhattan` | ~90 | combat and the economy each had their own copy of the P/V test, the negate, the shift and the saturate |
+| `phase4_add_rect` | ~80 | six things record dirty rectangles and every one carried its own ten instructions |
+| `grid_lattice` | 96 | sixteen points made of four numbers. Stepped now, like `mark_lattice_step` |
+| `mission_text_table` | 48 | twenty-four pointers at strings that were already in order and already zero-terminated |
+| `phase4_step_toward` | ~55 | a harvester closing on a patch and a Vekhar closing on a target were the same fifty instructions |
+| `phase4_set_fields` | ~40 | spawning a ship was "pop, push, load the offset, add, store" four times over, twice |
+| `eco_patch_seed` | 32 | dead: `mis_setup` overwrote it before the first frame, every mission |
+| `static_wipe` | ~30 | the briefing, the help page and the menu all began with the same six instructions |
+
+**`code_end`'s `free:` figure is quantised and lies about how close you are.**
+`gen/tables.asm` is page-aligned, so the number only moves in 256-byte steps —
+the build now also prints where the HAND-WRITTEN code ends, and that is the one
+to watch. The ceiling is `#31BF`: past it `sin7` pushes `scr_line_lo` onto the
+next page, `code_end` jumps from `#3D00` to `#3E00`, and a dozen test classes
+that have nothing to do with the change start failing because `test_sound`
+reserves `#180` of scratch above `CODE_END`.
+
+Both `print` statements now come BEFORE their asserts. RASM stops at a failing
+assert, and "bank 4 contents overflow the window" without a number is a
+question rather than an answer; the figure goes negative and says exactly how
+much has to come back out.
+
+### Six loops walked all 48 slots with `ent_addr`
+
+`ent_addr` is a shift ladder and a `CALL` — about 120 T-states — and
+`phase4_fly`, `phase4_project`, `cbt_update`, `cbt_move_enemies` and
+`eco_run_harvesters` each called it once per slot per frame. They step a
+pointer by `ENT_SIZE` now, which is one `ADD`, and that is about 21,000
+T-states a frame back.
+
+It was not an optimisation for its own sake. The markers cost about 2% of the
+frame, and **`demo_wait_frame` quantises**: a game frame is a whole number of
+50 Hz ticks, so work that was just under ten ticks and goes just over costs
+eleven — a 2% change showing up as a 10% one. The frame-rate test failed at 4.5
+fps against a 5.0 floor, measured 5.006 against 5.013 in a controlled
+single-machine run, and the difference was entirely which side of a tick
+boundary that particular fleet layout landed on. If a small change appears to
+cost 10% of the frame, measure it on its own before believing it.
+
+`cbt_update` walks a pointer of its OWN — `cbt_walk`, not `cbt_ent` — because
+`cbt_ent` does not survive the body: `cbt_spawn_explosion` writes through it
+when something dies.
+
 ### Consolidating a stack
 
 At the wide steps a squadron is a handful of pixels, and a dozen ships drawn on
@@ -1159,6 +1342,14 @@ all, so the four original steps look exactly as they did.
 
 **The count is the whole group, not the remainder** — off a wide view the
 number the player wants is how many ships are there.
+
+**It has now been seen.** The tests passed from the start but nobody had ever
+watched a `+n` appear, and the obvious way to make one -- piling the fleet on a
+point -- does not work, because `phase4_fly` spreads it back into formation
+within a few frames. The way that does: press `X` three times from the default
+step, which takes the zoom past `CAM_ZOOM_GROUP_FROM` while the starting fleet
+is still bunched at squadron 1's station. `+12` in white beside one interceptor
+sprite, and `build/shots` has the picture.
 
 Three decisions worth knowing:
 

@@ -236,19 +236,3 @@ class_index:        defb 0
 class_stand_in:     defb 0
 
 
-; ----------------------------------------------------------------------------
-;  Where the resource fields are, and how much is in them. Placed off to the
-;  sides so harvesting takes a ship away from the battle line -- which is the
-;  decision the economy is supposed to force. Copied into RAM once by eco_init,
-;  so it is static data and belongs in the bank with the rest of it.
-; ----------------------------------------------------------------------------
-eco_patch_seed:
-    defw  -6500,   250, -1500
-    defw 900
-    defw   6500,  -250,  1500
-    defw 900
-    defw  -1500,   500,  6500
-    defw 700
-    defw   1500,  -500, -6500
-    defw 700
-eco_patch_seed_end:

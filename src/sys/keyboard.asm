@@ -74,6 +74,7 @@ KEY_H               equ 5*8 + 4
 KEY_J               equ 5*8 + 5
 KEY_M               equ 4*8 + 6
 KEY_N               equ 5*8 + 6
+KEY_O               equ 4*8 + 2         ; split by class; line 4 is 0 9 O I L K M ,
 KEY_X               equ 7*8 + 7
 KEY_Z               equ 8*8 + 7
 

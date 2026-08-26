@@ -13,6 +13,7 @@ The spec being tested:
     m    move one ship to the next number, creating it if need be
     n    move one ship to the previous number; for 1 that is 9
     c    combine the selection with the next active squadron
+    o    one squadron per ship class
          a squadron left with no ships is deactivated
 """
 
@@ -67,6 +68,12 @@ class SquadFixture(unittest.TestCase):
         self.c.run_frames(frames)
         self.c.key_up(key)
         self.c.run_frames(HOLD_FRAMES)
+
+
+ENT_SIZE = 20
+ENT_CLASS = 9
+CLASS_INTERCEPTOR, CLASS_MOTHERSHIP, CLASS_HARVESTER = 0, 1, 2
+CLASS_BOMBER, CLASS_FRIGATE = 4, 5
 
 
 class TestInitialState(SquadFixture):
@@ -262,3 +269,73 @@ class TestFleetIsConserved(SquadFixture):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestSplitByClass(SquadFixture):
+    """`O`: one squadron per ship class.
+
+    The number is the class index plus one and nothing else, which is what
+    makes it worth having -- press it again three missions later and the
+    interceptors are squadron 1 again, whatever was lost in between.
+    """
+
+    def make_mixed_fleet(self):
+        """The starting fleet is all interceptors; give it something to sort."""
+        plan = {2: CLASS_BOMBER, 3: CLASS_BOMBER, 4: CLASS_FRIGATE,
+                5: CLASS_HARVESTER, 6: CLASS_HARVESTER}
+        for slot, cls in plan.items():
+            self.c.write_ram(self.sym["ENTITIES"] + slot * ENT_SIZE + ENT_CLASS,
+                             bytes([cls]))
+        self.c.run_frames(20)
+        return plan
+
+    def test_each_class_gets_its_own_squadron(self):
+        plan = self.make_mixed_fleet()
+        before = self.total()
+        self.tap("o")
+        counts = self.counts()                      # index 0 is squadron 1
+        self.assertEqual(self.total(), before, "ships appeared or vanished")
+        self.assertEqual(counts[CLASS_BOMBER], 2, f"the bombers are not together: {counts}")
+        self.assertEqual(counts[CLASS_FRIGATE], 1, f"the frigate is misfiled: {counts}")
+        self.assertEqual(counts[CLASS_HARVESTER], 2, f"the harvesters are not together: {counts}")
+        self.assertEqual(counts[CLASS_INTERCEPTOR],
+                         before - len(plan),
+                         f"the interceptors did not keep squadron 1: {counts}")
+
+    def test_the_mothership_is_left_out_and_so_is_its_number(self):
+        """It is not part of the fleet, it is what the fleet is for -- and
+        squadron 2, the number its class index would claim, stays empty."""
+        self.make_mixed_fleet()
+        self.tap("o")
+        self.assertEqual(self.counts()[CLASS_MOTHERSHIP], 0,
+                         "the Mothership was dragged into a squadron")
+
+        moth = self.c.read_ram(self.sym["MOTH_SLOT"], 1)[0]
+        squad = self.c.read_ram(self.sym["ENTITIES"] + moth * ENT_SIZE + 12, 1)[0]
+        self.assertEqual(squad, 0, "the Mothership now belongs to a squadron")
+
+    def test_the_numbers_are_the_same_the_second_time(self):
+        """A class with no ships leaves its number empty rather than everything
+        shuffling up: numbers that move between missions are worse than numbers
+        with gaps in them."""
+        self.make_mixed_fleet()
+        self.tap("o")
+        first = self.counts()
+        self.tap("d")                               # scramble it
+        self.tap("m")
+        self.tap("o")
+        self.assertEqual(self.counts(), first, "the numbering moved under the player")
+
+    def test_it_is_edge_triggered(self):
+        self.make_mixed_fleet()
+        self.tap("o")
+        before = self.counts()
+        self.hold("o")
+        self.assertEqual(self.counts(), before, "holding o did something the second time")
+
+    def test_the_selection_still_means_something_afterwards(self):
+        self.make_mixed_fleet()
+        self.tap("o")
+        sel = self.selected()
+        self.assertGreater(self.counts()[sel - 1], 0,
+                           f"squadron {sel} is selected and empty")

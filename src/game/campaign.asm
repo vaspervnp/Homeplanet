@@ -17,7 +17,7 @@ mission_table:
     defb "THE TEST",0,0,0,0
     defb 0
     defw mis_none
-    defb 2
+    defb 3
     defw patches_rich
     defb MIS_OBJ_ARRIVE
     defb 0                              ; briefing text
@@ -26,7 +26,7 @@ mission_table:
     defb "ASH",0,0,0,0,0,0,0,0,0
     defb 0
     defw mis_none
-    defb 1
+    defb 3
     defw patches_thin
     defb MIS_OBJ_ARRIVE
     defb 1                              ; briefing text
@@ -35,7 +35,7 @@ mission_table:
     defb "THE WRECK",0,0,0
     defb 4
     defw enemies_picket
-    defb 3
+    defb 4
     defw patches_rich
     defb MIS_OBJ_CLEAR
     defb 2                              ; briefing text
@@ -44,7 +44,7 @@ mission_table:
     defb "THE DEPOT",0,0,0
     defb 8
     defw enemies_line
-    defb 2
+    defb 3
     defw patches_rich
     defb MIS_OBJ_CLEAR
     defb 3                              ; briefing text
@@ -53,7 +53,7 @@ mission_table:
     defb "THE NEBULA",0,0
     defb 8
     defw enemies_close
-    defb 1
+    defb 2
     defw patches_thin
     defb MIS_OBJ_CLEAR
     defb 4                              ; briefing text
@@ -62,7 +62,7 @@ mission_table:
     defb "THE GRAVES",0,0
     defb 6
     defw enemies_scatter
-    defb 2
+    defb 3
     defw patches_thin
     defb MIS_OBJ_CLEAR
     defb 5                              ; briefing text
@@ -71,7 +71,7 @@ mission_table:
     defb "THE GATE",0,0,0,0
     defb 12
     defw enemies_wall
-    defb 2
+    defb 3
     defw patches_rich
     defb MIS_OBJ_CLEAR
     defb 6                              ; briefing text
@@ -80,8 +80,8 @@ mission_table:
     defb "HOMEPLANET",0,0
     defb 10
     defw enemies_wall
-    defb 0
-    defw mis_none
+    defb 2
+    defw patches_thin
     defb MIS_OBJ_SURVIVE
     defb 7                              ; briefing text
 
@@ -155,6 +155,15 @@ enemies_wall:
 ;  Resource layouts. Eight bytes a patch: x, y, z, stock.
 ;  The positions are world units and are quartered with everything else; the
 ;  STOCK is RU and is not a coordinate, so it is untouched.
+;
+;  EVERY MISSION FIELDS SOME. Section 7 makes the economy a running choice --
+;  build a harvester or build a fighter, mine this field or hold the line --
+;  and a choice that only exists in five missions out of eight is not one.
+;  Three missions used to field one patch or none at all, which meant the
+;  harvesters were baggage for a third of the campaign.
+;
+;  The two layouts are the only difference that matters: a rich mission can
+;  pay for a capital ship out of what is on the map, a thin one cannot.
 ; ----------------------------------------------------------------------------
 patches_rich:
     defw  -6500,   250, -1500
@@ -163,80 +172,57 @@ patches_rich:
     defw 900
     defw  -1500,   500,  6500
     defw 700
+    defw   2500,  -500, -6000
+    defw 700
 
 patches_thin:
     defw   5000,  -500, -4500
     defw 400
     defw  -5000,   500,  4500
     defw 300
-
-
-; ----------------------------------------------------------------------------
-;  The reference plane's lattice: 4 x 4 points at Y=0, in bank 4 with the rest
-;  of the static data.
-; ----------------------------------------------------------------------------
-grid_lattice:
-gz = 0
-    repeat 4
-gx = 0
-        repeat 4
-            defw (gx * 2 - 3) * (GRID_SPACING / 2)
-            defw 0
-            defw (gz * 2 - 3) * (GRID_SPACING / 2)
-gx = gx + 1
-        rend
-gz = gz + 1
-    rend
-grid_lattice_end:
-
-    assert (grid_lattice_end - grid_lattice) / 6 == GRID_POINTS, "the lattice is not 16 points"
+    defw    750,   250, -5500
+    defw 250
 
 
 ; ----------------------------------------------------------------------------
 ;  Briefing text (Homeplanet.md section 10).
 ;
-;  Three lines a mission, uppercase because that is the whole of the font, and
-;  short because the design asks for "λίγο κείμενο, πολλή σιωπή". The tone is
-;  section 1's: lonely, quiet, and never explaining more than it has to.
+;  BRIEF_LINES lines a mission, back to back and each zero-terminated, walked
+;  by mis_brief_draw in the order they are written here -- so the ORDER is the
+;  layout and there is no table of pointers. Uppercase because that is the
+;  whole of the font, and short because the design asks for "λίγο κείμενο,
+;  πολλή σιωπή". The tone is section 1's: lonely, quiet, and never explaining
+;  more than it has to.
 ; ----------------------------------------------------------------------------
-mission_text_table:
-    defw t1a, t1b, t1c
-    defw t2a, t2b, t2c
-    defw t3a, t3b, t3c
-    defw t4a, t4b, t4c
-    defw t5a, t5b, t5c
-    defw t6a, t6b, t6c
-    defw t7a, t7b, t7c
-    defw t8a, t8b, t8c
+mission_text:
+    defb "FIRST JUMP IN NINE GENERATIONS.",0
+    defb "THE MOTHERSHIP HOLDS SIXTY THOUSAND",0
+    defb "SLEEPERS. TAKE IT OUT AND BACK.",0
 
-t1a: defb "FIRST JUMP IN NINE GENERATIONS.",0
-t1b: defb "THE MOTHERSHIP HOLDS SIXTY THOUSAND",0
-t1c: defb "SLEEPERS. TAKE IT OUT AND BACK.",0
+    defb "THE COLONY IS STILL BURNING.",0
+    defb "THERE IS NOTHING HERE TO FIGHT.",0
+    defb "GATHER WHAT IS LEFT.",0
 
-t2a: defb "THE COLONY IS STILL BURNING.",0
-t2b: defb "THERE IS NOTHING HERE TO FIGHT.",0
-t2c: defb "GATHER WHAT IS LEFT.",0
+    defb "A DEBRIS FIELD, AND SOMETHING",0
+    defb "SITTING IN IT THAT HAS NOT MOVED",0
+    defb "SINCE WE ARRIVED.",0
 
-t3a: defb "A DEBRIS FIELD, AND SOMETHING",0
-t3b: defb "SITTING IN IT THAT HAS NOT MOVED",0
-t3c: defb "SINCE WE ARRIVED.",0
+    defb "A VEKHAR SUPPLY POST.",0
+    defb "IT WILL NOT COME TO US.",0
+    defb "TAKE THE FLEET IN.",0
 
-t4a: defb "A VEKHAR SUPPLY POST.",0
-t4b: defb "IT WILL NOT COME TO US.",0
-t4c: defb "TAKE THE FLEET IN.",0
+    defb "THE NEBULA BLINDS THE SENSORS.",0
+    defb "THEY WILL BE INSIDE THE FORMATION",0
+    defb "BEFORE ANYONE SEES THEM.",0
 
-t5a: defb "THE NEBULA BLINDS THE SENSORS.",0
-t5b: defb "THEY WILL BE INSIDE THE FORMATION",0
-t5c: defb "BEFORE ANYONE SEES THEM.",0
+    defb "A DEAD FLEET, DRIFTING.",0
+    defb "THE HULL MARKINGS ARE KERA.",0
+    defb "SOMEONE ELSE TRIED THIS BEFORE US.",0
 
-t6a: defb "A DEAD FLEET, DRIFTING.",0
-t6b: defb "THE HULL MARKINGS ARE KERA.",0
-t6c: defb "SOMEONE ELSE TRIED THIS BEFORE US.",0
+    defb "A VEKHAR JUMP GATE.",0
+    defb "EVERYTHING THEY HAVE LEFT IS HERE.",0
+    defb "THERE IS NO WAY ROUND IT.",0
 
-t7a: defb "A VEKHAR JUMP GATE.",0
-t7b: defb "EVERYTHING THEY HAVE LEFT IS HERE.",0
-t7c: defb "THERE IS NO WAY ROUND IT.",0
-
-t8a: defb "THE MAP WAS NOT WRONG.",0
-t8b: defb "THE PLANET IS THERE, AND SO ARE THEY.",0
-t8c: defb "HOLD LONG ENOUGH TO SEE IT.",0
+    defb "THE MAP WAS NOT WRONG.",0
+    defb "THE PLANET IS THERE, AND SO ARE THEY.",0
+    defb "HOLD LONG ENOUGH TO SEE IT.",0

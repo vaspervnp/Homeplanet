@@ -34,6 +34,8 @@ menu_entries:
     defb "BUILD           B",0
     defb KEY_F
     defb "FORMATION       F",0
+    defb KEY_O
+    defb "SPLIT BY CLASS  O",0
     ;  S rather than TAB: both are bound to the same thing, and S is the one
     ;  the emulator's keymap can press, so the tests can follow this row all
     ;  the way through to the view changing.

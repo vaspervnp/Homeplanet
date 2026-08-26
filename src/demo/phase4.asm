@@ -120,7 +120,7 @@ demo_init:
     ld (phase4_hud_dirty),a
 
     call form_init
-    call grid_init
+    call mark_init
     call cbt_init
     call eco_init
     call mis_init
@@ -240,16 +240,13 @@ demo_update:
     call mis_wipe_screen
     call order_focus
     call cam_build_matrix
-    call grid_update
+    call mark_update
     call phase4_project
     call phase4_sort
     call phase4_group
-    ;  The plane goes down before the ships, so a ship over it hides it.
-    ld a,(view_sensors)
-    or a
-    jr nz,@p4_no_grid
-    call grid_draw
-@p4_no_grid:
+    ;  The plane and the resource fields go down before the ships, so a ship
+    ;  over one hides it rather than the other way round.
+    call mark_draw
 
     ld a,(view_sensors)
     or a
@@ -259,6 +256,9 @@ demo_update:
 @p4_tactical:
     call phase4_draw
 @p4_drawn:
+    ;  ...and the Mothership indicator on top of them, because it is a
+    ;  navigation overlay and a ship must not be allowed to cover it.
+    call moth_draw
     call phase4_draw_explosions
     call phase4_draw_disc
     call phase4_hud
@@ -363,6 +363,12 @@ phase4_commands:
     call key_hit
     call c,squad_combine
 
+    ;  One squadron per class. In bank 4 with the other things that only run
+    ;  when the player presses something -- see game/staticscreens.asm.
+    ld a,KEY_O
+    call key_hit
+    call c,squad_by_class
+
     ld a,KEY_F
     call key_hit
     call c,form_cycle
@@ -387,12 +393,15 @@ phase4_fly:
     inc hl
     djnz @p4_zero_slots
 
-    xor a
+    ;  Stepped rather than indexed. ent_addr is a shift ladder and a call --
+    ;  about 120 T-states -- and this is one of six loops that walk all 48
+    ;  slots every frame; twenty bytes further on is one ADD.
+    ld hl,entities
+    ld (phase4_ent),hl
+    ld a,ENT_MAX
     ld (phase4_index),a
 @p4_ship_fly:
-    ld a,(phase4_index)
-    call ent_addr
-    ld (phase4_ent),hl
+    ld hl,(phase4_ent)
 
     ld de,ENT_FLAGS
     add hl,de
@@ -437,11 +446,13 @@ phase4_fly:
     call phase4_step_to_slot
 
 @p4_next_fly:
+    ld hl,(phase4_ent)
+    ld de,ENT_SIZE
+    add hl,de
+    ld (phase4_ent),hl
     ld hl,phase4_index
-    inc (hl)
-    ld a,(hl)
-    cp ENT_MAX
-    jr c,@p4_ship_fly
+    dec (hl)
+    jr nz,@p4_ship_fly
     ret
 
 
@@ -462,7 +473,7 @@ phase4_step_to_slot:
     ld b,a
     ld a,(phase4_slotno)
     ld c,a
-    call form_slot_addr                 ; the squadron's own shape
+    call form_slot_offset               ; the squadron's own shape
     ld (phase4_off_ptr),hl
 
     ld hl,(phase4_ent)                  ; ENT_X is offset 0
@@ -510,6 +521,51 @@ phase4_step_to_slot:
     ld hl,phase4_axis
     dec (hl)
     jr nz,@p4_axis
+    ret
+
+
+; ----------------------------------------------------------------------------
+;  phase4_step_toward -- move a position one step towards another, per axis
+;  In : HL -> the six bytes to move, DE -> the six bytes to move towards
+;  Uses: everything
+;
+;  ONE of these. A harvester closing on a patch and a Vekhar interceptor
+;  closing on its target were the same fifty instructions written out twice,
+;  around a phase4_approach that was already shared -- and the two copies had
+;  to stay in step over exactly the trap phase4_approach exists to avoid.
+; ----------------------------------------------------------------------------
+phase4_step_toward:
+    ld (phase4_coord_ptr),hl
+    ld (phase4_off_ptr),de
+    ld a,3
+    ld (phase4_axis),a
+@p4_toward_axis:
+    ld hl,(phase4_off_ptr)
+    ld e,(hl)
+    inc hl
+    ld d,(hl)
+    inc hl
+    ld (phase4_off_ptr),hl
+    ld (phase4_tgt),de
+
+    ld hl,(phase4_coord_ptr)
+    ld e,(hl)
+    inc hl
+    ld d,(hl)
+    ld (phase4_cur),de
+
+    call phase4_approach
+    ex de,hl
+    ld hl,(phase4_coord_ptr)
+    ld (hl),e
+    inc hl
+    ld (hl),d
+    inc hl
+    ld (phase4_coord_ptr),hl
+
+    ld hl,phase4_axis
+    dec (hl)
+    jr nz,@p4_toward_axis
     ret
 
 
@@ -662,19 +718,43 @@ phase4_rects_reset:
 
 
 ; ----------------------------------------------------------------------------
+;  phase4_add_rect -- append one dirty rectangle to this buffer's list
+;  In : HL -> x in bytes, y, width in bytes, height in lines
+;  Uses: AF, BC, DE, HL
+;
+;  Six things record rectangles now -- ships, explosions, the move disc, the
+;  reference plane, the resource patches and the Mothership indicator -- and
+;  every one of them used to carry its own copy of these ten instructions.
+;  Thirty bytes each, in a low 16K with a few hundred left.
+; ----------------------------------------------------------------------------
+phase4_add_rect:
+    ld de,(phase4_rect_ptr)
+    ld bc,4
+    ldir
+    ld (phase4_rect_ptr),de
+    ld hl,phase4_rect_count
+    inc (hl)
+    ld a,(hl)
+    ld hl,(phase4_count)
+    ld (hl),a
+    ret
+
+
+; ----------------------------------------------------------------------------
 ;  phase4_project -- project every active entity, cache the survivors
 ; ----------------------------------------------------------------------------
 phase4_project:
     xor a
     ld (phase4_visible),a
-    ld (phase4_index),a
     ld hl,phase4_vis
     ld (phase4_vis_ptr),hl
+    ld hl,entities
+    ld (phase4_ent),hl
+    ld a,ENT_MAX
+    ld (phase4_index),a
 
 @p4_ship_proj:
-    ld a,(phase4_index)
-    call ent_addr
-    ld (phase4_ent),hl
+    ld hl,(phase4_ent)
     ld de,ENT_FLAGS
     add hl,de
     bit 0,(hl)
@@ -685,11 +765,13 @@ phase4_project:
     call c,phase4_cache                 ; test CF before anything clobbers it
 
 @p4_next_proj:
+    ld hl,(phase4_ent)
+    ld de,ENT_SIZE
+    add hl,de
+    ld (phase4_ent),hl
     ld hl,phase4_index
-    inc (hl)
-    ld a,(hl)
-    cp ENT_MAX
-    jr c,@p4_ship_proj
+    dec (hl)
+    jr nz,@p4_ship_proj
     ret
 
 
@@ -1367,63 +1449,15 @@ phase4_draw_sensor:
     jr nz,@p4_sensor_capital
 
     ;  A fighter: a single pixel.
-    ld b,1
     ld a,DISC_INK_TOP
-    call gfx_vline
-    ld a,1
-    ld (phase4_disc_rect + 2),a
-    ld a,1
-    ld (phase4_disc_rect + 3),a
-    ld a,(phase4_sy)
-    ld (phase4_disc_rect + 1),a
-    jr @p4_sensor_rect_x
+    call mark_dot
+    jr @p4_sensor_next
 
 @p4_sensor_capital:
     ld a,DISC_INK_STEM
-    call gfx_cross
-    ld a,3
-    ld (phase4_disc_rect + 2),a
-    ld a,3
-    ld (phase4_disc_rect + 3),a
-    ld a,(phase4_sy)
-    or a
-    jr z,@p4_sensor_y0
-    dec a
-@p4_sensor_y0:
-    ld (phase4_disc_rect + 1),a
+    call mark_cross
 
-@p4_sensor_rect_x:
-    ;  x is SIXTEEN bit -- shifting only the low byte is the bug that left a
-    ;  comb of stems on screen the first time round.
-    ld hl,(phase4_sx)
-    srl h
-    rr l
-    srl h
-    rr l                                ; HL = x in bytes
-    ld a,l
-    ld hl,phase4_disc_rect + 2
-    ld b,(hl)
-    dec b
-    jr z,@p4_sensor_x_store             ; a single-pixel dot needs no margin
-    or a
-    jr z,@p4_sensor_x_store             ; already hard against the left edge
-    dec a                               ; a byte of margin for the cross
-@p4_sensor_x_store:
-    ld (phase4_disc_rect + 0),a
-
-    ld hl,phase4_disc_rect
-    ld de,(phase4_rect_ptr)
-    ld b,4
-@p4_sensor_copy:
-    ld a,(hl)
-    ld (de),a
-    inc hl
-    inc de
-    djnz @p4_sensor_copy
-    ld (phase4_rect_ptr),de
-    ld hl,phase4_rect_count
-    inc (hl)
-
+@p4_sensor_next:
     ld hl,phase4_index
     inc (hl)
     ld hl,phase4_remaining
@@ -1458,7 +1492,8 @@ phase4_blit_one:
 ; ----------------------------------------------------------------------------
 ;  phase4_blit_body -- everything above except putting bank 4 back
 ;  In : HL -> a visible-list entry
-;  Out: CF set if anything was drawn
+;  Out: nothing meaningful. Whether it drew is read off phase4_rect_count by
+;       the caller, which is what phase4_draw_count needs anyway.
 ;  Uses: everything, and leaves a foreign bank under the window
 ; ----------------------------------------------------------------------------
 phase4_blit_body:
@@ -1567,18 +1602,7 @@ phase4_blit_body:
     ret nc
 
     ld hl,spr_rect
-    ld de,(phase4_rect_ptr)
-    ld b,4
-@p4_copy_rect:
-    ld a,(hl)
-    ld (de),a
-    inc hl
-    inc de
-    djnz @p4_copy_rect
-    ld (phase4_rect_ptr),de
-    ld hl,phase4_rect_count
-    inc (hl)
-    ret
+    jp phase4_add_rect
 
 
 ; ----------------------------------------------------------------------------
@@ -1613,46 +1637,7 @@ phase4_draw_explosions:
     ld a,(proj_sy)
     ld c,a
     ld a,INK_ENEMY
-    call gfx_cross
-
-    ;  Record it for erasing, the same shape as the sensor crosses.
-    ld a,(proj_sy)
-    or a
-    jr z,@p4_expl_y0
-    dec a
-@p4_expl_y0:
-    ld (phase4_disc_rect + 1),a
-    ld a,3
-    ld (phase4_disc_rect + 2),a
-    ld (phase4_disc_rect + 3),a
-
-    ld hl,(proj_sx)
-    srl h
-    rr l
-    srl h
-    rr l
-    ld a,l
-    or a
-    jr z,@p4_expl_x0
-    dec a
-@p4_expl_x0:
-    ld (phase4_disc_rect + 0),a
-
-    ld hl,phase4_disc_rect
-    ld de,(phase4_rect_ptr)
-    ld b,4
-@p4_expl_copy:
-    ld a,(hl)
-    ld (de),a
-    inc hl
-    inc de
-    djnz @p4_expl_copy
-    ld (phase4_rect_ptr),de
-    ld hl,phase4_rect_count
-    inc (hl)
-    ld hl,(phase4_count)
-    ld a,(phase4_rect_count)
-    ld (hl),a
+    call mark_cross                     ; ...and the rectangle that erases it
 
 @p4_expl_next:
     ld hl,(phase4_expl_ptr)
@@ -1738,70 +1723,15 @@ phase4_draw_disc:
 
 @p4_disc_have_stem:
     inc b                               ; include the last row
-    ld a,c
-    ld (phase4_disc_rect + 1),a
-    ld a,b
-    ld (phase4_disc_rect + 3),a
-
     ld hl,(phase4_disc_tx)
     ld a,DISC_INK_STEM
-    call gfx_vline
+    call mark_bar
 
     ld hl,(phase4_disc_tx)
     ld a,(phase4_disc_ty)
     ld c,a
     ld a,DISC_INK_TOP
-    call gfx_cross
-
-    ;  One rectangle covering stem and marker, so the next pass through this
-    ;  buffer erases the lot. The cross reaches one pixel either side of the
-    ;  stem and one row above and below it, hence the margins.
-    ;
-    ;  x is SIXTEEN bit here. Shifting only the low byte was the bug that left
-    ;  a comb of stems down the screen: the rectangle was recorded somewhere
-    ;  else entirely and erased nothing.
-    ld hl,(phase4_disc_tx)
-    srl h
-    rr l
-    srl h
-    rr l                                ; x >> 2, in bytes
-    ld a,l
-    or a
-    jr z,@p4_disc_x_at_edge
-    dec a                               ; a byte of margin for the cross
-@p4_disc_x_at_edge:
-    ld (phase4_disc_rect + 0),a
-    ld a,3
-    ld (phase4_disc_rect + 2),a
-
-    ld hl,phase4_disc_rect + 1
-    ld a,(hl)
-    or a
-    jr z,@p4_disc_y_at_edge
-    dec (hl)                            ; a row of margin above
-    inc hl
-    inc hl
-    inc (hl)
-@p4_disc_y_at_edge:
-    ld hl,phase4_disc_rect + 3
-    inc (hl)                            ; ...and below
-
-    ld hl,phase4_disc_rect
-    ld de,(phase4_rect_ptr)
-    ld b,4
-@p4_disc_copy:
-    ld a,(hl)
-    ld (de),a
-    inc hl
-    inc de
-    djnz @p4_disc_copy
-    ld (phase4_rect_ptr),de
-    ld hl,phase4_rect_count
-    inc (hl)
-    ld hl,(phase4_count)
-    ld a,(phase4_rect_count)
-    ld (hl),a
-    ret
+    jp mark_cross                       ; ...and the rectangle that erases it
 
 
 ; ----------------------------------------------------------------------------
@@ -1847,14 +1777,10 @@ phase4_hud:
     call phase4_hud_row
 
     ; --- resources (section 5.5) ------------------------------------------
-    ld a,PEN_BLUE
-    call txt_set_pen
     ld hl,phase4_hud_ru_label
     ld b,HUD_RU_X
     ld c,HUD_ROW_A_Y
-    call txt_draw
-    ld a,PEN_WHITE
-    call txt_set_pen
+    call phase4_hud_label
     ld a,(eco_ru)                       ; the low byte: RU never nears 65535
     ld b,HUD_RU_X + 3 * TXT_CHAR_W_BYTES
     ld c,HUD_ROW_A_Y
@@ -1863,27 +1789,19 @@ phase4_hud:
 
     ;  The way out of not knowing the keys. Five characters is all the strip
     ;  has left after the RU figure -- the last glyph starts at byte 78 of 80.
-    ld a,PEN_BLUE
-    call txt_set_pen
     ld hl,phase4_hud_help
     ld b,HUD_HELP_X
     ld c,HUD_ROW_A_Y
-    call txt_draw
-    ld a,PEN_WHITE
-    call txt_set_pen
+    call phase4_hud_label
 
     ; --- the mission -------------------------------------------------------
     ;  Its number and whether the jump is open. Twelve characters of name
     ;  would not fit beside the squadron list, so the name lives on the
     ;  briefing screen the design asks for and this is the reminder.
-    ld a,PEN_BLUE
-    call txt_set_pen
     ld hl,phase4_hud_mis_label
     ld b,HUD_MIS_X
     ld c,HUD_ROW_B_Y
-    call txt_draw
-    ld a,PEN_WHITE
-    call txt_set_pen
+    call phase4_hud_label
     ld a,(mis_index)
     inc a
     ld b,HUD_MIS_X + 2 * TXT_CHAR_W_BYTES
@@ -1893,7 +1811,7 @@ phase4_hud:
 
     ld a,(mis_complete)
     or a
-    ld hl,phase4_hud_hold
+    ld hl,phase4_hud_blank + 1          ; four spaces: no jump yet
     jr z,@p4_mis_show
     ld hl,phase4_hud_jump               ; the jump is available
     ld a,PEN_RED                        ; ...and section 2 makes 3 the ink
@@ -1944,7 +1862,7 @@ phase4_hud:
     jp txt_draw
 
 @p4_yard_blank:
-    ld hl,phase4_yard_blank
+    ld hl,phase4_hud_blank + 1          ; four spaces: nothing on the slipway
     ld b,HUD_YARD_X
     ld c,HUD_ROW_B_Y
     jp txt_draw
@@ -2030,6 +1948,21 @@ phase4_hud_changed:
     ld a,2
     ld (phase4_hud_dirty),a
     ret
+
+
+;  A caption in ink 2 and the pen put back to 1 afterwards: chrome is blue and
+;  values are white, and nothing may inherit an ink.
+;  In : HL -> the text, B = x in bytes, C = y
+phase4_hud_label:
+    push hl
+    push bc
+    ld a,PEN_BLUE
+    call txt_set_pen
+    pop bc
+    pop hl
+    call txt_draw
+    ld a,PEN_WHITE
+    jp txt_set_pen
 
 
 phase4_hud_row:
@@ -2147,7 +2080,6 @@ phase4_blocksz:     defw 0
 phase4_grp_ptr:     defw 0
 phase4_grp_left:    defb 0
 phase4_grp_i:       defb 0
-phase4_grp_head:    defb 0
 phase4_grp_key:     defb 0
 phase4_grp_side:    defb 0
 phase4_grp_n:       defb 0
@@ -2170,10 +2102,8 @@ phase4_expl_left:   defb 0
 phase4_disc_flat:   defs 6, 0
 phase4_disc_tx:     defw 0
 phase4_disc_ty:     defb 0
-phase4_disc_bx:     defw 0
 phase4_disc_by:     defb 0
 phase4_disc_has_base: defb 0
-phase4_disc_rect:   defs 4, 0
 
 phase4_hud_squad:   defb 0
 phase4_hud_x:       defb 0
@@ -2192,12 +2122,11 @@ phase4_hud_ru_label: defb "RU ",0
 phase4_hud_help:     defb "?HELP",0
 phase4_hud_mis_label: defb "M",0
 phase4_hud_jump:     defb "JUMP",0
-phase4_hud_hold:     defb "    ",0
 phase4_yard_text:    defb " XXX",0
-phase4_yard_blank:   defb "    ",0
-
-;  Three letters a class, in class order.
 phase4_hud_text:    defb " 0:",0        ; the marker and digit are patched in
+
+;  ONE run of spaces, read from three lengths in. A five-character blank, a
+;  four and another four were sixteen bytes of nothing written out three times.
 phase4_hud_blank:   defb "     ",0
 
 
@@ -2222,7 +2151,11 @@ phase4_gcount:      defs ENT_MAX, 0
 ;  rectangle to cover it instead. Over-erasing costs nothing -- the rectangle
 ;  is cleared and redrawn either way -- and a slot per entity in two buffers
 ;  is 384 bytes of a low 16K that has none to spare.
-PHASE4_RECT_SLOTS        equ ENT_MAX + EXPL_MAX + GRID_POINTS + 1
+;  ...and the resource patches, the move disc and the Mothership indicator.
+;  The last two are TWO rectangles each: a height bar and the marker on top of
+;  it, recorded through the same mark_bar / mark_cross the rest of them use.
+;  One combined rectangle would have been a third way of doing it.
+PHASE4_RECT_SLOTS        equ ENT_MAX + EXPL_MAX + GRID_POINTS + MARK_PATCHES + 4
 phase4_rects_a:     defs PHASE4_RECT_SLOTS * 4, 0
 phase4_rects_b:     defs PHASE4_RECT_SLOTS * 4, 0
 

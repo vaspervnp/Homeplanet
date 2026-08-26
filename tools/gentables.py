@@ -525,6 +525,10 @@ def render() -> str:
         f"CAM_ZOOM_GROUP_FROM equ {ZOOM_GROUP_FROM}",
         f"CAM_ZOOM_RECORD  equ {ZOOM_RECORD}",
         f"CAM_ZOOM_DEFAULT_SHIFT equ {ZOOM_STEPS[ZOOM_DEFAULT][1]}",
+        ";  The widest step's radius, which the Mothership indicator borrows: it",
+        ";  reprojects at this step because proj_scale's range check is patched",
+        ";  out there, so proj_deltas cannot reject a point however far off it is.",
+        f"CAM_ZOOM_LAST_RADIUS equ {zoom_radius(len(ZOOM_STEPS) - 1)}",
         "",
     ]
 

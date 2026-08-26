@@ -20,10 +20,12 @@ sys.path.insert(0, __file__.rsplit("/", 2)[0])
 from tests import harness as h
 import cpc
 
-MENU_COUNT = 12
-#  Row order, mirrored from src/game/menutext.asm.
-ROW_ATTACK, ROW_SENSORS, ROW_MOVE = 0, 6, 7
-ROW_PAN, ROW_CENTRE, ROW_CONTROLS = 9, 10, 11
+MENU_COUNT = 13
+#  Row order, mirrored from src/game/menutext.asm. SPLIT BY CLASS went in at 6,
+#  beside the other thing that reshapes the fleet, and moved everything below it
+#  down one.
+ROW_ATTACK, ROW_BY_CLASS, ROW_SENSORS, ROW_MOVE = 0, 6, 7, 8
+ROW_PAN, ROW_CENTRE, ROW_CONTROLS = 10, 11, 12
 
 ENT_SIZE = 20
 ENT_FLAGS, ENT_ORDER = 11, 13

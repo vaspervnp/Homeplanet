@@ -105,30 +105,58 @@ title_draw:
 ; ----------------------------------------------------------------------------
 ;  title_draw_stars -- the backdrop
 ;
-;  A table rather than anything generated: forty stars is 120 bytes in the
-;  bank, and a random scatter recomputed every frame would twinkle -- which
-;  would be a different design decision, not this one.
+;  GENERATED, not stored. Forty stars written out as (x, y, pixel) was 120
+;  bytes of bank 4, and the bank has none -- but the objection the table was
+;  there to answer was TWINKLING, and twinkling comes from randomness, not
+;  from arithmetic. A xorshift reseeded to the same constant at the top of
+;  every frame lays the same forty stars down every frame, so the field is as
+;  still as the table was.
 ;
-;  Each entry is (x in bytes, y, pixel mask). Pen 2 is %10, so a star sets its
-;  pixel's bit in the LOW nibble and nothing in the high one -- the mask is
-;  that bit, ready to be poked straight in.
+;  Pen 2 is %10, so a star sets its pixel's bit in the LOW nibble and nothing
+;  in the high one -- the mask is that bit, ready to be poked straight in.
 ;  Uses: everything
 ; ----------------------------------------------------------------------------
+TITLE_STAR_SEED     equ #A17C           ; picked by looking at the result
+TITLE_STAR_TOP      equ 56              ; clear of the big letters above
+TITLE_STAR_BAND     equ 127             ; ...and short of the credit line below
+
 title_draw_stars:
-    ld hl,title_star_table
+    ld hl,TITLE_STAR_SEED
+    ld (title_rng),hl
     ld a,TITLE_STARS
     ld (title_left),a
 
 @title_star:
-    ld c,(hl)                           ; x in bytes
-    inc hl
-    ld a,(hl)                           ; y
-    inc hl
-    ld b,(hl)                           ; the pixel
-    inc hl
-    push hl
+    ;  x, in bytes: 0..79 out of a byte by subtracting the width off three
+    ;  times. The tail above 240 lands in the left fifth twice as often, which
+    ;  is a scatter and not a pattern.
+    call title_rand
+    call title_mod80
+    ld c,a
+
+    call title_rand
+    push af
+    and TITLE_STAR_BAND
+    add a,TITLE_STAR_TOP
+    ld l,a                              ; hmm: scr_line_addr wants A
+    ;  the pixel within the byte, from the two bits x did not use
+    pop af
+    rlca
+    rlca
+    and 3
+    ld b,1
+@title_star_shift:
+    or a
+    jr z,@title_star_placed
+    sla b
+    dec a
+    jr @title_star_shift
+@title_star_placed:
+    ld a,l
+    push bc
 
     call scr_line_addr                  ; HL = the line; BC survives
+    pop bc
     ld a,l
     add a,c
     ld l,a
@@ -139,11 +167,48 @@ title_draw_stars:
     or b
     ld (hl),a
 
-    pop hl
     ld a,(title_left)
     dec a
     ld (title_left),a
     jr nz,@title_star
+    ret
+
+
+;  A = A mod 80, near enough
+;  Uses: AF
+title_mod80:
+    cp SCR_BYTES_PER_LINE
+    ret c
+    sub SCR_BYTES_PER_LINE
+    cp SCR_BYTES_PER_LINE
+    ret c
+    sub SCR_BYTES_PER_LINE
+    cp SCR_BYTES_PER_LINE
+    ret c
+    sub SCR_BYTES_PER_LINE
+    ret
+
+
+;  A = the next byte of the scatter. A 16-bit xorshift, which is eight
+;  instructions and has no state but the word itself.
+;  Uses: AF, HL
+title_rand:
+    ld hl,(title_rng)
+    ld a,h
+    rra
+    ld a,l
+    rra
+    xor h
+    ld h,a
+    ld a,l
+    rra
+    ld a,h
+    rra
+    xor l
+    ld l,a
+    xor h
+    ld h,a
+    ld (title_rng),hl
     ret
 
 
@@ -212,3 +277,4 @@ title_draw_ships:
 ; ============================================================================
 title_shown:        defb 0
 title_left:         defb 0
+title_rng:          defw 0

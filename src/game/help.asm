@@ -15,11 +15,14 @@
 ; ----------------------------------------------------------------------------
 
 HELP_TITLE_Y        equ 8
-HELP_BODY_Y         equ 30
-HELP_LINE_STEP      equ 12
-HELP_ROWS           equ 10              ; per column, two columns
+HELP_BODY_Y         equ 26
+HELP_LINE_STEP      equ 11
+HELP_ROWS           equ 10              ; the left column; the right one is
+                                        ; MENU_COUNT long
 HELP_COL1_X         equ 1               ; x is in BYTES: 4 pixels each
 HELP_COL2_X         equ 40
+HELP_PROMPT_X       equ 58              ; beside the title: the right column is
+                                        ; thirteen rows and wants the bottom
 
 
 ; ----------------------------------------------------------------------------
@@ -60,49 +63,61 @@ help_key:
 help_draw:
     ;  The strip below belongs to the HUD, so the player can still read the
     ;  fleet counts while the keys are up.
-    ld bc,#0000
-    ld a,(spr_clip_bottom)
-    ld e,a
-    ld d,SCR_BYTES_PER_LINE
-    xor a
-    call scr_fill_rect
+    call static_wipe
 
     ld hl,help_title
     ld b,HELP_COL1_X
     ld c,HELP_TITLE_Y
     call txt_draw
 
+    ld hl,help_prompt
+    ld b,HELP_PROMPT_X
+    ld c,HELP_TITLE_Y
+    call txt_draw
+
+    xor a
+    ld (help_gap),a
+    ld a,HELP_ROWS
+    ld (help_left),a
     ld hl,help_col_left
     ld b,HELP_COL1_X
     ld c,HELP_BODY_Y
     call help_column
 
-    ld hl,help_col_right
+    ;  The right-hand column IS the orders menu. One list, so an order added to
+    ;  menutext.asm turns up on both screens and the two cannot disagree -- and
+    ;  the key id in front of each entry is the one byte to step over.
+    ld a,1
+    ld (help_gap),a
+    ld a,MENU_COUNT
+    ld (help_left),a
+    ld hl,menu_entries
     ld b,HELP_COL2_X
     ld c,HELP_BODY_Y
-    call help_column
-
-    ld hl,help_prompt
-    ld b,HELP_COL1_X
-    ld c,HELP_BODY_Y + HELP_ROWS * HELP_LINE_STEP + 6
-    jp txt_draw
-
+    jp help_column
 
 ; ----------------------------------------------------------------------------
-;  help_column -- HELP_ROWS strings, one under the next
-;  In : HL = the first string, B = x in bytes, C = y
+;  help_column -- (help_left) strings, one under the next
+;  In : HL = the first string, B = x in bytes, C = y,
+;       (help_left) = how many, (help_gap) = bytes in front of each string
 ;  Uses: everything
 ;
 ;  The strings are stored back to back, each zero-terminated, so walking to
 ;  the next one is walking to just past the terminator. That costs nothing in
 ;  the table and a handful of bytes here, which is the right way round when
 ;  the table is in the bank and the code is not.
+;
+;  help_gap is what lets the orders menu's own list be one of the columns:
+;  its entries carry a key id in front of the text, and one ADD is cheaper
+;  than a second copy of the words.
 ; ----------------------------------------------------------------------------
 help_column:
-    ld a,HELP_ROWS
-    ld (help_left),a
-
 @help_row:
+    ld a,(help_gap)
+    ld e,a
+    ld d,0
+    add hl,de
+
     push bc
     push hl
     call txt_draw
@@ -125,9 +140,9 @@ help_column:
     jr nz,@help_row
     ret
 
-
 ; ============================================================================
 ;  State
 ; ============================================================================
 help_shown:         defb 0
 help_left:          defb 0
+help_gap:           defb 0

@@ -24,51 +24,6 @@ title_prompt:
 TITLE_PROMPT_X      equ 20
 
 
-;  --- the starfield: x in bytes, y, pixel mask (pen 2 lives in the low
-;      nibble, so the mask is the bit and nothing else) ---------------------
-title_star_table:
-    defb 13,  56, #02
-    defb 24,  57, #01
-    defb 28,  60, #08
-    defb 12,  62, #02
-    defb 50,  64, #08
-    defb 52,  71, #02
-    defb  6,  73, #08
-    defb 39,  73, #01
-    defb 15,  87, #02
-    defb 45,  87, #01
-    defb 53,  88, #01
-    defb 59,  88, #04
-    defb  8,  90, #04
-    defb 24,  91, #02
-    defb 65,  95, #04
-    defb 71,  95, #01
-    defb 18,  97, #08
-    defb 77, 115, #04
-    defb 74, 118, #01
-    defb 63, 129, #04
-    defb 40, 131, #04
-    defb 42, 131, #04
-    defb 55, 131, #02
-    defb 13, 135, #01
-    defb 73, 135, #08
-    defb 37, 147, #02
-    defb  9, 152, #08
-    defb 45, 157, #04
-    defb 71, 158, #02
-    defb 56, 160, #02
-    defb 75, 160, #08
-    defb 30, 161, #08
-    defb 43, 161, #01
-    defb 36, 164, #01
-    defb 28, 165, #04
-    defb  0, 166, #02
-    defb  9, 167, #08
-    defb  4, 172, #08
-    defb 34, 173, #08
-    defb 69, 175, #04
-
-
 ;  --- the flight: x in BYTES (word, signed -- spr_x is a byte column, not a
 ;      pixel), y, sprite, width in bytes, height ------------------------------
 ;      The Mothership leads with the frigate's hull -- the same stand-in the

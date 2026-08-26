@@ -24,7 +24,7 @@
 ;  stopped, so it has no business in the low 16K.
 ; ----------------------------------------------------------------------------
 
-MENU_COUNT          equ 12
+MENU_COUNT          equ 13
 MENU_TITLE_Y        equ 20
 MENU_TOP            equ 32
 MENU_STEP           equ 12
@@ -145,12 +145,7 @@ menu_entry_addr:
 menu_draw:
     ;  The HUD keeps its strip: the counts are exactly what a player is about
     ;  to give an order about.
-    ld bc,#0000
-    ld a,(spr_clip_bottom)
-    ld e,a
-    ld d,SCR_BYTES_PER_LINE
-    xor a
-    call scr_fill_rect
+    call static_wipe
 
     ld hl,menu_title
     ld b,MENU_MARK_X

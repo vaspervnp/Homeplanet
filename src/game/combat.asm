@@ -63,11 +63,16 @@ cbt_update:
     call cbt_retarget_one
     call cbt_move_enemies
 
-    xor a
+    ;  A walk, not an index: ent_addr costs about 120 T-states and there are
+    ;  six of these 48-slot loops in a frame. cbt_walk is its OWN pointer
+    ;  because cbt_ent does not survive the body -- cbt_spawn_explosion writes
+    ;  through it when something dies.
+    ld hl,entities
+    ld (cbt_walk),hl
+    ld a,ENT_MAX
     ld (cbt_index),a
 @cbt_ship:
-    ld a,(cbt_index)
-    call ent_addr
+    ld hl,(cbt_walk)
     ld (cbt_ent),hl
 
     ld de,ENT_FLAGS
@@ -78,11 +83,13 @@ cbt_update:
     call cbt_fire_if_able
 
 @cbt_next:
+    ld hl,(cbt_walk)
+    ld de,ENT_SIZE
+    add hl,de
+    ld (cbt_walk),hl
     ld hl,cbt_index
-    inc (hl)
-    ld a,(hl)
-    cp ENT_MAX
-    jr c,@cbt_ship
+    dec (hl)
+    jr nz,@cbt_ship
     ret
 
 
@@ -100,11 +107,12 @@ cbt_update:
 ;  Uses: everything
 ; ----------------------------------------------------------------------------
 cbt_move_enemies:
-    xor a
+    ld hl,entities
+    ld (cbt_walk),hl
+    ld a,ENT_MAX
     ld (cbt_scan),a
 @cbt_move_one:
-    ld a,(cbt_scan)
-    call ent_addr
+    ld hl,(cbt_walk)
     ld (cbt_ent),hl
     ld de,ENT_FLAGS
     add hl,de
@@ -144,48 +152,18 @@ cbt_move_enemies:
 
     ld a,(cbt_target)
     call ent_addr
-    ld (cbt_move_dst),hl
-    ld hl,(cbt_ent)
-    ld (phase4_coord_ptr),hl
-
-    ld a,3
-    ld (cbt_axis),a
-@cbt_move_axis:
-    ld hl,(cbt_move_dst)
-    ld e,(hl)
-    inc hl
-    ld d,(hl)
-    inc hl
-    ld (cbt_move_dst),hl
-    ld (phase4_tgt),de
-
-    ld hl,(phase4_coord_ptr)
-    ld e,(hl)
-    inc hl
-    ld d,(hl)
-    ld (phase4_cur),de
-    dec hl
-
-    push hl
-    call phase4_approach
     ex de,hl
-    pop hl
-    ld (hl),e
-    inc hl
-    ld (hl),d
-    inc hl
-    ld (phase4_coord_ptr),hl
-
-    ld hl,cbt_axis
-    dec (hl)
-    jr nz,@cbt_move_axis
+    ld hl,(cbt_ent)
+    call phase4_step_toward
 
 @cbt_move_next:
+    ld hl,(cbt_walk)
+    ld de,ENT_SIZE
+    add hl,de
+    ld (cbt_walk),hl
     ld hl,cbt_scan
-    inc (hl)
-    ld a,(hl)
-    cp ENT_MAX
-    jp c,@cbt_move_one
+    dec (hl)
+    jp nz,@cbt_move_one
     ret
 
 
@@ -448,31 +426,32 @@ cbt_age_explosions:
 
 
 ; ----------------------------------------------------------------------------
-;  cbt_distance -- how far (cbt_target) is from (cbt_ent)
-;  Out: A = Manhattan distance in camera units, saturating at 255
+;  dist_manhattan -- how far apart two world positions are, in camera units
+;  In : HL -> six bytes of position, DE -> six bytes of position
+;  Out: A = (|dx| + |dy| + |dz|) >> WORLD_SHIFT, saturating at 255
 ;  Uses: everything
 ;
-;  Separate from the range test because targeting needs the NUMBER, not a
-;  yes/no. An enemy that could only acquire targets already inside weapons
-;  range could never acquire one at all: it needs a target to fly towards, and
-;  it needs to fly to get in range. The picket sat at its spawn point forever.
+;  ONE of these, not two. Combat and the economy both need it -- CBT_RANGE and
+;  ECO_HARVEST_RANGE are both in camera units -- and each used to carry its own
+;  copy of the P/V test, the negate, the shift and the saturate: ninety bytes
+;  of the low 16K, written out twice, for the same twenty instructions.
 ;
-;  This shifts by SIX, not eight, and it has to: CBT_RANGE is tuned, and with
+;  Manhattan rather than Euclidean: a true distance is three multiplies and a
+;  square root per pair, and for "is it close enough to shoot" the sqrt(3)
+;  error is not something anyone can see.
+;
+;  It shifts by SIX, not eight, and it has to: both ranges are tuned, and with
 ;  every authored position four times smaller the old shift would have made
-;  every weapon reach four times as far.
+;  every weapon and every harvester reach four times as far.
 ; ----------------------------------------------------------------------------
-cbt_distance:
-    ld a,(cbt_target)
-    call ent_addr
-    ld (cbt_other),hl
-
-    ld hl,(cbt_ent)
+dist_manhattan:
     ld (cbt_a_ptr),hl
+    ld (cbt_other),de
     xor a
     ld (cbt_dist),a
-
     ld a,3
     ld (cbt_axis),a
+
 @cbt_axis_loop:
     ld hl,(cbt_a_ptr)
     ld e,(hl)
@@ -498,8 +477,6 @@ cbt_distance:
     ;  instruction that touches the flags destroys it.
     jp pe,@cbt_saturate
 
-    ;  |HL|, then >>6 -- the same scale the projection uses, so "range" is in
-    ;  the units everything else is measured in.
     bit 7,h
     jr z,@cbt_positive
     xor a
@@ -511,7 +488,7 @@ cbt_distance:
 @cbt_positive:
     ld a,h
     cp PROJ_V_BIAS * 2                  ; >= 16384 would shift past a byte
-    jp nc,@cbt_saturate
+    jr nc,@cbt_saturate
     add hl,hl
     add hl,hl
     ld a,h
@@ -529,8 +506,25 @@ cbt_distance:
 
 @cbt_saturate:
     ld a,255
-    ld (cbt_dist),a
     ret
+
+
+; ----------------------------------------------------------------------------
+;  cbt_distance -- how far (cbt_target) is from (cbt_ent)
+;  Out: A = Manhattan distance in camera units, saturating at 255
+;  Uses: everything
+;
+;  Separate from the range test because targeting needs the NUMBER, not a
+;  yes/no. An enemy that could only acquire targets already inside weapons
+;  range could never acquire one at all: it needs a target to fly towards, and
+;  it needs to fly to get in range. The picket sat at its spawn point forever.
+; ----------------------------------------------------------------------------
+cbt_distance:
+    ld a,(cbt_target)
+    call ent_addr
+    ex de,hl
+    ld hl,(cbt_ent)
+    jp dist_manhattan
 
 
 ; ----------------------------------------------------------------------------
@@ -686,6 +680,7 @@ cbt_retarget:       defb 0
 cbt_ent:            defw 0
 cbt_other:          defw 0
 cbt_a_ptr:          defw 0
+cbt_walk:           defw 0
 cbt_target:         defb #FF
 cbt_best:           defb #FF
 cbt_best_dist:      defb #FF
@@ -695,7 +690,6 @@ cbt_dist:           defb 0
 
 ;  Counters the tests and the HUD read.
 cbt_damage:         defb 0
-cbt_move_dst:       defw 0
 cbt_shots:          defb 0
 cbt_kills:          defb 0
 
