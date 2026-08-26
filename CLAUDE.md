@@ -692,7 +692,15 @@ is where you left it. It is a separate chip running on its own time, and the
 emulator here hides that — `chips/upd765.h` resolves the phase *synchronously*,
 the instant the last command byte is written, and never runs out of patience.
 A real controller does neither, which is why the first version of this worked
-perfectly under test and **hung on every jump in Retro Virtual Machine**.
+perfectly under test and **hung on every jump in Retro Virtual Machine**. The
+fix below was reasoned out rather than reproduced -- cpcemu cannot show the
+bug -- and then **confirmed on RVM**: the jump no longer hangs.
+
+That is worth remembering as a method, not just a fact. **Test on RVM before
+believing the FDC works.** cpcemu is right about memory, the gate array and
+the CRTC, and it is what the suite runs on; but it models the controller as a
+state machine that resolves instantly, so every timing assumption this code
+makes is one cpcemu will agree with whether or not the hardware would.
 
 The transfer loop therefore watches `RQM`, `DIO` and `EXM` together, and the
 three cases it has to survive are:
