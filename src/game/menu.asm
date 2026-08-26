@@ -7,7 +7,7 @@
 ;  THE MENU DOES NOT KNOW WHAT ANY COMMAND MEANS.
 ;  ---------------------------------------------
 ;  Each entry carries the key id it stands for, and choosing one INJECTS that
-;  key -- writes its bit into key_edge and lets the frame carry on into
+;  key -- writes its bit into key_hits and lets the frame carry on into
 ;  phase4_commands, which acts on it exactly as if the player had pressed it.
 ;
 ;  That is the whole design. A menu that called order_issue and eco_build_open
@@ -16,7 +16,7 @@
 ;  panel already has three. This way there is one dispatch, and the menu is a
 ;  keyboard with bigger buttons.
 ;
-;  It also means key_edge has to be CLEARED before the injected bit goes in.
+;  It also means key_hits has to be CLEARED before the injected bit goes in.
 ;  The ESC that opened the menu is still sitting in there, and ESC also cancels
 ;  the move disc; leaving it would cancel the very order just given.
 ;
@@ -216,15 +216,19 @@ menu_y:             defb 0
 menu_ptr:           defw 0
 
 ; ----------------------------------------------------------------------------
-;  key_clear -- forget every edge recorded by the last scan
+;  key_clear -- forget every edge this frame was given
 ;  Uses: AF, B, HL
 ;
 ;  For the orders menu. The key that opened it is still in the array, and ESC
 ;  means "cancel the move disc" to order_update -- so choosing an order would
 ;  have cancelled it on the way out.
+;
+;  It clears key_hits, the frame's snapshot, and deliberately NOT key_edge --
+;  that is the interrupt's accumulator, and anything in it arrived after this
+;  frame began, which makes it a keypress the player made and is entitled to.
 ; ----------------------------------------------------------------------------
 key_clear:
-    ld hl,key_edge
+    ld hl,key_hits
     ld b,KEY_ROWS
     xor a
 @key_clear_row:
@@ -241,8 +245,10 @@ key_clear:
 ;
 ;  The mirror of key_bit, and it has to agree with it: that reads the flag out
 ;  with RRCA, so bit n of the row byte IS key n of that row -- no reversal.
-;  Whatever sets this must run AFTER key_scan, which rebuilds the array from
-;  the hardware every frame and would wipe an edge planted before it.
+;  Whatever sets this must run AFTER key_consume, which replaces key_hits
+;  wholesale at the top of every frame and would wipe an edge planted before
+;  it. It plants into key_hits and not key_edge for the same reason key_clear
+;  does -- key_edge belongs to the interrupt.
 ; ----------------------------------------------------------------------------
 key_inject:
     push af
@@ -252,7 +258,7 @@ key_inject:
     and #1F                             ; row = id >> 3
     ld l,a
     ld h,0
-    ld de,key_edge
+    ld de,key_hits
     add hl,de
     pop af
 

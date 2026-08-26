@@ -306,7 +306,11 @@ per scanline from loops whose parameters live in `BC`/`DE`.
   T-states per access and the frame budget does not have room.
 - **No firmware calls after boot.** The ROMs are switched out; there is no
   firmware to call.
-- The interrupt handler may only touch `AF` and `HL`, and it must save them.
+- The interrupt handler saves `AF` and `HL` and touches nothing else itself.
+  **Anything it CALLS that wants more registers saves them itself** —
+  `snd_update` and `key_scan` both push `BC`/`DE`. That is 42 T-states of the
+  ~6,000 the 50 Hz tick spends, and it keeps the contract in one place instead
+  of making the handler guess what its callees need.
 - Self-modifying code is fine and often the right answer — see the
   `@fill_byte equ $+1` patch in `scr_fill_rect`. Comment it every time.
 - **A routine that returns a flag must have that flag tested immediately.**
@@ -841,6 +845,36 @@ same thing:
 `H` only orders **harvesters**, which §9 marks explicitly. Ordering the whole
 squadron out put fifteen interceptors on a patch and mined the map dry in
 seconds — the economy is meant to be a choice, not a free action.
+
+### The keyboard is scanned from the interrupt, and why it has to be
+
+`key_scan` runs at **50 Hz from the IM 1 handler**, not once per game frame.
+
+It used to run from the main loop, which meant one scan per *game* frame — and
+the game runs at about 5 fps, so the keyboard was sampled every 200 ms. A key
+that went down *and* up between two scans was never seen at all. Measured, by
+holding SPACE (which toggles `order_paused`, so one press is one visible
+change) for a fixed time, six trials each:
+
+| held | before | after |
+|---|---|---|
+| 20 ms | — | 6/6 |
+| 40 ms | 2/6 | 6/6 |
+| 80 ms | 4/6 | 6/6 |
+| 120 ms | 6/6 | 6/6 |
+
+A normal quick keypress is 50–100 ms, so **roughly half of them vanished.**
+
+**No test caught it, and every test agreed with the bug**: they all hold their
+key for 25 or more emulator frames, which is a half-second press. A keyboard
+test that does not press *briefly* is not testing the keyboard. There is one
+now.
+
+`key_edge` therefore means "accumulated since the main loop last consumed it"
+rather than "went down at the last scan", and something has to clear it at the
+right moment — a key held across frames must still act once, because every
+command in the game is edge-triggered and `d` dividing a squadron once a frame
+would be a disaster.
 
 ### Sound and the keyboard share port A
 

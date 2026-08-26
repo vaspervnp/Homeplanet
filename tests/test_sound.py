@@ -15,11 +15,12 @@ these values are the real thing.
 
 Two consequences worth knowing about while reading the tests:
 
-  - src/sys/irq.asm still has snd_update as a TODO, so nothing calls it unless
-    a test does. That is convenient: the envelope tests step the player one
-    tick at a time and know exactly where they are. The PPI-contention tests
-    install their own IM 1 handler, shaped like sys_irq, so that snd_update
-    really does run behind key_scan's back.
+  - the envelope tests all run with interrupts OFF, stepping snd_update one
+    tick at a time from a stub, so they know exactly where in a sound they
+    are. The PPI-contention tests install their own IM 1 handler instead --
+    shaped exactly like the shipped sys_irq, key_scan and then snd_update on
+    every sixth interrupt -- because what they are testing is the two of them
+    sharing PPI port A.
 
   - the scratch addresses are derived from CODE_END rather than hard-coded.
     The lookup tables in src/gen are `align 256`, so adding code slides them
@@ -515,18 +516,32 @@ class TestChannelArbitration(SoundFixture):
 
 
 class TestPpiContention(SoundFixture):
-    """snd_update in the interrupt, key_scan in the main loop, one PSG.
+    """snd_update and key_scan on the same 50 Hz tick, one PSG between them.
 
     This is the test the whole exercise turns on. PPI port A is the data bus
     between the CPU and the PSG and it points one way at a time; key_scan needs
-    it pointing in, the player needs it pointing out. They are not cooperating
-    voluntarily -- one of them runs behind the other's back.
+    it pointing in, the player needs it pointing out.
 
-    So this class installs a real IM 1 handler, shaped exactly like sys_irq
-    (AF and HL saved, nothing else), which calls snd_update every sixth
-    interrupt. Then it runs key_scan from the "main loop" with a key held down,
-    and asks both sides whether they still work.
+    They used to be on opposite sides of the interrupt -- the player in it, the
+    scan in the main loop -- and the risk was one of them landing in the middle
+    of the other's handshake. That risk is gone: the scan moved into the
+    interrupt when it turned out a scan per game frame drops half of every
+    keypress, so the two now run back to back on the same tick and nothing else
+    in the game touches the PPI at all.
+
+    What has NOT gone is the resting-state contract, and this class is still
+    where breaking it surfaces. So the rig now mirrors the shipped sys_irq
+    exactly: an IM 1 handler, saving AF and HL and nothing else, calling
+    key_scan and then snd_update every sixth interrupt. The "main loop" does
+    what the real one does, which is not touch the PSG -- it just burns time
+    while the two of them take turns.
     """
+
+    #  How long `run_ticks` spins per tick it is asked for: one PAL frame is
+    #  20 ms of a 4 MHz Z80, and the delay loop below is 26 T-states an
+    #  iteration. The divider is 6 against a 300 Hz interrupt, so one 50 Hz
+    #  tick is one PAL frame.
+    SPIN_PER_TICK = int(20e-3 * 4e6 / 26)
 
     def setUp(self):
         super().setUp()
@@ -538,34 +553,41 @@ class TestPpiContention(SoundFixture):
         self.c.run_frames(2)
 
     def install_sound_irq(self):
-        """An IM 1 handler that ticks the player at 50 Hz, like sys_irq will.
+        """An IM 1 handler shaped exactly like the shipped sys_irq.
 
         Deliberately saves AF and HL and nothing else -- that is the contract
-        snd_update has to live inside, so the handler must not paper over it.
+        both callees have to live inside, so the handler must not paper over
+        it. key_scan is called first, for the same reason sys_irq calls it
+        first: it leaves the PPI in the resting state, and snd_update's
+        defensive re-assert of the port direction then has something real to
+        do.
         """
+        scan = self.sym["KEY_SCAN"]
         upd = self.sym["SND_UPDATE"]
         code = [0xF5, 0xE5]                             # push af : push hl
         code += [0x21] + _w(self.IRQ_DIV)               # ld hl,divider
         code += [0x35]                                  # dec (hl)
-        code += [0x20, 0x05]                            # jr nz,@not_50hz
+        code += [0x20, 0x08]                            # jr nz,@not_50hz
         code += [0x36, 0x06]                            # ld (hl),6
+        code += [0xCD] + _w(scan)                       # call key_scan
         code += [0xCD] + _w(upd)                        # call snd_update
         code += [0xE1, 0xF1, 0xFB, 0xED, 0x4D]          # pop/pop/ei/reti
         self.c.write_ram(self.IRQ_STUB, bytes(code))
         self.c.write_ram(self.IRQ_DIV, b"\x06")
         self.c.write_ram(0x0039, struct.pack("<H", self.IRQ_STUB))
 
-    def scan_loop(self, iterations: int):
-        """Call key_scan `iterations` times with the interrupt live.
+    def run_ticks(self, ticks: int):
+        """Let the machine run for about `ticks` 50 Hz ticks, interrupts live.
 
-        key_scan does its own DI/EI, so the player keeps ticking around it --
-        which is exactly the collision being tested.
+        A plain delay loop, because the main loop's part in this is now to stay
+        out of the way. It must not use the PSG or the PPI: if it did, the
+        thing under test would be the test's own handshake and not the game's.
         """
-        addr = self.sym["KEY_SCAN"]
-        body = [0xC5, 0xCD] + _w(addr) + [0xC1]
-        code = [0xFB, 0x06, iterations] + body
-        code += [0x10, (-(len(body) + 2)) & 0xFF]       # djnz
-        self.run_stub(code + self.tail())
+        count = ticks * self.SPIN_PER_TICK
+        body = [0x0B, 0x78, 0xB1]                       # dec bc : ld a,b : or c
+        code = [0xFB, 0x01] + _w(count)                 # ei : ld bc,count
+        code += body + [0x20, (-(len(body) + 2)) & 0xFF]
+        self.run_stub(code + self.tail(), max_frames=ticks * 2 + 20)
 
     def key_state(self) -> list[int]:
         return list(self.c.read_ram(self.sym["KEY_STATE"], KEY_ROWS))
@@ -581,27 +603,31 @@ class TestPpiContention(SoundFixture):
     def test_the_interrupt_really_does_drive_the_player(self):
         """Guard the rig itself: everything below assumes this works.
 
-        The divider means one tick per PAL frame, and a single key_scan is
-        about 1,500 T against a frame's 80,000 -- so the scan loop has to be
-        long enough to span a frame or the player never gets a look in and
-        every assertion below would pass by never running.
+        The divider means one tick per PAL frame, so run_ticks has to spin for
+        at least a frame or the handler never gets a look in and every
+        assertion below would pass by never running.
         """
         self.explosion()
         before = self.amps()[1]
-        self.scan_loop(200)
+        self.run_ticks(5)
         self.assertGreater(self.amps()[1], 0,
                            "the installed handler never called snd_update")
         self.assertEqual(before, 0,
                          "the explosion was already audible before any tick, "
                          "so this proves nothing about the interrupt")
 
-    def test_snd_update_preserves_everything_sys_irq_does_not_save(self):
+    def test_the_tick_preserves_everything_sys_irq_does_not_save(self):
         """sys_irq saves AF and HL. The other twelve bytes are ours to keep.
 
-        A player that quietly used DE from the interrupt would corrupt whatever
+        A callee that quietly used DE from the interrupt would corrupt whatever
         the main loop happened to be holding, at a rate of fifty times a second
         and never in the same place twice. That is not a bug anyone debugs from
         the symptom, so it gets caught here.
+
+        It covers BOTH callees now. key_scan moved into the interrupt and needs
+        BC and DE as much as snd_update does -- it walks a port in BC and two
+        array pointers in HL and DE -- so it pushes them itself rather than
+        widening the handler's contract for everyone.
         """
         sentinels = {
             "bc": 0x1234, "de": 0x5678, "ix": 0x9ABC, "iy": 0xDEF0,
@@ -657,7 +683,7 @@ class TestPpiContention(SoundFixture):
         """
         self.c.key_down("1")
         self.explosion()
-        self.scan_loop(150)
+        self.run_ticks(4)
 
         self.assertTrue(self.id_is_down(self.sym["KEY_1"]),
                         f"'1' was held throughout and key_scan missed it; "
@@ -668,11 +694,11 @@ class TestPpiContention(SoundFixture):
     def test_the_sound_still_plays_while_a_key_is_held(self):
         """The same collision from the other side.
 
-        key_scan flips PPI port A to an input and puts the PSG in READ. If the
-        player did not re-assert the direction, every register write it made
-        after the first scan would go nowhere -- and the give-away is that the
-        registers stop CHANGING, not that they are wrong. So this samples
-        twice and demands the envelope moved.
+        key_scan flips PPI port A to an input and puts the PSG in READ, and it
+        runs immediately before snd_update on every tick. If the player did not
+        re-assert the direction, every register write it made would go nowhere
+        -- and the give-away is that the registers stop CHANGING, not that they
+        are wrong. So this samples twice and demands the envelope moved.
         """
         self.c.key_down("1")
         self.explosion()
@@ -680,9 +706,9 @@ class TestPpiContention(SoundFixture):
         #  Long enough to be several 50 Hz ticks apart: the decay is finer
         #  than one PSG volume step, so two samples one tick apart could
         #  legitimately be equal and the test would be flaky rather than wrong.
-        self.scan_loop(240)
+        self.run_ticks(6)
         first = self.psg()
-        self.scan_loop(240)
+        self.run_ticks(6)
         second = self.psg()
 
         self.assertGreater(first[R_AMP_B], 0,
@@ -697,7 +723,7 @@ class TestPpiContention(SoundFixture):
                            "the noise sweep froze across the scans")
 
     def test_a_sound_started_from_the_main_loop_survives_the_scans(self):
-        """snd_fire runs from the main loop while snd_update runs from the IRQ.
+        """snd_fire runs from the main loop while the tick runs from the IRQ.
 
         They share the voice block, which is why snd_start copies it inside
         DI. Nothing here can prove the race is impossible, but a torn copy
@@ -706,13 +732,13 @@ class TestPpiContention(SoundFixture):
         self.c.key_down("1")
         for _ in range(10):
             self.fire()
-            self.scan_loop(120)
+            self.run_ticks(3)
         self.assertTrue(self.id_is_down(self.sym["KEY_1"]))
 
         #  Let everything run out, then check nothing is left droning.
-        self.scan_loop(200)
-        self.scan_loop(200)
-        self.scan_loop(200)
+        self.run_ticks(5)
+        self.run_ticks(5)
+        self.run_ticks(5)
         self.assert_silent("after ten shots interleaved with key scanning")
 
     def test_the_mixer_never_makes_the_psg_port_an_output(self):
@@ -720,16 +746,17 @@ class TestPpiContention(SoundFixture):
         self.c.key_down("1")
         self.explosion()
         for _ in range(6):
-            self.scan_loop(120)
+            self.run_ticks(3)
             self.assertEqual(self.psg()[R_MIXER] & MIX_PORT_A_OUT, 0,
                              "mixer bit 6 came on")
 
     def test_it_recovers_a_ppi_left_pointing_the_wrong_way(self):
         """snd_update asserts the port A direction instead of assuming it.
 
-        Nothing in the shipped game leaves port A as an input outside
-        key_scan's own DI, so this cannot be provoked by running the game --
-        which is exactly why it needs a test that provokes it directly.
+        Nothing in the shipped game leaves port A as an input outside the
+        interrupt's own key_scan, so this cannot be provoked by running the
+        game -- which is exactly why it needs a test that provokes it
+        directly.
         Without the control word at the top of snd_update, every OUT below it
         writes into a port that is not driving the bus, and the machine goes
         quiet with nothing wrong in the source.
@@ -746,16 +773,16 @@ class TestPpiContention(SoundFixture):
             "register writes went nowhere")
 
     def test_the_ppi_is_left_the_way_key_scan_expects_to_find_it(self):
-        """Ten scans in a row must agree, with the player ticking between them.
+        """Thirty ticks in a row must agree, with a sound playing throughout.
 
-        tests/test_keyboard.py has this test without the interrupt running.
-        This is the same assertion with the contention switched on, which is
-        the configuration the game actually ships.
+        tests/test_keyboard.py has this test with the scan driven by hand and
+        the interrupt off. This is the same assertion with the player running
+        beside it on every tick, which is the configuration the game ships.
         """
         self.c.key_down("1")
         self.explosion()
         for i in range(10):
-            self.scan_loop(120)
+            self.run_ticks(3)
             self.assertTrue(self.id_is_down(self.sym["KEY_1"]),
                             f"scan burst {i} lost the key")
             self.assertEqual(self.bits_down(), 1,
@@ -763,30 +790,42 @@ class TestPpiContention(SoundFixture):
 
     def test_a_key_pressed_and_released_is_seen_through_the_noise(self):
         self.explosion()
-        self.scan_loop(120)
+        self.run_ticks(3)
         self.assertEqual(self.bits_down(), 0, "a key appeared from nowhere")
 
         self.c.key_down("1")
-        self.scan_loop(120)
+        self.run_ticks(3)
         self.assertTrue(self.id_is_down(self.sym["KEY_1"]))
 
         self.c.key_up("1")
         self.c.run_frames(2)
-        self.scan_loop(120)
+        self.run_ticks(3)
         self.assertEqual(self.bits_down(), 0,
                          f"the release was lost: {self.key_state()}")
 
 
 class TestCost(SoundFixture):
-    """Homeplanet.md section 6 budgets 15,000 T-states a frame for sound."""
+    """What the 50 Hz tick costs. Section 6 budgets 15,000 T a frame for sound.
+
+    The tick is not only sound any more -- key_scan is on it too, fifty times a
+    second whether or not a key is down -- so the whole of it is measured here,
+    together, because together is how the frame pays for it.
+    """
 
     BUDGET_T = 15000
+
+    #  The gate array steals cycles from the CPU, so a hand count of the
+    #  instruction table runs 25-30% under what this measures. The number that
+    #  actually bounds the tick is the interrupt PERIOD: the gate array raises
+    #  one every 52 scanlines, i.e. every 4e6/300 = 13,333 T-states, and a
+    #  handler that ran past that would start dropping them.
+    IRQ_PERIOD_T = 4e6 / 300
 
     #  Loop overhead around the CALL: push bc, pop bc, dec bc, ld a,b, or c, jr
     LOOP_T = 11 + 10 + 6 + 4 + 4 + 12
 
-    def measure(self, iters: int = 250) -> float:
-        addr = self.sym["SND_UPDATE"]
+    def measure(self, symbol: str = "SND_UPDATE", iters: int = 250) -> float:
+        addr = self.sym[symbol]
         body = [0xC5, 0xCD] + _w(addr) + [0xC1, 0x0B, 0x78, 0xB1]
         code = [0xF3, 0x01] + _w(iters) + body
         code += [0x20, (-(len(body) + 2)) & 0xFF]       # jr nz
@@ -820,6 +859,38 @@ class TestCost(SoundFixture):
         t = self.measure()
         self.assertLess(t, self.BUDGET_T, f"an idle tick costs {t:.0f} T")
         print(f"\n    snd_update, all channels idle:   {t:.0f} T-states")
+
+    def test_the_whole_50hz_tick_fits_between_two_interrupts(self):
+        """key_scan joined snd_update on the tick. Both of them, together.
+
+        Charged to EVERY frame whether or not a key is down, and at 50 Hz
+        against a game running near 5 fps that is about ten ticks a frame -- so
+        a thousand T-states here is ten thousand off the frame. The bound is
+        the interrupt period rather than a budget invented for the purpose: run
+        past 13,333 T and the handler is still going when the gate array raises
+        the next one.
+
+        Held to half of it, which leaves the same margin again for whatever
+        goes on the tick next.
+        """
+        busy = struct.pack("<BBBBHH", 255, 3, 255, 0, 0x0200, 0)
+        for name in ("SND_VOICE_A", "SND_VOICE_B", "SND_VOICE_C"):
+            self.c.write_ram(self.sym[name], busy)
+
+        scan = self.measure("KEY_SCAN")
+        snd = self.measure("SND_UPDATE")
+        print(f"\n    key_scan:                        {scan:.0f} T-states"
+              f"\n    a whole 50 Hz tick (worst case): {scan + snd:.0f} T-states"
+              f" of {self.IRQ_PERIOD_T:.0f} available")
+
+        self.assertGreater(scan, 300,
+                           f"{scan:.0f} T is not a plausible measurement for "
+                           f"ten rows of PPI handshake")
+        self.assertLess(
+            scan + snd, self.IRQ_PERIOD_T / 2,
+            f"the 50 Hz tick costs {scan + snd:.0f} T (key_scan {scan:.0f}, "
+            f"snd_update {snd:.0f}) against an interrupt every "
+            f"{self.IRQ_PERIOD_T:.0f} T")
 
 
 class TestLayout(unittest.TestCase):

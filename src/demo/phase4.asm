@@ -147,7 +147,11 @@ demo_init:
 ;  demo_update -- one frame
 ; ----------------------------------------------------------------------------
 demo_update:
-    call key_scan
+    ;  The matrix itself is read by sys_irq, fifty times a second. All this
+    ;  does is take the edges that have piled up since the last frame and hand
+    ;  them to key_hit -- which is why a keypress shorter than a game frame is
+    ;  no longer lost.
+    call key_consume
 
     ;  The title screen comes before everything, including the first mission's
     ;  briefing -- which mis_init has already opened behind it.
@@ -191,9 +195,9 @@ demo_update:
 
     ;  The orders menu. Choosing an entry injects that entry's key and closes,
     ;  and then we deliberately fall THROUGH into the playing path so
-    ;  phase4_commands acts on it in this same frame -- key_scan rebuilds
-    ;  key_edge from the hardware every frame, so an injected edge left for
-    ;  the next one would be wiped before anything read it.
+    ;  phase4_commands acts on it in this same frame -- key_consume replaces
+    ;  key_hits wholesale at the top of every frame, so an injected edge left
+    ;  for the next one would be wiped before anything read it.
 @p4_check_menu:
     ld a,(menu_shown)
     or a

@@ -12,6 +12,13 @@ and then call key_down / key_hit on the CPC itself and read the carry flag back
 out of RAM. The key ids come from the assembler's symbol file, so a wrong id in
 the source shows up here as "pressed 1, but KEY_1 says no".
 
+There are two clocks in here and they are not the same one. key_scan runs from
+the interrupt at 50 Hz and ACCUMULATES press edges; key_consume runs once a
+game frame -- about five times a second -- and hands the accumulated edges to
+key_hit. The fixture below exposes both (`scan`, `consume`) plus `frame`, which
+is one of each. A test that calls only `scan` will find key_hit reporting
+nothing, and that is correct rather than a bug.
+
 The emulator's joystick emulation is left at its default (type 0). With it on,
 SPACE and the four cursor keys are diverted to the joystick port and never
 reach the key matrix at all.
@@ -109,11 +116,34 @@ class KeyboardFixture(unittest.TestCase):
         self.c.run_frames(1)
 
     def scan(self):
-        """Call key_scan once, exactly as the frame loop would."""
+        """One 50 Hz sample, exactly as sys_irq takes it.
+
+        key_scan has no DI of its own any more -- it runs inside the interrupt,
+        where they are already off -- so the stub provides one. Every stub in
+        this file starts with DI, which is also what keeps the game's OWN
+        interrupt from scanning underneath the test between calls.
+        """
         addr = self.sym["KEY_SCAN"]
         self._run_stub([0xF3,                                   # di
                         0xCD, addr & 0xFF, addr >> 8,           # call key_scan
                         0x18, 0xFE])                            # jr $
+
+    def consume(self):
+        """One frame boundary: the edges the scans piled up become the hits.
+
+        key_scan ACCUMULATES into key_edge and never clears it, so nothing
+        reaches key_hit until this runs. That is the whole point of the split:
+        a press between two frames survives until a frame comes to collect it.
+        """
+        addr = self.sym["KEY_CONSUME"]
+        self._run_stub([0xF3,                                   # di
+                        0xCD, addr & 0xFF, addr >> 8,           # call key_consume
+                        0x18, 0xFE])                            # jr $
+
+    def frame(self):
+        """A game frame's worth: sample the matrix, then collect the edges."""
+        self.scan()
+        self.consume()
 
     def _query(self, routine, key):
         """A = key id, CALL routine, and bring its carry flag back in RAM."""
@@ -285,48 +315,210 @@ class TestDigits(KeyboardFixture):
 class TestEdges(KeyboardFixture):
 
     def test_a_held_key_hits_exactly_once(self):
-        """Homeplanet.md section 9: holding `d` splits the squadron once."""
+        """Homeplanet.md section 9: holding `d` splits the squadron once.
+
+        Now that the matrix is sampled fifty times a second and a game frame is
+        ten of those, this is the property most at risk from the change: an
+        accumulator that forgot to check key_state would hand the frame ten
+        edges instead of one, and the squadron would be divided until there was
+        nothing left of it. So the hold is several SCANS long inside one frame,
+        not one scan per frame.
+        """
         self.press("d")
-        self.scan()
-        self.assertTrue(self.hit("KEY_D"), "the first scan missed the press")
+        for _ in range(10):
+            self.scan()
+        self.consume()
+        self.assertTrue(self.hit("KEY_D"), "ten scans over a press saw nothing")
         self.assertTrue(self.down("KEY_D"))
 
         for i in range(5):
-            self.scan()
+            self.frame()
             self.assertFalse(self.hit("KEY_D"),
-                             f"scan {i + 2} fired the edge again -- the "
+                             f"frame {i + 2} fired the edge again -- the "
                              f"squadron would split every frame")
             self.assertTrue(self.down("KEY_D"), "but it is still held")
 
         self.release("d")
-        self.scan()
+        self.frame()
         self.assertFalse(self.hit("KEY_D"))
         self.assertFalse(self.down("KEY_D"))
 
         self.press("d")
-        self.scan()
+        self.frame()
         self.assertTrue(self.hit("KEY_D"), "a second press must hit again")
         self.release("d")
 
     def test_an_idle_keyboard_hits_nothing(self):
-        self.scan()
-        self.scan()
+        self.frame()
+        self.frame()
         for name in ALL_IDS:
             self.assertFalse(self.hit(name), name)
 
     def test_an_edge_is_only_reported_for_the_key_that_moved(self):
         """One key already held, a second one arrives: only the new one hits."""
         self.press("1")
-        self.scan()
-        self.scan()                     # 1's edge is spent
+        self.frame()
+        self.frame()                    # 1's edge is spent
         self.press("2")
-        self.scan()
+        self.frame()
         self.assertFalse(self.hit("KEY_1"))
         self.assertTrue(self.hit("KEY_2"))
         self.assertTrue(self.down("KEY_1"))
         self.assertTrue(self.down("KEY_2"))
         self.release("1")
         self.release("2")
+
+    def test_an_edge_survives_until_a_frame_collects_it(self):
+        """THE bug, in miniature.
+
+        A key that goes down and comes back up between two frames used to be
+        gone: key_scan rebuilt key_edge from the hardware, so the release wiped
+        the press before anything read it. Here the key is up again -- not
+        merely up, but seen to be up by three further scans -- before the frame
+        that collects the edge ever runs, and the press must still be there.
+        """
+        self.press("d")
+        self.scan()                                     # the interrupt sees it
+        self.release("d")
+        for _ in range(3):
+            self.scan()                                 # ...and sees it go
+        self.assertFalse(self.down("KEY_D"), "it should be up by now")
+
+        self.consume()
+        self.assertTrue(self.hit("KEY_D"),
+                        "the press was dropped because the key was released "
+                        "before the frame got round to reading it")
+
+    def test_edges_pile_up_across_a_whole_frame(self):
+        """Two different keys inside one frame both arrive, in the same frame.
+
+        Fifty samples a second against five frames a second means a frame can
+        legitimately be handed several presses at once, and the array is an OR
+        rather than a replace so that none of them is lost to the next one.
+        """
+        self.press("d")
+        self.scan()
+        self.release("d")
+        self.scan()
+        self.press("n")
+        self.scan()
+        self.release("n")
+        self.scan()
+
+        self.consume()
+        self.assertTrue(self.hit("KEY_D"), "the first of the two was dropped")
+        self.assertTrue(self.hit("KEY_N"), "the second of the two was dropped")
+
+    def test_consume_hands_an_edge_to_one_frame_only(self):
+        """Otherwise a tap would repeat for as long as nothing else happened."""
+        self.press("d")
+        self.frame()
+        self.assertTrue(self.hit("KEY_D"))
+        self.release("d")
+        self.consume()
+        self.assertFalse(self.hit("KEY_D"),
+                         "the same press was handed out twice")
+
+
+class TestAShortPressIsNotLost(unittest.TestCase):
+    """A keypress of a REALISTIC LENGTH, in the running game.
+
+    This is the test that was missing, and its absence is the whole reason the
+    bug shipped. Every other keyboard test in the suite -- here, in test_phase5,
+    in test_menu, in test_squad -- holds its key for 25 emulator frames or more.
+    That is half a second. It is not a keypress, it is leaning on the keyboard,
+    and it passes whether the matrix is sampled at 50 Hz or once an hour.
+
+    A quick tap on a real keyboard is 50-100 ms. When key_scan was called once
+    per game frame -- and the game runs at about five frames a second, not the
+    12.5 it aims at -- the matrix was read every 200 ms, so a key that went down
+    and came back up in between was never seen. Measured on that build:
+
+        held  2 frames ( 40 ms): 2/6 registered
+        held  4 frames ( 80 ms): 4/6
+        held  6 frames (120 ms): 6/6
+
+    SPACE is the key to test it with because ORDER_PAUSED toggles, so one press
+    is exactly one observable change and a press that arrived twice would show
+    up as one that did not arrive at all.
+    """
+
+    KEY_SPACE = 0x20
+    KEY_X = "x"
+
+    #  Two emulator frames is 40 ms, near the short end of a human tap. The
+    #  scan runs every 20 ms, so nothing this long can fall between two of them.
+    TAP_FRAMES = 2
+    TRIALS = 6
+
+    @classmethod
+    def setUpClass(cls):
+        cls.c = h.boot_quick(frames=400)
+        cls.sym = h.symbols()
+
+    @classmethod
+    def tearDownClass(cls):
+        h.close(getattr(cls, "c", None))
+
+    def byte(self, name):
+        return self.c.read_ram(self.sym[name], 1)[0]
+
+    def tap(self, key, frames):
+        """Press, hold for `frames` emulator frames, release, let it land."""
+        self.c.key_down(key)
+        self.c.run_frames(frames)
+        self.c.key_up(key)
+        #  Long enough for the release to be scanned and for a game frame to
+        #  run and act on the edge -- a game frame is about ten of these.
+        self.c.run_frames(40)
+
+    def test_a_forty_millisecond_tap_registers_every_time(self):
+        misses = []
+        for trial in range(self.TRIALS):
+            before = self.byte("ORDER_PAUSED")
+            self.tap(self.KEY_SPACE, self.TAP_FRAMES)
+            if self.byte("ORDER_PAUSED") == before:
+                misses.append(trial)
+        self.assertEqual(
+            misses, [],
+            f"{len(misses)} of {self.TRIALS} taps of "
+            f"{self.TAP_FRAMES * 20} ms were dropped (trials {misses}); the "
+            f"keyboard is not being sampled often enough")
+
+    def test_even_a_single_frame_tap_registers(self):
+        """20 ms, the scan period itself. Not a promise -- a canary.
+
+        If this ever starts failing while the test above still passes, the scan
+        has slipped off the 50 Hz tick onto something slower.
+        """
+        misses = 0
+        for _ in range(self.TRIALS):
+            before = self.byte("ORDER_PAUSED")
+            self.tap(self.KEY_SPACE, 1)
+            if self.byte("ORDER_PAUSED") == before:
+                misses += 1
+        self.assertEqual(misses, 0,
+                         f"{misses} of {self.TRIALS} 20 ms taps were dropped")
+
+    def test_holding_a_key_still_acts_exactly_once(self):
+        """The other half of the bargain, and the one a fix can break.
+
+        Edges accumulate between frames now, so the obvious mistake is to
+        accumulate the HELD state instead of the transition -- at which point
+        one leaned-on key becomes ten presses a frame. `X` counts, which is why
+        it is the key here: zoom is twelve discrete steps, so 'acted once' and
+        'acted eleven times' are different numbers rather than the same flag
+        flipped an odd number of times.
+        """
+        start = self.byte("CAM_ZOOM")
+        self.c.key_down(self.KEY_X)
+        self.c.run_frames(120)              # about a dozen game frames
+        self.c.key_up(self.KEY_X)
+        self.c.run_frames(40)
+        self.assertEqual(
+            self.byte("CAM_ZOOM"), start + 1,
+            "holding X did not step the zoom exactly one notch -- every "
+            "command in the game is edge-triggered and this is the guard")
 
 
 class TestIds(unittest.TestCase):

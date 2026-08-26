@@ -17,6 +17,38 @@
 ;  and #92 (A in) before the row loop. Forget the #92 and every row reads back
 ;  whatever the PPI last latched on port A -- in practice #FF, a keyboard where
 ;  nothing is ever pressed and nothing in the source looks wrong.
+;
+;  ---------------------------------------------------------------------------
+;  THE SCAN RUNS AT 50 Hz, FROM THE INTERRUPT. THE FRAME LOOP ONLY CONSUMES.
+;
+;  It used to be called once from demo_update, i.e. once per GAME frame -- and
+;  the game does not reach 12.5 fps, it reaches about five. So the keyboard was
+;  sampled every 200 ms, and a key that went down AND came back up between two
+;  samples was never seen at all. Measured on the shipped build: a 40 ms press
+;  registered twice in six tries, an 80 ms press four times in six. Half of
+;  every ordinary keypress was thrown away, and the player's report was that
+;  they had to hit a key several times before anything happened.
+;
+;  So sys_irq calls key_scan on its 50 Hz tick and nothing shorter than 20 ms
+;  can fall between two samples. That splits the press edges in two:
+;
+;      key_edge   the ACCUMULATOR. The scan ORs new press edges into it and
+;                 never clears it. Fifty writes a second, from the interrupt.
+;      key_hits   the frame's SNAPSHOT, and the only thing key_hit reads.
+;
+;  key_consume moves the one into the other and zeroes the accumulator, once at
+;  the top of a game frame, inside DI. Taking a copy rather than reading the
+;  accumulator directly is the whole point: an edge that arrives in the middle
+;  of a frame -- after the command that would have acted on it has already run
+;  -- stays in key_edge and is picked up by the NEXT frame, instead of being
+;  cleared unseen. Clearing at either end of the frame reintroduces exactly the
+;  bug this is fixing, on a 200 ms window instead of a 20 ms one.
+;
+;  A key HELD across several frames still hits once and only once, because the
+;  edge is computed against key_state, which the scan updates every tick: the
+;  second tick of a held key sees it was already down and contributes nothing.
+;  That property is what every command in the game depends on -- holding `d`
+;  divides the squadron once, not once a frame.
 ; ----------------------------------------------------------------------------
 
 KEY_ROWS            equ 10
@@ -103,25 +135,29 @@ KEY_SHIFT           equ 2*8 + 5
 
 
 ; ----------------------------------------------------------------------------
-;  key_scan -- read the whole matrix, once per frame
+;  key_scan -- read the whole matrix. CALLED FROM THE INTERRUPT, at 50 Hz.
 ;
 ;  Out: key_state = what is held now (a 1 bit means DOWN)
-;       key_edge  = what went down since the previous scan
-;  Uses: everything
+;       key_edge |= what went down since the previous scan
+;  Uses: AF and HL freely -- sys_irq has already saved those -- plus BC and DE,
+;        which it saves and restores itself, exactly as snd_update does.
 ;
-;  Interrupts are off across the whole routine. Not for timing -- the PSG
-;  latches and holds -- but because the handshake is stateful: it leaves the
-;  PPI mid-reconfiguration for a few dozen microseconds, and phase 6 puts
-;  snd_update in the IRQ, which drives the same PSG through the same port A.
-;  An interrupt landing between the #92 and the row loop would come back to a
-;  PPI pointing somewhere else entirely. It is one instruction to make that
-;  impossible now rather than debug it later.
+;  NO DI AND NO EI. It used to run from the main loop and bracket itself in
+;  DI...EI, because the handshake is stateful -- it leaves the PPI
+;  mid-reconfiguration for a few dozen microseconds, and snd_update drives the
+;  same PSG through the same port A from the interrupt. Now that both of them
+;  ARE the interrupt that problem is gone by construction: they run one after
+;  the other, on the same tick, and nothing else in the game touches the PPI.
+;  An EI here would hand the machine back mid-handshake and reintroduce it.
 ;
-;  key_scan therefore expects to be called from the main loop, with interrupts
-;  enabled: it ends with EI unconditionally.
+;  The resting state the two of them share is unchanged and still asserted at
+;  both ends: port A OUTPUT, port C PSG_INACTIVE. sys_irq calls this one FIRST,
+;  so snd_update's defensive control-word write is on the live path rather than
+;  being insurance nobody exercises.
 ; ----------------------------------------------------------------------------
 key_scan:
-    di
+    push bc
+    push de
 
     ; --- point the PSG at register 14 -------------------------------------
     ld bc,PPI_CONTROL * 256 + KEY_PPI_A_OUT
@@ -133,19 +169,31 @@ key_scan:
     ld c,PSG_INACTIVE
     out (c),c                           ; and release the bus (B is still #F6)
 
-    ; --- walk the ten rows -------------------------------------------------
-    ;  The raw scan lands in key_edge, which is scratch space until the loop
-    ;  below turns it into edges in place. That saves a third 10-byte array
-    ;  and, more usefully, a third pointer register in that loop.
+    ; --- walk the ten rows, folding the edge in as we go ------------------
+    ;  The raw byte used to be parked in key_edge and turned into edges by a
+    ;  second ten-iteration loop. It cannot be any more -- key_edge is an
+    ;  accumulator now and must not be scribbled on -- and doing it here is
+    ;  both smaller and about 200 T-states cheaper, which matters when it is
+    ;  fifty times a second instead of five.
     ld bc,PPI_CONTROL * 256 + KEY_PPI_A_IN
     out (c),c                           ; port A now reads back from the PSG
-    ld hl,key_edge
+    ld hl,key_state
+    ld de,key_edge
     ld bc,PPI_PORT_C * 256 + PSG_READ   ; C = read function | row number
 @key_row:
     out (c),c                           ; select the row
     ld b,PPI_PORT_A
     in a,(c)                            ; its eight columns, 0 = down
-    ld (hl),a
+    cpl                                 ; -> 1 = down NOW
+    ld b,a                              ; B is free until the next port write
+    xor (hl)                            ; bits that changed since the last scan
+    and b                               ; ...and are down now: the press edges
+    ld (hl),b                           ; held state := down now
+    ex de,hl
+    or (hl)                             ; ACCUMULATE. The frame loop clears it,
+    ld (hl),a                           ; not us -- see key_consume.
+    inc hl
+    ex de,hl
     inc hl
     ld b,PPI_PORT_C
     inc c                               ; next row; the function bits are
@@ -160,25 +208,40 @@ key_scan:
     ld bc,PPI_PORT_C * 256 + PSG_INACTIVE
     out (c),c
 
-    ; --- held state and press edges ---------------------------------------
-    ;  key_state still holds the PREVIOUS frame at this point, which is what
-    ;  makes the edge cheap:  pressed = down_now AND was_up = NOT(raw OR held).
-    ld hl,key_state
-    ld de,key_edge
+    pop de
+    pop bc
+    ret
+
+
+; ----------------------------------------------------------------------------
+;  key_consume -- take this frame's press edges off the interrupt
+;
+;  In : -
+;  Out: key_hits = every edge accumulated since the last call; key_edge zeroed
+;  Uses: AF, B, DE, HL
+;
+;  Called ONCE, at the top of demo_update, before anything reads key_hit. Runs
+;  from the main loop with interrupts on and ends with EI unconditionally --
+;  the same shape key_scan itself used to have, and for the same reason: the
+;  read and the clear of each row have to be one operation, or a scan landing
+;  between them loses the edge it just recorded.
+;
+;  Snapshot rather than "read key_edge and clear it afterwards": an edge that
+;  arrives half way through a frame belongs to the NEXT frame, and clearing at
+;  the end of this one would throw it away unseen.
+; ----------------------------------------------------------------------------
+key_consume:
+    di
+    ld hl,key_edge
+    ld de,key_hits
     ld b,KEY_ROWS
-@key_edges:
-    ld a,(de)                           ; this frame, raw: a 1 bit is UP
-    ld c,a
-    or (hl)                             ; OR last frame's held bits (1 = down)
-    cpl                                 ; -> 1 = down now and up before
+@key_take:
+    ld a,(hl)
+    ld (hl),0
     ld (de),a
-    ld a,c
-    cpl
-    ld (hl),a                           ; held state := this frame, 1 = down
     inc hl
     inc de
-    djnz @key_edges
-
+    djnz @key_take
     ei
     ret
 
@@ -194,18 +257,21 @@ key_down:
     jr key_bit
 
 ; ----------------------------------------------------------------------------
-;  key_hit -- was this key pressed since the last scan?
+;  key_hit -- was this key pressed since the last key_consume?
 ;
 ;  Edge-triggered, which is what the squadron commands want: holding `d` must
-;  split once, not once per frame. key_scan clears the bit on the next scan,
-;  so a hit is readable for exactly one frame and only one caller can act on
-;  it -- read it once, act on it there.
+;  split once, not once per frame. key_consume replaces the whole array at the
+;  top of the next frame, so a hit is readable for exactly one frame -- and
+;  only one caller should act on it. Read it once, act on it there.
+;
+;  It reads key_hits, NOT key_edge: key_edge is the interrupt's accumulator and
+;  is being written fifty times a second behind this routine's back.
 ;  In : A = key id
 ;  Out: CF set = newly pressed
 ;  Uses: AF, HL
 ; ----------------------------------------------------------------------------
 key_hit:
-    ld hl,key_edge
+    ld hl,key_hits
     ; fall through -- nothing may be inserted between here and key_bit
 
 ; ----------------------------------------------------------------------------
@@ -271,12 +337,17 @@ key_digit:
 ; ----------------------------------------------------------------------------
 ;  Data
 ; ----------------------------------------------------------------------------
-;  One byte per matrix row, indexed by id >> 3. Both are stored INVERTED with
-;  respect to the hardware -- a 1 bit means down -- so key_bit is a rotate with
-;  no CPL in front of it, and so a cleared array is the correct "nothing
+;  One byte per matrix row, indexed by id >> 3. All three are stored INVERTED
+;  with respect to the hardware -- a 1 bit means down -- so key_bit is a rotate
+;  with no CPL in front of it, and so a cleared array is the correct "nothing
 ;  pressed" starting state.
-key_state:          defs KEY_ROWS, 0    ; held now
-key_edge:           defs KEY_ROWS, 0    ; went down at the last scan
+;
+;  Which of the two edge arrays to touch is decided by which side of the
+;  interrupt you are on. key_scan owns key_edge; everything else -- key_hit,
+;  key_clear, key_inject -- works on key_hits.
+key_state:          defs KEY_ROWS, 0    ; held now, as of the last 50 Hz scan
+key_edge:           defs KEY_ROWS, 0    ; edges accumulated since key_consume
+key_hits:           defs KEY_ROWS, 0    ; this frame's snapshot of key_edge
 
 ;  Digit '0' to '9', in numeric order. Indexed by key_digit.
 key_digit_ids:
