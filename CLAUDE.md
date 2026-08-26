@@ -691,11 +691,16 @@ mechanics are symmetric, so the cause was never the damage numbers.
    `A` is the answer. Raising `CBT_RANGE` to 56 was tried and made missions 3
    and 4 worse, because it lets the enemy's ball reach more of the spread.
 
-Measured campaign cost with the fleet holding station over the Mothership and
-attacking: missions 1-5 cost **one ship**. Mission 6 (`enemies_scatter`) must
-be fought by *holding*, not chasing — 9 of 14 survive that way and the
-Mothership dies if the fleet leaves it. That asymmetry is the design's, not a
-bug: §8 makes losing the Mothership the end of the game.
+**Balance numbers come from `tools/balance.py`, and the tactic is part of the
+number.** How expensive the campaign is depends entirely on how it is played:
+that script (hold station over the Mothership, press `A`) reaches mission 8,
+while a second measurement that also stationed and attacked lost the
+Mothership at mission 5. Neither was wrong -- they were different scripts. So
+run the tool rather than quoting prose, and treat any figure here as "that
+script, that build".
+
+Latest run: missions 1-6 cost **two ships** between them, mission 7 costs six,
+and mission 8 takes the fleet. Mission 8 is where the campaign currently ends.
 
 ### Never trust a slot index, part two: `moth_slot`
 
