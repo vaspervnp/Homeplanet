@@ -25,7 +25,7 @@ import cpc
 CAM_YAW_STEP = 8
 CAM_PITCH_STEP = 4
 CAM_PITCH_MAX = 53
-DISC_STEP = 1600
+DISC_STEP = 400
 ZOOM_DISTANCES = [110, 150, 200, 250]
 
 
@@ -285,7 +285,7 @@ class TestMoveDisc(ControlFixture):
         self.c.run_frames(300)
         moved = ship_x()
         self.assertNotEqual(moved, settled, "the fleet ignored the order")
-        self.assertLess(abs(moved - target_x), 12000,
+        self.assertLess(abs(moved - target_x), 3000,
                         f"the fleet is at {moved}, nowhere near the order at {target_x}")
 
     def test_the_disc_leaves_no_trail(self):
@@ -565,7 +565,7 @@ class TestApproach(ControlFixture):
     one end of the world to find it.
     """
 
-    STEP = 600
+    STEP = 150
 
     def approach(self, current, target):
         addr = self.sym["PHASE4_APPROACH"]
@@ -596,7 +596,7 @@ class TestApproach(ControlFixture):
 
     def test_steps_and_snaps_near_the_origin(self):
         for current, target in ((0, 5000), (0, -5000), (0, 100), (0, -100), (0, 0),
-                                (-600, 0), (600, 0), (20000, 20300), (20000, 19700)):
+                                (-150, 0), (150, 0), (20000, 20300), (20000, 19700)):
             self._check(current, target)
 
     def test_survives_targets_more_than_32767_away(self):

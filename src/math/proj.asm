@@ -1,7 +1,7 @@
 ; ============================================================================
 ;  math/proj.asm -- world point -> screen (Homeplanet.md section 4.4)
 ; ============================================================================
-;      1.  v = (P - focus) >> 8          three 16-bit subtracts
+;      1.  v = (P - focus) >> WORLD_SHIFT, clipped to a signed byte
 ;      2.  r = M . v                     nine signed 8x8 multiplies
 ;      3.  x = rx>>8, y = ry>>8, z = rz>>8 + cam_dist
 ;      4.  clip on z
@@ -14,9 +14,16 @@
 ;  tools/gentables.py; tests/test_phase1.py runs both and demands they agree
 ;  bit for bit. If you change a shift, change it in both places.
 ;
-;  The >>8 steps are free -- they are just "take H" -- which is why the whole
-;  world (16 bits per axis) maps onto a +/-128 camera cube rather than being
-;  scaled per zoom step. Zoom moves cam_dist instead.
+;  WORLD_SHIFT is 6, so 16 bits of world span +/-512 camera units. It used to
+;  be 8, which was free on a Z80 -- >>8 is just "take H" -- but that folded the
+;  whole world into the +/-128 cube the camera can see at once, and at
+;  cam_dist 110..250 the widest zoom then showed all of it. Six costs two
+;  `add hl,hl` an axis and buys four times the play area; everything authored
+;  in world units was divided by four to keep ships the same size on screen.
+;
+;  What did NOT grow is how much is visible at once: step 1 still has to fit a
+;  signed byte, so anything more than PROJ_V_LIMIT world units off the focus
+;  on any axis is clipped. See proj_deltas.
 ; ----------------------------------------------------------------------------
 
 ; ----------------------------------------------------------------------------
@@ -28,6 +35,7 @@
 ; ----------------------------------------------------------------------------
 proj_point:
     call proj_deltas                    ; -> proj_v16
+    ret nc                              ; too far off the focus to be on screen
     call proj_rotate                    ; -> proj_x, proj_y, proj_z_raw
 
     ; --- z = (rz >> 8) + cam_dist, in 16 bits so "behind us" is visible ----
@@ -101,9 +109,10 @@ proj_clip:
 
 
 ; ----------------------------------------------------------------------------
-;  proj_deltas -- v = (P - focus) >> 8, sign-extended to a word per axis
+;  proj_deltas -- v = (P - focus) >> WORLD_SHIFT, a sign-extended word per axis
 ;  In : HL -> six bytes of world position
-;  Out: proj_v16 (three signed words)
+;  Out: CF set   -> proj_v16 holds three signed words in -128..127
+;       CF clear -> out of range on some axis; nothing else is valid
 ;  Uses: everything
 ;
 ;  Sign-extended here, once per point, because the rotation below reads each
@@ -112,7 +121,36 @@ proj_clip:
 ;  Unrolled rather than looped: a loop would need a fourth register pair to
 ;  hold the point pointer while HL does the 16-bit subtract, and the only one
 ;  left is IX.
+;
+;  THE RANGE CHECK IS NOT OPTIONAL. Each component has to stay inside a signed
+;  byte for two separate reasons, both of them about MAT_ONE being 127:
+;
+;    * MULACC indexes f9 with m+v as a nine-bit two's complement number, so
+;      |m| + |v| must stay under 256. Feed it 200 and the index wraps to a
+;      quarter-square of something else entirely, and the entity draws itself
+;      somewhere it is not.
+;    * proj_rotate's accumulator is bounded by 127 * |v|max * sqrt(3). That is
+;      28156 at |v| = 128 and 56312 at 256, and only the first fits 16 bits.
+;
+;  It pays for itself: a rejected entity never reaches proj_rotate, which is
+;  ~2,790 T-states, so the clip is cheaper than the work it skips.
 ; ----------------------------------------------------------------------------
+;  The largest world delta that survives, per axis: 8191 units at WORLD_SHIFT
+;  6 -- and DISC_LIMIT is 30000, so a fleet really can be sent past it.
+;
+;  Written as the bias that turns the two-sided signed test on the difference's
+;  HIGH byte into one unsigned range check, the way order_clamp_pitch does:
+;  h + 32 in 0..63 is exactly HL in -8192..8191.
+;
+;  It is 1 << (WORLD_SHIFT - 1), which is 128 at the old shift of 8 -- i.e. a
+;  test that can never fail, which is why there was no clipping to do before.
+;
+;  A literal because gen/tables.asm is included after this file and RASM
+;  evaluates as it goes. src/main.asm asserts the two agree once both are in
+;  scope -- change WORLD_SHIFT in tools/gentables.py and the build says so.
+PROJ_V_BIAS         equ 32
+PROJ_V_LIMIT        equ (PROJ_V_BIAS << 8) - 1      ; = 8191
+
     macro DELTA focus, slot
         ld e,(hl)
         inc hl
@@ -123,7 +161,22 @@ proj_clip:
         ex de,hl                        ; HL = P, DE = focus
         or a
         sbc hl,de
-        ld a,h                          ; >>8
+
+        ;  Two points on one axis can be 65534 apart, which does not fit the
+        ;  register holding their difference -- and when SBC overflows the
+        ;  sign bit LIES. Test P/V here, before anything else touches the
+        ;  flags: overflowing means further than 32767, which is far.
+        jp pe,proj_deltas_far
+        ld a,h
+        add a,PROJ_V_BIAS
+        cp PROJ_V_BIAS * 2
+        jr nc,proj_deltas_far           ; the shifted delta leaves a byte
+
+        ;  >>6, as two shifts up and then "take H". The old >>8 was free; this
+        ;  is 22 T-states an axis, and it is what the bigger world costs.
+        add hl,hl
+        add hl,hl
+        ld a,h
         ld l,a
         rla                             ; sign into CF
         sbc a,a
@@ -136,6 +189,14 @@ proj_deltas:
     DELTA cam_focus_x, 0
     DELTA cam_focus_y, 1
     DELTA cam_focus_z, 2
+    scf                                 ; in range
+    ret
+
+;  Shared by all three expansions of DELTA, and therefore OUTSIDE the macro:
+;  a label written inside one would be defined three times over.
+proj_deltas_far:
+    pop hl                              ; the point pointer the macro pushed
+    or a                                ; CF clear -> clipped
     ret
 
 

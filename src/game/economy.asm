@@ -289,11 +289,29 @@ eco_range_check:
     ld l,e
     or a
     sbc hl,bc
-    ld a,h
-    or a
-    jp p,@eco_pos
-    neg
+
+    ;  The same |HL| >> WORLD_SHIFT that cbt_distance does, and for the same
+    ;  reason: ECO_HARVEST_RANGE is in camera units, so the shift has to match
+    ;  the projection's or a harvester docks from four times too far away.
+    ;  P/V first -- a difference that did not fit sixteen bits is far, and the
+    ;  sign bit lies about which way.
+    jp pe,@eco_far
+    bit 7,h
+    jr z,@eco_pos
+    xor a
+    sub l
+    ld l,a
+    sbc a,a
+    sub h
+    ld h,a
 @eco_pos:
+    ld a,h
+    cp PROJ_V_BIAS * 2
+    jr nc,@eco_far
+    add hl,hl
+    add hl,hl
+    ld a,h
+
     ld hl,eco_dist
     add a,(hl)
     jr c,@eco_far
@@ -553,11 +571,11 @@ eco_patches:        defs ECO_PATCH_COUNT * ECO_PATCH_SIZE, 0
 ;  harvesting takes a ship away from the battle line -- which is the decision
 ;  the economy is supposed to force.
 eco_patch_seed:
-    defw -26000,  1000, -6000
+    defw  -6500,   250, -1500
     defw 900
-    defw  26000, -1000,  6000
+    defw   6500,  -250,  1500
     defw 900
-    defw  -6000,  2000, 26000
+    defw  -1500,   500,  6500
     defw 700
-    defw   6000, -2000,-26000
+    defw   1500,  -500, -6500
     defw 700

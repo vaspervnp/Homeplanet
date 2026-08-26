@@ -72,7 +72,7 @@ class CampaignFixture(unittest.TestCase):
             h.dismiss_briefing(self.c)
 
     def send_fleet_in(self):
-        self.c.write_ram(self.sym["SQUAD_DEST"], struct.pack("<hhh", 0, 0, 20000))
+        self.c.write_ram(self.sym["SQUAD_DEST"], struct.pack("<hhh", 0, 0, 5000))
 
     def play_until_complete(self, max_frames=4000):
         self.send_fleet_in()

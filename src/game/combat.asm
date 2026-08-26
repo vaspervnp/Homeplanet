@@ -9,11 +9,11 @@
 ;  loop -- there are no projectiles in flight, because at 12.5 fps and these
 ;  ranges a shot would arrive the same frame it left.
 ;
-;  Range is Manhattan distance on the coordinates AFTER a >>8, i.e. on the
-;  same +/-128 scale the projection works in. A true distance needs three
-;  multiplies and a square root per pair; the sum of the absolute differences
-;  costs about thirty T-states and is wrong by at most the usual sqrt(3)
-;  factor, which for "is it close enough to shoot" nobody can see.
+;  Range is Manhattan distance on the coordinates AFTER a >>WORLD_SHIFT, i.e.
+;  in the same camera units the projection works in. A true distance needs
+;  three multiplies and a square root per pair; the sum of the absolute
+;  differences costs about thirty T-states and is wrong by at most the usual
+;  sqrt(3) factor, which for "is it close enough to shoot" nobody can see.
 ;
 ;  Retargeting is round-robin: ONE entity picks a new target per frame. The
 ;  full search is O(n) over 48 slots, and doing it for everybody every frame
@@ -21,7 +21,7 @@
 ;  range, so the staleness is never visible.
 ; ----------------------------------------------------------------------------
 
-CBT_RANGE           equ 40              ; camera-scale units, so ~10000 world
+CBT_RANGE           equ 40              ; camera-scale units, so ~2500 world
 CBT_COOLDOWN        equ 6               ; frames between shots
 
 ;  Homeplanet.md section 8's balance triangle:
@@ -455,13 +455,17 @@ cbt_age_explosions:
 
 ; ----------------------------------------------------------------------------
 ;  cbt_distance -- how far (cbt_target) is from (cbt_ent)
-;  Out: A = Manhattan distance on the >>8 coordinates, saturating at 255
+;  Out: A = Manhattan distance in camera units, saturating at 255
 ;  Uses: everything
 ;
 ;  Separate from the range test because targeting needs the NUMBER, not a
 ;  yes/no. An enemy that could only acquire targets already inside weapons
 ;  range could never acquire one at all: it needs a target to fly towards, and
 ;  it needs to fly to get in range. The picket sat at its spawn point forever.
+;
+;  This shifts by SIX, not eight, and it has to: CBT_RANGE is tuned, and with
+;  every authored position four times smaller the old shift would have made
+;  every weapon reach four times as far.
 ; ----------------------------------------------------------------------------
 cbt_distance:
     ld a,(cbt_target)
@@ -494,13 +498,30 @@ cbt_distance:
     ld l,e
     or a
     sbc hl,bc                           ; difference on this axis
-    ;  Take the high byte: the same >>8 the projection uses, so "range" is in
+
+    ;  If that did not fit, the sign bit lies and the magnitude is over 32767
+    ;  either way -- which saturates. Test P/V immediately; the next
+    ;  instruction that touches the flags destroys it.
+    jp pe,@cbt_saturate
+
+    ;  |HL|, then >>6 -- the same scale the projection uses, so "range" is in
     ;  the units everything else is measured in.
-    ld a,h
-    or a
-    jp p,@cbt_positive
-    neg
+    bit 7,h
+    jr z,@cbt_positive
+    xor a
+    sub l
+    ld l,a
+    sbc a,a
+    sub h
+    ld h,a
 @cbt_positive:
+    ld a,h
+    cp PROJ_V_BIAS * 2                  ; >= 16384 would shift past a byte
+    jp nc,@cbt_saturate
+    add hl,hl
+    add hl,hl
+    ld a,h
+
     ld hl,cbt_dist
     add a,(hl)
     jr c,@cbt_saturate

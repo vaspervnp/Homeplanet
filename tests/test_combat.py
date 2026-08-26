@@ -15,6 +15,7 @@ import unittest
 sys.path.insert(0, __file__.rsplit("/", 2)[0])
 
 from tests import harness as h
+from tools import gentables as g
 
 #  Mirrored from src/game/entity.asm and src/game/combat.asm
 ENT_SIZE = 20
@@ -73,14 +74,17 @@ class CombatFixture(unittest.TestCase):
     def closest_pair(self):
         """The nearest friendly/enemy pair, in the units cbt_distance uses.
 
-        Manhattan on coordinates shifted down by 8 -- the same saturating
-        measure the Z80 uses, so the number is comparable with CBT_RANGE.
+        Manhattan on coordinates shifted down by WORLD_SHIFT -- the same
+        saturating measure the Z80 uses, so the number is comparable with
+        CBT_RANGE. The shift has to track WORLD_SHIFT: the world is authored
+        four times smaller than it was, and against the old >>8 every ship
+        would look four times closer than the game thinks it is.
         """
         friendly = [s for s in range(48) if (self.flags(s) & 3) == F_ACTIVE]
         enemy = [s for s in range(48) if (self.flags(s) & 3) == F_ACTIVE | F_ENEMY]
         if not friendly or not enemy:
             return 255
-        return min(min(255, sum(abs(a - b) >> 8
+        return min(min(255, sum(abs(a - b) >> g.WORLD_SHIFT
                                 for a, b in zip(self.position(f), self.position(e))))
                    for f in friendly for e in enemy)
 
@@ -215,7 +219,7 @@ class TestBattle(CombatFixture):
     """Phase 6's acceptance criterion, driven end to end."""
 
     def _fight(self, max_frames=1600, until_kills=3):
-        self.order_fleet_to(0, 0, 22000)
+        self.order_fleet_to(0, 0, 5500)
         for _ in range(max_frames // 40):
             self.c.run_frames(40)
             if self.kills() >= until_kills:
@@ -283,7 +287,7 @@ class TestBattle(CombatFixture):
         painter's algorithm then correctly hides every enemy pixel behind
         sixteen friendly ships -- a blank screen that says nothing about the
         colour of a sprite. Nor is moving it sideways enough on its own: at
-        the picket's own depth of z=20000 even a 7000-unit shift is four
+        the picket's own depth of z=5000 even a 1750-unit shift is four
         pixels on screen, so it has to come forward as well as across.
         """
         #  Do NOT send the fleet in: it would clear the picket and there
@@ -294,7 +298,7 @@ class TestBattle(CombatFixture):
             if self.flags(slot) & F_ENEMY:
                 self.c.write_ram(
                     self.sym["ENTITIES"] + slot * ENT_SIZE + ENT_X,
-                    struct.pack("<hhh", -5000 + placed * 3400, 4000, 3000))
+                    struct.pack("<hhh", -1250 + placed * 850, 1000, 750))
                 placed += 1
         self.assertGreater(placed, 0, "the mission fielded no enemies to colour")
         self.c.run_frames(40)
@@ -420,11 +424,11 @@ class TestRange(CombatFixture):
         #  Drop the whole fleet on top of the picket rather than flying it
         #  there, so the only variable is distance. The station has to move
         #  with them, or phase4_fly pulls them straight back out of range.
-        self.order_fleet_to(0, 0, 22000)
+        self.order_fleet_to(0, 0, 5500)
         for slot in range(48):
             if (self.flags(slot) & F_ACTIVE) and not (self.flags(slot) & F_ENEMY):
                 self.c.write_ram(self.sym["ENTITIES"] + slot * ENT_SIZE + ENT_X,
-                                 struct.pack("<hhh", 0, 0, 22000))
+                                 struct.pack("<hhh", 0, 0, 5500))
         #  Retargeting is round-robin, one entity a frame, so give it time to
         #  come round to the ships that are now in contact.
         self.c.run_frames(300)

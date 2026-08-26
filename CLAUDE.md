@@ -265,7 +265,8 @@ a hand count of the instruction table.
 
 | Routine | Measured | Design §6 |
 |---|---|---|
-| `proj_point` (one entity, full pipeline) | ~4,560 T | 1,200 T |
+| `proj_point` (one entity, full pipeline) | ~4,760 T | 1,200 T |
+| `proj_point` (rejected by the distance clip) | ~260 T | — |
 | `proj_rotate` (9 multiplies, m01 skipped) | ~2,790 T | — |
 | `cam_build_matrix` (once per frame) | ~3,360 T | — |
 
@@ -683,8 +684,8 @@ mechanics are symmetric, so the cause was never the damage numbers.
    been aiming at the casualty. **Concentrating fire was punished.**
    `cbt_fire_if_able` now re-acquires the moment it finds its target is
    wreckage; the round-robin stays as the slow path for drift.
-3. The default formation is wider than the gun. `FORM_SPACING` 2200 spreads a
-   16-ship squadron 13200 units corner to corner — a Manhattan diameter of
+3. The default formation is wider than the gun. `FORM_SPACING` 550 spreads a
+   16-ship squadron 3300 units corner to corner — a Manhattan diameter of
    ~103 range-units against `CBT_RANGE` 40. This one is *not* fixed: it is what
    makes "hold formation" a genuinely worse tactic than "attack", and pressing
    `A` is the answer. Raising `CBT_RANGE` to 56 was tried and made missions 3
@@ -777,7 +778,7 @@ showed up as "the HUD comes and goes":
   the rest of the game, because the HUD does not clear its strip, it draws
   labels onto it.
 
-### Panning, and how big the world actually is
+### Panning
 
 `P` hands the cursor keys to the camera; `0` (and the menu's CENTRE ON BASE)
 clears the pan and goes back to the Mothership. **Clearing the pan is the
@@ -791,26 +792,56 @@ screen for both. The pan is an *offset* applied in `order_focus` after the
 selection is copied, so the camera still follows the squadron — it just does
 it from off to one side.
 
-**The play area cannot be made bigger without rescaling the world.** World
-coordinates are 16-bit and the content already reaches ±26000 of ±32767;
-`WORLD_SHIFT` is 8, so the whole world is ±128 camera units while `cam_dist`
-is 110-250. That is why it feels small: at the widest zoom you are looking at
-essentially all of it.
+### How big the world actually is
 
-Four times the extent means `WORLD_SHIFT` 6 (±512 camera units) *and*
-dividing every authored position by four, so ships stay the same size on
-screen. That is a wide change with three sharp edges:
+**`WORLD_SHIFT` is 6, and the play area is ±32767 world units on each axis =
+±512 camera units.** It used to be 8, which mapped the whole 16-bit world into
+the ±128 cube the camera can see at once — and with `cam_dist` at 110-250, the
+widest zoom then showed essentially all of it. That was the smallness.
 
-- `proj_v16` must stay in -256..255 for the `f9` signed-multiply trick, and at
-  `WORLD_SHIFT` 6 a delta past ±16320 world units overflows it and the entity
-  reappears somewhere it is not. `proj_deltas` needs a range check — which is
-  also a *win*, since it would reject distant entities before the 2790-T
-  rotate rather than after.
-- `cbt_distance` shifts by 8 to compare with `CBT_RANGE`; with positions four
-  times smaller it has to shift by 6 to mean the same thing.
-- `tools/gentables.py` is the bit-exact reference model for the projection and
-  has `WORLD_SHIFT` in it. Change one and not the other and the differential
-  tests are comparing against the wrong answer.
+The shift alone would only have made everything four times bigger on screen.
+So **every authored position and speed in `src/game/` was divided by four** at
+the same time: `FORM_SPACING`, the wedge/sphere/wall tables, `DISC_STEP`,
+`PHASE4_STEP`, `GRID_SPACING`, `order_home`, and every enemy and resource
+layout in `campaign.asm`. The two changes cancel exactly — the screenshots
+before and after are byte-identical — and the extra room is the coordinate
+space the content vacated.
+
+**`DISC_LIMIT` was deliberately NOT divided.** It is 30000, the clamp on how
+far the player may send anything, and leaving it hard against the 16-bit edge
+while the content shrank into a quarter of the space is the whole point.
+
+Three things this touched, and they are the ones to be careful with:
+
+- **`proj_deltas` now clips, and the limit is ±8191 world units, not
+  ±16320.** A camera-space component has to fit a SIGNED BYTE — not
+  -256..255 — for two independent reasons, both about `MAT_ONE` being 127:
+  `MULACC` indexes `f9` with `m+v` as a nine-bit two's complement number, so
+  `|m| + |v|` must stay under 256; and `proj_rotate`'s accumulator is bounded
+  by `127 * |v|max * sqrt(3)`, which is 28156 at 128 and 56312 at 256. Only
+  the first fits 16 bits. So **what you can see at once did not grow** — it is
+  still a ±128 camera cube around the focus. The world got bigger; the window
+  onto it did not.
+
+  This is a performance *win*, and a large one: a rejected entity never
+  reaches the 2,790 T-state rotate. Measured, `proj_point` went from 4,560 T
+  to **4,760 T** for an entity in range and to **260 T** for one out of it.
+- **`proj_deltas` also tests P/V on the subtract.** Two coordinates can be
+  60000 apart now that `DISC_LIMIT` outruns the content by 4×, `SBC HL,DE`
+  wraps, and the sign bit lies — the same trap `phase4_approach` documents. A
+  ship 60000 away read as 87 units away without this.
+- **`cbt_distance` and `eco_range_check` shift by 6.** `CBT_RANGE` (40) and
+  `ECO_HARVEST_RANGE` (24) are tuned, documented and unchanged; with positions
+  four times smaller, the old `>>8` would have made every weapon and every
+  harvester reach four times as far.
+
+`tools/gentables.py` holds `WORLD_SHIFT` and is the bit-exact reference model,
+so `project()` clips exactly where the Z80 does, both ways. The shift is
+hand-coded in the Z80 (two `add hl,hl`, and `PROJ_V_BIAS` for the range test),
+so **`src/main.asm` asserts `PROJ_V_BIAS == 1 << (WORLD_SHIFT - 1)`** — change
+the model without the assembly and the build stops. At the old shift of 8 that
+expression is 128, i.e. a range test that can never fail, which is why there
+was nothing to clip before.
 
 ### The orders menu
 

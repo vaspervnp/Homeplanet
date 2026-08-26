@@ -47,9 +47,34 @@ TRIG_QUARTER = TRIG_STEPS // 4       # cos(a) == sin(a + quarter)
 #  overflow: |m.v| <= 127 * 128*sqrt(3) = 28156, comfortably inside 16 bits.
 MAT_ONE = 127
 
-#  Camera-space coordinates are signed bytes obtained by taking the HIGH BYTE
-#  of the rotation accumulator, so the whole 16-bit world maps to +/-128.
-WORLD_SHIFT = 8
+#  How far down a world coordinate is shifted to become a camera-space one.
+#
+#  It was 8 -- free on a Z80, since >>8 is just "take H" -- and that mapped the
+#  whole 16-bit world onto a +/-128 camera cube. With cam_dist at 110..250 the
+#  widest zoom then showed essentially all of it, which is why the play area
+#  felt small. At 6 the same 16 bits span +/-512 camera units, four times the
+#  extent per axis, and every authored position and speed in src/game/ was
+#  divided by four to match so that ships are the same size on screen as
+#  before. The extra room is the coordinate space that freed up.
+WORLD_SHIFT = 6
+
+#  ...but ONE delta still has to fit a signed byte, so what you can see at once
+#  did not grow: anything further than PROJ_V_MAX << WORLD_SHIFT (8191 world
+#  units) from the focus on any axis is clipped outright.
+#
+#  Two independent reasons, both about MAT_ONE:
+#
+#    * MULACC indexes the signed quarter-square table with m+v as a NINE-bit
+#      two's complement number. |m| reaches MAT_ONE, so |m| + |v| must stay
+#      inside 256 or the index wraps and the entity reappears somewhere it is
+#      not.
+#    * The rotation accumulator is bounded by MAT_ONE * |v|max * sqrt(3), which
+#      is 28156 at |v| = 128 and 56312 at 256. The second does not fit 16 bits.
+#
+#  proj_deltas does the clipping, which is also a saving: a rejected entity
+#  never reaches the ~2,790 T-state proj_rotate.
+PROJ_V_MIN = -128
+PROJ_V_MAX = 127
 
 #  sx = 160 + ((x * recip[z]) >> PROJ_SHIFT), and recip[z] = PROJ_K / z.
 #
@@ -164,12 +189,6 @@ def recip_table() -> list[int]:
 #  Reference model. Mirrors src/math/ instruction for instruction.
 # ---------------------------------------------------------------------------
 
-def _i8(v: int) -> int:
-    """Take the low byte and read it as signed -- what `ld a,l` gives you."""
-    v &= 0xFF
-    return v - 256 if v >= 128 else v
-
-
 def _i16(v: int) -> int:
     v &= 0xFFFF
     return v - 65536 if v >= 32768 else v
@@ -207,8 +226,19 @@ def project(point, focus, matrix, cam_dist):
     Returns (sx, sy, z) or None if it was clipped. `z` is the camera-space
     depth the size tier is chosen from.
     """
-    # v = (P - focus) >> 8, i.e. the high byte of the 16-bit difference.
-    v = [_i8(_i16(point[i] - focus[i]) >> WORLD_SHIFT) for i in range(3)]
+    #  v = (P - focus) >> WORLD_SHIFT, CLIPPED rather than truncated -- see
+    #  PROJ_V_MAX. Two ways to be out of range, and the Z80 tests for both:
+    #  the 16-bit subtract itself can overflow (SBC HL,DE sets P/V, and the
+    #  sign bit lies when it does), and the shifted result can leave a byte.
+    v = []
+    for i in range(3):
+        d = point[i] - focus[i]
+        if d < -32768 or d > 32767:
+            return None
+        c = d >> WORLD_SHIFT                 # arithmetic, and so is the Z80's
+        if c < PROJ_V_MIN or c > PROJ_V_MAX:
+            return None
+        v.append(c)
 
     rotated = []
     for row in range(3):
@@ -343,6 +373,10 @@ def render() -> str:
         f"MAT_ONE equ {MAT_ONE}",
         f"TRIG_STEPS   equ {TRIG_STEPS}",
         f"TRIG_QUARTER equ {TRIG_QUARTER}",
+        "",
+        ";  Emitted so src/main.asm can assert that proj_deltas' hand-written",
+        ";  range check still matches the model's WORLD_SHIFT.",
+        f"WORLD_SHIFT  equ {WORLD_SHIFT}",
         "",
         "    align 256",
         _defb_block("sin7", sin7_table()),

@@ -81,6 +81,12 @@ code_end:
     assert (sin7 & 255) == 0,               "sin7 is not page aligned"
     assert (recip & 255) == 0,              "recip is not page aligned"
 
+;  proj_deltas hand-codes its >>WORLD_SHIFT as two `add hl,hl` and tests the
+;  range with PROJ_V_BIAS, both of which are only correct for one shift. The
+;  shift itself is the Python model's to decide, and the model is included
+;  here rather than where proj.asm needs it -- so check the two agree here.
+    assert PROJ_V_BIAS == 1 << (WORLD_SHIFT - 1), "proj_deltas' range check does not match WORLD_SHIFT"
+
 ; ----------------------------------------------------------------------------
 ;  The low 16K is the whole world below the bank window. If we ever spill past
 ;  #4000 the next thing we would overwrite is paged sprite data, and the

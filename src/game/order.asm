@@ -32,8 +32,13 @@ CAM_YAW_STEP        equ 8               ; 256/8 = the 32 yaw steps of section 4.
 CAM_PITCH_STEP      equ 4               ; 16 steps
 CAM_PITCH_MAX       equ 53              ; +/-75 degrees
 
-DISC_STEP           equ 1600            ; world units per frame held
-DISC_STEP_DIAG      equ 1131            ; the same length at 45 degrees
+DISC_STEP           equ 400             ; world units per frame held
+DISC_STEP_DIAG      equ 283             ; the same length at 45 degrees
+
+;  NOT divided by four with everything else, and that is the whole point. The
+;  play area is however far the player may go, and leaving this hard against
+;  the 16-bit edge while the content shrank into a quarter of the space is
+;  where the extra room came from.
 DISC_LIMIT          equ 30000           ; keep well inside the 16-bit world
 
 ;  Ink used to draw the disc and its height line.
@@ -865,12 +870,12 @@ order_octant_step:
 ;  fan out around it, spread in Z as well as X so ships sit at genuinely
 ;  different depths and so at different sprite tiers.
 order_home:
-    defw      0,  2000,      0           ; 1
-    defw -18000, -3000,   8000           ; 2
-    defw  18000,  3000,  -8000           ; 3
-    defw -12000, -2000,  16000           ; 4
-    defw  12000,  2500, -16000           ; 5
-    defw  -6000, -3000, -12000           ; 6
-    defw   6000,  2000,  12000           ; 7
-    defw -24000, -2500,   4000           ; 8
-    defw  24000,  3000,  -4000           ; 9
+    defw      0,   500,      0           ; 1
+    defw  -4500,  -750,   2000           ; 2
+    defw   4500,   750,  -2000           ; 3
+    defw  -3000,  -500,   4000           ; 4
+    defw   3000,   625,  -4000           ; 5
+    defw  -1500,  -750,  -3000           ; 6
+    defw   1500,   500,   3000           ; 7
+    defw  -6000,  -625,   1000           ; 8
+    defw   6000,   750,  -1000           ; 9

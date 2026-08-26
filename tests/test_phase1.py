@@ -191,7 +191,18 @@ class TestProjection(EmuFixture):
             return None
         return (self.word("PROJ_SX"), self.byte("PROJ_SY"), self.byte("PROJ_Z"))
 
+    def _clamp16(self, v):
+        return max(-32768, min(32767, v))
+
     def test_matches_the_model_on_random_input(self):
+        """Points drawn AROUND THE FOCUS, straddling proj_deltas' range check.
+
+        The spread is deliberate. proj_deltas only accepts a delta of up to
+        8191 world units per axis (see PROJ_V_BIAS), so drawing points from
+        the whole 16-bit world would clip almost all of them and leave the
+        pipeline itself barely exercised; drawing them from well inside would
+        never touch the clip. +/-9000 does both.
+        """
         rng = random.Random(11)
         checked = visible = 0
         for _ in range(120):
@@ -199,7 +210,8 @@ class TestProjection(EmuFixture):
             pitch = rng.randrange(-53, 54)
             dist = rng.choice((110, 150, 200, 250))
             focus = tuple(rng.randrange(-8000, 8000) for _ in range(3))
-            point = tuple(rng.randrange(-32768, 32768) for _ in range(3))
+            point = tuple(self._clamp16(focus[i] + rng.randrange(-9000, 9000))
+                          for i in range(3))
 
             got = self._project(point, focus, yaw, pitch, dist)
             want = g.project(point, focus, g.camera_matrix(yaw, pitch), dist)
@@ -212,19 +224,69 @@ class TestProjection(EmuFixture):
                            f"only {visible}/{checked} points survived clipping -- "
                            "the test is not exercising the projection")
 
+    def test_matches_the_model_right_across_the_world(self):
+        """The other half: points anywhere at all, so the clip is what is tested.
+
+        Almost everything here is rejected by proj_deltas, and the point is
+        that the Z80 and the model reject the SAME ones. Two ways to be out of
+        range and both are covered -- the shifted delta leaving a byte, and
+        the 16-bit subtract overflowing outright, which it does whenever two
+        coordinates are more than 32767 apart. That second one is why
+        DISC_LIMIT is 30000 and this matters: a fleet can be sent there.
+        """
+        rng = random.Random(29)
+        checked = clipped = 0
+        for _ in range(120):
+            yaw = rng.randrange(256)
+            pitch = rng.randrange(-53, 54)
+            dist = rng.choice((110, 150, 200, 250))
+            focus = tuple(rng.randrange(-30000, 30000) for _ in range(3))
+            point = tuple(rng.randrange(-32768, 32768) for _ in range(3))
+
+            got = self._project(point, focus, yaw, pitch, dist)
+            want = g.project(point, focus, g.camera_matrix(yaw, pitch), dist)
+            self.assertEqual(got, want,
+                             f"point={point} focus={focus} yaw={yaw} pitch={pitch} dist={dist}")
+            checked += 1
+            clipped += got is None
+
+        self.assertGreater(clipped, checked // 2,
+                           "nothing was clipped -- the range check is not being reached")
+
+    def test_a_distant_entity_is_dropped_rather_than_wrapped(self):
+        """The failure this replaces put the ship somewhere it was not.
+
+        A delta of 8191 units is the last one that fits; 8192 does not, and
+        without the check it would index f9 out of its nine-bit range and come
+        back as a perfectly plausible screen position.
+        """
+        self.assertIsNotNone(self._project((8191, 0, 0), (0, 0, 0), 0, 0, 250))
+        self.assertIsNone(self._project((8192, 0, 0), (0, 0, 0), 0, 0, 250))
+        self.assertIsNone(self._project((0, 0, 0), (0, 30000, 0), 0, 0, 250))
+        #  ...and the case where the subtract itself overflows, where the sign
+        #  bit lies about which way the entity even is.
+        self.assertIsNone(self._project((32767, 0, 0), (-32768, 0, 0), 0, 0, 250))
+
     def test_a_point_at_the_focus_lands_dead_centre(self):
         got = self._project((0, 0, 0), (0, 0, 0), 0, 0, 150)
         self.assertEqual(got, (160, 100, 150))
 
     def test_clips_behind_the_camera(self):
-        """A point far behind the focus must fall outside the near plane."""
-        # cam_dist 110, so a rotated z of about -110 puts it at z ~ 0
-        got = self._project((0, 0, -32768), (0, 0, 0), 0, 0, 110)
+        """A point behind the focus must fall outside the NEAR PLANE.
+
+        Kept inside proj_deltas' range on purpose, or this would be testing
+        the distance clip instead: -8000 world units is -125 camera units, and
+        cam_dist 110 leaves that a long way in front of Z_NEAR.
+        """
+        got = self._project((0, 0, -8000), (0, 0, 0), 0, 0, 110)
         self.assertIsNone(got)
 
     def test_depth_grows_with_distance_along_the_view_axis(self):
+        #  World units, so a quarter of what they were: proj_deltas clips
+        #  anything past 8191 and the old ladder would have been three
+        #  rejections and a point.
         seen = []
-        for pz in (-16384, -8192, 0, 8192, 16384):
+        for pz in (-4096, -2048, 0, 2048, 4096):
             r = self._project((0, 0, pz), (0, 0, 0), 0, 0, 200)
             if r:
                 seen.append(r[2])

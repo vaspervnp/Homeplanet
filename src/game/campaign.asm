@@ -92,75 +92,82 @@ mission_table_end:
 
 ; ----------------------------------------------------------------------------
 ;  Enemy layouts. Six bytes a ship: x, y, z.
+;
+;  All of these are a quarter of what they used to be. WORLD_SHIFT went from 8
+;  to 6 to make the play area four times bigger, and the authored content had
+;  to shrink by the same factor or every mission would have been laid out four
+;  times larger on screen -- see src/math/proj.asm.
 ; ----------------------------------------------------------------------------
 mis_none:
 
 enemies_picket:
-    defw  -9000, 0, 20000
-    defw  -3000, 0, 20000
-    defw   3000, 0, 20000
-    defw   9000, 0, 20000
+    defw  -2250, 0, 5000
+    defw   -750, 0, 5000
+    defw    750, 0, 5000
+    defw   2250, 0, 5000
 
 enemies_line:
-    defw -12000,  0, 22000
-    defw  -8500,  0, 22000
-    defw  -5000,  0, 22000
-    defw  -1500,  0, 22000
-    defw   1500,  0, 22000
-    defw   5000,  0, 22000
-    defw   8500,  0, 22000
-    defw  12000,  0, 22000
+    defw  -3000,  0, 5500
+    defw  -2125,  0, 5500
+    defw  -1250,  0, 5500
+    defw   -375,  0, 5500
+    defw    375,  0, 5500
+    defw   1250,  0, 5500
+    defw   2125,  0, 5500
+    defw   3000,  0, 5500
 
 ;  Right on top of the fleet: the nebula hides them until it is too late.
 enemies_close:
-    defw  -5000,  2000,  7000
-    defw   5000, -2000,  7000
-    defw  -7000, -2000, -6000
-    defw   7000,  2000, -6000
-    defw       0,  4000,  9000
-    defw       0, -4000, -9000
-    defw -10000,      0,     0
-    defw  10000,      0,     0
+    defw  -1250,   500,  1750
+    defw   1250,  -500,  1750
+    defw  -1750,  -500, -1500
+    defw   1750,   500, -1500
+    defw      0,  1000,  2250
+    defw      0, -1000, -2250
+    defw  -2500,     0,     0
+    defw   2500,     0,     0
 
 enemies_scatter:
-    defw -16000,  3000,  14000
-    defw  16000, -3000,  14000
-    defw -16000, -3000, -14000
-    defw  16000,  3000, -14000
-    defw       0,  5000,  20000
-    defw       0, -5000, -20000
+    defw  -4000,   750,  3500
+    defw   4000,  -750,  3500
+    defw  -4000,  -750, -3500
+    defw   4000,   750, -3500
+    defw      0,  1250,  5000
+    defw      0, -1250, -5000
 
 ;  A wall across the jump point.
 enemies_wall:
-    defw -14000,  3000, 20000
-    defw  -9000,  3000, 20000
-    defw  -4000,  3000, 20000
-    defw   1000,  3000, 20000
-    defw   6000,  3000, 20000
-    defw  11000,  3000, 20000
-    defw -14000, -3000, 20000
-    defw  -9000, -3000, 20000
-    defw  -4000, -3000, 20000
-    defw   1000, -3000, 20000
-    defw   6000, -3000, 20000
-    defw  11000, -3000, 20000
+    defw  -3500,  750, 5000
+    defw  -2250,  750, 5000
+    defw  -1000,  750, 5000
+    defw    250,  750, 5000
+    defw   1500,  750, 5000
+    defw   2750,  750, 5000
+    defw  -3500, -750, 5000
+    defw  -2250, -750, 5000
+    defw  -1000, -750, 5000
+    defw    250, -750, 5000
+    defw   1500, -750, 5000
+    defw   2750, -750, 5000
 
 
 ; ----------------------------------------------------------------------------
 ;  Resource layouts. Eight bytes a patch: x, y, z, stock.
+;  The positions are world units and are quartered with everything else; the
+;  STOCK is RU and is not a coordinate, so it is untouched.
 ; ----------------------------------------------------------------------------
 patches_rich:
-    defw -26000,  1000, -6000
+    defw  -6500,   250, -1500
     defw 900
-    defw  26000, -1000,  6000
+    defw   6500,  -250,  1500
     defw 900
-    defw  -6000,  2000, 26000
+    defw  -1500,   500,  6500
     defw 700
 
 patches_thin:
-    defw  20000, -2000, -18000
+    defw   5000,  -500, -4500
     defw 400
-    defw -20000,  2000,  18000
+    defw  -5000,   500,  4500
     defw 300
 
 

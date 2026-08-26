@@ -14,7 +14,7 @@
 ; ----------------------------------------------------------------------------
 
 GRID_POINTS         equ 16              ; a 4 x 4 lattice
-GRID_SPACING        equ 9000
+GRID_SPACING        equ 2250            ; world units, and they got 4x smaller
 GRID_INK            equ INK_NEUTRAL     ; sky blue: environment, not a ship
 
 

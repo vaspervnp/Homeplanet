@@ -30,7 +30,7 @@ PHASE4_SHIPS        equ 15
 
 ;  World units a ship closes on its slot each frame. Fast enough that a split
 ;  resolves in a couple of seconds, slow enough to read as flight.
-PHASE4_STEP         equ 600
+PHASE4_STEP         equ 150
 
 ;  Screen cache per visible ship (Homeplanet.md section 7).
 PHASE4_VIS_SIZE     equ 6
