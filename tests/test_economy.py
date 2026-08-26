@@ -80,7 +80,12 @@ class EconomyFixture(unittest.TestCase):
             self.hold(".", frames=20)
         self.fail(f"could not select class {ship_class}")
 
-    def build(self, ship_class, wait=350):
+    #  Long enough for the yard to finish AND clear itself, with margin. This
+    #  is a count of 50Hz frames while the yard counts GAME frames -- ten of
+    #  them each at the rate this actually runs -- so 350 was about one game
+    #  frame of slack and any change that moved a frame boundary tipped it.
+    #  Colouring the HUD did exactly that, and the ship was building fine.
+    def build(self, ship_class, wait=800):
         self.hold("b")                              # open the panel
         self.assertEqual(self.byte("ECO_BUILD_OPEN"), 1)
         self.set_pick(ship_class)

@@ -65,6 +65,11 @@ HUD_MIS_X           equ 56
 ;  What is left of row A after the RU figure, one character clear of it.
 HUD_HELP_X          equ 70
 
+;  The semantic palette of section 2, by name.
+PEN_WHITE           equ 1
+PEN_BLUE            equ 2
+PEN_RED             equ 3
+
 
 ; ----------------------------------------------------------------------------
 ;  demo_init
@@ -1382,10 +1387,14 @@ phase4_hud:
     call phase4_hud_row
 
     ; --- resources (section 5.5) ------------------------------------------
+    ld a,PEN_BLUE
+    call txt_set_pen
     ld hl,phase4_hud_ru_label
     ld b,HUD_RU_X
     ld c,HUD_ROW_A_Y
     call txt_draw
+    ld a,PEN_WHITE
+    call txt_set_pen
     ld a,(eco_ru)                       ; the low byte: RU never nears 65535
     ld b,HUD_RU_X + 3 * TXT_CHAR_W_BYTES
     ld c,HUD_ROW_A_Y
@@ -1394,19 +1403,27 @@ phase4_hud:
 
     ;  The way out of not knowing the keys. Five characters is all the strip
     ;  has left after the RU figure -- the last glyph starts at byte 78 of 80.
+    ld a,PEN_BLUE
+    call txt_set_pen
     ld hl,phase4_hud_help
     ld b,HUD_HELP_X
     ld c,HUD_ROW_A_Y
     call txt_draw
+    ld a,PEN_WHITE
+    call txt_set_pen
 
     ; --- the mission -------------------------------------------------------
     ;  Its number and whether the jump is open. Twelve characters of name
     ;  would not fit beside the squadron list, so the name lives on the
     ;  briefing screen the design asks for and this is the reminder.
+    ld a,PEN_BLUE
+    call txt_set_pen
     ld hl,phase4_hud_mis_label
     ld b,HUD_MIS_X
     ld c,HUD_ROW_B_Y
     call txt_draw
+    ld a,PEN_WHITE
+    call txt_set_pen
     ld a,(mis_index)
     inc a
     ld b,HUD_MIS_X + 2 * TXT_CHAR_W_BYTES
@@ -1419,10 +1436,14 @@ phase4_hud:
     ld hl,phase4_hud_hold
     jr z,@p4_mis_show
     ld hl,phase4_hud_jump               ; the jump is available
+    ld a,PEN_RED                        ; ...and section 2 makes 3 the ink
+    call txt_set_pen                    ; that means "look at this"
 @p4_mis_show:
     ld b,HUD_MIS_X + 4 * TXT_CHAR_W_BYTES
     ld c,HUD_ROW_B_Y
     call txt_draw
+    ld a,PEN_WHITE
+    call txt_set_pen
 
     ; --- the yard ---------------------------------------------------------
     ;  '*' while a ship is on the slipway, '>' while the panel is open and
@@ -1594,6 +1615,18 @@ phase4_hud_entry:
 @p4_not_selected:
     ld (phase4_hud_text + 0),a
 
+    ;  Ink 2 for the squadrons that are not selected. The palette is semantic
+    ;  (section 2) and 2 is the shading ink, so the selection is the only white
+    ;  entry in the row -- the eye finds it without reading a digit.
+    ld a,(phase4_hud_squad)
+    ld hl,squad_sel
+    cp (hl)
+    ld a,PEN_WHITE
+    jr z,@p4_entry_pen
+    ld a,PEN_BLUE
+@p4_entry_pen:
+    call txt_set_pen
+
     ld a,(phase4_hud_squad)
     add a,'0'
     ld (phase4_hud_text + 1),a
@@ -1613,7 +1646,9 @@ phase4_hud_entry:
     ld c,a
     ld d,2
     ld a,(phase4_hud_n)
-    jp txt_draw_num
+    call txt_draw_num
+    ld a,PEN_WHITE                      ; nothing inherits an ink
+    jp txt_set_pen
 
 
 ; ============================================================================

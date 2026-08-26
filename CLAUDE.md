@@ -349,6 +349,22 @@ transparent** — pen 0 is empty space in this game's palette.
 
 The converter warns if the project's inks are not the game's four.
 
+### The palette is semantic, and the HUD uses it
+
+`txt_draw` produces **pen 1 only** by construction: ink 1 is `%01`, so four
+1bpp pixels are their own Mode 1 byte. The other two inks fall out of that for
+almost nothing -- ink 2 is `%10`, the same pixels four bits down, and ink 3 is
+both. `txt_set_pen` patches one mask per plane into the `AND` immediates in
+`txt_pen_map`; there is no branch and no load per byte.
+
+**It is not sticky by convention**: whoever changes the ink puts it back to 1,
+so a routine drawing in white never has to ask what the last one left.
+
+In the strip: labels and chrome (`RU`, `M`, `?HELP`) and the squadrons that are
+*not* selected are ink 2, so the selection is the only white entry and the eye
+finds it without reading a digit. `JUMP` is ink 3 -- the one thing in the HUD
+that demands an action, in the ink §2 reserves for attention.
+
 ### The palette is semantic
 
 | Pen | Colour | Hardware | Meaning |

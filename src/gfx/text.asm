@@ -33,6 +33,23 @@
 TXT_CHAR_W_BYTES    equ 2               ; 8 pixels, Mode 1
 TXT_CHAR_H          equ 8
 
+;  --- colour -------------------------------------------------------------
+;  Everything above produces PEN 1: four 1bpp pixels are their own Mode 1 byte
+;  because ink 1 is %01, so a lit pixel sets its bit in the high nibble and
+;  nothing in the low one.
+;
+;  The other two inks fall out of that for almost nothing. Ink 2 is %10 -- the
+;  same pixels in the LOW nibble, so pen 2 is the pen-1 byte shifted right
+;  four. Ink 3 is %11, which is both. So one mask per plane covers all three:
+;
+;      pen 1:  hi = #FF  lo = #00
+;      pen 2:  hi = #00  lo = #FF
+;      pen 3:  hi = #FF  lo = #FF
+;
+;  The masks are patched into the AND immediates rather than read from memory,
+;  which is the difference between this costing a handful of T-states a byte
+;  and costing a load. txt_set_pen is the only thing that writes them.
+;
 ;  Space..'Z'. Lowercase and #5B-#5F are dropped: 5 glyphs is 40 bytes and
 ;  nothing in the HUD spells anything in lower case. Everything outside the
 ;  range prints as a space rather than as garbage.
@@ -40,6 +57,51 @@ TXT_FIRST_CHAR      equ 32              ; space
 TXT_LAST_CHAR       equ 90              ; 'Z'; uppercase only
 
 TXT_NUM_MAX         equ 5               ; widest field txt_draw_num will take
+
+
+; ----------------------------------------------------------------------------
+;  txt_set_pen -- choose the ink the next string is drawn in
+;  In : A = 1, 2 or 3
+;  Uses: AF, B
+;
+;  NOT sticky by convention: whoever changes it puts it back to 1, so a
+;  routine that draws in white does not have to ask what the last one left.
+; ----------------------------------------------------------------------------
+txt_set_pen:
+    ld b,a
+    rrca                                ; bit 0 -> CF: does this ink use plane 0?
+    sbc a,a                             ; #FF if it does, #00 if not
+    ld (txt_mask_hi),a
+    ld a,b
+    rrca
+    rrca                                ; bit 1 -> CF: and plane 1?
+    sbc a,a
+    ld (txt_mask_lo),a
+    ret
+
+
+; ----------------------------------------------------------------------------
+;  txt_pen_map -- recolour one screen byte's worth of pen-1 pixels
+;  In : A = the pixels, lit in the high nibble
+;  Out: A = the same pixels in the chosen ink
+;  Uses: AF  (B and C belong to the glyph loop and must survive)
+; ----------------------------------------------------------------------------
+txt_pen_map:
+    push bc
+    ld c,a
+    rrca
+    rrca
+    rrca
+    rrca                                ; the same pixels, low nibble
+txt_mask_lo equ $+1
+    and #00                             ; PATCHED by txt_set_pen
+    ld b,a
+    ld a,c
+txt_mask_hi equ $+1
+    and #FF                             ; PATCHED by txt_set_pen
+    or b
+    pop bc
+    ret
 
 
 ; ----------------------------------------------------------------------------
@@ -128,6 +190,7 @@ txt_draw_char:
 @txt_row:
     ld a,(de)                           ; 1bpp row, bit 7 = leftmost pixel
     and #F0                             ; left four pixels, already in place
+    call txt_pen_map
     ld (hl),a
     inc hl
     ld a,(de)                           ; re-read: cheaper than PUSH/POP AF
@@ -136,6 +199,7 @@ txt_draw_char:
     add a,a                             ; pen-bit-0 nibble
     add a,a
     add a,a
+    call txt_pen_map
     ld (hl),a
     dec hl
 
