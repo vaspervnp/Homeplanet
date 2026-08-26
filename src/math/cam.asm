@@ -111,13 +111,39 @@ cam_build_matrix:
 
 
 ; ----------------------------------------------------------------------------
-;  cam_sin -- A = sin7[A], i.e. sin(angle) * 127
-;  Uses: AF, HL
+;  cam_sin -- A = sin(angle A) * 127
+;  Uses: AF, C, DE, HL
+;
+;  sin7 is only the FIRST QUADRANT -- 65 bytes, not 256 -- and the other three
+;  are folded onto it here. Bit 7 of the angle is the sign, and an angle past
+;  the peak reflects back as 128 - a.
+;
+;  The trade is about 40 T-states against 191 bytes of the low 16K, and it is
+;  only worth taking because this is called FOUR TIMES A FRAME by
+;  cam_build_matrix and nowhere else. The same trade inside proj_rotate would
+;  be a bad one, which is why f9 is still 1 KB of full table.
+;
+;  It is exact, not approximate: sin(pi - x) == sin(x), sin(-x) == -sin(x),
+;  and Python's round() is symmetric about zero, so a folded angle reads the
+;  same byte the full table held. tests/test_phase1 compares the whole matrix
+;  against the model, which still builds itself from all 256.
 ; ----------------------------------------------------------------------------
 cam_sin:
+    ld c,a                              ; kept for its sign bit alone
+    and #7F                             ; the angle within the half turn
+    cp TRIG_QUARTER + 1
+    jr c,@cam_sin_rising
+    neg
+    add a,TRIG_STEPS / 2                ; past the peak: reflect, 128 - a
+@cam_sin_rising:
     ld l,a
-    ld h,sin7 / 256
+    ld h,0
+    ld de,sin7
+    add hl,de
     ld a,(hl)
+    bit 7,c
+    ret z
+    neg
     ret
 
 
@@ -145,8 +171,9 @@ cam_mul7:
 cam_yaw:            defb 0
 cam_pitch:          defb 0
 
-;  Distance from the focus, added to the rotated Z. The four zoom steps in
-;  cam_zoom_steps pick this. Kept 16-bit so the add can overflow visibly.
+;  Distance from the focus, added to the rotated Z. One field of the zoom
+;  record; order_apply_zoom writes it. Kept 16-bit so the add can overflow
+;  visibly.
 cam_dist:           defw 150
 
 ;  Where the camera is looking.
@@ -154,11 +181,12 @@ cam_focus_x:        defw 0
 cam_focus_y:        defw 0
 cam_focus_z:        defw 0
 
-;  The four zoom steps (Homeplanet.md section 4.3).
-CAM_ZOOM_STEPS      equ 4
-cam_zoom:           defb 1
-cam_zoom_dist:
-    defw 110, 150, 200, 250
+;  Which zoom step is in force. Twelve of them now (Homeplanet.md section 4.3
+;  asks for four), and the table they index -- cam_zoom_table, with its
+;  distance AND the shift ladder proj_scale runs -- is generated, because the
+;  Python model of the projection has to agree with it exactly. Five is the
+;  neutral step, the one whose scaling is a plain >> WORLD_SHIFT.
+cam_zoom:           defb CAM_ZOOM_DEFAULT
 
 ; --- scratch for the matrix build -------------------------------------------
 cam_sy:             defb 0

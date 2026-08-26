@@ -101,6 +101,140 @@ TIER_C_MAX_Z = 130                   # nearer than this -> 24x16
 TIER_B_MAX_Z = 190                   # nearer than this -> 16x10
                                      # anything further -> 8x6
 
+# ---------------------------------------------------------------------------
+#  The zoom ladder (Homeplanet.md section 4.3, extended)
+# ---------------------------------------------------------------------------
+#  ZOOMING OUT IS NOT A LONGER cam_dist, and finding that out is the whole
+#  story of this table.
+#
+#  proj_deltas has to fit one axis of (P - focus) into a signed byte, so the
+#  camera can only ever see a +/-127 CAMERA-UNIT cube around its focus, and
+#  cam_dist decides only how much of the SCREEN that cube covers. Measure it:
+#  at cam_dist 250 the whole cube lands between sx 120 and sx 200 -- the middle
+#  quarter of a 320-pixel screen. So the four distances 110..250 are not four
+#  amounts of world, they are one amount of world drawn at four sizes, and
+#  three of them show exactly the same 8191-unit radius. That is the
+#  "everything is far away and tiny" complaint, and no amount of extra
+#  cam_dist fixes it: past 255 the perspective divide runs out of byte.
+#
+#  What DOES change how much world is visible is how far a world delta is
+#  shifted down on its way into that cube. One more bit of shift is one more
+#  doubling of the radius, at exactly the same screen positions and the same
+#  size tiers -- which is precisely what was asked for: the same small or
+#  large ships, more world between them.
+#
+#  Powers of two alone would be a coarse ladder -- four steps out would be
+#  16x -- so half-steps come from a second form:
+#
+#      v = 3 * (delta >> S)           instead of     v = delta >> S
+#
+#  The x3 form saturates at v = +/-126 rather than +/-127, so its radius is
+#  42<<S against the plain form's 128<<S. Put the two together and the ladder
+#  goes ... 128<<S, 42<<(S+2), 128<<(S+1) ... which is alternating steps of
+#  4/3 and 3/2 -- about 1.4x a notch, twelve notches, 36x end to end. Both
+#  forms are a shift and at most two adds; neither needs a multiply. See
+#  proj_scale.
+#
+#  Radius here is the largest world delta per axis that still projects, and it
+#  is what "how much can I see" means. The 16-bit world is +/-32767, so the
+#  widest step covers all of it and there is deliberately no step past that.
+#
+#      idx  dist  radius   world units per screen pixel
+#        0   110    2048    11
+#        4   110    8192    44          <- the old step 0
+#        5   150    8192    60          <- the old step 1, still the default
+#        7   250    8192   100          <- the old step 3
+#       11   250   32768   400
+#
+#  (dist, shift, mul3)
+ZOOM_STEPS = [
+    (110, 4, False),                 # 0  in  x16
+    (110, 6, True),                  # 1
+    (110, 5, False),                 # 2
+    (110, 7, True),                  # 3
+    (110, 6, False),                 # 4  the old four steps begin here
+    (150, 6, False),                 # 5  ...and this is where the game starts
+    (200, 6, False),                 # 6
+    (250, 6, False),                 # 7  the old widest
+    (250, 8, True),                  # 8  out
+    (250, 7, False),                 # 9
+    (250, 9, True),                  # 10
+    (250, 8, False),                 # 11 the whole 16-bit world at once
+]
+
+#  Where the game starts, and the step whose scaling is plain >> WORLD_SHIFT --
+#  src/main.asm asserts those are the same step, because everything that pokes
+#  cam_dist without touching the zoom (the differential tests, mostly) is
+#  relying on the boot-time patch state being the neutral one.
+ZOOM_DEFAULT = 5
+
+#  Consolidation (todo item 3) turns on here: the steps that were added, not
+#  the ones that were already there. Below this the picture is unchanged.
+ZOOM_GROUP_FROM = 8
+
+
+def zoom_radius(step: int) -> int:
+    """Largest world delta per axis that still projects, at this zoom step."""
+    _, shift, mul3 = ZOOM_STEPS[step]
+    return 42 << shift if mul3 else 128 << shift
+
+
+#  Bytes of proj_scale, by name, so the table below reads as instructions
+#  rather than as hex.
+_Z80_ADD_A_N = 0xC6
+_Z80_AND_N = 0xE6
+_Z80_CP_N = 0xFE
+_Z80_ADD_HL_HL = 0x29
+_Z80_NOP = 0x00
+_Z80_SRA_A = (0xCB, 0x2F)
+_Z80_SCF_RET = (0x37, 0xC9)
+_Z80_JR_0 = (0x18, 0x00)             # to the instruction immediately after
+
+ZOOM_RECORD = 14                     # exactly what it holds; see order_apply_zoom
+
+
+def zoom_patch(step: int) -> list[int]:
+    """The record order_apply_zoom LDIRs into proj_scale's instruction stream.
+
+        +0   cam_dist, a word
+        +2   the range check: `add a,bias : cp limit`, or `and 0 : cp 1`
+        +6   the shift ladder: four `add hl,hl`, each NOP'd out or not
+        +10  `sra a`, or two NOPs
+        +12  `scf : ret`, or a `jr` into the x3 tail
+
+    Deriving it here rather than writing twelve rows of magic numbers by hand
+    is the point: the shift is the only thing ZOOM_STEPS states.
+    """
+    dist, shift, mul3 = ZOOM_STEPS[step]
+
+    #  HL >> shift, as `<< (8 - shift)` and then "take H" when that fits, and
+    #  as "take H" and then arithmetic halvings when it does not.
+    n = max(0, 8 - shift)                # left shifts before taking H
+    m = max(0, shift - 8)                # halvings of A after taking H
+    assert n <= 4 and m <= 1, f"zoom step {step}: shift {shift} is off the ladder"
+
+    #  The left shift is only safe while the top n+1 bits of HL agree, which
+    #  on the high byte is h in -2^(shift-1) .. 2^(shift-1)-1. That bound is a
+    #  whole number of 256s, so the byte test is EXACT rather than a
+    #  conservative one -- and for the plain form it is also exactly the
+    #  "v fits a signed byte" test, so one check does both jobs.
+    if n:
+        bias = 1 << (shift - 1)
+        check = [_Z80_ADD_A_N, bias, _Z80_CP_N, (bias * 2) & 0xFF]
+    else:
+        #  Nothing to reject: v is H itself (or half of it), which is a byte
+        #  by construction. `and 0 : cp 1` passes everything and costs the
+        #  same as the check it replaces, so there is no branch to skip it.
+        check = [_Z80_AND_N, 0, _Z80_CP_N, 1]
+
+    ladder = [_Z80_ADD_HL_HL] * n + [_Z80_NOP] * (4 - n)
+    halve = list(_Z80_SRA_A) if m else [_Z80_NOP, _Z80_NOP]
+    tail = list(_Z80_JR_0) if mul3 else list(_Z80_SCF_RET)
+
+    rec = [dist & 0xFF, dist >> 8] + check + ladder + halve + tail
+    assert len(rec) == ZOOM_RECORD
+    return rec
+
 
 def screen_line_offsets() -> list[int]:
     """Byte offset of each pixel line from the base of a screen buffer.
@@ -166,11 +300,30 @@ def sin7_table() -> list[int]:
 
     The matrix build wants single-byte trig, not the 8.8 pair: it multiplies
     these together with the ordinary signed 8x8 routine and shifts back by 7.
+
+    This is the MODEL. What is emitted is sin7_quarter() -- see there.
     """
     return [
         round(MAT_ONE * math.sin(2.0 * math.pi * i / TRIG_STEPS))
         for i in range(TRIG_STEPS)
     ]
+
+
+def sin7_quarter() -> list[int]:
+    """The first quadrant of sin7, entries 0..TRIG_QUARTER inclusive.
+
+    A full turn is four copies of this with two reflections, and cam_sin does
+    the folding: 191 bytes of a low 16K that has none, for about 40 T-states
+    in a routine called FOUR TIMES A FRAME. It would be a bad trade in
+    proj_rotate and it is an obvious one here.
+
+    The symmetry is exact rather than approximate, which is what makes this
+    safe: sin(pi - x) == sin(x) and sin(-x) == -sin(x) hold in the reals, and
+    round() is symmetric about zero, so folding an angle cannot land a
+    different byte than the full table held. sin7_table() above stays the
+    model the tests compare the FOLDED result against.
+    """
+    return sin7_table()[:TRIG_QUARTER + 1]
 
 
 def recip_table() -> list[int]:
@@ -220,23 +373,38 @@ def camera_matrix(yaw: int, pitch: int) -> list[int]:
     ]
 
 
-def project(point, focus, matrix, cam_dist):
+def scale_delta(d: int, shift: int = WORLD_SHIFT, mul3: bool = False):
+    """One world delta into a camera-space component, or None if out of range.
+
+    The model for proj_scale. `mul3` is the half-step form: three times a
+    delta shifted two bits further, which reaches 4/3 as far as the plain
+    form for the price of two adds.
+    """
+    t = d >> shift                           # arithmetic, and so is the Z80's
+    if mul3:
+        #  3*43 is 129, which is not a signed byte, so 42 is the last one in.
+        return None if t < -42 or t > 42 else 3 * t
+    return None if t < PROJ_V_MIN or t > PROJ_V_MAX else t
+
+
+def project(point, focus, matrix, cam_dist, shift=WORLD_SHIFT, mul3=False):
     """One entity through the whole pipeline.
 
     Returns (sx, sy, z) or None if it was clipped. `z` is the camera-space
-    depth the size tier is chosen from.
+    depth the size tier is chosen from. `shift`/`mul3` are the zoom step's
+    scaling -- see ZOOM_STEPS; the defaults are the neutral step.
     """
-    #  v = (P - focus) >> WORLD_SHIFT, CLIPPED rather than truncated -- see
+    #  v = (P - focus) scaled down, CLIPPED rather than truncated -- see
     #  PROJ_V_MAX. Two ways to be out of range, and the Z80 tests for both:
     #  the 16-bit subtract itself can overflow (SBC HL,DE sets P/V, and the
-    #  sign bit lies when it does), and the shifted result can leave a byte.
+    #  sign bit lies when it does), and the scaled result can leave a byte.
     v = []
     for i in range(3):
         d = point[i] - focus[i]
         if d < -32768 or d > 32767:
             return None
-        c = d >> WORLD_SHIFT                 # arithmetic, and so is the Z80's
-        if c < PROJ_V_MIN or c > PROJ_V_MAX:
+        c = scale_delta(d, shift, mul3)
+        if c is None:
             return None
         v.append(c)
 
@@ -293,6 +461,43 @@ def _defw_block(name: str, data: list[int], per_line: int = 8) -> str:
     return "\n".join(out)
 
 
+def render_zoom() -> str:
+    """gen/zoom.asm -- cam_zoom_table, for the bank-4 section of src/main.asm.
+
+    Its own file because it is the one generated thing that does NOT belong in
+    the low 16K: order_apply_zoom reads it on a keypress, with bank 4 at rest
+    under the window, so it costs nothing to reach and the low 16K has nothing
+    to spare.
+    """
+    lines = [
+        "; " + "=" * 74,
+        ";  gen/zoom.asm -- GENERATED by tools/gentables.py, do not edit",
+        "; " + "=" * 74,
+        ";  cam_zoom_table -- one CAM_ZOOM_RECORD-byte record per zoom step:",
+        ";",
+        ";    +0   cam_dist, a word",
+        ";    +2   the range check:  `add a,bias : cp limit`, or `and 0 : cp 1`",
+        ";    +6   the shift ladder: four `add hl,hl`, NOP'd out or not",
+        ";    +10  `sra a`, or two NOPs",
+        ";    +12  `scf : ret`, or a `jr` into the x3 tail",
+        ";",
+        ";  Twelve of the fourteen bytes are Z80 INSTRUCTIONS: order_apply_zoom",
+        ";  LDIRs them into the middle of proj_scale, which is where the zoom",
+        ";  actually happens. Radius below is the largest world delta per axis",
+        ";  that still projects -- what \"how much can I see\" means.",
+        "; " + "=" * 74,
+        "",
+        "cam_zoom_table:",
+    ]
+    for i, (dist, shift, mul3) in enumerate(ZOOM_STEPS):
+        kind = "3*(d>>%d)" % shift if mul3 else "d>>%d" % shift
+        lines.append("    ; %2d: dist %3d, %-9s radius %d"
+                     % (i, dist, kind, zoom_radius(i)))
+        lines.append("    defb " + ",".join("#%02X" % b for b in zoom_patch(i)))
+    lines += ["cam_zoom_table_end:", ""]
+    return "\n".join(lines) + "\n"
+
+
 def render() -> str:
     lines = [
         "; " + "=" * 74,
@@ -301,6 +506,50 @@ def render() -> str:
         ";  Regenerate with `make tables`. The generator is the readable",
         ";  specification; this file is just its output.",
         "; " + "=" * 74,
+        "",
+    ]
+
+    # --- the zoom ladder ----------------------------------------------------
+    #  The equates only. The TABLE itself goes to gen/zoom.asm and lives in
+    #  bank 4, because it is read on a keypress and the low 16K is full; see
+    #  render_zoom below.
+    lines += [
+        "; ---------------------------------------------------------------------------",
+        ";  The zoom ladder. cam_zoom_table itself is in gen/zoom.asm, in bank 4.",
+        ";  See tools/gentables.py's ZOOM_STEPS for why cam_dist cannot zoom out:",
+        ";  what you can see is a +/-127 cube, and cam_dist only decides how much",
+        ";  of the screen it lands on.",
+        "; ---------------------------------------------------------------------------",
+        f"CAM_ZOOM_STEPS   equ {len(ZOOM_STEPS)}",
+        f"CAM_ZOOM_DEFAULT equ {ZOOM_DEFAULT}",
+        f"CAM_ZOOM_GROUP_FROM equ {ZOOM_GROUP_FROM}",
+        f"CAM_ZOOM_RECORD  equ {ZOOM_RECORD}",
+        f"CAM_ZOOM_DEFAULT_SHIFT equ {ZOOM_STEPS[ZOOM_DEFAULT][1]}",
+        "",
+    ]
+
+    # --- single-byte trig, FIRST and unaligned ------------------------------
+    #  Before the page-aligned run, deliberately. It is 65 bytes and cam_sin
+    #  indexes it by adding rather than by paging, so it does not want an
+    #  `align 256` of its own -- and put AFTER the aligned tables it would sit
+    #  in front of one and the next `align` would give the 191 bytes straight
+    #  back. Here it lands in the slack the alignment was going to waste.
+    lines += [
+        "; ---------------------------------------------------------------------------",
+        ";  sin7 -- the FIRST QUADRANT of sin(a) * 127, one signed byte per angle.",
+        ";  cam_sin folds the other three onto it; see sin7_quarter() for why that",
+        ";  is exact, and cam_sin for what it costs (nothing that matters).",
+        "; ---------------------------------------------------------------------------",
+        f"MAT_ONE equ {MAT_ONE}",
+        f"TRIG_STEPS   equ {TRIG_STEPS}",
+        f"TRIG_QUARTER equ {TRIG_QUARTER}",
+        "",
+        ";  Emitted so src/main.asm can assert that proj_deltas' hand-written",
+        ";  range check still matches the model's WORLD_SHIFT.",
+        f"WORLD_SHIFT  equ {WORLD_SHIFT}",
+        "",
+        _defb_block("sin7", sin7_quarter()),
+        f"SIN7_ENTRIES equ {TRIG_QUARTER + 1}",
         "",
     ]
 
@@ -364,25 +613,6 @@ def render() -> str:
         "",
     ]
 
-    # --- single-byte trig for the matrix build ------------------------------
-    lines += [
-        "; ---------------------------------------------------------------------------",
-        ";  sin7 -- sin(a) * 127, one signed byte per angle.",
-        ";  What cam_build_matrix reads: ld h,HIGH(sin7) : ld l,angle : ld a,(hl)",
-        "; ---------------------------------------------------------------------------",
-        f"MAT_ONE equ {MAT_ONE}",
-        f"TRIG_STEPS   equ {TRIG_STEPS}",
-        f"TRIG_QUARTER equ {TRIG_QUARTER}",
-        "",
-        ";  Emitted so src/main.asm can assert that proj_deltas' hand-written",
-        ";  range check still matches the model's WORLD_SHIFT.",
-        f"WORLD_SHIFT  equ {WORLD_SHIFT}",
-        "",
-        "    align 256",
-        _defb_block("sin7", sin7_table()),
-        "",
-    ]
-
     # --- perspective --------------------------------------------------------
     lines += [
         "; ---------------------------------------------------------------------------",
@@ -400,13 +630,16 @@ def render() -> str:
         _defb_block("recip", recip_table()),
         "",
         "; ---------------------------------------------------------------------------",
-        ";  tier_lut -- sprite size tier per depth: 2 = 24x16, 1 = 16x10, 0 = 8x6",
+        ";  Sprite size tier per depth: 2 = 24x16, 1 = 16x10, 0 = 8x6.",
+        ";",
+        ";  This was a 256-byte page-aligned table, read with three instructions.",
+        ";  It holds three distinct values with two edges in it, so phase4_tier_for",
+        ";  does the two compares instead -- the same ~20 T-states, and 256 bytes",
+        ";  of the low 16K back, which is what paid for the zoom ladder and the",
+        ";  grouping pass. tier_table() below is still the model the tests check.",
         "; ---------------------------------------------------------------------------",
         f"TIER_C_MAX_Z equ {TIER_C_MAX_Z}",
         f"TIER_B_MAX_Z equ {TIER_B_MAX_Z}",
-        "",
-        "    align 256",
-        _defb_block("tier_lut", tier_table()),
         "",
     ]
 
@@ -417,13 +650,15 @@ def main(argv: list[str]) -> int:
     here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--out", default=os.path.join(here, "src", "gen", "tables.asm"))
+    ap.add_argument("--out-zoom", default=os.path.join(here, "src", "gen", "zoom.asm"),
+                    help="cam_zoom_table, which is assembled into bank 4")
     args = ap.parse_args(argv)
 
-    os.makedirs(os.path.dirname(args.out), exist_ok=True)
-    text = render()
-    with open(args.out, "w", encoding="utf-8") as f:
-        f.write(text)
-    print(f"wrote {args.out} ({len(text)} bytes)")
+    for path, text in ((args.out, render()), (args.out_zoom, render_zoom())):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(text)
+        print(f"wrote {path} ({len(text)} bytes)")
     return 0
 
 

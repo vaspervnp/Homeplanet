@@ -198,8 +198,12 @@ class TestTables(unittest.TestCase):
 
     def test_tables_are_page_aligned(self):
         """Every table the code indexes with `ld h,page : ld l,index`."""
+        #  sin7 and tier_lut are not here any more and must not come back:
+        #  sin7 is a 65-byte quadrant that cam_sin indexes by adding, and the
+        #  tier table became two compares in phase4_tier_for. Both were 256
+        #  bytes of a low 16K that had none.
         for name in ("QSQ_LO", "QSQ_HI", "F9_LO", "F9_HI",
-                     "SIN7", "RECIP", "TIER_LUT", "SCR_LINE_LO"):
+                     "RECIP", "SCR_LINE_LO"):
             self.assertEqual(self.sym[name] & 0xFF, 0, f"{name} is not page aligned")
 
 

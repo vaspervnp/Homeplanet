@@ -95,14 +95,25 @@ code_end:
     assert scr_line_hi == scr_line_lo + 256, "screen line planes are not on consecutive pages"
     assert (qsq_lo & 255) == 0,             "qsq_lo is not page aligned"
     assert (scr_line_lo & 255) == 0,        "scr_line_lo is not page aligned"
-    assert (sin7 & 255) == 0,               "sin7 is not page aligned"
     assert (recip & 255) == 0,              "recip is not page aligned"
 
-;  proj_deltas hand-codes its >>WORLD_SHIFT as two `add hl,hl` and tests the
-;  range with PROJ_V_BIAS, both of which are only correct for one shift. The
-;  shift itself is the Python model's to decide, and the model is included
-;  here rather than where proj.asm needs it -- so check the two agree here.
-    assert PROJ_V_BIAS == 1 << (WORLD_SHIFT - 1), "proj_deltas' range check does not match WORLD_SHIFT"
+;  sin7 is deliberately NOT in that list any more. It is 65 bytes -- one
+;  quadrant -- and cam_sin adds the index rather than paging it, which is what
+;  makes the odd size affordable.
+    assert SIN7_ENTRIES == TRIG_QUARTER + 1, "sin7 is not one whole quadrant"
+
+;  proj_scale assembles with the NEUTRAL zoom step already in its instruction
+;  stream -- two `add hl,hl`, no x3 tail, and PROJ_V_BIAS in its range check --
+;  so that anything which pokes cam_dist without going through the zoom (the
+;  differential tests, mostly) gets plain >>WORLD_SHIFT behaviour. That only
+;  holds while the default step really is the plain one, and the shift itself
+;  is the Python model's to decide, so check both here: the model is included
+;  further down than the code that depends on it, and ASSERT is evaluated
+;  where it stands.
+    assert PROJ_V_BIAS == 1 << (WORLD_SHIFT - 1), "proj_scale's range check does not match WORLD_SHIFT"
+    assert CAM_ZOOM_DEFAULT_SHIFT == WORLD_SHIFT, "the default zoom step is not the neutral one"
+    assert CAM_ZOOM_DEFAULT < CAM_ZOOM_STEPS, "the default zoom step is off the ladder"
+    assert CAM_ZOOM_GROUP_FROM <= CAM_ZOOM_STEPS, "grouping starts past the last zoom step"
 
 ; ----------------------------------------------------------------------------
 ;  The low 16K is the whole world below the bank window. If we ever spill past
@@ -142,6 +153,7 @@ code_end:
 bank4_start:
     include "gen/spr_interceptor.asm"
     include "gen/spr_frigate.asm"
+    include "gen/zoom.asm"
     include "game/classdata.asm"
     include "game/formdata.asm"
     include "game/campaign.asm"
@@ -267,6 +279,7 @@ bank7_end:
     assert class_geom_end - class_geom == CLASS_TIERS * CLASS_GEOM_SIZE, "class_geom is not CLASS_TIERS rows"
     assert eco_patch_seed_end - eco_patch_seed == ECO_PATCH_COUNT * ECO_PATCH_SIZE, "the patch seed is not ECO_PATCH_COUNT patches"
     assert form_offsets_end - form_offsets == FORM_COUNT * FORM_STRIDE, "a formation is not FORM_SLOTS slots"
+    assert cam_zoom_table_end - cam_zoom_table == CAM_ZOOM_STEPS * CAM_ZOOM_RECORD, "cam_zoom_table is not CAM_ZOOM_STEPS records"
 
 ;  cbt_damage_for indexes the matrix with three `add a,a`, so the row stride is
 ;  hard-coded at 8. Eight classes fill it exactly; a ninth would silently

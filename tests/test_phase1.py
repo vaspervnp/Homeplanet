@@ -153,7 +153,7 @@ class TestCameraMatrix(EmuFixture):
 class TestProjection(EmuFixture):
     """proj_point against project() -- the whole pipeline, bit for bit."""
 
-    def _project(self, point, focus, yaw, pitch, dist):
+    def _project(self, point, focus, yaw, pitch, dist, zoom=None):
         sym = self.sym
         setup = bytearray()
 
@@ -166,6 +166,19 @@ class TestProjection(EmuFixture):
 
         poke_byte(sym["CAM_YAW"], yaw)
         poke_byte(sym["CAM_PITCH"], pitch)
+        #  A zoom step is six bytes patched into proj_scale's own instruction
+        #  stream, so it has to be put in force by the routine that owns them
+        #  rather than poked. cam_dist goes in AFTER, because order_apply_zoom
+        #  writes that as well and the callers here choose it independently.
+        #
+        #  Applied unconditionally, and that matters: the patch is machine
+        #  state that outlives the call, so a test that walked the ladder
+        #  would leave the next one projecting at some other zoom.
+        if zoom is None:
+            zoom = g.ZOOM_DEFAULT
+        poke_byte(sym["CAM_ZOOM"], zoom)
+        apply_zoom = sym["ORDER_APPLY_ZOOM"]
+        setup.extend([0xCD, apply_zoom & 0xFF, apply_zoom >> 8])
         poke_word(sym["CAM_DIST"], dist)
         for i, name in enumerate(("CAM_FOCUS_X", "CAM_FOCUS_Y", "CAM_FOCUS_Z")):
             poke_word(sym[name], focus[i])
@@ -252,6 +265,65 @@ class TestProjection(EmuFixture):
 
         self.assertGreater(clipped, checked // 2,
                            "nothing was clipped -- the range check is not being reached")
+
+    def test_matches_the_model_at_every_zoom_step(self):
+        """The same bit-exact contract, but with proj_scale's ladder moving.
+
+        The zoom is a self-modified shift ladder inside proj_deltas, so every
+        step is a DIFFERENT projection with its own rounding and its own clip
+        radius -- twelve of them, four of which multiply by three afterwards.
+        The plain steps and the x3 steps reject on different tests (a byte on
+        the high half against a check on the scaled value), and getting either
+        edge off by one puts a ship somewhere it is not, which is the failure
+        the range check exists to prevent. So run the model against the metal
+        at all twelve rather than trusting the neutral one to speak for them.
+        """
+        rng = random.Random(7)
+        for step, (dist, shift, mul3) in enumerate(g.ZOOM_STEPS):
+            radius = g.zoom_radius(step)
+            visible = 0
+            for _ in range(24):
+                yaw = rng.randrange(256)
+                pitch = rng.randrange(-53, 54)
+                focus = tuple(rng.randrange(-20000, 20000) for _ in range(3))
+                #  Straddle this step's own clip radius, so both sides of it
+                #  are exercised at every rung of the ladder.
+                spread = min(32000, radius * 3 // 2)
+                point = tuple(self._clamp16(focus[i] + rng.randrange(-spread, spread))
+                              for i in range(3))
+
+                got = self._project(point, focus, yaw, pitch, dist, zoom=step)
+                want = g.project(point, focus, g.camera_matrix(yaw, pitch),
+                                 dist, shift, mul3)
+                self.assertEqual(got, want,
+                                 f"zoom step {step} (>>{shift}{' x3' if mul3 else ''}): "
+                                 f"point={point} focus={focus} yaw={yaw} pitch={pitch}")
+                visible += got is not None
+            self.assertGreater(visible, 0, f"zoom step {step} showed nothing at all")
+
+    def test_zooming_out_widens_what_can_be_seen(self):
+        """The point of the whole exercise, stated as a property.
+
+        A longer cam_dist does NOT show more world -- the visible region is a
+        +/-127 camera cube and cam_dist only decides how much of the screen it
+        lands on, which is why steps 4 to 7 all have the same radius below.
+        What has to grow monotonically along the ladder is how far off the
+        focus a ship can be and still be drawn.
+        """
+        radii = [g.zoom_radius(i) for i in range(len(g.ZOOM_STEPS))]
+        self.assertEqual(radii, sorted(radii), f"the ladder is not monotonic: {radii}")
+        self.assertGreaterEqual(radii[-1], 32767,
+                                "the widest step does not cover the 16-bit world")
+        self.assertLessEqual(radii[0] * 4, radii[g.ZOOM_DEFAULT],
+                             "the innermost step is not appreciably closer in")
+
+        #  ...and on the metal, at a fixed cam_dist so nothing but the ladder
+        #  can be responsible.
+        far = (20000, 0, 0)
+        self.assertIsNone(self._project(far, (0, 0, 0), 0, 0, 250, zoom=7),
+                          "the old widest step already showed a ship 20000 units out")
+        self.assertIsNotNone(self._project(far, (0, 0, 0), 0, 0, 250, zoom=11),
+                             "the new widest step still cannot see it")
 
     def test_a_distant_entity_is_dropped_rather_than_wrapped(self):
         """The failure this replaces put the ship somewhere it was not.

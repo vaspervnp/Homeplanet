@@ -29,7 +29,7 @@ python3 -m unittest tests.test_phase0 -v     # one test module
 **Always `make test` before saying something works.** The emulator gives us
 the whole machine state; there is no reason to guess.
 
-313 tests, about **seven minutes**. It doubled when the sprite libraries moved
+324 tests, about **seven minutes**. It doubled when the sprite libraries moved
 onto the disc: every `boot_quick` now spins the drive up and reads 69 sectors,
 which is a second and a half of emulated time per machine and there are about
 a hundred machines. That is the price of testing the real loader instead of a
@@ -161,7 +161,7 @@ power-on layout. Equates in `src/equ/hardware.asm`.
 
 | Bank | Holds | How it gets there |
 |---|---|---|
-| 4 | interceptor + frigate sprites; mission table; help, menu and title CODE; per-class data; formation lattices; the fleet buffer | inside `DISC.BIN` |
+| 4 | interceptor + frigate sprites; mission table; help, menu and title CODE; per-class data; formation lattices; the zoom table; the fleet buffer | inside `DISC.BIN` |
 | 5 | mothership + harvester sprites | raw sectors, read by `lib_load` |
 | 6 | scout + bomber sprites | " |
 | 7 | salvage + destroyer sprites | " |
@@ -321,11 +321,19 @@ a hand count of the instruction table.
 
 | Routine | Measured | Design §6 |
 |---|---|---|
-| `proj_point` (one entity, full pipeline) | ~4,760 T | 1,200 T |
+| `proj_point` (one entity, full pipeline) | ~4,960 T | 1,200 T |
 | `proj_point` (rejected by the distance clip) | ~260 T | — |
 | `proj_rotate` (9 multiplies, m01 skipped) | ~2,790 T | — |
 | `cam_build_matrix` (once per frame) | ~3,360 T | — |
+| `phase4_group` (consolidation off) | ~800 T | — |
+| `phase4_group` (16 entities, widest zoom) | ~15,200 T | — |
 | paging a class's bank in and bank 4 back | ~30 T per entity | — |
+
+**The zoom ladder costs 200 T an entity**, all of it in `proj_scale`: three
+calls, one per axis, against the two `add hl,hl` that used to be inline. It is
+4% of `proj_point` and about 1% of a frame, and it is what buys eight more
+zoom steps. See the zoom section for the version that cost 300 and why it was
+thrown away.
 
 **Banking the sprite libraries costs about 1% of the frame.** Measured on
 mission 1 with 16 entities: 5.00 fps before, 4.95 fps after. Two `OUT`s an
@@ -477,9 +485,25 @@ and compare against what is actually in the emulator's RAM, so a table that
 changes shape fails the tests instead of quietly corrupting the projection.
 
 Tables: `scr_line_lo`/`scr_line_hi` (screen line offsets, two byte planes on
-consecutive pages), `qsq_lo`/`qsq_hi` (quarter squares for multiplication),
-`sin_lo`/`sin_hi` (8.8 sine, 256 angles; cosine is the same table at
-`(a+64)&255`).
+consecutive pages), `qsq_lo`/`qsq_hi` and `f9_lo`/`f9_hi` (quarter squares for
+multiplication, unsigned and nine-bit signed), `recip` (the perspective
+divide), and `sin7` -- which is **one quadrant, 65 bytes**, folded by
+`cam_sin`.
+
+There is a second generated file, `gen/zoom.asm`, and it is the odd one out:
+it holds `cam_zoom_table` and is assembled into **bank 4**, because
+`order_apply_zoom` reads it on a keypress with the window at rest and the low
+16K has nothing to spare.
+
+**Two tables that used to be here are gone, and must not come back.** `sin7`
+was 256 entries and `tier_lut` was 256 bytes of three distinct values;
+`cam_sin` folds the one and `phase4_tier_for` does two compares for the other,
+each for about the same T-states it cost to read a byte. That is 447 bytes of
+the low 16K, and it is what the zoom ladder and the grouping pass are built
+out of -- neither of them would fit otherwise. The rule that decides it: a
+table earns its page when it is read in a per-entity or per-scanline loop
+(`f9` is read eight times an entity and stays 1 KB), and not otherwise.
+`cam_sin` runs four times a **frame**.
 
 ---
 
@@ -534,7 +558,8 @@ Design document section 13 lists ten phases.
 - **Phase 5 — done, and §9 is closed** except for the three commands that
   need content from later phases (see the control table above). Camera, zoom,
   pause, move disc, formations, sensor view, Mothership, docking and target
-  selection all work.
+  selection all work. The zoom is **twelve steps rather than §4.3's four** —
+  see the zoom ladder below — and distant stacks consolidate at the wide end.
 - **All eight classes of §8 exist, with their own art.** Interceptor,
   Mothership, Harvester, Scout, Bomber, Frigate, Salvage Corvette, Destroyer —
   each a model in `tools/mkships.py` and a 5.62 KB sprite library. Nothing
@@ -551,7 +576,7 @@ Design document section 13 lists ten phases.
 
 `src/demo/phase4.asm` is the acceptance test running on the CPC itself.
 
-**A ninth class does not fit.** Bank 4 has ~240 bytes left and banks 5-7 hold
+**A ninth class does not fit.** Bank 4 has ~74 bytes left and banks 5-7 hold
 two libraries each with 4.6 KB spare — enough for the data, but `LIB_SECTORS`
 sizes a bank's disc image at exactly two libraries, and a third would need a
 fourth bank the 6128 does not have in the `#7Fxx` window. The mitigations §14
@@ -567,7 +592,7 @@ every table in `game/classdata.asm`, and a wider `LIB_BANKS`.
 | `1`-`9` | select a squadron (see below) |
 | `0` | centre on the Mothership, clearing any pan |
 | cursor keys | orbit the camera; drive the move disc while it is open |
-| `Z` / `X` | zoom in / out, four steps |
+| `Z` / `X` | zoom in / out, **twelve** steps |
 | `P` | pan: the cursor keys drag the view instead of orbiting |
 | `SPACE` | tactical pause — the battle freezes, orders do not |
 | `ENTER` | open the move disc; again to confirm |
@@ -741,8 +766,8 @@ mission table.
 
 **`DISC.BIN`'s ceiling is what decides where a sprite library can live.** It
 loads at `#4000` and must finish below `#A700`, so it has 26368 bytes to play
-with; it is currently 24849, ending near `#A0D1`, and that is **about 1.5 KB of
-headroom**. One RLE-packed library is 3-4 KB. That arithmetic is the whole
+with; it is currently 25054, ending just under `#A200`, and that is **about 1.3 KB
+of headroom**. One RLE-packed library is 3-4 KB. That arithmetic is the whole
 reason six of the eight classes are read off the disc into banks 5-7 instead
 of travelling in the file — it is not a stylistic choice, and no amount of
 better packing gets 45 KB of sprites under a 1.5 KB gap.
@@ -859,16 +884,26 @@ run the tool rather than quoting prose, and treat any figure here as "that
 script, that build".
 
 Latest run, with all eight classes in: missions 1-6 cost **two ships** between
-them, mission 7 costs four, and mission 8 takes the fleet. Mission 8 is where
+them, mission 7 costs nine, and mission 8 takes the fleet. Mission 8 is where
 the campaign ends.
 
 ```
 mis enemy  in out lost   hull  fleet
-  4     8  16  15    1   3345  int=14 moth=1
-  6     6  14  13    1   2595  int=12 moth=1
-  7    12  13   9    4   1167  int=8 moth=1
-  8    10   8   0    8      0  FAILED -- the Mothership was lost
+  4     8  16  14    2   3330  int=13 moth=1
+  6     6  14  14    0   2658  int=13 moth=1
+  7    12  14   5    9    723  int=4 moth=1
+  8    10   5   0    5      0  FAILED -- the Mothership was lost
 ```
+
+**Mission 7's cost is not a number, it is a coin toss, and this is worth
+knowing before anyone "fixes" a regression that is not one.** The zoom work
+made `proj_point` 200 T-states slower and mission 7 went from losing four
+ships to losing nine, which looks alarming and is not: adding **520 T-states
+of `djnz` to `demo_update` and changing nothing else** takes the same
+mission from four to seven. The fight is decided by which ship re-targets on
+which game frame, `demo_wait_frame` drops the rate rather than the picture,
+and a few hundred T-states move a frame boundary. Missions 1-6 and 8 did not
+move at all. Run the control before believing a swing here.
 
 That is the same shape as before the classes arrived, and it has to be: the
 script never spends its RU, so every ship in it is an interceptor, and the
@@ -1028,11 +1063,127 @@ Three things this touched, and they are the ones to be careful with:
 
 `tools/gentables.py` holds `WORLD_SHIFT` and is the bit-exact reference model,
 so `project()` clips exactly where the Z80 does, both ways. The shift is
-hand-coded in the Z80 (two `add hl,hl`, and `PROJ_V_BIAS` for the range test),
-so **`src/main.asm` asserts `PROJ_V_BIAS == 1 << (WORLD_SHIFT - 1)`** — change
-the model without the assembly and the build stops. At the old shift of 8 that
+hand-coded in the Z80 (`proj_scale`'s ladder, and `PROJ_V_BIAS` for the range
+test), so **`src/main.asm` asserts `PROJ_V_BIAS == 1 << (WORLD_SHIFT - 1)`**
+and that the default zoom step is the one whose scaling is plain
+`>>WORLD_SHIFT` — change the model without the assembly and the build stops.
+At the old shift of 8 that
 expression is 128, i.e. a range test that can never fail, which is why there
 was nothing to clip before.
+
+### The zoom ladder, and why `cam_dist` cannot zoom out
+
+`Z` and `X` walk **twelve** steps now, not §4.3's four: four more in and four
+more out, at roughly 1.4× a notch and 36× end to end. The four that were
+always there are steps 4 to 7 and are unchanged, and step 5 is where the game
+starts.
+
+**Widening `cam_zoom_dist` does not zoom out, and finding that out is the whole
+job.** `proj_deltas` has to fit one axis of `(P - focus)` into a signed byte,
+so the camera can only ever see a **±127 camera-unit cube** around its focus.
+`cam_dist` decides how much of the *screen* that cube covers and nothing else.
+Measure it — the model will tell you in three lines — and at `cam_dist` 250 the
+entire cube lands between sx 120 and sx 200: the **middle quarter** of a
+320-pixel screen. So steps 5, 6 and 7 are not three amounts of world, they are
+one amount of world drawn at three sizes, all with the same 8191-unit radius.
+That is the "everything is small and far away" complaint, and pushing
+`cam_dist` past 255 does not fix it — the perspective divide runs out of byte
+and the far half of the fleet vanishes.
+
+It also disposes of the obvious alternative, **scaling the projected sx/sy**.
+There is nothing out there to reveal: the content is already crammed into the
+middle quarter, and shrinking it further just makes the same ships smaller.
+
+What actually changes how much world is visible is **how far a world delta is
+shifted down on its way into the cube**. One more bit of shift is one more
+doubling of the radius at *identical* screen positions and *identical* size
+tiers — which is exactly what was asked for: the same small or large ships,
+more world between them. Verified: across steps 8 to 11 the tier histogram is
+byte for byte step 7's.
+
+Powers of two alone would be a coarse ladder (four steps out would be 16×), so
+there is a second form for the half-steps:
+
+```
+v = delta >> S           radius 128 << S
+v = 3 * (delta >> S)     radius  42 << S      -- 3*43 is 129, so 42 is the cap
+```
+
+Alternating them gives steps of 4/3 and 3/2. `ZOOM_STEPS` in
+`tools/gentables.py` is the table; it states only `(dist, shift, mul3)` and
+derives everything else.
+
+**`proj_scale` is the zoom.** Everything else — the key handler, the table,
+`cam_dist` — is bookkeeping around twenty instructions. It has **no branches**,
+and that is not showing off: the first version jumped into a shift ladder with
+a patched JR displacement, which is three taken JRs an axis, nine an entity,
+108 T-states of "which rung", and it took `proj_point` from 4,760 T to 5,060
+and over the budget guard. Patching the *instructions* instead costs nothing:
+`add hl,hl` becomes `NOP`, the range check's `add a,bias : cp limit` becomes
+`and 0 : cp 1` where no check is wanted, the tail's `scf : ret` becomes a `jr`
+into the ×3 code, and `>>9` — which the ladder cannot reach — is one `sra a`
+after `H` is taken. `order_apply_zoom` LDIRs four runs of it out of
+`cam_zoom_table`. Measured: **4,960 T**, up 200 from 4,760.
+
+Two things that bound the ends of the ladder:
+
+- **The innermost step is `>>4`, a radius of 2048 world units.** `FORM_SPACING`
+  is 550, so a squadron fills the screen. Going further in is possible and is
+  not useful.
+- **The widest step is `>>8`, a radius of 32768 — the whole 16-bit world.**
+  There is deliberately no step past it: `DISC_LIMIT` is 30000 and the
+  subtract overflows past 32767 anyway, so a thirteenth step would show more
+  empty space and nothing else.
+
+**What this does NOT fix is the wasted screen.** The wide steps sit at
+`cam_dist` 250, so the visible cube still covers only the middle quarter — the
+same as step 7 always did. Filling the screen would need a magnification stage
+between the perspective divide and the clip, and the low 16K has 512 bytes.
+Dropping `cam_dist` for the wide steps instead is not the answer: `cam_dist`
+IS the size tier, and ships would jump a size larger at the very step where
+there are most of them.
+
+The differential test in `test_phase1` runs the model against the metal at
+**all twelve steps**, not just the neutral one. It has to: the plain steps and
+the ×3 steps reject on different tests — a bound on the high byte against a
+check on the scaled value — and either edge off by one puts a ship somewhere
+it is not.
+
+### Consolidating a stack
+
+At the wide steps a squadron is a handful of pixels, and a dozen ships drawn on
+top of each other look exactly like one ship. `phase4_group` runs after the
+z-sort and gathers them; the nearest keeps its sprite and gets `+n` beside it,
+in its own ink. Below `CAM_ZOOM_GROUP_FROM` (step 8) nothing is consolidated at
+all, so the four original steps look exactly as they did.
+
+**The count is the whole group, not the remainder** — off a wide view the
+number the player wants is how many ships are there.
+
+Three decisions worth knowing:
+
+- **A short list of heads, not a screen-space grid.** The grid was written
+  first and looks cheaper. It puts a seam every 32 pixels, and a fleet sitting
+  across one comes out as two groups eight pixels apart whose two labels
+  overlap into `++7`. The screenshot is what killed it — there is no test that
+  would have.
+- **The merge distance IS the label's size**, three characters by one. Two
+  heads that survive it are further apart than `+nn` is wide, so two counts of
+  one class can never be drawn over each other *by construction*. This is the
+  fix for the above, not a tuning knob.
+- **The label takes no dirty-rectangle slot.** It widens the one the blit just
+  wrote, and is skipped outright if the blit wrote none. A slot per entity in
+  two buffers is 384 bytes, and over-erasing the gap between ship and label
+  costs nothing — that rectangle is cleared and redrawn either way.
+
+Side and class are both part of the key. Merging the two sides would put one
+ink on a count that speaks for both, and §2 makes the ink the meaning.
+
+Measured: **800 T-states** when consolidation is off — it is the `gcount` fill
+and one compare — and **15,200 T** with sixteen entities at the widest step,
+against `phase4_sort`'s 55,000. It pays for itself many times over: at the
+widest zoom sixteen entities become two blits, and the frame rate goes UP,
+from 4.75 fps to 6.25.
 
 ### The orders menu
 

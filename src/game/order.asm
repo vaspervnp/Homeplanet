@@ -62,7 +62,7 @@ order_init:
     ld (view_sensors),a
     ld a,ORDER_NO_TARGET
     ld (order_target),a
-    ld a,1
+    ld a,CAM_ZOOM_DEFAULT
     ld (cam_zoom),a
     jp order_apply_zoom
 
@@ -495,7 +495,7 @@ order_clamp_pitch:
 
 
 ; ----------------------------------------------------------------------------
-;  order_zoom -- Z closer, X further, four steps (section 4.3)
+;  order_zoom -- Z closer, X further, twelve steps (section 4.3, extended)
 ;  Uses: everything
 ; ----------------------------------------------------------------------------
 order_zoom:
@@ -521,20 +521,55 @@ order_zoom:
     ; fall through
 
 ; ----------------------------------------------------------------------------
-;  order_apply_zoom -- cam_dist = cam_zoom_dist[cam_zoom]
+;  order_apply_zoom -- put cam_zoom_table[cam_zoom] into force
 ;  Uses: AF, DE, HL
+;
+;  Two bytes of it are cam_dist. The other twelve are Z80 INSTRUCTIONS, copied
+;  into the middle of proj_scale: its range check, its shift ladder, and its
+;  tail. That is where the zoom actually happens -- see proj_scale, and
+;  ZOOM_STEPS in tools/gentables.py for why cam_dist alone cannot do it.
+;
+;  Four LDIRs because the four runs are separated by instructions that never
+;  change. Nothing in the interrupt handler goes near proj_scale, so there is
+;  no window to guard.
+;
+;  cam_zoom_table is in BANK 4, which is the window's resting state. This runs
+;  on a keypress and never during a blit, so it costs nothing to reach -- and
+;  the low 16K, which has none to spare, keeps the 168 bytes.
 ; ----------------------------------------------------------------------------
 order_apply_zoom:
     ld a,(cam_zoom)
-    add a,a                             ; a table of words
     ld l,a
     ld h,0
-    ld de,cam_zoom_dist
+    add hl,hl
+    ld d,h
+    ld e,l                              ; DE = 2n
+    add hl,hl
+    add hl,hl                           ; HL = 8n
     add hl,de
+    add hl,de
+    add hl,de                           ; HL = 14n, CAM_ZOOM_RECORD apiece
+    ld de,cam_zoom_table
+    add hl,de
+
     ld e,(hl)
     inc hl
     ld d,(hl)
+    inc hl
     ld (cam_dist),de
+
+    ld de,proj_zoom_check
+    ld bc,4
+    ldir
+    ld de,proj_zoom_shl
+    ld c,4                              ; B is zero: LDIR left it there
+    ldir
+    ld de,proj_zoom_shr
+    ld c,2
+    ldir
+    ld de,proj_zoom_mul
+    ld c,2
+    ldir
     ret
 
 

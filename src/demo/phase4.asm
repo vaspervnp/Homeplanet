@@ -40,8 +40,28 @@ PHASE4_V_Z          equ 3
 PHASE4_V_VIEW       equ 4
 PHASE4_V_CLASSTIER  equ 5           ; (class << 2) | tier
 
-;  Tier descriptor, 8 bytes, indexed by tier_lut.
+;  Tier descriptor, 8 bytes, indexed by the tier.
 PHASE4_T_SIZE       equ 8
+
+;  Consolidation (todo item 3). How many separate stacks the screen may hold
+;  at once, and how close two ships have to be to count as one.
+;
+;  THE DISTANCE IS THE LABEL'S OWN SIZE, and that is not a coincidence: two
+;  heads that fail this test are further apart than "+nn" is wide and eight
+;  lines tall, so two counts of the same class can never be drawn over each
+;  other. Getting that wrong is exactly what the first version did.
+PHASE4_HEADS_MAX    equ 12
+PHASE4_HEAD_SIZE    equ 4               ; index, x in bytes, y, side-and-class
+PHASE4_GRP_DX       equ 3 * TXT_CHAR_W_BYTES
+PHASE4_GRP_DY       equ TXT_CHAR_H
+
+;  What makes two ships the same group: the side (bit 7) and the class. NOT
+;  the tier in the low two bits -- one stack straddling a tier threshold is
+;  still one stack.
+PHASE4_GROUP_MASK      equ #FC
+
+;  '+' and two digits.
+PHASE4_LABEL_BYTES  equ 3 * TXT_CHAR_W_BYTES
 
 DEMO_TICKS_PER_FRAME equ 4              ; 50 Hz / 4 = 12.5 fps
 
@@ -223,6 +243,7 @@ demo_update:
     call grid_update
     call phase4_project
     call phase4_sort
+    call phase4_group
     ;  The plane goes down before the ships, so a ship over it hides it.
     ld a,(view_sensors)
     or a
@@ -719,9 +740,7 @@ phase4_cache:
     add hl,de
     ld b,(hl)                           ; B = class
     ld a,(proj_z)
-    ld l,a
-    ld h,tier_lut / 256
-    ld a,(hl)
+    call phase4_tier_for
     call class_apply_bias               ; capital ships draw a tier larger
     ld c,a
     ld a,b
@@ -745,6 +764,32 @@ phase4_cache:
     ld (phase4_vis_ptr),hl
     ld hl,phase4_visible
     inc (hl)
+    ret
+
+
+; ----------------------------------------------------------------------------
+;  phase4_tier_for -- A = the sprite size tier for camera depth A
+;  In : A = proj_z, Z_NEAR..Z_FAR
+;  Out: A = 2 (24x16), 1 (16x10) or 0 (8x6)
+;  Uses: AF, C
+;
+;  This was a 256-byte page-aligned lookup table, and three instructions. It
+;  holds three distinct values with two edges in it, so two compares are the
+;  same ~20 T-states and give the low 16K a quarter of a kilobyte back -- which
+;  is what the zoom ladder and the grouping pass are built out of. The
+;  thresholds are still tools/gentables.py's to decide, and its tier_table()
+;  is still the model tests/test_phase3.py checks this against.
+; ----------------------------------------------------------------------------
+phase4_tier_for:
+    ld c,2
+    cp TIER_C_MAX_Z
+    jr c,@p4_tier_done
+    dec c
+    cp TIER_B_MAX_Z
+    jr c,@p4_tier_done
+    dec c
+@p4_tier_done:
+    ld a,c
     ret
 
 
@@ -857,6 +902,218 @@ phase4_vis_addr:
 
 
 ; ----------------------------------------------------------------------------
+;  phase4_group -- collapse stacks of the same class into one sprite and a count
+;
+;  Zooming out far enough to see the whole battle puts a dozen ships inside one
+;  8x6 sprite, and a dozen ships drawn on top of each other look exactly like
+;  one ship. So above CAM_ZOOM_GROUP_FROM the entities are gathered by screen
+;  proximity and each gathering draws once, with "+n" beside it.
+;
+;  A SHORT LIST OF HEADS, not every pair, and not a screen-space grid either.
+;  A grid was written first and looks cheaper -- one map read per entity
+;  against a scan -- but it puts a seam every 32 pixels, and a fleet sitting
+;  across one comes out as two groups eight pixels apart whose two labels
+;  overlap into "++7". Screenshots of it are what killed it.
+;
+;  So the test is real proximity, against the groups found so far. The
+;  threshold IS THE LABEL'S OWN SIZE: two heads that survive it are further
+;  apart than "+nn" is wide, so no two labels of one class can ever collide.
+;  PHASE4_HEADS_MAX bounds the scan, so the cost is O(n) with a small constant
+;  rather than the O(n^2) that phase4_sort already spends 73,000 T-states on;
+;  past that many distinct stacks there is nothing left to consolidate anyway.
+;
+;  The order is walked from the NEAR end, so the entry that keeps its sprite is
+;  the nearest of its group -- the largest tier, and the one the painter's
+;  algorithm would have left on top.
+;
+;  Friendly and enemy are never one group: section 2's palette makes white and
+;  red mean different things and a count in one ink cannot speak for both.
+;  Uses: everything
+; ----------------------------------------------------------------------------
+phase4_group:
+    ld a,(phase4_visible)
+    or a
+    ret z
+
+    ;  Everything draws itself once until something says otherwise.
+    ld b,a
+    ld hl,phase4_gcount
+@p4_grp_init:
+    ld (hl),1
+    inc hl
+    djnz @p4_grp_init
+
+    ;  Only the steps the zoom ladder ADDED consolidate. At the four that were
+    ;  always there the picture is byte for byte what it was.
+    ld a,(cam_zoom)
+    cp CAM_ZOOM_GROUP_FROM
+    ret c
+    ld a,(view_sensors)
+    or a
+    ret nz                              ; sensors already draw one dot each
+
+    xor a
+    ld (phase4_nheads),a
+    ld a,(phase4_visible)
+    ld (phase4_grp_left),a
+    ld l,a
+    ld h,0
+    ld de,phase4_order - 1
+    add hl,de
+    ld (phase4_grp_ptr),hl              ; the last entry: the nearest ship
+
+@p4_grp_one:
+    ld hl,(phase4_grp_ptr)
+    ld a,(hl)
+    dec hl
+    ld (phase4_grp_ptr),hl
+    ld (phase4_grp_i),a
+
+    call phase4_head_of
+    jr nc,@p4_grp_next                  ; under the HUD: it draws nothing anyway
+    call phase4_find_head
+    jr nc,@p4_grp_new
+
+    ;  HL -> the head it belongs to. One more behind that sprite, and this
+    ;  entry is not drawn at all.
+    ld a,(hl)
+    ld de,phase4_gcount
+    ld l,a
+    ld h,0
+    add hl,de
+    inc (hl)
+    ld a,(phase4_grp_i)
+    ld l,a
+    ld h,0
+    add hl,de
+    ld (hl),0
+    jr @p4_grp_next
+
+@p4_grp_new:
+    ld a,(phase4_nheads)
+    cp PHASE4_HEADS_MAX
+    jr nc,@p4_grp_next                  ; the list is full; it draws itself
+    inc a
+    ld (phase4_nheads),a
+    dec a
+    add a,a
+    add a,a                             ; PHASE4_HEAD_SIZE apiece
+    ld l,a
+    ld h,0
+    ld de,phase4_heads
+    add hl,de
+    ld a,(phase4_grp_i)
+    ld (hl),a
+    inc hl
+    ld a,(phase4_grp_x)
+    ld (hl),a
+    inc hl
+    ld a,(phase4_grp_y)
+    ld (hl),a
+    inc hl
+    ld a,(phase4_grp_key)
+    ld (hl),a
+
+@p4_grp_next:
+    ld hl,phase4_grp_left
+    dec (hl)
+    jr nz,@p4_grp_one
+    ret
+
+
+; ----------------------------------------------------------------------------
+;  phase4_head_of -- where visible entry A is, in the terms grouping compares
+;  In : A = an index into phase4_vis
+;  Out: CF set -> (phase4_grp_x) x in BYTES, (phase4_grp_y) y, (phase4_grp_key)
+;       CF clear -> it is under the HUD and draws nothing
+;  Uses: everything
+;
+;  x in bytes rather than pixels so the compare is eight bits: 320 does not fit
+;  a byte, and taking only the low half of sx is the bug this file has already
+;  made twice elsewhere.
+; ----------------------------------------------------------------------------
+phase4_head_of:
+    call phase4_vis_addr
+    ld e,(hl)
+    inc hl
+    ld d,(hl)                           ; DE = sx, 0..319
+    inc hl
+    ld a,(hl)
+    cp HUD_TOP
+    ret nc                              ; CF clear: spr_clip_bottom owns it
+    ld (phase4_grp_y),a
+    inc hl
+    inc hl
+    inc hl
+    ld a,(hl)
+    and PHASE4_GROUP_MASK               ; side and class; the tier is not identity
+    ld (phase4_grp_key),a
+
+    ex de,hl
+    srl h
+    rr l
+    srl h
+    rr l
+    ld a,l
+    ld (phase4_grp_x),a
+    scf
+    ret
+
+
+; ----------------------------------------------------------------------------
+;  phase4_find_head -- which group, if any, the pending entry joins
+;  In : (phase4_grp_x), (phase4_grp_y), (phase4_grp_key)
+;  Out: CF set -> HL -> the head record; CF clear -> it starts its own
+;  Uses: everything
+; ----------------------------------------------------------------------------
+phase4_find_head:
+    ld a,(phase4_nheads)
+    or a
+    ret z                               ; CF is clear: OR A saw to that
+    ld b,a
+    ld hl,phase4_heads
+
+@p4_head_try:
+    push bc
+    push hl
+    inc hl
+    ld a,(phase4_grp_x)
+    sub (hl)
+    jr nc,@p4_head_dx
+    neg
+@p4_head_dx:
+    cp PHASE4_GRP_DX + 1
+    jr nc,@p4_head_no
+
+    inc hl
+    ld a,(phase4_grp_y)
+    sub (hl)
+    jr nc,@p4_head_dy
+    neg
+@p4_head_dy:
+    cp PHASE4_GRP_DY + 1
+    jr nc,@p4_head_no
+
+    inc hl
+    ld a,(phase4_grp_key)
+    cp (hl)
+    jr nz,@p4_head_no
+    pop hl
+    pop bc
+    scf
+    ret
+
+@p4_head_no:
+    pop hl
+    ld de,PHASE4_HEAD_SIZE
+    add hl,de
+    pop bc
+    djnz @p4_head_try
+    or a
+    ret
+
+
+; ----------------------------------------------------------------------------
 ;  phase4_draw -- blit the visible ships, far to near
 ; ----------------------------------------------------------------------------
 phase4_draw:
@@ -874,9 +1131,35 @@ phase4_draw:
     ld de,phase4_order
     add hl,de
     ld a,(hl)
+    ld (phase4_grp_i),a
+
+    ld l,a
+    ld h,0
+    ld de,phase4_gcount
+    add hl,de
+    ld a,(hl)
+    or a
+    jr z,@p4_next_draw                  ; consolidated: something nearer stands in
+    ld (phase4_grp_n),a
+
+    ld a,(phase4_rect_count)
+    ld (phase4_grp_rects),a
+    ld a,(phase4_grp_i)
     call phase4_vis_addr
     call phase4_blit_one
 
+    ld a,(phase4_grp_n)
+    dec a
+    jr z,@p4_next_draw                  ; standing for nobody but itself
+    ;  The label widens the sprite's dirty rectangle, so there has to BE one:
+    ;  a sprite clipped away entirely wrote nothing, and a count floating
+    ;  beside a ship that is not on screen would never be erased either.
+    ld a,(phase4_rect_count)
+    ld hl,phase4_grp_rects
+    cp (hl)
+    call nz,phase4_draw_count
+
+@p4_next_draw:
     ld hl,phase4_order_idx
     inc (hl)
     ld hl,phase4_remaining
@@ -887,6 +1170,157 @@ phase4_draw:
     ld hl,(phase4_count)
     ld a,(phase4_rect_count)
     ld (hl),a
+    ret
+
+
+; ----------------------------------------------------------------------------
+;  phase4_draw_count -- "+n" beside a consolidated stack
+;  In : (phase4_grp_i) = the visible entry that kept its sprite
+;       (phase4_grp_n) = how many ships that sprite is standing for
+;  Uses: everything
+;
+;  The count is the WHOLE group, not the hidden remainder: what the player
+;  wants off a wide view is how many ships are there, and "+3" beside three
+;  ships reads as three.
+;
+;  It must be covered by a dirty rectangle, which is not optional -- the
+;  briefing and the help page both learned that the hard way. Rather than
+;  taking a slot of its own it WIDENS the one the blit just wrote, which is
+;  free: erasing the gap between ship and label costs a few bytes of fill and
+;  a slot per entity in two buffers costs 384 of a low 16K with none to give.
+; ----------------------------------------------------------------------------
+phase4_draw_count:
+    ld a,(phase4_grp_i)
+    call phase4_vis_addr
+    ld e,(hl)
+    inc hl
+    ld d,(hl)                           ; DE = sx
+    inc hl
+    ld a,(hl)
+    ld (phase4_grp_y),a
+    inc hl
+    inc hl
+    inc hl
+    ld a,(hl)
+    ld (phase4_grp_side),a              ; the side is bit 7
+
+    ;  Beside the ship rather than on it: three bytes right of centre clears
+    ;  tier B outright and all but a pixel of tier C.
+    ex de,hl
+    srl h
+    rr l
+    srl h
+    rr l                                ; HL = sx in bytes
+    ld a,l
+    add a,3
+    cp SCR_BYTES_PER_LINE - PHASE4_LABEL_BYTES + 1
+    ret nc                              ; no room before the right edge
+    ld (phase4_grp_x),a
+
+    ;  ...and half a glyph up, so it sits across the middle of the ship. Out
+    ;  of the HUD's strip, which owns everything below HUD_TOP.
+    ld a,(phase4_grp_y)
+    sub TXT_CHAR_H / 2
+    ret c
+    cp HUD_TOP - TXT_CHAR_H + 1
+    ret nc
+    ld (phase4_grp_y),a
+
+    ;  One digit or two, and no leading space: txt_draw_num pads its field on
+    ;  the left, so a fixed width of 2 would draw "+ 3".
+    ld a,(phase4_grp_n)
+    ld d,1
+    cp 10
+    jr c,@p4_cnt_width
+    inc d
+@p4_cnt_width:
+    ld a,d
+    ld (phase4_grp_d),a
+    add a,a
+    add a,TXT_CHAR_W_BYTES              ; the '+' as well
+    ld (phase4_grp_w),a
+
+    ;  Section 2's palette: a red count belongs to the red ships.
+    ld a,(phase4_grp_side)
+    and #80
+    ld a,PEN_WHITE
+    jr z,@p4_cnt_pen
+    ld a,PEN_RED
+@p4_cnt_pen:
+    call txt_set_pen
+
+    ld hl,phase4_grp_plus
+    ld a,(phase4_grp_x)
+    ld b,a
+    ld a,(phase4_grp_y)
+    ld c,a
+    call txt_draw
+
+    ld a,(phase4_grp_d)
+    ld d,a
+    ld a,(phase4_grp_x)
+    add a,TXT_CHAR_W_BYTES
+    ld b,a
+    ld a,(phase4_grp_y)
+    ld c,a
+    ld a,(phase4_grp_n)
+    call txt_draw_num
+
+    ld a,PEN_WHITE                      ; nothing inherits an ink
+    call txt_set_pen
+
+    ;  The rectangle the blit wrote is the four bytes behind the write pointer.
+    ld hl,(phase4_rect_ptr)
+    ld de,-4
+    add hl,de
+    ld (phase4_grp_r),hl
+
+    ;  Its left edge stands: the label starts right of the ship's centre, and
+    ;  clipping only ever moves a left edge further left.
+    ld a,(hl)
+    ld b,a
+    inc hl
+    inc hl                              ; -> the width
+    add a,(hl)
+    ld c,a                              ; C = the sprite's right edge
+    ld a,(phase4_grp_x)
+    ld e,a
+    ld a,(phase4_grp_w)
+    add a,e                             ; the label's right edge
+    cp c
+    jr nc,@p4_cnt_right
+    ld a,c
+@p4_cnt_right:
+    sub b
+    ld (hl),a
+
+    ld hl,(phase4_grp_r)
+    inc hl                              ; -> y
+    ld a,(hl)
+    ld c,a                              ; C = the sprite's top
+    inc hl
+    inc hl                              ; -> the height
+    add a,(hl)
+    ld b,a                              ; B = the sprite's bottom
+    ld a,(phase4_grp_y)
+    add a,TXT_CHAR_H
+    cp b
+    jr nc,@p4_cnt_bottom
+    ld a,b
+@p4_cnt_bottom:
+    ld b,a
+    ld a,(phase4_grp_y)
+    cp c
+    jr c,@p4_cnt_top
+    ld a,c
+@p4_cnt_top:
+    ld c,a
+    ld a,b
+    sub c
+    ld (hl),a                           ; the taller height
+    ld hl,(phase4_grp_r)
+    inc hl
+    ld (hl),c                           ; ...from the higher top
     ret
 
 
@@ -1710,6 +2144,21 @@ phase4_left:        defw 0
 phase4_base:        defw 0
 phase4_blocksz:     defw 0
 
+phase4_grp_ptr:     defw 0
+phase4_grp_left:    defb 0
+phase4_grp_i:       defb 0
+phase4_grp_head:    defb 0
+phase4_grp_key:     defb 0
+phase4_grp_side:    defb 0
+phase4_grp_n:       defb 0
+phase4_grp_x:       defb 0
+phase4_grp_y:       defb 0
+phase4_grp_w:       defb 0
+phase4_grp_d:       defb 0
+phase4_grp_r:       defw 0
+phase4_grp_rects:   defb 0
+phase4_grp_plus:    defb "+",0
+
 phase4_sort_key:    defb 0
 phase4_sort_key_z:  defb 0
 phase4_sort_n:      defb 0
@@ -1759,7 +2208,21 @@ phase4_slot_next:   defs SQUAD_MAX + 1, 0
 
 phase4_drawn_a:     defb 0
 phase4_drawn_b:     defb 0
-PHASE4_RECT_SLOTS        equ ENT_MAX + EXPL_MAX + GRID_POINTS + 1  ; ships, explosions, plane, disc
+
+;  The groups found this frame: index into phase4_vis, x in bytes, y, key.
+phase4_heads:       defs PHASE4_HEADS_MAX * PHASE4_HEAD_SIZE, 0
+phase4_nheads:      defb 0
+
+;  How many ships each visible entry draws for: 0 = consolidated away and not
+;  drawn at all, 1 = itself, n = itself and n-1 behind it.
+phase4_gcount:      defs ENT_MAX, 0
+
+;  Ships, explosions, the reference plane, the move disc. A consolidated
+;  group's "+n" gets no slot of its own: phase4_draw_count WIDENS the sprite's
+;  rectangle to cover it instead. Over-erasing costs nothing -- the rectangle
+;  is cleared and redrawn either way -- and a slot per entity in two buffers
+;  is 384 bytes of a low 16K that has none to spare.
+PHASE4_RECT_SLOTS        equ ENT_MAX + EXPL_MAX + GRID_POINTS + 1
 phase4_rects_a:     defs PHASE4_RECT_SLOTS * 4, 0
 phase4_rects_b:     defs PHASE4_RECT_SLOTS * 4, 0
 

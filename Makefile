@@ -29,7 +29,7 @@ SPRITES := $(patsubst %,$(GEN_DIR)/spr_%.asm,$(SHIP_CLASSES))
 
 MAIN   := $(SRC_DIR)/main.asm
 DISC   := $(SRC_DIR)/disc.asm
-TABLES := $(GEN_DIR)/tables.asm
+TABLES := $(GEN_DIR)/tables.asm $(GEN_DIR)/zoom.asm
 
 DSK      := $(BUILD_DIR)/homeplanet.dsk
 GAME_RAW := $(BUILD_DIR)/home.raw
@@ -90,7 +90,7 @@ $(BANKED): $(DSK) $(LIB_RAW) $(SYM) tools/discbanks.py
 	$(PYTHON) tools/discbanks.py $(DSK) $(SYM) $(LIB_RAW)
 	touch $@
 
-$(TABLES): tools/gentables.py
+$(GEN_DIR)/tables.asm $(GEN_DIR)/zoom.asm &: tools/gentables.py
 	$(PYTHON) tools/gentables.py
 
 tables:

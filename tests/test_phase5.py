@@ -26,7 +26,12 @@ CAM_YAW_STEP = 8
 CAM_PITCH_STEP = 4
 CAM_PITCH_MAX = 53
 DISC_STEP = 400
-ZOOM_DISTANCES = [110, 150, 200, 250]
+#  The zoom ladder is generated, so read it from the model rather than
+#  keeping a second copy that can drift.
+from tools import gentables as g
+
+ZOOM_DISTANCES = [d for d, _, _ in g.ZOOM_STEPS]
+ZOOM_DEFAULT = g.ZOOM_DEFAULT
 
 
 class ControlFixture(unittest.TestCase):
@@ -128,26 +133,26 @@ class TestCamera(ControlFixture):
 
 class TestZoom(ControlFixture):
 
-    def test_z_and_x_step_through_the_four_distances(self):
-        self.assertEqual(self.byte("CAM_ZOOM"), 1)
-        self.assertEqual(self.word("CAM_DIST"), ZOOM_DISTANCES[1])
+    def test_z_and_x_step_through_the_ladder(self):
+        self.assertEqual(self.byte("CAM_ZOOM"), ZOOM_DEFAULT)
+        self.assertEqual(self.word("CAM_DIST"), ZOOM_DISTANCES[ZOOM_DEFAULT])
 
         self.hold("x", frames=25)
-        self.assertEqual(self.byte("CAM_ZOOM"), 2)
-        self.assertEqual(self.word("CAM_DIST"), ZOOM_DISTANCES[2])
+        self.assertEqual(self.byte("CAM_ZOOM"), ZOOM_DEFAULT + 1)
+        self.assertEqual(self.word("CAM_DIST"), ZOOM_DISTANCES[ZOOM_DEFAULT + 1])
 
         self.hold("z", frames=25)
         self.hold("z", frames=25)
-        self.assertEqual(self.byte("CAM_ZOOM"), 0)
-        self.assertEqual(self.word("CAM_DIST"), ZOOM_DISTANCES[0])
+        self.assertEqual(self.byte("CAM_ZOOM"), ZOOM_DEFAULT - 1)
+        self.assertEqual(self.word("CAM_DIST"), ZOOM_DISTANCES[ZOOM_DEFAULT - 1])
 
     def test_zoom_clamps_at_both_ends(self):
-        for _ in range(6):
+        for _ in range(len(ZOOM_DISTANCES) + 2):
             self.hold("z", frames=25)
         self.assertEqual(self.byte("CAM_ZOOM"), 0)
         self.assertEqual(self.word("CAM_DIST"), ZOOM_DISTANCES[0])
 
-        for _ in range(8):
+        for _ in range(len(ZOOM_DISTANCES) + 2):
             self.hold("x", frames=25)
         self.assertEqual(self.byte("CAM_ZOOM"), len(ZOOM_DISTANCES) - 1)
         self.assertEqual(self.word("CAM_DIST"), ZOOM_DISTANCES[-1])
@@ -155,7 +160,44 @@ class TestZoom(ControlFixture):
     def test_zoom_is_edge_triggered(self):
         """Holding X must step one notch, not run to the far end."""
         self.hold("x", frames=200)
-        self.assertEqual(self.byte("CAM_ZOOM"), 2, "holding X ran the zoom out")
+        self.assertEqual(self.byte("CAM_ZOOM"), ZOOM_DEFAULT + 1,
+                         "holding X ran the zoom out")
+
+    def test_every_step_rescales_the_projection(self):
+        """The zoom is proj_scale's patch bytes, NOT cam_dist.
+
+        Eight of the twelve steps share a cam_dist with a neighbour -- the
+        four that were there before all sit at 110..250 and the four new outer
+        ones are all at 250 -- so a test that only watched cam_dist would pass
+        while the new steps did nothing at all. What has to change every notch
+        is how far a world delta is shifted on its way into the camera cube,
+        which is what these twelve bytes of instruction stream say.
+        """
+        runs = (("PROJ_ZOOM_CHECK", 4), ("PROJ_ZOOM_SHL", 4),
+                ("PROJ_ZOOM_SHR", 2), ("PROJ_ZOOM_MUL", 2))
+
+        for _ in range(len(ZOOM_DISTANCES) + 2):
+            self.hold("z", frames=25)
+
+        seen = []
+        for step in range(len(ZOOM_DISTANCES)):
+            self.assertEqual(self.byte("CAM_ZOOM"), step)
+            got = tuple(b for n, k in runs
+                        for b in self.c.read_ram(self.sym[n], k))
+            want = tuple(g.zoom_patch(step)[2:14])
+            self.assertEqual(got, want, f"step {step} patched proj_scale wrongly")
+            seen.append((ZOOM_DISTANCES[step], got))
+            self.hold("x", frames=25)
+
+        self.assertEqual(len(set(seen)), len(seen),
+                         "two zoom steps are the same view")
+
+        #  The four steps that were already there are cam_dist steps and share
+        #  a shift; every step ADDED has to earn its place by moving the
+        #  scaling, because its cam_dist is a neighbour's.
+        outer = [p for d, p in seen[g.ZOOM_GROUP_FROM:]]
+        self.assertNotIn(seen[7][1], outer,
+                         "an added zoom step scales the world exactly as the old widest did")
 
 
 class TestPause(ControlFixture):

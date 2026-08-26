@@ -24,6 +24,14 @@
 ;  What did NOT grow is how much is visible at once: step 1 still has to fit a
 ;  signed byte, so anything more than PROJ_V_LIMIT world units off the focus
 ;  on any axis is clipped. See proj_deltas.
+;
+;  ...and that clip is where the ZOOM lives, which is not where anyone looks
+;  for it. Step 1's shift is not fixed at WORLD_SHIFT any more: proj_scale
+;  runs a patched ladder, and the zoom step decides how far down a world delta
+;  comes on its way into the +/-127 cube. A bigger shift is a bigger radius of
+;  visible world at identical screen positions and identical size tiers.
+;  cam_dist cannot do that job -- it only decides how much of the SCREEN the
+;  cube covers, and it runs out of byte at 255.
 ; ----------------------------------------------------------------------------
 
 ; ----------------------------------------------------------------------------
@@ -135,18 +143,19 @@ proj_clip:
 ;  It pays for itself: a rejected entity never reaches proj_rotate, which is
 ;  ~2,790 T-states, so the clip is cheaper than the work it skips.
 ; ----------------------------------------------------------------------------
-;  The largest world delta that survives, per axis: 8191 units at WORLD_SHIFT
-;  6 -- and DISC_LIMIT is 30000, so a fleet really can be sent past it.
+;  The largest world delta that survives, per axis, AT THE NEUTRAL ZOOM STEP:
+;  8191 units at WORLD_SHIFT 6 -- and DISC_LIMIT is 30000, so a fleet really
+;  can be sent past it. The zoom ladder moves this between 2048 and 32768; see
+;  ZOOM_STEPS in tools/gentables.py.
 ;
-;  Written as the bias that turns the two-sided signed test on the difference's
-;  HIGH byte into one unsigned range check, the way order_clamp_pitch does:
-;  h + 32 in 0..63 is exactly HL in -8192..8191.
+;  PROJ_V_BIAS is written as the bias that turns the two-sided signed test on
+;  the difference's HIGH byte into one unsigned range check, the way
+;  order_clamp_pitch does: h + 32 in 0..63 is exactly HL in -8192..8191. It is
+;  1 << (WORLD_SHIFT - 1), which is 128 at the old shift of 8 -- i.e. a test
+;  that can never fail, which is why there was no clipping to do before.
 ;
-;  It is 1 << (WORLD_SHIFT - 1), which is 128 at the old shift of 8 -- i.e. a
-;  test that can never fail, which is why there was no clipping to do before.
-;
-;  A literal because gen/tables.asm is included after this file and RASM
-;  evaluates as it goes. src/main.asm asserts the two agree once both are in
+;  Literals because gen/tables.asm is included after this file and RASM
+;  evaluates as it goes. src/main.asm asserts they agree once both are in
 ;  scope -- change WORLD_SHIFT in tools/gentables.py and the build says so.
 PROJ_V_BIAS         equ 32
 PROJ_V_LIMIT        equ (PROJ_V_BIAS << 8) - 1      ; = 8191
@@ -167,16 +176,9 @@ PROJ_V_LIMIT        equ (PROJ_V_BIAS << 8) - 1      ; = 8191
         ;  sign bit LIES. Test P/V here, before anything else touches the
         ;  flags: overflowing means further than 32767, which is far.
         jp pe,proj_deltas_far
-        ld a,h
-        add a,PROJ_V_BIAS
-        cp PROJ_V_BIAS * 2
-        jr nc,proj_deltas_far           ; the shifted delta leaves a byte
+        call proj_scale                 ; A = the camera-space component
+        jr nc,proj_deltas_far
 
-        ;  >>6, as two shifts up and then "take H". The old >>8 was free; this
-        ;  is 22 T-states an axis, and it is what the bigger world costs.
-        add hl,hl
-        add hl,hl
-        ld a,h
         ld l,a
         rla                             ; sign into CF
         sbc a,a
@@ -197,6 +199,86 @@ proj_deltas:
 proj_deltas_far:
     pop hl                              ; the point pointer the macro pushed
     or a                                ; CF clear -> clipped
+    ret
+
+
+; ----------------------------------------------------------------------------
+;  proj_scale -- one world delta down into the camera cube, at the zoom in force
+;  In : HL = a signed 16-bit world delta
+;  Out: CF set   -> A = the camera-space component, -128..127
+;       CF clear -> out of range at this zoom; A is rubbish
+;  Uses: AF, B, HL
+;
+;  THIS ROUTINE IS THE ZOOM. Everything else about the zoom -- the key handler,
+;  the table, cam_dist -- is bookkeeping around these twenty instructions.
+;
+;  Two forms, chosen by the patch:
+;
+;      v = HL >> S           the plain step, radius 128 << S
+;      v = 3 * (HL >> S)     the half step,  radius  42 << S
+;
+;  and S runs from 4 to 9 across the twelve steps.
+;
+;  IT HAS NO BRANCHES, and that is not showing off -- it is the only version
+;  that fits. The obvious shape is a JR with a patched displacement jumping
+;  into a ladder of shifts, and it was written that way first: three taken JRs
+;  an axis, nine an entity, 108 T-states of pure "which rung", and proj_point
+;  went from 4,760 T to 5,060 and over the budget guard. Patching the
+;  INSTRUCTIONS instead of jumping over them costs nothing at all:
+;
+;    * the shift ladder is four `add hl,hl` (multiply up, then take H, which
+;      is a shift RIGHT by 8 - n), each patched to NOP when not wanted;
+;    * the range check's `add a,bias : cp limit` becomes `and 0 : cp 1`, which
+;      passes everything, on the three steps that do not need one;
+;    * the tail is `scf : ret`, patched to `jr` into the x3 code -- two bytes
+;      either way, so the plain steps do not even step over it;
+;    * and `>>9`, which the ladder cannot reach, is one `sra a` after H is
+;      taken, patched to two NOPs otherwise. (x>>8)>>1 is x>>9 for arithmetic
+;      shifts, so it costs no accuracy.
+;
+;  order_apply_zoom LDIRs those four runs out of cam_zoom_table, which
+;  tools/gentables.py derives from the shift alone. The bytes below are the
+;  NEUTRAL step assembled in place, so the routine is correct before anything
+;  has pressed a key.
+;
+;  The range check is EXACT rather than conservative, which matters because the
+;  Python model has to reject exactly what this does. `h + 2^(S-1) < 2^S` is
+;  HL within +/-2^(S+7), and 2^(S+7) is a whole number of 256s, so testing the
+;  high byte alone loses nothing. For the plain form that IS "v fits a signed
+;  byte". For the x3 form it only says the ladder will not overflow, and the
+;  real test is the one on v itself in the tail.
+; ----------------------------------------------------------------------------
+proj_scale:
+    ld a,h
+proj_zoom_check:
+    add a,PROJ_V_BIAS                   ; patched to `and 0` when unwanted
+    cp PROJ_V_BIAS * 2                  ; ...and this immediate to 1
+    ret nc                              ; CF clear -> out of range
+
+proj_zoom_shl:
+    add hl,hl                           ; the neutral step is >>6, so two of
+    add hl,hl                           ; these...
+    nop                                 ; ...and two of these
+    nop
+
+    ld a,h                              ; A = HL >> S
+proj_zoom_shr:
+    nop                                 ; `sra a` on the one step that is >>9
+    nop
+
+proj_zoom_mul:
+    scf                                 ; patched to `jr @proj_sc_x3` for the
+    ret                                 ; half steps -- two bytes either way
+
+@proj_sc_x3:
+    ld b,a
+    add a,42                            ; 3*43 is 129, so 42 is the last one in
+    cp 85
+    ret nc                              ; CF clear -> out of range
+    ld a,b
+    add a,a
+    add a,b                             ; A = 3v
+    scf
     ret
 
 
