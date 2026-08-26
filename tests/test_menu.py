@@ -20,9 +20,10 @@ sys.path.insert(0, __file__.rsplit("/", 2)[0])
 from tests import harness as h
 import cpc
 
-MENU_COUNT = 10
+MENU_COUNT = 12
 #  Row order, mirrored from src/game/menutext.asm.
-ROW_ATTACK, ROW_SENSORS, ROW_MOVE, ROW_CONTROLS = 0, 6, 7, 9
+ROW_ATTACK, ROW_SENSORS, ROW_MOVE = 0, 6, 7
+ROW_PAN, ROW_CENTRE, ROW_CONTROLS = 9, 10, 11
 
 ENT_SIZE = 20
 ENT_FLAGS, ENT_ORDER = 11, 13
@@ -142,6 +143,43 @@ class TestPickingActuallyDoesIt(MenuFixture):
         self.choose(ROW_CONTROLS)
         self.assertEqual(self.banked("HELP_SHOWN"), 1,
                          "choosing CONTROLS did not put the key list up")
+
+
+class TestTheView(MenuFixture):
+    """Section 4.3's camera, now that the player can leave the middle."""
+
+    def pan(self):
+        base = self.sym["CAM_PAN"]
+        return tuple(int.from_bytes(self.c.read_ram(base + i * 2, 2), "little", signed=True)
+                     for i in range(3))
+
+    def test_pan_hands_the_cursor_keys_to_the_camera(self):
+        self.assertEqual(self.byte("PAN_ACTIVE"), 0)
+        yaw = self.byte("CAM_YAW")
+        self.choose(ROW_PAN)
+        self.assertEqual(self.byte("PAN_ACTIVE"), 1, "PAN VIEW did not turn panning on")
+
+        self.assertEqual(self.pan(), (0, 0, 0))
+        self.press(cpc.KEY_RIGHT, frames=60)
+        self.assertNotEqual(self.pan(), (0, 0, 0), "the cursor keys did not move the view")
+        self.assertEqual(self.byte("CAM_YAW"), yaw,
+                         "the cursor keys orbited the camera as well as panning it")
+
+    def test_centring_undoes_the_pan(self):
+        """Otherwise "centre" leaves the camera exactly as far off the
+        Mothership as the player had wandered -- which is the state they
+        pressed it to get out of."""
+        self.choose(ROW_PAN)
+        self.press(cpc.KEY_RIGHT, frames=60)
+        self.press(cpc.KEY_UP, frames=60)
+        self.assertNotEqual(self.pan(), (0, 0, 0))
+
+        self.choose(ROW_CENTRE)
+        self.assertEqual(self.pan(), (0, 0, 0), "centring did not clear the pan")
+        self.assertEqual(self.byte("PAN_ACTIVE"), 0,
+                         "centring left the cursor keys panning")
+        self.assertEqual(self.byte("SEL_MOTHERSHIP"), 1,
+                         "centring did not select the Mothership")
 
 
 class TestItDoesNotLeakTheKeyThatOpenedIt(MenuFixture):

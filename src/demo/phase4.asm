@@ -112,100 +112,6 @@ demo_init:
 ;  which doubles as proof that the approach code works at all.
 ;  Uses: everything
 ; ----------------------------------------------------------------------------
-phase4_spawn_fleet:
-    xor a
-    ld (phase4_index),a
-@p4_ship:
-    ld a,(phase4_index)
-    call ent_addr
-    push hl
-
-    ;  Position: squadron 1's station, so the fleet unpacks from one point.
-    ld de,squad_dest
-    ld b,6
-@p4_copy_pos:
-    ld a,(de)
-    ld (hl),a
-    inc hl
-    inc de
-    djnz @p4_copy_pos
-
-    pop hl
-    push hl
-    ld de,ENT_FLAGS
-    add hl,de
-    ld (hl),ENT_F_ACTIVE
-    pop hl
-    push hl
-    ld de,ENT_HULL
-    add hl,de
-    ld (hl),255
-    pop hl
-    push hl
-    ld de,ENT_SQUAD
-    add hl,de
-    ld (hl),1                           ; the fleet starts as one squadron
-    pop hl
-    push hl
-    ld de,ENT_CLASS
-    add hl,de
-    ld (hl),CLASS_INTERCEPTOR
-    pop hl
-    push hl
-    ld de,ENT_YAW
-    add hl,de
-    ld a,(phase4_index)
-    add a,a
-    add a,a
-    add a,a
-    add a,a                             ; fan the headings out
-    ld (hl),a
-    pop hl
-
-    ld hl,phase4_index
-    inc (hl)
-    ld a,(hl)
-    cp PHASE4_SHIPS
-    jr c,@p4_ship
-
-    ;  ...and the Mothership, which belongs to no squadron: it is the fleet's
-    ;  base, not part of it, and `0` selects it separately.
-    ld a,PHASE4_SHIPS
-    ld (moth_slot),a
-    call ent_addr
-    push hl
-    ld de,ENT_FLAGS
-    add hl,de
-    ld (hl),ENT_F_ACTIVE
-    pop hl
-    push hl
-    ld de,ENT_CLASS
-    add hl,de
-    ld (hl),CLASS_MOTHERSHIP
-    pop hl
-    push hl
-    ld de,ENT_SQUAD
-    add hl,de
-    ld (hl),SQUAD_NONE
-    pop hl
-    push hl
-    ld de,ENT_HULL
-    add hl,de
-    ld (hl),255
-    pop hl
-    ld de,order_mothership_pos
-    ld b,6
-@p4_moth_pos:
-    ld a,(de)
-    ld (hl),a
-    inc hl
-    inc de
-    djnz @p4_moth_pos
-
-    ret
-
-
-; ----------------------------------------------------------------------------
 ;  demo_update -- one frame
 ; ----------------------------------------------------------------------------
 demo_update:
@@ -378,6 +284,13 @@ phase4_commands:
     call menu_open
     ret
 @p4_no_menu:
+
+    ;  `P` hands the cursor keys to the camera and back.
+    ld a,KEY_P
+    call key_hit
+    jr nc,@p4_no_pan
+    call order_pan_toggle
+@p4_no_pan:
 
     ;  Number keys. The ids are MATRIX POSITIONS, not a dense enumeration --
     ;  1 and 2 sit in row 8 while 9 and 0 are up in row 4 -- so the id for a

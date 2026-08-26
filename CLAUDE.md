@@ -449,9 +449,10 @@ limit: bank 4 has ~10 KB spare, enough for a second class. Add it to
 | Key | Effect |
 |---|---|
 | `1`-`9` | select a squadron (see below) |
-| `0` | select the Mothership |
+| `0` | centre on the Mothership, clearing any pan |
 | cursor keys | orbit the camera; drive the move disc while it is open |
 | `Z` / `X` | zoom in / out, four steps |
+| `P` | pan: the cursor keys drag the view instead of orbiting |
 | `SPACE` | tactical pause — the battle freezes, orders do not |
 | `ENTER` | open the move disc; again to confirm |
 | `ESC` | cancel the disc |
@@ -775,6 +776,41 @@ showed up as "the HUD comes and goes":
   the title's credit line — at y=186, inside the HUD's strip — on screen for
   the rest of the game, because the HUD does not clear its strip, it draws
   labels onto it.
+
+### Panning, and how big the world actually is
+
+`P` hands the cursor keys to the camera; `0` (and the menu's CENTRE ON BASE)
+clears the pan and goes back to the Mothership. **Clearing the pan is the
+point** — without it "centre" leaves the camera as far off the Mothership as
+the player had wandered, which is the state they pressed it to get out of.
+
+Panning reuses `order_disc_move` rather than copying it: the mover writes
+through `disc_target`, which points at `disc_pos` while the move disc is open
+and at `cam_pan` while panning. Same octant rounding, so "right" is right on
+screen for both. The pan is an *offset* applied in `order_focus` after the
+selection is copied, so the camera still follows the squadron — it just does
+it from off to one side.
+
+**The play area cannot be made bigger without rescaling the world.** World
+coordinates are 16-bit and the content already reaches ±26000 of ±32767;
+`WORLD_SHIFT` is 8, so the whole world is ±128 camera units while `cam_dist`
+is 110-250. That is why it feels small: at the widest zoom you are looking at
+essentially all of it.
+
+Four times the extent means `WORLD_SHIFT` 6 (±512 camera units) *and*
+dividing every authored position by four, so ships stay the same size on
+screen. That is a wide change with three sharp edges:
+
+- `proj_v16` must stay in -256..255 for the `f9` signed-multiply trick, and at
+  `WORLD_SHIFT` 6 a delta past ±16320 world units overflows it and the entity
+  reappears somewhere it is not. `proj_deltas` needs a range check — which is
+  also a *win*, since it would reject distant entities before the 2790-T
+  rotate rather than after.
+- `cbt_distance` shifts by 8 to compare with `CBT_RANGE`; with positions four
+  times smaller it has to shift by 6 to mean the same thing.
+- `tools/gentables.py` is the bit-exact reference model for the projection and
+  has `WORLD_SHIFT` in it. Change one and not the other and the differential
+  tests are comparing against the wrong answer.
 
 ### The orders menu
 

@@ -71,9 +71,22 @@ order_update:
     ld a,(disc_active)
     or a
     jr nz,@ord_disc_has_cursors
+    ld a,(pan_active)
+    or a
+    jr nz,@ord_pan_has_cursors
     call order_camera
     jr @ord_shared
 @ord_disc_has_cursors:
+    ld hl,disc_pos
+    ld (disc_target),hl
+    call order_disc_move
+    jr @ord_shared
+@ord_pan_has_cursors:
+    ;  Panning IS the move disc's movement, pointed at the camera offset
+    ;  instead of at a destination -- same octant rounding, so "right" is
+    ;  right on screen here too.
+    ld hl,cam_pan
+    ld (disc_target),hl
     call order_disc_move
 
 @ord_shared:
@@ -108,7 +121,7 @@ order_update:
 
     ld a,KEY_0
     call key_hit
-    call c,order_select_mothership
+    call c,order_centre
 
     ;  TAB is what section 9 asks for. `S` does the same thing because the
     ;  emulator's keymap has no TAB entry at all, so the TAB binding cannot be
@@ -372,6 +385,31 @@ order_focus:
     ld de,cam_focus_x
     ld bc,6
     ldir
+
+    ;  ...and then wherever the player has dragged the view to. The camera
+    ;  still FOLLOWS the selection; the pan is an offset from it, so a
+    ;  squadron that flies on stays the same distance off centre.
+    ld hl,cam_pan
+    ld de,cam_focus_x
+    ld b,3
+@ord_focus_pan:
+    push bc
+    ld a,(de)
+    add a,(hl)
+    ld c,a
+    inc hl
+    inc de
+    ld a,(de)
+    adc a,(hl)
+    ld (de),a
+    dec de
+    ld a,c
+    ld (de),a
+    inc hl
+    inc de
+    inc de
+    pop bc
+    djnz @ord_focus_pan
     ret
 
 
@@ -598,7 +636,7 @@ order_disc_move:
     ld a,KEY_CUR_UP
     call key_down
     jr nc,@ord_disc_no_rise
-    ld hl,disc_pos + 2                  ; the Y axis
+    call order_target_y                 ; the Y axis
     ld de,DISC_STEP
     call order_add_clamped
 @ord_disc_no_rise:
@@ -606,7 +644,7 @@ order_disc_move:
     ld a,KEY_CUR_DOWN
     call key_down
     ret nc
-    ld hl,disc_pos + 2
+    call order_target_y
     ld de,-DISC_STEP
     jp order_add_clamped
 
@@ -642,7 +680,7 @@ order_disc_step:
     inc hl
     push hl
     call order_maybe_negate
-    ld hl,disc_pos + 0                  ; X
+    ld hl,(disc_target)                 ; X
     call order_add_clamped
     pop hl
 
@@ -650,10 +688,56 @@ order_disc_step:
     inc hl
     ld d,(hl)
     call order_maybe_negate
-    ld hl,disc_pos + 4                  ; Z
+    ld hl,(disc_target)
+    ld bc,4
+    add hl,bc                           ; Z
     jp order_add_clamped
 
 
+;  order_target_y -- HL -> the Y word of whatever is being moved
+;  Uses: AF, BC, HL
+; ----------------------------------------------------------------------------
+order_target_y:
+    ld hl,(disc_target)
+    ld bc,2
+    add hl,bc
+    ret
+
+
+; ----------------------------------------------------------------------------
+;  order_pan_toggle -- the `P` key: hand the cursor keys to the camera
+;  Uses: AF, HL
+; ----------------------------------------------------------------------------
+order_pan_toggle:
+    ld hl,pan_active
+    ld a,(hl)
+    xor 1
+    ld (hl),a
+    ret
+
+
+; ----------------------------------------------------------------------------
+;  order_centre -- the `0` key and the menu: back to the Mothership
+;
+;  Clearing the pan is the whole point. Without it "centre" would put the
+;  camera wherever the player had wandered to, offset from the Mothership by
+;  however far they had panned -- which is exactly the state they pressed it
+;  to get out of.
+;  Uses: AF, B, HL
+; ----------------------------------------------------------------------------
+order_centre:
+    ld hl,cam_pan
+    ld b,6
+    xor a
+@ord_centre_clear:
+    ld (hl),a
+    inc hl
+    djnz @ord_centre_clear
+    ld (pan_active),a                   ; and give the cursor keys back
+    jp order_select_mothership
+
+
+; ----------------------------------------------------------------------------
 ;  DE = -DE if (disc_negate)
 ;  Uses: AF, DE
 order_maybe_negate:
@@ -729,6 +813,14 @@ squad_dest:         defs SQUAD_MAX * 6, 0
 
 disc_active:        defb 0
 disc_pos:           defs 6, 0
+
+;  Where the cursor keys are pointed: disc_pos while the move disc is open,
+;  cam_pan while panning. One mover, two things to move.
+disc_target:        defw disc_pos
+
+;  How far the view has been dragged off whatever it is following.
+cam_pan:            defs 6, 0
+pan_active:         defb 0
 disc_octant:        defb 0
 disc_sign:          defb 0
 disc_negate:        defb 0

@@ -43,6 +43,10 @@ menu_entries:
     defb "MOVE DISC   ENTER",0
     defb KEY_J
     defb "JUMP            J",0
+    defb KEY_P
+    defb "PAN VIEW        P",0
+    defb KEY_0
+    defb "CENTRE ON BASE  0",0
     defb KEY_SLASH
     defb "CONTROLS        ?",0
 menu_entries_end:

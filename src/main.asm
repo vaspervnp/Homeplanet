@@ -126,6 +126,7 @@ bank4_start:
     include "game/title.asm"
     include "game/titletext.asm"
     include "game/menutext.asm"
+    include "game/staticscreens.asm"
 bank4_end:
 
 ; ----------------------------------------------------------------------------

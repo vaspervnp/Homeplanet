@@ -24,9 +24,9 @@
 ;  stopped, so it has no business in the low 16K.
 ; ----------------------------------------------------------------------------
 
-MENU_COUNT          equ 10
+MENU_COUNT          equ 12
 MENU_TITLE_Y        equ 20
-MENU_TOP            equ 40
+MENU_TOP            equ 32
 MENU_STEP           equ 12
 MENU_MARK_X         equ 22              ; x is in BYTES
 MENU_TEXT_X         equ 24

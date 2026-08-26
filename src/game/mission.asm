@@ -85,69 +85,6 @@ mis_brief_open:
 ;  would flicker between the briefing and whatever the other buffer holds.
 ;  Uses: everything
 ; ----------------------------------------------------------------------------
-mis_brief_draw:
-    ;  Wipe the whole tactical area; the strip below belongs to the HUD.
-    ld bc,#0000
-    ld a,(spr_clip_bottom)
-    ld e,a
-    ld d,SCR_BYTES_PER_LINE
-    xor a
-    call scr_fill_rect
-
-    call mis_descriptor
-    ld b,BRIEF_X
-    ld c,BRIEF_TITLE_Y
-    call txt_draw                       ; HL is already the name
-
-    ;  The three lines live in their own table, indexed by MIS_TEXT.
-    call mis_descriptor
-    ld de,MIS_TEXT
-    add hl,de
-    ld a,(hl)
-    ld l,a
-    ld h,0
-    add hl,hl                           ; three pointers a mission
-    ld d,h
-    ld e,l
-    add hl,hl
-    add hl,de                           ; * 6
-    ld de,mission_text_table
-    add hl,de
-    ld (mis_text_ptr),hl
-
-    ld a,BRIEF_TEXT_Y
-    ld (mis_text_y),a
-    ld a,BRIEF_LINES
-    ld (mis_text_left),a
-
-@mis_brief_line:
-    ld hl,(mis_text_ptr)
-    ld e,(hl)
-    inc hl
-    ld d,(hl)
-    inc hl
-    ld (mis_text_ptr),hl
-    ex de,hl
-    ld b,BRIEF_X
-    ld a,(mis_text_y)
-    ld c,a
-    call txt_draw
-
-    ld hl,mis_text_y
-    ld a,(hl)
-    add a,BRIEF_LINE_STEP
-    ld (hl),a
-    ld hl,mis_text_left
-    dec (hl)
-    jr nz,@mis_brief_line
-
-    ld hl,mis_brief_prompt
-    ld b,BRIEF_X
-    ld c,BRIEF_TEXT_Y + BRIEF_LINES * BRIEF_LINE_STEP + 12
-    jp txt_draw
-
-
-; ----------------------------------------------------------------------------
 ;  mis_brief_key -- ENTER dismisses the briefing
 ;  Uses: everything
 ; ----------------------------------------------------------------------------
