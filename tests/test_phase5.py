@@ -157,6 +157,27 @@ class TestZoom(ControlFixture):
         self.assertEqual(self.byte("CAM_ZOOM"), len(ZOOM_DISTANCES) - 1)
         self.assertEqual(self.word("CAM_DIST"), ZOOM_DISTANCES[-1])
 
+    def test_plus_and_minus_zoom_as_well_as_z_and_x(self):
+        """Second pair of keys, same pair of commands.
+
+        `+` is not a key on this machine -- it is SHIFT + `;` -- and the
+        matrix only ever reports the physical key, so the game reads the `;`
+        position and catches it either way. Pressing the character the player
+        actually presses is the whole point of testing it here rather than
+        asserting on the equate.
+        """
+        start = self.byte("CAM_ZOOM")
+        self.hold("-", frames=25)
+        self.assertEqual(self.byte("CAM_ZOOM"), start + 1, "`-` did not zoom out")
+        self.hold("+", frames=25)
+        self.assertEqual(self.byte("CAM_ZOOM"), start, "`+` did not zoom back in")
+
+        #  And they share the ladder with Z and X rather than having their own.
+        self.hold("x", frames=25)
+        self.hold("-", frames=25)
+        self.assertEqual(self.byte("CAM_ZOOM"), start + 2,
+                         "X and - do not step the same zoom")
+
     def test_zoom_is_edge_triggered(self):
         """Holding X must step one notch, not run to the far end."""
         self.hold("x", frames=200)

@@ -128,6 +128,13 @@ KEY_PERIOD          equ 3*8 + 7
 ;  and nothing else is bound to `/` for an unshifted press to collide with.
 KEY_SLASH           equ 3*8 + 6
 KEY_P               equ 3*8 + 3         ; pan; line 3 is  ^ - @ P ; : / .
+;  Zoom, as a second pair beside Z and X. `-` is a key of its own; `+` is NOT
+;  -- it is SHIFT + `;`, and since the matrix only ever reports the physical
+;  key, reading `;` catches it whether or not SHIFT is down. Same trick as
+;  KEY_SLASH above, and nothing else is bound to either for an unshifted press
+;  to collide with.
+KEY_MINUS           equ 3*8 + 1
+KEY_PLUS            equ 3*8 + 4         ; the `;` key, which is what `+` is
 KEY_R               equ 6*8 + 2
 KEY_S               equ 7*8 + 4
 KEY_ENTER           equ 2*8 + 2         ; the big RETURN, not the numeric one

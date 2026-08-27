@@ -339,6 +339,11 @@ an `OR` or `LD A,H : OR L` in between destroys it. A ship at one end of the
 map read a target at the other end as being behind it and flew away from it
 forever. See `phase4_approach`.
 
+**Some characters are not keys.** `?` is SHIFT + `/` and `+` is SHIFT + `;`;
+the matrix only ever reports the PHYSICAL key, so `KEY_SLASH` and `KEY_PLUS`
+are the unshifted positions and catch the shifted character for free. Check
+nothing else wants the unshifted key before taking it.
+
 **Key ids are MATRIX POSITIONS, not a dense enumeration.** `KEY_1` and
 `KEY_2` are in row 8, `KEY_3` and `KEY_4` in row 7, `KEY_9` and `KEY_0` up in
 row 4. Deriving a digit's id with `KEY_1 + n` gets you `ESC`, `Q`, `TAB`, `A`
@@ -831,7 +836,7 @@ not needed and should stay unspent.
 | `1`-`9` | select a squadron (see below) |
 | `0` | centre on the Mothership, clearing any pan |
 | cursor keys | orbit the camera; drive the move disc while it is open |
-| `Z` / `X` | zoom in / out, **twelve** steps |
+| `Z` / `X` or `+` / `-` | zoom in / out, **twelve** steps |
 | `P` | pan: the cursor keys drag the view instead of orbiting |
 | `SPACE` | tactical pause — the battle freezes, orders do not |
 | `ENTER` | open the move disc; again to confirm |

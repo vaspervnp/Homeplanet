@@ -31,7 +31,7 @@ help_col_left:
     defb "1-9 SQUADRON",0
     defb "0   MOTHERSHIP",0
     defb "ARROWS  CAMERA",0
-    defb "Z X ZOOM IN/OUT",0
+    defb "Z X + - ZOOM",0
     defb "SPACE   PAUSE",0
     defb "ESC CANCEL MOVE",0
     defb "SHIFT+UP/DN HEIGHT",0

@@ -476,12 +476,20 @@ order_clamp_pitch:
 
 
 ; ----------------------------------------------------------------------------
-;  order_zoom -- Z closer, X further, twelve steps (section 4.3, extended)
+;  order_zoom -- Z or + closer, X or - further, twelve steps (section 4.3)
+;
+;  Two pairs of keys, one pair of commands. `+` is not a key on this machine:
+;  it is SHIFT + `;`, and the matrix reports only the physical key, so
+;  KEY_PLUS is the `;` position -- see the note beside it in sys/keyboard.asm.
 ;  Uses: everything
 ; ----------------------------------------------------------------------------
 order_zoom:
     ld a,KEY_Z
     call key_hit
+    jr c,@ord_zoom_in
+    ld a,KEY_PLUS
+    call key_hit
+@ord_zoom_in:
     jr nc,@ord_no_in
     ld hl,cam_zoom
     ld a,(hl)
@@ -493,6 +501,10 @@ order_zoom:
 
     ld a,KEY_X
     call key_hit
+    jr c,@ord_zoom_out
+    ld a,KEY_MINUS
+    call key_hit
+@ord_zoom_out:
     ret nc
     ld hl,cam_zoom
     ld a,(hl)
