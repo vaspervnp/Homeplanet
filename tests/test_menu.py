@@ -126,10 +126,26 @@ class TestPickingActuallyDoesIt(MenuFixture):
                          "choosing SENSORS did not change the view")
 
     def test_attack_issues_the_order(self):
+        """It needs something to attack, and that is not incidental.
+
+        The fixture opens on mission 1, which has no enemies at all, and an
+        attack order is now SPENT the moment there is nothing left to shoot at
+        -- see cbt_fire_if_able. So an order given into an empty sky is gone
+        again within a few frames, correctly, and asserting it survived there
+        would be asserting the bug that stranded the fleet after every fight.
+        One hostile, far enough out that nothing happens to it in the frames
+        this takes, and the order has something to hold onto.
+        """
         def attacking():
             return sum(1 for s in range(48)
                        if (self.c.read_ram(self.sym["ENTITIES"] + s * ENT_SIZE + ENT_FLAGS, 1)[0] & 3) == F_ACTIVE
                        and self.c.read_ram(self.sym["ENTITIES"] + s * ENT_SIZE + ENT_ORDER, 1)[0] == ENT_ORDER_ATTACK)
+
+        base = self.sym["ENTITIES"] + 47 * ENT_SIZE
+        self.c.write_ram(base, struct.pack("<hhh", 0, 0, 12000))
+        self.c.write_ram(base + 9, bytes([0]))              # ENT_CLASS: interceptor
+        self.c.write_ram(base + 10, bytes([255]))           # ENT_HULL
+        self.c.write_ram(base + ENT_FLAGS, bytes([F_ACTIVE | F_ENEMY]))
 
         self.assertEqual(attacking(), 0)
         self.choose(ROW_ATTACK)

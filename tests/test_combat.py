@@ -416,6 +416,156 @@ class TestConcentration(CombatFixture):
                          "the shooter sat idle instead of switching to the survivor")
 
 
+class TestTheFleetComesHomeWhenTheShootingStops(CombatFixture):
+    """An attack order has to be SPENT when there is nothing left to attack.
+
+    phase4_fly skips a ship whose ENT_ORDER is ENT_ORDER_ATTACK on purpose, so
+    cbt_move_enemies can close it on its target without the two of them
+    stepping it by PHASE4_STEP in opposite directions and cancelling. Nothing
+    ever cleared the order, so once the last enemy died the ship was steered by
+    nobody: it stopped dead wherever the fight had ended and stayed there for
+    the rest of the mission, and fleet_save carried those coordinates into the
+    next one.
+
+    Every combat test before this one counts -- shots, kills, hulls, survivors
+    -- and a count is precisely what this bug preserves. The right ships die,
+    the right number come out, and every one of them is in the wrong place. So
+    this follows ships BY SLOT and asks where they are, which is the same net
+    the squadron tests had to grow for the same reason.
+    """
+
+    #  Far enough out that the two sides meet thousands of units from the
+    #  station, so "the fleet never came home" and "the fleet never left" are
+    #  not the same measurement -- and no further, because cbt_find_enemy
+    #  starts cbt_best_dist at 255 and dist_manhattan SATURATES at 255, so an
+    #  enemy more than 255 * 64 = 16320 world units away compares equal to
+    #  "nothing found yet" and can never be picked up at all.
+    ENEMY_Z = 15000
+    #  Loose is a 4x4 lattice at FORM_SPACING on two axes, so the furthest slot
+    #  sits 3 * 550 out along each of them: 3300 Manhattan from the station.
+    #  Two PHASE4_STEPs of slop on top for a ship still closing.
+    FORM_REACH = 3 * 550 * 2 + 2 * 150
+    SHIPS = 6
+
+    def stage_one_fight(self, enemy_hull=1):
+        """Six attackers on station, one enemy a long way off."""
+        base = self.sym["ENTITIES"]
+        for slot in range(48):
+            self.c.write_ram(base + slot * ENT_SIZE + ENT_FLAGS, b"\x00")
+
+        def place(slot, enemy, pos, hull, order):
+            addr = base + slot * ENT_SIZE
+            self.c.write_ram(addr, struct.pack("<hhh", *pos))
+            self.c.write_ram(addr + ENT_CLASS, bytes([0]))          # interceptor
+            self.c.write_ram(addr + ENT_HULL, bytes([hull]))
+            self.c.write_ram(addr + ENT_FLAGS,
+                             bytes([F_ACTIVE | F_ENEMY if enemy else F_ACTIVE]))
+            self.c.write_ram(addr + ENT_SQUAD, bytes([255 if enemy else 1]))
+            self.c.write_ram(addr + ENT_ORDER, bytes([order]))
+            self.c.write_ram(addr + ENT_TARGET, bytes([255]))
+
+        for i in range(self.SHIPS):
+            place(i, False, (0, 0, 0), 255, ENT_ORDER_ATTACK)
+        place(self.SHIPS, True, (0, 0, self.ENEMY_Z), enemy_hull, ENT_ORDER_NONE)
+
+        self.order_fleet_to(0, 0, 0)
+        #  Keep the defeat check off a slot that is now an ordinary interceptor.
+        self.c.write_ram(self.sym["MOTH_SLOT"], bytes([0]))
+        self.c.run_frames(4)
+
+    def from_station(self, slot):
+        """Manhattan distance, in world units, from where the squadron lives."""
+        dest = struct.unpack("<hhh", self.c.read_ram(self.sym["SQUAD_DEST"], 6))
+        return sum(abs(a - b) for a, b in zip(self.position(slot), dest))
+
+    def friendly_slots(self):
+        return [s for s in range(48) if (self.flags(s) & 3) == F_ACTIVE]
+
+    def fight_it_out(self, limit=2000):
+        """Run until the enemy is gone. Returns the frame budget left."""
+        spent = 0
+        while spent < limit:
+            self.c.run_frames(40)
+            spent += 40
+            if self.counts()[1] == 0:
+                return limit - spent
+        self.fail("the attackers never killed the one enemy they were sent at")
+
+    def test_the_order_is_dropped_when_the_last_target_dies(self):
+        """The order itself, before anything that depends on it."""
+        self.stage_one_fight()
+        crew = self.friendly_slots()
+        self.assertEqual(len(crew), self.SHIPS)
+
+        self.fight_it_out()
+        #  Re-acquisition happens when a ship is next ready to shoot, so give
+        #  every weapon time to come off cooldown. A game frame is four of the
+        #  emulator frames run_frames counts.
+        self.c.run_frames((CBT_COOLDOWN + 4) * TICKS_PER_GAME_FRAME)
+
+        still_attacking = [s for s in crew
+                           if self.ent(s, ENT_ORDER)[0] == ENT_ORDER_ATTACK]
+        self.assertEqual(still_attacking, [],
+                         f"slots {still_attacking} are still under an attack "
+                         f"order with nothing left alive to attack")
+
+    def test_a_ship_that_is_still_attacking_is_left_alone(self):
+        """The fix must not undo concentration.
+
+        The order is what makes an attacking squadron close and bring its guns
+        to bear; it is the whole reason phase4_fly skips these ships, and
+        without it an even eight-against-eight went 8-0 to the Vekhar. So the
+        order has to stand for as long as the fight does -- checked every
+        twenty frames while the enemy is still flying, rather than once at some
+        arbitrary moment that might be after it died.
+        """
+        self.stage_one_fight(enemy_hull=255)
+        crew = self.friendly_slots()
+
+        reached = spent = 0
+        while spent < 600:
+            self.c.run_frames(20)
+            spent += 20
+            if self.counts()[1] == 0:
+                break                       # it died; the order may go now
+            reached = max(reached, max(self.from_station(s) for s in crew))
+            dropped = [s for s in crew
+                       if self.ent(s, ENT_ORDER)[0] != ENT_ORDER_ATTACK]
+            self.assertEqual(dropped, [],
+                             f"slots {dropped} were let off their attack order "
+                             f"after {spent} frames, with the enemy still flying")
+
+        self.assertGreater(reached, 3000,
+                           "the attackers never left the station to engage")
+
+    def test_every_ship_flies_back_to_its_station(self):
+        """The one the player would report. Slot by slot, not a count.
+
+        The fleet has to have GONE somewhere first, or "it is at the station"
+        is true for the wrong reason -- so the distance at the moment of the
+        kill is asserted too.
+        """
+        self.stage_one_fight()
+        crew = self.friendly_slots()
+        self.fight_it_out()
+
+        away = {s: self.from_station(s) for s in crew}
+        self.assertGreater(min(away.values()), 3000,
+                           f"the fight ended next door to the station: {away}")
+
+        #  phase4_fly steps PHASE4_STEP = 150 world units a game frame, so
+        #  twelve thousand units is eighty of them and 320 emulator frames.
+        self.c.run_frames(900)
+
+        home = {s: self.from_station(s) for s in crew}
+        self.assertEqual(sorted(home), sorted(away),
+                         "ships went missing on the way home")
+        stragglers = {s: d for s, d in home.items() if d > self.FORM_REACH}
+        self.assertEqual(stragglers, {},
+                         f"slots left stranded where the fight ended: {stragglers} "
+                         f"(they were at {away})")
+
+
 class TestRange(CombatFixture):
 
     def test_ships_only_fire_once_they_are_close(self):

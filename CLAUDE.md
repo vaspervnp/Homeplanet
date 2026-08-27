@@ -769,7 +769,9 @@ Design document section 13 lists ten phases.
 - **Phase 6 — done.** Both fleets fire, hulls take damage, ships die and leave
   explosions, and the AY plays a tone for a shot and noise for a kill.
   Targeting is round-robin — one entity re-targets per frame — so no frame
-  pays for a full search.
+  pays for a full search. An attack order now **ends by itself** when the last
+  target dies, which is what lets a fleet disengage without the player knowing
+  a key for it; see "An attack order has to be spent".
 
   **The §8 balance triangle is in**: `cbt_damage_matrix` in
   `game/classdata.asm` is eight classes square, and the three legs —
@@ -847,7 +849,7 @@ not needed and should stay unspent.
 | `TAB` (or `S`) | tactical view ↔ sensors |
 | `R` | station the squadron on the Mothership |
 | `,` / `.` | step the target through live entities |
-| `A` / `G` | attack / guard — writes the order, nothing acts on it yet |
+| `A` / `G` | attack / guard. `A` closes the squadron on its target and **spends itself** when there is nothing left to shoot at, so the fleet re-forms on its station by itself |
 | `H` | send the selected squadron's **harvesters** to work |
 | `B` | open the build panel; `,`/`.` pick a class, ENTER orders it |
 | `ESC` | the orders menu — cursor keys pick, `ENTER` runs it |
@@ -1239,6 +1241,14 @@ mis       whole fleet      half a fleet
      all: 92/96 = 96%   -- the floor is 70%
 ```
 
+**Re-measured after the attack order was made to spend itself**, and the `G`
+that used to disengage the fleet has been taken out of the tool: four
+campaigns, forty-eight trials, **47/48 = 98%**, with mission 3 halved and
+mission 4 halved the two that moved. The same four campaigns against the build
+before it, *with* the `G`, are 46/48 = 96%. Fewer samples than the run above,
+so read it as "the floor is not in danger and the workaround is gone" rather
+than as 96% → 98% being a measured improvement of two points.
+
 **Missions 7 and 8 have no samples and that is not the waves.** The picket at
 THE GATE takes the Mothership before any wave lands, in this build and in the
 one before it, for the frame-boundary reasons the balance section documents and
@@ -1278,11 +1288,11 @@ Loiter through three waves in mission 4 and the fleet begins mission 5 scattered
 around wherever the last wave happened to arrive, with the Mothership alone at
 the origin and THE NEBULA's eight hostiles spawning on top of it.
 
-This is pre-existing and the waves only exposed it: any fight leaves the fleet
-displaced. `G` is what a player presses to disengage and it puts the ships back
-under formation flight, so `waverate.py` presses it — but a player who does not
-know that is one mission from losing the game. It is the next thing worth
-fixing in `game/combat.asm` and it is deliberately not fixed here.
+This was pre-existing and the waves only exposed it: any fight left the fleet
+displaced. It is **fixed** — see "An attack order has to be spent" under "A
+fleet has to be able to concentrate" — and `waverate.py` no longer presses `G`
+to work around it, because a measuring stick that works around a bug measures
+the workaround.
 
 #### The clock, converted honestly
 
@@ -1326,9 +1336,9 @@ SPACE stops the clock along with the battle.
 Its missions **peak at 44 game frames of the 900** — the script jumps the
 moment it is allowed to, so no wave has ever fired in it and `WAVE_COUNT` is 0
 at the end of a whole campaign. Any difference in its output is the frame
-boundary moving, which CLAUDE.md already tells you not to tune for. It still
-ends at mission 7 with the Mothership lost, exactly as it did before this
-landed:
+boundary moving, which CLAUDE.md already tells you not to tune for. It ended
+at mission 7 with the Mothership lost when this landed, exactly as it did
+before:
 
 ```
 mis enemy  in out lost   hull  fleet
@@ -1336,6 +1346,10 @@ mis enemy  in out lost   hull  fleet
   6     6  16  15    1   2755  int=14 moth=1
   7    12  15  11    4   2325  int=11  FAILED -- the Mothership was lost
 ```
+
+**That is not today's figure and the difference is not the waves.** The
+current one is under "A fleet has to be able to concentrate", where the run it
+belongs to has its control beside it.
 
 #### Randomness, and how a test pins it
 
@@ -1547,6 +1561,117 @@ mechanics are symmetric, so the cause was never the damage numbers.
    makes "hold formation" a genuinely worse tactic than "attack", and pressing
    `A` is the answer. Raising `CBT_RANGE` to 56 was tried and made missions 3
    and 4 worse, because it lets the enemy's ball reach more of the spread.
+4. **Nothing ever ENDED the order**, which is item 1 read backwards and is its
+   own section immediately below.
+
+#### An attack order has to be spent, and for a long time nothing spent it
+
+`phase4_fly` skips a ship under `ENT_ORDER_ATTACK`, and `cbt_move_enemies`
+declines to move a ship that has no target. Both are right on their own.
+Together — order still set, target dead — they mean **nothing steers the ship
+at all.** It stopped dead wherever the last enemy happened to die, stayed there
+for the rest of the mission, and `fleet_save` carried those coordinates into
+the next one. Measured against the build before the fix: fight mission 4's
+picket and a wave, and all fifteen interceptors sit 4,339 to 4,789 units from
+their station, still flagged ATTACK, at **byte-identical coordinates 900
+emulator frames later.** `G` was the workaround and a player had to know to
+press it.
+
+`cbt_fire_if_able` already knew: it is the routine that spots a target is
+wreckage and re-acquires on the spot. When *that* re-acquire comes back
+`ENT_NO_TARGET` there is nothing left to shoot at anywhere on the map, and the
+order is spent. Nine bytes of the low 16K, **nothing** out of bank 4 and
+nothing out of `DISC.BIN` — the low 16K did not even cross a page.
+
+**`ENT_ORDER_IDLE` and not `ENT_ORDER_GUARD`, and that is the decision in it.**
+GUARD is also "hold station and shoot" and `phase4_fly` flies a guarding ship
+home just the same, so either looks fine from the outside. But
+`cbt_retarget_one` returns early for GUARD, deliberately — a target the player
+chose is not the AI's to overwrite — so a ship dropped *into* GUARD would keep
+whichever target it picked up next and never be re-pointed at a nearer one when
+that one drifted out of range. It is not stranded (a dead target still falls
+through to a fresh search) but it is worse at fighting. IDLE is the state
+`mis_spawn_enemy` and the fleet both start in, so the order is **spent** rather
+than replaced by an order the player never gave, and the default
+"nearest, refreshed on drift" targeting comes back with it.
+
+**Only ATTACK, and that guard is not defensive tidiness.** Every active entity
+reaches this line, and a harvester reaches it every frame of every mission
+whose enemies are all dead — which is most missions, by the end. Clearing
+unconditionally takes `ENT_ORDER_HARVEST` off it and stops the economy.
+
+**It cannot end a fight early.** `cbt_find_enemy` searches at *any* distance,
+not just weapons range, so while one hostile is alive anywhere the order
+stands and item 1 above still holds.
+`TestTheFleetComesHomeWhenTheShootingStops` asserts that every twenty frames
+for the whole length of a fight, and every enemy layout in `campaign.asm` is
+inside the range where it is true. The one edge: `cbt_find_enemy` starts
+`cbt_best_dist` at 255 and `dist_manhattan` **saturates** at 255, so an enemy
+more than `255 * 64 = 16320` world units off compares equal to "nothing found
+yet" and is never picked at all. The order would be spent with that ship still
+flying — which is the right answer anyway, since nothing could have closed on
+it either.
+
+##### It costs `tools/balance.py` a mission, and the control says that is REAL
+
+This is the first swing in that script that is **not** the frame-boundary story
+the rest of this section tells at such length, and the control is the only
+reason anyone can say so. Three runs, same day, same machine:
+
+| build | campaign |
+|---|---|
+| HEAD | mis 3 → 3912 hull, mis 4 → 3369, mis 5 → 3023, **Mothership lost at 6** |
+| HEAD + 520 T of `djnz` in `demo_update` and nothing else | **byte-for-byte identical to HEAD** |
+| HEAD + the fix | mis 3 → 3768, mis 4 → 3009, **Mothership lost at 5** |
+
+520 T-states of pure delay moved *nothing* — not a hull point, not a frame
+count — where the very same control used to move mission 7 from seven ships
+lost to nine. **Run the control every time; here it came back negative**, so
+the mission the campaign ends at is a behavioural difference and has to be
+explained instead of shrugged at. (The fix itself is worth about one T-state
+on a path that runs when a target has just died, so it could never have been
+the timing anyway.)
+
+**The explanation is that `balance.py`'s script was quietly living off the
+bug.** It presses `A` once a mission and jumps the moment it is allowed to, so
+it never paid the cost — a Mothership left alone — and it did collect the
+benefit: a fleet frozen where the last fight ended is a fleet parked two to
+four thousand units up the **+Z** axis, which is the side every picket in
+`campaign.asm` is laid out on. It used to start each mission already most of
+the way to the enemy, in a clump tighter than any formation. It now starts on
+the Mothership, spread into the Loose lattice, with further to go — so it
+arrives piecemeal and 144 hull worse off in mission 3, 360 worse in mission 4,
+and one ship down by mission 5.
+
+**That is item 3 of this section, not a new problem, and it is not to be
+tuned.** The formation is wider than the gun on purpose; the answer is that
+the player presses `A`, and the script does. What has gone is an accident that
+flattered it. This is the same shape as `test_all_three_size_tiers_get_used`
+leaning on the squadron-station bug — when a defect goes, the things that were
+getting a free ride off it get worse, and that is not a regression.
+
+**`tools/waverate.py` measures the trade the other way, and it is why the trade
+is worth taking.** Four campaigns, forty-eight mission trials:
+
+| build | tactic | all |
+|---|---|---|
+| HEAD | station, `A`, **and `G` to disengage** | 46/48 = **96%** |
+| the fix | station, `A`, and nothing else | 47/48 = **98%** |
+
+It goes UP while the workaround is taken AWAY. The two that flipped are
+mission 3 and mission 4 at half a fleet — the crippled column, which is the
+only one the waves ever win — and mission 4 halved is the one loss left.
+
+##### The tests all counted, again
+
+Every combat test before this one asserted on shots, kills, hulls or
+survivors, and **a count is exactly what this bug preserves**: the right ships
+die, the right number come out, and every one of them is in the wrong place.
+The same blind spot as the squadron commands, found the same way — follow
+ships **by slot** and ask where they are. Against the unfixed build the two new
+tests report `{0: 6300, 1: 6300, ... 5: 6300}` where they want `{}`, and the
+third one — the guard that the order still stands mid-fight — passes on both
+sides, which is what makes it a guard rather than a duplicate.
 
 **Balance numbers come from `tools/balance.py`, and the tactic is part of the
 number.** How expensive the campaign is depends entirely on how it is played:
@@ -1556,17 +1681,20 @@ Mothership at mission 5. Neither was wrong -- they were different scripts. So
 run the tool rather than quoting prose, and treat any figure here as "that
 script, that build".
 
-Latest run, with all eight classes in: missions 1-6 cost **two ships** between
-them, mission 7 costs nine, and mission 8 takes the fleet. Mission 8 is where
-the campaign ends.
+Latest run, with all eight classes and the attack waves in, and with an attack
+order that spends itself:
 
 ```
 mis enemy  in out lost   hull  fleet
-  4     8  16  14    2   3330  int=13 moth=1
-  6     6  14  14    0   2658  int=13 moth=1
-  7    12  14   5    9    723  int=4 moth=1
-  8    10   5   0    5      0  FAILED -- the Mothership was lost
+  3     4  16  16    0   3768  int=15 moth=1
+  4     8  16  15    1   3009  int=14 moth=1
+  5     8  14  13    1   2643  int=13  FAILED -- the Mothership was lost
 ```
+
+The run before the fix reached mission 6 and the one before the waves reached
+8. The first of those two steps is explained under "It costs `tools/balance.py`
+a mission" below and is **not** a timing artefact — it is the only swing in
+this script that has ever survived its own control.
 
 **Mission 7's cost is not a number, it is a coin toss, and this is worth
 knowing before anyone "fixes" a regression that is not one.** The zoom work

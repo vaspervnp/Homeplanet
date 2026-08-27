@@ -43,20 +43,26 @@ THE TACTIC, AND THE ONE THING IT ADDS TO balance.py's
 -----------------------------------------------------
 Station the fleet on the Mothership and press `A`, exactly as balance.py does
 and for the same reason: section 8 makes abandoning the Mothership the thing
-the design punishes. Then, when a wave is dead, press `G`.
+the design punishes. Then, when a wave is dead, wait for the fleet to come
+home before letting the next one arrive.
 
-That `G` is not decoration, and finding out why it was needed took a whole
-measurement. An ENT_ORDER_ATTACK ship is skipped by phase4_fly, deliberately,
-so cbt_move_enemies can close it on its target without the two systems
-cancelling -- and NOTHING clears the order when the target dies. So a fleet
-that has just killed a wave six thousand units out stays there, and fleet_save
-carries those coordinates into the next mission. Loiter through three waves in
-mission 4 and the fleet begins mission 5 scattered around wherever the last
-wave happened to arrive, with the Mothership alone at the origin and THE
-NEBULA's eight hostiles spawning on top of it: measured, the campaign died at
-mission 5 in six runs out of six, at full hull, with no wave on the screen.
-That is not the waves being too strong, it is a fleet that was never told to
-come home.
+It used to press `G` there, and that `G` was a WORKAROUND rather than a tactic
+-- which is how this tool found a bug that had nothing to do with the waves.
+An ENT_ORDER_ATTACK ship is skipped by phase4_fly, deliberately, so
+cbt_move_enemies can close it on its target without the two systems
+cancelling, and nothing cleared the order when the target died. So a fleet
+that had just killed a wave six thousand units out stayed there, and
+fleet_save carried those coordinates into the next mission: loiter through
+three waves in mission 4 and the fleet began mission 5 scattered around
+wherever the last wave happened to arrive, with the Mothership alone at the
+origin and THE NEBULA's eight hostiles spawning on top of it. Measured with
+the `G` taken out, the campaign died at mission 5 in six runs out of six, at
+full hull, with no wave on the screen.
+
+cbt_fire_if_able now spends the order itself the moment there is nothing left
+to shoot at, so the `G` is gone from here on purpose: a measuring stick that
+works around a bug measures the workaround. See "An attacking ship never comes
+home" in CLAUDE.md.
 
 WHAT IT DOES NOT MEASURE
 ------------------------
@@ -170,8 +176,12 @@ def press(c, key, frames=25):
 
 
 def regroup(c):
-    """Disengage: drop the attack order so the fleet flies home to station."""
-    press(c, "g")
+    """Wait for the fleet to fly home.
+
+    Nothing is pressed. The attack order spends itself when the last target
+    dies -- that is the whole of the fix this tool asked for -- so all that is
+    left to do is give phase4_fly the frames to walk the fleet back.
+    """
     c.run_frames(REGROUP_FRAMES)
 
 

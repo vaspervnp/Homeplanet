@@ -213,7 +213,35 @@ cbt_fire_if_able:
     ld a,(cbt_target)
     ld (hl),a
     cp ENT_MAX
-    ret nc                              ; there is genuinely nobody left
+    jr c,@cbt_aimed
+
+    ;  There is genuinely nobody left, so an ATTACK order is SPENT. Nothing
+    ;  else was ever going to clear it: phase4_fly skips an attacking ship on
+    ;  purpose, so that cbt_move_enemies can close it without the two of them
+    ;  cancelling, and with no target cbt_move_enemies declines to move it
+    ;  either. The ship was steered by nobody and stopped dead wherever the
+    ;  last enemy happened to die -- and fleet_save carried those coordinates
+    ;  into the next mission, so the fleet began it scattered thousands of
+    ;  units from a Mothership that eight fresh hostiles then spawned on.
+    ;
+    ;  IDLE and not GUARD, though GUARD is also "hold station and shoot":
+    ;  cbt_retarget_one returns early for GUARD, so a ship dropped into it
+    ;  would keep the first target it happened to pick up next and never be
+    ;  re-pointed at a nearer one when that target drifted out of range. IDLE
+    ;  is the state mis_spawn_enemy and the fleet both start in, so the order
+    ;  is spent rather than replaced by one the player never gave.
+    ;
+    ;  Only ATTACK. A harvester reaches here every frame of every mission
+    ;  whose enemies are all dead -- which is most of them, at the end -- and
+    ;  clearing unconditionally would take ENT_ORDER_HARVEST off it and stop
+    ;  the economy.
+    assert ENT_ORDER == ENT_TARGET - 1, "the dec below walks ENT_TARGET back to ENT_ORDER"
+    dec hl
+    ld a,(hl)
+    cp ENT_ORDER_ATTACK
+    ret nz
+    ld (hl),ENT_ORDER_IDLE
+    ret
 
 @cbt_aimed:
 
