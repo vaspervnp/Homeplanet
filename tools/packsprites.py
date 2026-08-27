@@ -55,9 +55,17 @@ def pack_stream(data: bytes) -> bytes:
             i += run
             continue
 
+        #  The bound is "can two more bytes still fit", not "is there room for
+        #  one", because the body below appends a whole short run -- up to the
+        #  two bytes that were not long enough to be worth encoding as one. A
+        #  test for len < MAX_LITERAL lets the literal reach 254, which IS
+        #  RUN_MARK, and the decoder then reads the count byte as a run and
+        #  walks off the end of the stream. It took an odd number of bytes in
+        #  one bank to produce a literal of exactly that length, and the
+        #  round-trip check below is what caught it.
         literal = bytearray()
         j = i
-        while j < len(data) and len(literal) < MAX_LITERAL:
+        while j < len(data) and len(literal) <= MAX_LITERAL - 2:
             b2 = data[j]
             run2 = 1
             while j + run2 < len(data) and data[j + run2] == b2 and run2 < 255:

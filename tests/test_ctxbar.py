@@ -78,8 +78,26 @@ class BarFixture(unittest.TestCase):
         """
         return (b | (b << 4)) & 0xF0
 
-    def strip_text(self, y=None, cells=40) -> str:
-        """Decode the bar's text row back into characters.
+    @staticmethod
+    def _ink(cell_bytes) -> int:
+        """Which pen a cell was drawn in, from the planes its pixels are in.
+
+        The mirror of _to_pen1, and the reason it has to exist: folding the low
+        nibble up deliberately THROWS THE COLOUR AWAY, so a decoder built on it
+        reads the same words whether the keys are blue and the actions white or
+        the other way round. A test that only reads the words would pass with
+        the whole scheme reversed.
+
+        Ink 1 is %01 and puts its pixels in the high nibble, ink 2 is %10 and
+        puts them in the low one, ink 3 is both -- so the two planes read back
+        as the pen number itself. A blank cell is 0.
+        """
+        hi = any(b & 0xF0 for b in cell_bytes)
+        lo = any(b & 0x0F for b in cell_bytes)
+        return (1 if hi else 0) | (2 if lo else 0)
+
+    def strip_cells(self, y=None, cells=40):
+        """(text, inks) for the bar's text row: a character and a pen a cell.
 
         Anything that is not a glyph in the font comes back as '?', which is
         how a ship drawn into the strip would show up.
@@ -88,17 +106,44 @@ class BarFixture(unittest.TestCase):
             y = self.sym["CTX_Y"]
         base = h.front_buffer(self.c)
         ram = self.c.read_ram(base, 0x4000)
-        rows = [[self._to_pen1(ram[h.screen_offset(y + r, x)]) for x in range(80)]
-                for r in range(CHAR_H)]
+        raw = [[ram[h.screen_offset(y + r, x)] for x in range(80)]
+               for r in range(CHAR_H)]
 
-        out = []
+        text, inks = [], []
         for cell in range(cells):
             x = cell * CHAR_W_BYTES
             if x + 1 >= 80:
                 break
-            want = [(rows[r][x], rows[r][x + 1]) for r in range(CHAR_H)]
-            out.append(self._match(want))
-        return "".join(out).rstrip()
+            want = [(self._to_pen1(raw[r][x]), self._to_pen1(raw[r][x + 1]))
+                    for r in range(CHAR_H)]
+            text.append(self._match(want))
+            inks.append(self._ink([raw[r][x + c]
+                                   for r in range(CHAR_H)
+                                   for c in range(CHAR_W_BYTES)]))
+        return "".join(text), inks
+
+    def strip_text(self, y=None, cells=40) -> str:
+        return self.strip_cells(y, cells)[0].rstrip()
+
+    def assert_reads(self, expect, y=None):
+        """Walk the bar left to right checking each word AND the ink it is in.
+
+        `expect` is [(word, pen), ...] in the order they appear, which is what
+        lets "B" and "BUILD" be told apart without an index: the search for one
+        starts where the last one ended. Blank cells inside a word -- the space
+        inside ", ." -- carry no ink and are skipped.
+        """
+        text, inks = self.strip_cells(y)
+        pos = 0
+        for word, pen in expect:
+            i = text.find(word, pos)
+            self.assertNotEqual(i, -1,
+                                f"{word!r} is not on the bar, which reads {text.rstrip()!r}")
+            got = {inks[i + k] for k in range(len(word)) if text[i + k] != " "}
+            self.assertEqual(got, {pen},
+                             f"{word!r} is drawn in ink {sorted(got)}, not {pen}, "
+                             f"on a bar that reads {text.rstrip()!r}")
+            pos = i + len(word)
 
     def _match(self, cell) -> str:
         for code in range(FIRST_CHAR, LAST_CHAR + 1):
@@ -236,6 +281,128 @@ class TestTheBuildPanel(BarFixture):
         #  test is only proving that one branch exists.
         self.assertTrue(any(yes for _, yes in seen), "the bar never said BUY")
         self.assertTrue(any(not yes for _, yes in seen), "the bar never refused")
+
+
+PEN_WHITE, PEN_BLUE, PEN_RED = 1, 2, 3
+
+
+class TestTheKeysAreBlue(BarFixture):
+    """Every key in ink 2, what it does in ink 1.
+
+    The bar is forty characters above a battle, and in one colour it has to be
+    READ rather than glanced at. Blue on the key and white on the action is the
+    same split the HUD already makes between chrome and values, used here to
+    say "this part is something you press" -- so the eye finds the keys without
+    spelling out the words beside them.
+
+    Every one of these asserts the INK and not just the text, because the
+    decoder in BarFixture folds the colour out on purpose: a test that read
+    only the words would pass just as happily with the scheme reversed.
+    """
+
+    def test_the_playing_line_alternates_key_and_action(self):
+        self.assert_reads([
+            ("ESC", PEN_BLUE), ("MENU", PEN_WHITE),
+            ("ENTER", PEN_BLUE), ("MOVE", PEN_WHITE),
+            ("B", PEN_BLUE), ("BUILD", PEN_WHITE),
+            (", .", PEN_BLUE), ("TARGET", PEN_WHITE),
+        ])
+
+    def test_the_move_disc_line_does_too_and_may_end_on_a_key(self):
+        """ESC closes the disc and there is no word for it that is not already
+        on the line -- ENTER is OK, so ESC is not-OK -- so the run ends on a
+        blue word with nothing beside it. ctx_run allows that; what it cannot
+        express is two blue words running, which is the rule "every key says
+        what it does" written where the build would catch it."""
+        self.hold(cpc.KEY_ENTER, frames=25)
+        self.assertEqual(self.byte("DISC_ACTIVE"), 1, "the disc did not open")
+        self.assert_reads([
+            ("ARROWS", PEN_BLUE), ("MOVE", PEN_WHITE),
+            ("SHIFT", PEN_BLUE), ("HEIGHT", PEN_WHITE),
+            ("ENTER", PEN_BLUE), ("OK", PEN_WHITE),
+            ("ESC", PEN_BLUE),
+        ])
+
+    def test_PAUSED_keeps_ink_3_and_its_tail_is_an_ordinary_run(self):
+        """Section 2 reserves ink 3 for the thing that wants attention, and a
+        paused fleet does not look paused -- it looks broken. PAUSED is also
+        the one word on this line that is neither a key nor an action: it is
+        the STATE, and the third ink is what says so."""
+        self.hold(cpc.KEY_SPACE)
+        self.assertEqual(self.byte("ORDER_PAUSED"), 1, "SPACE did not pause")
+        self.assert_reads([
+            ("PAUSED", PEN_RED),
+            ("SPACE", PEN_BLUE), ("RESUME", PEN_WHITE),
+            ("ESC", PEN_BLUE), ("MENU", PEN_WHITE),
+        ])
+
+    def test_the_build_panel_colours_the_keys_and_not_the_goods(self):
+        """The class and its price are NOT keys. They are what the player is
+        choosing between and the two things that move when `,` or `.` is
+        pressed, so they are values and they are white -- blue would have made
+        the name of a ship read as something to press, which is the exact
+        confusion this bar was built to end. RU is a unit caption, so it is
+        chrome, so it is ink 2 like every other caption in the game.
+
+        ENTER BUY stays wholly ink 3. It is not there to teach the key, it is
+        the one thing on the screen asking to be pressed -- the same job JUMP
+        does in the HUD -- and splitting it into a blue key and a white action
+        would make it look like the other four.
+        """
+        self.c.write_ram(self.sym["ECO_RU"], struct.pack("<H", 500))
+        self.hold("b")
+        self.assertEqual(self.byte("ECO_BUILD_OPEN"), 1, "B did not open the yard")
+        self.assert_reads([
+            ("SCOUT", PEN_WHITE),
+            ("25", PEN_WHITE), ("RU", PEN_BLUE),
+            (", .", PEN_BLUE), ("PICK", PEN_WHITE),
+            ("ENTER BUY", PEN_RED),
+        ])
+
+    def test_a_refusal_is_an_answer_and_stays_white(self):
+        """NEED MORE RU is the answer to a question the player asked by opening
+        the panel, not an alarm, so it does not get the alarm ink -- and it is
+        not a key either, so it does not get the key ink."""
+        self.c.write_ram(self.sym["ECO_RU"], struct.pack("<H", 10))
+        self.hold("b")
+        self.assert_reads([
+            (", .", PEN_BLUE), ("PICK", PEN_WHITE),
+            ("NEED MORE RU", PEN_WHITE),
+        ])
+
+    def test_no_context_leaves_a_pen_behind_it(self):
+        """txt_set_pen is not sticky by convention: whoever changes the ink
+        puts it back to 1. The bar now changes it four to eight times a
+        repaint, and it ends on a blue word in the move disc and on ink 3 in
+        the build panel -- so the proof that it puts the pen back is the HUD,
+        which is drawn by a different routine straight afterwards.
+
+        RU is the HUD's own caption and sets itself to ink 2; the four digits
+        beside it are drawn in whatever the bar left, and they must be white.
+        """
+        y = self.sym["HUD_ROW_A_Y"]
+
+        def check(where):
+            self.c.run_frames(30)
+            text, inks = self.strip_cells(y=y)
+            i = text.find("RU")
+            self.assertNotEqual(i, -1, f"the HUD reads {text.rstrip()!r} ({where})")
+            self.assertEqual({inks[i], inks[i + 1]}, {PEN_BLUE},
+                             f"the HUD's RU caption changed colour ({where})")
+            digits = [k for k in range(i + 2, i + 8) if text[k].isdigit()]
+            self.assertEqual(len(digits), 4, f"no RU figure in {text.rstrip()!r}")
+            self.assertEqual({inks[k] for k in digits}, {PEN_WHITE},
+                             f"the RU figure inherited an ink from the bar ({where})")
+
+        check("playing")
+        self.hold(cpc.KEY_ENTER, frames=25)      # the disc: ends on a blue ESC
+        check("the move disc")
+        self.hold(cpc.KEY_ESC, frames=25)
+        self.hold(cpc.KEY_SPACE)                 # paused: opens in ink 3
+        check("paused")
+        self.hold(cpc.KEY_SPACE)
+        self.hold("b")                           # the yard: ends in ink 3
+        check("the build panel")
 
 
 class TestTheFullScreenPages(BarFixture):

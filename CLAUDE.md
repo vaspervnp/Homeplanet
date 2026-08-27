@@ -171,7 +171,7 @@ gives you a CRTC that has never been initialised. `harness.boot_quick` runs
 and prints how many bytes are left in the low 16K and in every bank. Watch all
 of them, and watch the "hand-written code ends at" figure rather than `free:` —
 see "Where 700 bytes came from" for why the second one lies. The low 16K has
-**1536 bytes of which about 1100 are reachable**, and bank 4 has **307**.
+**1536 bytes of which about 1100 are reachable**, and bank 4 has **259**.
 Before six yaw views they were 512 and 9; see "Six yaw views, and where the
 space went" for what that bought. The short version is that the low 16K
 stopped being desperate and bank 4 is the place most new code should go by
@@ -648,9 +648,13 @@ so a routine drawing in white never has to ask what the last one left.
 In the strip: labels and chrome (`RU`, `M`, `?HELP`) and the squadrons that are
 *not* selected are ink 2, so the selection is the only white entry and the eye
 finds it without reading a digit. `JUMP` is ink 3 -- the one thing in the HUD
-that demands an action, in the ink §2 reserves for attention. The context bar
-follows the same reading: `PAUSED` and `ENTER BUY` in ink 3, the `RU` caption
-in ink 2, everything else white.
+that demands an action, in the ink §2 reserves for attention.
+
+**The context bar takes that one step further and it is the same reading.**
+Ink 2 there means "something you press" and ink 1 means what pressing it does,
+so `ESC` is blue and `MENU` is white; the `RU` caption is chrome and stays ink
+2 like the HUD's; and `PAUSED` and `ENTER BUY` keep ink 3 for the reason `JUMP`
+has it. See "The keys are blue and what they do is white".
 
 **A test can read the words back off the screen whichever ink they are in**,
 because the three inks are one pixel pattern in three positions: folding a
@@ -1112,11 +1116,11 @@ mission table.
 
 **`DISC.BIN`'s ceiling is what decides where a sprite library can live.** It
 loads at `#4000` and must finish below `#A700`, so it has 26368 bytes to play
-with; it is currently 24889, ending just under `#A0E9`, and that is **about
-1.5 KB of headroom**. One RLE-packed library is 2-3 KB. That arithmetic is the
-whole reason six of the eight classes are read off the disc into banks 5-7
+with; it is currently 25495, ending just under `#A397`, and that is **under
+900 bytes of headroom**. One RLE-packed library is 2-3 KB. That arithmetic is
+the whole reason six of the eight classes are read off the disc into banks 5-7
 instead of travelling in the file — it is not a stylistic choice, and no amount
-of better packing gets 34 KB of sprites under a 1.5 KB gap.
+of better packing gets 34 KB of sprites under a gap that size.
 
 **Watch this figure, not just the bank's.** It is the second ceiling on bank 4
 and it moves with it: every byte added to the bank-4 image costs `DISC.BIN`
@@ -1129,6 +1133,17 @@ to — 72% rather than 62% — because most of what six yaw views freed there wa
 promptly filled with CODE, and code does not have runs of `#FF,#00` in it. Uninitialised bank data (the
 fleet buffer) is deliberately declared *after* `bank4_end` so it costs nothing
 in the file.
+
+> **The packer had a latent bug in it and the bank's contents decide when you
+> meet it.** `pack_stream` checked "is the literal shorter than 253" before
+> appending a *short run* of up to two bytes, so a literal could reach 254 —
+> which is `RUN_MARK`, and both decoders then read the count byte as a run and
+> walk off the end of the stream. It takes one particular sequence of bytes to
+> produce a literal of exactly that length, so it sat there through every build
+> until the context bar's words shifted the bank along and one turned up. The
+> `if unpack_library(...) != padded` round-trip check in `main()` is what
+> caught it, at build time, instead of the Z80 decoder filling bank 4 with
+> rubbish — keep it.
 
 ### The economy
 
@@ -2353,11 +2368,81 @@ y=100 the projection centres on, not further from it.
 
 | context | what it says |
 |---|---|
-| playing | `ESC MENU  ENTER MOVE  B BUILD  , . TARGET` |
-| `order_paused` | `PAUSED` in ink 3, then `SPACE RESUME   ESC MENU` |
-| `disc_active` | `ARROWS MOVE  SHIFT UP/DN  ENTER OK  ESC` |
+| playing | `ESC MENU ENTER MOVE B BUILD , . TARGET` |
+| `order_paused` | `PAUSED` in ink 3, then `SPACE RESUME ESC MENU` |
+| `disc_active` | `ARROWS MOVE SHIFT HEIGHT ENTER OK ESC` |
 | `eco_build_open` | the class by NAME, its cost in RU, `, . PICK`, and whether ENTER will work |
 | title, briefing, help, orders menu | nothing: suppressed |
+
+#### The keys are blue and what they do is white
+
+Forty characters in one ink above a battle is a paragraph, and what the player
+asked for was a **glance**: which keys are live right now. So the key is ink 2
+and its action ink 1 — the same split the HUD already makes between chrome and
+values, used here to mean "this part is something you press". The eye finds
+`ESC ENTER B , .` without reading the words beside them.
+
+Which means a line can no longer be one string drawn by one `txt_draw`. It is a
+**run**: zero-terminated words back to back, ended by a second zero, drawn in
+turn by `ctx_run` with the pen alternating and x advancing by the word just
+drawn plus one space. Blue first, so the odd words are the keys.
+
+**The double spaces that used to group the pairs are gone.** The ink does that
+job now, and paying for the grouping twice costs screen width the move disc's
+line does not have. The one space that stayed is the one *inside* `, .`, which
+is load-bearing for the reason the font section gives.
+
+> **A run may end on a key with no action** — the move disc's trailing `ESC` —
+> and that is legal. What is *not* expressible is two blue words running, and
+> that is deliberate: it is the rule "every key on this bar says what it does"
+> stated in the encoding rather than in a comment. `SHIFT UP/DN` was eleven
+> characters naming a key with nothing beside it saying what it was for; it is
+> `SHIFT HEIGHT` now, and the arrows are already named two words to its left.
+
+**The alternative was a sentinel byte inside the string** that switched the pen
+mid-draw. It is a byte cheaper per colour change and it keeps the spacing
+visible in the source, and it was rejected for two reasons:
+
+- it puts a special case in `txt_draw`, which the briefing, the help page, the
+  orders menu, the title and both HUD strips all go through, to serve one
+  caller;
+- it breaks the only build-time check there is on this file. `src/main.asm`
+  asserts a line fits the screen by measuring the **bytes** it occupies, and
+  that works because a run's terminators are exactly the spaces between its
+  words: `bytes == drawn characters + 2`, always. A sentinel is a byte that
+  draws nothing, so the count would have had to be corrected by a
+  hand-maintained number of them, per line, for ever — and a hand-maintained
+  number is a comment rather than a test.
+
+**Two words keep ink 3, and that is a decision rather than an oversight.**
+`PAUSED` is neither a key nor an action, it is the STATE, and §2's attention
+ink is what says so. `ENTER BUY` stays ink 3 in **both** its words rather than
+becoming a blue key and a white action: it is not there to teach the key, it is
+the one thing on screen asking to be pressed — the same job `JUMP` does in the
+HUD — and split into blue and white it would look like the other four.
+
+**In the build panel the class name and the cost are WHITE and `RU` is blue.**
+The name and the price are not keys; they are what the player is choosing
+between and the two things that move when `,` or `.` is pressed, so they are
+values in the sense the HUD already uses. Blue would have made the name of a
+ship read as something to press, which is the exact confusion this bar was
+built to end. `RU` is a unit caption, so it is chrome, so it is ink 2 like
+every other caption in the game.
+
+It costs **37 bytes of bank 4** (259 left) and 38 of `DISC.BIN` (873 under
+`#A700`), and nothing per frame: the repaint still only happens when
+`ctx_changed` says the words moved, and the frame rate is the same
+`5.00, 4.75, 5.00, 5.00, 5.00` five-sample series it was before.
+
+**`tests/test_ctxbar.py` asserts the INK of every run and not only the text**,
+because the decoder that reads the bar back off the screen throws the colour
+away on purpose — `(b | (b << 4)) & 0xF0` recovers the glyph whichever ink it
+was drawn in, which is what lets one decoder read `PAUSED` in red and `MENU` in
+white without being told which. A test built on that alone would pass just as
+happily with the whole scheme reversed. `BarFixture._ink` is its mirror: ink 1
+is `%01` and puts its pixels in the high nibble, ink 2 is `%10` and puts them
+in the low one, ink 3 is both — so the two planes read back as the pen number
+itself.
 
 **It exists because of a specific failure.** A player who had been told the
 build panel is `B`, then `,`/`.`, then ENTER, asked **twice** how to choose

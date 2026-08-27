@@ -46,6 +46,32 @@
 ;  one of those pages starts by clearing from line 0, so the act of putting the
 ;  page up takes the bar down. Coming back is a context change like any other
 ;  and the shadow catches it.
+;
+;  THE KEYS ARE BLUE AND WHAT THEY DO IS WHITE
+;  -------------------------------------------
+;  A bar that is one colour has to be READ. Forty characters of white above a
+;  battle is a paragraph, and the player wanted a glance: which keys are live
+;  right now. So the key is ink 2 and its action ink 1 -- the same split the
+;  HUD already makes between chrome and values, used here to say "this part is
+;  something you press".
+;
+;  Which means a line can no longer be one string drawn by one txt_draw, and
+;  the shape it takes instead is a RUN: zero-terminated words back to back,
+;  ended by a second zero, drawn in turn with the pen alternating and x
+;  advancing by the word just drawn plus one space. See ctx_run.
+;
+;  The alternative was a sentinel byte inside the string that switched the pen
+;  mid-draw. It is a byte cheaper per colour change and it keeps the spacing
+;  visible in the source -- and it was rejected for two reasons. It puts a
+;  special case in txt_draw, which the briefing, the help page, the orders
+;  menu, the title and both HUD strips all go through, to serve one caller.
+;  And it breaks the only build-time check there is on this file: main.asm
+;  asserts a line fits the screen by measuring the bytes it occupies, which
+;  works because a run's terminators are exactly the spaces between its words
+;  --  bytes == drawn characters + 2, always. Sentinels are bytes that draw
+;  nothing, so the count would have had to be corrected by a hand-maintained
+;  number of them, and a hand-maintained number is a comment rather than a
+;  test.
 ; ----------------------------------------------------------------------------
 
 ;  Which context is up. Zero is "a full-screen page owns the screen".
@@ -119,11 +145,73 @@ ctx_bar:
     ld hl,ctx_text_play
     ;  ...and fall through
 
-;  HL -> a whole line of the bar, in the ordinary ink.
+;  HL -> a whole line of the bar, from the left-hand edge.
 ctx_line:
     ld b,CTX_NAME_X
-    ld c,CTX_Y
-    jp txt_draw
+    ;  ...and fall through
+
+
+; ----------------------------------------------------------------------------
+;  ctx_run -- draw a run of words, keys in ink 2 and what they do in ink 1
+;  In : HL -> the run, B = x in bytes
+;  Uses: everything
+;
+;  A run is zero-terminated words back to back, ended by a second zero. Each
+;  one is drawn in the pen the last one was not, starting blue, and x steps on
+;  by the word plus one space -- so a terminator IS the space that follows the
+;  word it ends, which is what makes main.asm's width assert exact.
+;
+;  A run may end on a blue word: a key with no action beside it is legal and
+;  the move disc's trailing ESC is one. What is not expressible is two blue
+;  words running, and that is deliberate -- it is the same rule as "every key
+;  in this bar says what it does", stated where the build would catch it.
+;
+;  The pen lives in memory rather than a register because txt_draw uses
+;  everything and B and C are already spoken for by x and y. XOR 3 flips 1 and
+;  2 into each other, which is the whole of the alternation.
+; ----------------------------------------------------------------------------
+ctx_run:
+    ld a,PEN_BLUE
+    ld (ctx_pen),a
+    ld c,CTX_Y                          ; survives, in the push bc below
+
+@ctx_word:
+    ld a,(hl)
+    or a
+    jr z,@ctx_run_done                  ; the second zero: the run is over
+
+    push hl
+    push bc                             ; txt_set_pen clobbers B
+    ld a,(ctx_pen)
+    call txt_set_pen
+    pop bc
+    pop hl
+
+    push hl
+    push bc
+    call txt_draw
+    pop bc
+    pop hl
+
+@ctx_advance:
+    inc hl
+    inc b
+    inc b                               ; TXT_CHAR_W_BYTES
+    ld a,(hl)
+    or a
+    jr nz,@ctx_advance
+    inc hl                              ; past the terminator...
+    inc b
+    inc b                               ; ...and over the space it stands for
+
+    ld a,(ctx_pen)
+    xor PEN_WHITE ^ PEN_BLUE            ; 1 <-> 2
+    ld (ctx_pen),a
+    jr @ctx_word
+
+@ctx_run_done:
+    ld a,PEN_WHITE                      ; nothing inherits an ink
+    jp txt_set_pen
 
 
 ; ----------------------------------------------------------------------------
@@ -133,6 +221,10 @@ ctx_line:
 ;  does not look paused -- it looks broken, because it simply stops obeying.
 ;  Ink 3: section 2 reserves it for the thing that wants attention, and a
 ;  state the player chose and then forgot they were in is exactly that.
+;
+;  PAUSED stays ink 3 now that the rest of the bar has two inks, and it is the
+;  one word here that is neither a key nor an action -- it is the STATE, and
+;  the ink is what says so. Its tail is an ordinary run.
 ;  Uses: everything
 ; ----------------------------------------------------------------------------
 ctx_draw_paused:
@@ -141,14 +233,11 @@ ctx_draw_paused:
     ld hl,ctx_text_paused
     ld b,CTX_NAME_X
     ld c,CTX_Y
-    call txt_draw
-    ld a,PEN_WHITE                      ; nothing inherits an ink
-    call txt_set_pen
+    call txt_draw                       ; ctx_run puts the pen back
 
     ld hl,ctx_text_pause_tail
     ld b,CTX_PAUSE_TAIL_X
-    ld c,CTX_Y
-    jp txt_draw
+    jr ctx_run
 
 
 ; ----------------------------------------------------------------------------
@@ -157,6 +246,13 @@ ctx_draw_paused:
 ;      SCOUT                     25 RU   , . PICK      ENTER BUY
 ;      DESTROYER                250 RU   , . PICK      NEED MORE RU
 ;
+;  The name and the cost are WHITE, and that is a decision rather than the
+;  default. They are not keys -- they are what the player is choosing between
+;  and the two things that change when `,` or `.` is pressed -- so they are
+;  values in the sense the HUD already uses, and blue would have made the name
+;  of a ship read as something to press, which is the exact confusion this bar
+;  was built to end. RU stays ink 2 because it is a unit caption, which is
+;  chrome; and ", ." is a key, so it is blue like every other key on the line.
 ;  Uses: everything
 ; ----------------------------------------------------------------------------
 ctx_draw_build:
@@ -181,13 +277,16 @@ ctx_draw_build:
 
     ld hl,ctx_text_pick
     ld b,CTX_KEYS_X
-    ld c,CTX_Y
-    call txt_draw
+    call ctx_run
 
     ;  What ENTER will do, or why it will do nothing. "ENTER BUY" is in ink 3
     ;  for the same reason JUMP is in the HUD: it is the one key on the screen
-    ;  that is asking to be pressed. The refusals stay white -- they are the
-    ;  answer to a question the player asked, not an alarm.
+    ;  that is asking to be pressed. It stays ink 3 in BOTH its words rather
+    ;  than becoming a blue key and a white action, because the blue/white
+    ;  split says "here is a key" and this one is saying something else --
+    ;  press THIS one, now. Split it and it would look like the other four.
+    ;  The refusals stay white -- they are the answer to a question the player
+    ;  asked, not an alarm.
     ld a,(ctx_state)
     or a
     jr nz,@ctx_build_refuse
@@ -369,30 +468,55 @@ ctx_classify:
 ; ============================================================================
 ;  Every line has to fit CTX_BAR_CHARS, and there are asserts below for it
 ;  because nothing at run time would catch an overrun -- txt_draw stops at the
-;  right-hand edge and says nothing.
+;  right-hand edge and says nothing. A run occupies exactly two bytes more
+;  than it draws characters, so the asserts measure bytes and mean characters.
 ; ----------------------------------------------------------------------------
-;  Exactly CTX_BAR_CHARS wide, and the spacing is doing work. The comma and
+;  The words alternate key, action, key, action, starting with a key. Single
+;  spaces throughout: the double spaces that used to group the pairs are what
+;  the two inks do now, and paying for the grouping twice costs screen width
+;  that the move disc's line does not have.
+;
+;  ", ." keeps its inner space, and that space is doing work -- the comma and
 ;  the full stop are one pixel apart in this font, so ",." reads as ".." at
-;  8x8 -- the space between them is what makes the pair legible, and the pair
-;  is the whole reason the bar exists.
+;  8x8, and the pair is the whole reason the bar exists.
 ctx_text_play:
-    defb "ESC MENU ENTER MOVE  B BUILD  , . TARGET",0
+    defb "ESC",0,"MENU",0
+    defb "ENTER",0,"MOVE",0
+    defb "B",0,"BUILD",0
+    defb ", .",0,"TARGET",0
+    defb 0
 ctx_text_play_end:
 
 ctx_text_paused:
     defb "PAUSED",0
 ctx_text_pause_tail:
-    defb "SPACE RESUME   ESC MENU",0
+    defb "SPACE",0,"RESUME",0
+    defb "ESC",0,"MENU",0
+    defb 0
 ctx_text_pause_end:
 
+;  SHIFT and the arrows raise and lower the disc rather than sliding it, which
+;  the old line said as "SHIFT UP/DN" -- eleven characters naming a key with
+;  nothing beside it saying what it was for. HEIGHT is what it is for, and the
+;  arrows are already named two words to its left.
+;
+;  ESC ends the run on a key with no action, which is legal and is the only
+;  place in the bar that uses it: "cancel" and "menu" and "back" would all
+;  have been the wrong word, because ESC here puts the disc away without
+;  moving anything and the player has just been told ENTER is OK.
 ctx_text_disc:
-    defb "ARROWS MOVE  SHIFT UP/DN  ENTER OK  ESC",0
+    defb "ARROWS",0,"MOVE",0
+    defb "SHIFT",0,"HEIGHT",0
+    defb "ENTER",0,"OK",0
+    defb "ESC",0
+    defb 0
 ctx_text_disc_end:
 
 ctx_text_ru:
     defb "RU",0
 ctx_text_pick:
-    defb ", . PICK",0
+    defb ", .",0,"PICK",0
+    defb 0
 ctx_text_pick_end:
 ctx_text_buy:
     defb "ENTER BUY",0
@@ -421,3 +545,4 @@ ctx_dirty:          defb 0
 ctx_class:          defb 0
 ctx_cost:           defb 0
 ctx_state:          defb 0
+ctx_pen:            defb PEN_BLUE       ; which ink ctx_run's next word gets
