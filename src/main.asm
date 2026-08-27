@@ -132,6 +132,11 @@ code_end:
     assert proj_mag_end - proj_mag == 6, "proj_mag is not six patchable bytes"
     assert CAM_ZOOM_RECORD == 14 + (proj_mag_end - proj_mag), "a zoom record does not fit proj_scale and proj_mag"
 
+;  ...and the six it assembles WITH have to be the default step's, the way
+;  proj_scale's ladder is. That one cannot be asserted here -- RASM will not
+;  read back its own output -- so it is a test instead:
+;  tests/test_phase1.TestTheAssembledDefault.
+
 ;  The projection centres on the middle of the PLAYFIELD, which is not the
 ;  middle of the screen: the context bar and the HUD each own a strip. Checked
 ;  against the two equates that actually define those strips, and against the

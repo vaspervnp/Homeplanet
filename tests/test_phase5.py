@@ -224,6 +224,136 @@ class TestZoom(ControlFixture):
                          "an added zoom step scales the world exactly as the old widest did")
 
 
+class TestTheWidthOfTheScreen(ControlFixture):
+    """Ships spread across the play area must be spread across the SCREEN.
+
+    This is the test the previous attempt at this did not have, and the reason
+    that attempt reported "98% of the width" while the player was still looking
+    at a picture squeezed into the middle third. What it measured was the
+    largest |sx - 160| any point of the +/-127 camera cube could produce over
+    every yaw and pitch -- the cube's worst diagonal, which is a corner that
+    has come close to the near plane and is therefore about the perspective
+    divide blowing up rather than about where ships are. Along the play area's
+    own axes, at the depth the camera is actually focused on, the same
+    arithmetic reached 40 pixels of 160 at cam_dist 250.
+
+    So this measures what is on the screen: real entities, real key presses,
+    and the spread of the sx the machine itself projected them to.
+
+    The battle is PAUSED first. phase4_fly drags a ship back to its station
+    within a few frames and stepping twelve zoom steps takes several hundred,
+    so without the pause this would be measuring the formation and not the
+    projection. order_paused stops phase4_fly and leaves phase4_project,
+    which is exactly the split wanted here.
+    """
+
+    #  Three quarters of the 320-pixel screen. Everything except the count
+    #  below is arithmetic, so this is a floor and not a tolerance: measured,
+    #  every step clears 258.
+    MIN_WIDTH = 240
+
+    @staticmethod
+    def ladder():
+        """Positions across the play area, geometric rather than even.
+
+        Every zoom step has its own visible radius -- 2048 world units at the
+        innermost and 32768 at the widest, sixteen times as far -- so an evenly
+        spaced line is either entirely outside the innermost step or entirely
+        bunched in the middle of the widest, and either way it says nothing.
+        At 1.2x a rung there is always something sitting just inside whatever
+        the radius of the moment is, which is the point being tested: the edge
+        of what can be seen should be the edge of the screen.
+        """
+        out, p = [0], 30000
+        while p > 700:
+            out += [p, -p]
+            p = int(p / 1.2)
+        return out
+
+    def spread_the_fleet(self):
+        """Put one live ship at each rung, on the camera's own x axis.
+
+        cam_yaw is zero at boot, so world X is across the screen and world Z is
+        depth; putting every ship at the focus' depth means each one's sx is
+        the projection of its offset alone, with nothing from the perspective
+        divide mixed in.
+        """
+        rungs = self.ladder()
+        self.assertLessEqual(len(rungs), 48, "the ladder does not fit the entity table")
+        fx = self.word("CAM_FOCUS_X", signed=True)
+        fy = self.word("CAM_FOCUS_Y", signed=True)
+        fz = self.word("CAM_FOCUS_Z", signed=True)
+
+        base = self.sym["ENTITIES"]
+        for i in range(48):
+            rec = bytearray(20)
+            if i < len(rungs):
+                rec[0:6] = struct.pack("<hhh", fx + rungs[i], fy, fz)
+                rec[9] = 0                      # interceptor
+                rec[10] = 100                   # hull
+                rec[11] = 0x01                  # ENT_F_ACTIVE
+                rec[12] = 1                     # squadron 1
+                rec[14] = 0xFF                  # ENT_NO_TARGET
+            self.c.write_ram(base + i * 20, bytes(rec))
+        return len(rungs)
+
+    def sx_spread(self):
+        """(min, max) of the sx phase4_project wrote this frame.
+
+        Parked at scr_wait_vsync first: phase4_project zeroes phase4_visible
+        and counts it back up, so reading wherever the emulator happened to
+        stop catches a list that is half built -- once as a count of one, once
+        as a count of six, at random.
+        """
+        h.run_to_stable_point(self.c, self.sym)
+        n = self.c.read_ram(self.sym["PHASE4_VISIBLE"], 1)[0]
+        self.assertGreater(n, 2, "nothing was projected at all")
+        raw = self.c.read_ram(self.sym["PHASE4_VIS"], n * 6)
+        xs = [raw[i * 6] | (raw[i * 6 + 1] << 8) for i in range(n)]
+        return min(xs), max(xs)
+
+    def test_every_zoom_step_uses_the_width_of_the_screen(self):
+        self.hold(" ", frames=25)
+        self.assertEqual(self.byte("ORDER_PAUSED"), 1, "the battle did not pause")
+        self.spread_the_fleet()
+
+        for _ in range(len(ZOOM_DISTANCES) + 2):
+            self.hold("z", frames=25)
+
+        widths = []
+        for step in range(len(ZOOM_DISTANCES)):
+            self.assertEqual(self.byte("CAM_ZOOM"), step)
+            lo, hi = self.sx_spread()
+            widths.append(hi - lo)
+            self.hold("x", frames=25)
+
+        narrow = [(s, w) for s, w in enumerate(widths) if w < self.MIN_WIDTH]
+        self.assertEqual(
+            narrow, [],
+            f"zoom steps {[s for s, _ in narrow]} draw the play area into "
+            f"{[w for _, w in narrow]} pixels of 320; all twelve are {widths}")
+
+    def test_the_step_the_game_starts_on(self):
+        """The one step above all the others, called out on its own.
+
+        ZOOM_DEFAULT is where every mission opens and where the complaint came
+        from, and it was the WORST of the twelve: cam_dist 150 at a
+        magnification of 1 put the whole play area into 115 pixels of 320, the
+        middle third and nothing else. No key is pressed here, so a regression
+        that only shows up once the ladder has been walked cannot hide behind
+        this one.
+        """
+        self.hold(" ", frames=25)
+        self.spread_the_fleet()
+        self.assertEqual(self.byte("CAM_ZOOM"), ZOOM_DEFAULT)
+
+        lo, hi = self.sx_spread()
+        self.assertGreaterEqual(
+            hi - lo, self.MIN_WIDTH,
+            f"the step the game starts on draws the play area into {hi - lo} "
+            f"pixels of 320, between sx {lo} and sx {hi}")
+
+
 class TestPause(ControlFixture):
 
     def test_space_freezes_the_ships(self):

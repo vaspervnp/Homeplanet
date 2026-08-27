@@ -29,7 +29,7 @@ python3 -m unittest tests.test_phase0 -v     # one test module
 **Always `make test` before saying something works.** The emulator gives us
 the whole machine state; there is no reason to guess.
 
-418 tests, about **seven minutes**. It doubled when the sprite libraries moved
+433 tests, about **seven minutes**. It doubled when the sprite libraries moved
 onto the disc: every `boot_quick` spins the drive up and reads `LIB_SECTORS`
 per bank, which is a second and a half of emulated time per machine and there
 are about a hundred machines. That is the price of testing the real loader
@@ -398,8 +398,8 @@ a hand count of the instruction table.
 
 | Routine | Measured | Design §6 |
 |---|---|---|
-| `proj_point` (one entity, full pipeline) | ~4,853 T | 1,200 T |
-| `proj_point` at a magnifying zoom step | ~4,867 T | — |
+| `proj_point` (one entity, at the default zoom step) | ~4,880 T | 1,200 T |
+| `proj_point` with `proj_mag` NOP'd out altogether | ~4,860 T | — |
 | `proj_point` (rejected by the distance clip) | ~260 T | — |
 | `proj_rotate` (9 multiplies, m01 skipped) | ~2,790 T | — |
 | `cam_build_matrix` (once per frame) | ~3,360 T | — |
@@ -812,11 +812,15 @@ Design document section 13 lists ten phases.
   which keys are live, and in the build panel it names the class and its price
   — see "The context bar". **The projection centres on the middle of that
   band, line 89, not on the middle of the screen.**
-- **The playfield uses the whole width now.** It used to be arithmetically
-  incapable of it: at the five widest zoom steps no point of the visible world
-  could project further than 79 pixels off centre, of a half-width of 160. See
-  "Using the width of the screen", which is also where the eleven lines above
-  come from.
+- **The playfield uses the whole width now**, and it took two goes. It used to
+  be arithmetically incapable of it — `PROJ_K`'s 45° field of view is far wider
+  than anything the ±127 camera cube can subtend once `cam_dist` is long — and
+  the first repair fixed that against the wrong measurement, so a fleet laid
+  across the play area still came out inside the middle third at every step. A
+  play-area line spans **258-314 pixels of 320** at all twelve steps now,
+  against 115-183 before. See "Using the width of the screen", which is also
+  where the eleven lines above come from, and read the part about what to
+  measure before touching `proj_mag`.
 
 `src/demo/phase4.asm` is the acceptance test running on the CPC itself.
 
@@ -1995,6 +1999,22 @@ the ×3 steps reject on different tests — a bound on the high byte against a
 check on the scaled value — and either edge off by one puts a ship somewhere
 it is not.
 
+**Both patch sites are assembled with a real zoom step already in them**, so
+`proj_point` is correct before anything has pressed a key — and "a real step"
+means `ZOOM_DEFAULT`'s, not "the identity". `proj_scale`'s ladder happens to be
+the plain `>>WORLD_SHIFT` one and `src/main.asm` asserts it; `proj_mag`'s six
+bytes are `sra d : rr e : add hl,hl : add hl,de`, which is step 5's ×2.5, and
+RASM cannot assert that because it will not read back its own output.
+`tests/test_phase1.TestTheAssembledDefault` reads `build/home.raw` instead —
+the image on disc, because by the time a machine is up `demo_init` has already
+patched it.
+
+> **`gentables.project()`'s defaults come out of `ZOOM_STEPS[ZOOM_DEFAULT]`
+> now, and that is not tidying.** They were written out as `WORLD_SHIFT, False,
+> 1.0`, which *was* the default step's row until the magnification stopped
+> being 1 there. Every differential test that does not name a step then compared
+> the metal against a scaling no zoom step has, and failed by a factor of 2.5.
+
 ### Using the width of the screen
 
 The outer half of the screen was not empty, it was **unreachable**, and that
@@ -2003,27 +2023,93 @@ is the difference between a content problem and an arithmetic one.
 `PROJ_K` is `160 << PROJ_SHIFT`, chosen so that `x == z` — 45° off axis —
 lands exactly on the screen edge. Nothing in this game ever gets near 45° off
 axis once `cam_dist` is long, because what can be seen at all is a ±127 camera
-cube and `cam_dist` pushes that cube away from the eye. Measured, as the
-largest `|sx - 160|` any point of the cube can produce over every yaw and
-pitch:
-
-| `cam_dist` | 110 | 150 | 200 | 250 |
-|---|---|---|---|---|
-| reach, of a half-width of 160 | 172 | 170 | 107 | **79** |
-
-At 250 — steps 7 to 11, **five of the twelve** — the picture was confined to
-the middle half of the screen by construction. No amount of flying about could
-have put a ship in the outer half.
+cube and `cam_dist` pushes that cube away from the eye.
 
 `proj_mag` multiplies the projected offset **after the perspective divide and
-before the centre is added**, by 1, 1.5 or 2 depending on the step, which
-brings all four reaches to 158-172. That is the whole change.
+before the centre is added**. That is the whole change.
 
 **It is not zoom and the distinction is worth holding on to.** `proj_deltas`'
 clip radius is untouched, so the same world is visible; `proj_z` is untouched,
-so every ship's size tier is exactly what it was. The screenshots at step 7
-before and after show the reference lattice at twice the spread with the same
-sprites drawn on it.
+so every ship's size tier is exactly what it was — verified, the tier histogram
+at every one of the twelve steps is byte for byte what it was.
+
+#### Measure what is on the screen, not what the geometry could reach
+
+**This was got wrong once, convincingly, and the wrong number is the thing to
+learn from.** The first pass calibrated `proj_mag` against the largest
+`|sx - 160|` any point of the ±127 cube could produce **over every yaw and
+pitch**:
+
+| `cam_dist` | 110 | 150 | 200 | 250 |
+|---|---|---|---|---|
+| worst cube diagonal, at ×1 | 172 | 170 | 107 | 79 |
+| ...with the first pass's ×1, ×1, ×1.5, ×2 | 172 | 170 | 160 | 158 |
+
+which reads as 98% of a half-width of 160, and it was honestly measured. But
+that worst case is a **corner of the cube swung round close to the near
+plane**, where the perspective divide blows up. It is not where ships are. The
+number a player sees is the edge of the visible radius **along the play area's
+own axes, at the depth the camera is focused on** — `x = (127·127)>>8 = 63`,
+then `(63 · recip[cam_dist]) >> 7`:
+
+| `cam_dist` | 110 | 150 | 200 | 250 |
+|---|---|---|---|---|
+| real reach, at ×1 | 91 | 67 | 50 | 40 |
+| with the first pass's factors | 91 | 67 | 75 | 80 |
+| **with ×2, ×2.5, ×3, ×4** | **182** | **167** | **150** | **160** |
+
+Measured end to end — 43 entities laid across the play area on a geometric
+ladder, the zoom stepped with real key presses, the sx read back out of
+`phase4_vis`:
+
+| step | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| before, px of 320 | 176 | 159 | 183 | 162 | 157 | **115** | 129 | 138 | 152 | 144 | 154 | 150 |
+| after | 294 | 292 | 306 | 298 | 314 | 288 | 258 | 276 | 304 | 288 | 308 | 300 |
+
+The worst step was **5, the one every mission opens on**: the middle third of
+the screen and nothing else.
+
+`tests/test_phase5.TestTheWidthOfTheScreen` is that measurement, and it is the
+deliverable rather than the fix. It pauses first — `phase4_fly` drags a ship
+back to its station inside a few frames and walking twelve steps takes several
+hundred — and it parks at `scr_wait_vsync` before reading, because
+`phase4_project` zeroes `phase4_visible` and counts it back up, so a read at an
+arbitrary moment catches a list half built and reports one entity.
+`tests/test_phase1` states the same property as arithmetic.
+
+**The magnification is keyed to `cam_dist` and to nothing else, and the
+plausible alternative is wrong.** Steps 8 to 11 quadruple the visible radius at
+a fixed `cam_dist`, so it looks as though they should need progressively more —
+they do not: `proj_scale` clips `v` to ±127 whatever the radius means in world
+units, so the rim of the radius lands on the same pixel at all of them. The
+shift does not appear in `cam_dist/63`.
+`test_the_magnification_is_not_keyed_to_the_visible_radius` says so twice, once
+from the table and once by measuring.
+
+**Deliberately a little over 160 at the short distances.** Overshooting means
+the outermost rim of the visible radius clips, which is a frustum doing what a
+frustum does. Against a real mission scene — the Y=0 lattice, a formation and
+an enemy line, over sixty camera angles — it costs 2-4% of the entities on
+screen and doubles the width they are drawn across. At the innermost step it
+also puts two ships of a twenty-ship formation off the sides, which is what
+zooming right in is *for*.
+
+#### The ladder used to run backwards, and now nearly does not
+
+`radius / reach` is world units per screen pixel, and it is the honest reading
+of "does zooming out zoom out". It has to climb along the ladder. It did not:
+
+| step | 4 | 5 | 6 | 7 |
+|---|---|---|---|---|
+| before | 90 | 122 | 109 | 102 |
+| after | 45 | 49 | 55 | 51 |
+
+Steps 4 to 7 share a visible radius, so those four notches are `cam_dist` and
+the magnification alone — and the magnification was *rising* across them while
+the ships got smaller. Two of the twelve notches ran the wrong way, by 11% and
+7%. One does now, by 6%, and it is there because `ZOOM_MAG_FORMS` has no 3.5:
+`cam_dist` 200 wants 3.10 and gets 3, 250 wants 3.88 and gets 4.
 
 **Vertically the same factor, because the projection has to stay isotropic.**
 An anisotropic one would fill the width perfectly and change a formation's
@@ -2054,15 +2140,24 @@ LDIR'd in by `order_apply_zoom` as a fifth run out of the same zoom record:
 
 ```
     ld d,h : ld e,l          ; DE = t, always
-    sra d  : rr e            ; or four NOPs
+    sra d  : rr e            ; ...or NOPs, or more `add hl,hl`
     add hl,hl                ; or NOP
     add hl,de                ; or NOP
 ```
 
-which is `HL = (t << j) + (t >> k)` and reaches 1, 1.5, 2, 2.5 and 3. No
-branch, for the reason `proj_scale` has none: a `JR` to skip the ×1 case costs
-more than the two NOPs it skips. `ZOOM_MAG_FORMS` in `tools/gentables.py` is
-the mapping and the record went from 14 bytes to 20.
+which is `HL = (t << j) + (t >> k)`. No branch, for the reason `proj_scale` has
+none: a `JR` to skip the ×1 case costs more than the two NOPs it skips.
+`ZOOM_MAG_FORMS` in `tools/gentables.py` is the mapping and the record went
+from 14 bytes to 20.
+
+**The four-byte head is what decides the set of factors, and it can only do
+one job at a time.** `sra d : rr e` is two CB-prefixed instructions and fills
+it on its own, so a factor with a half in it cannot also carry extra doublings:
+that is 1, 1.5, 2, 2.5 and 3. Give the head `add hl,hl` instead and the whole
+numbers 4 and 5 arrive (and 8 and 9, which nothing wants) — **but there is no
+3.5 and no 1.75**, because a quarter would want `sra d : rr e` twice, eight
+bytes of a six-byte slot. That is the whole reason the four reaches come out
+182/167/150/160 rather than four numbers alike.
 
 **Powers of two alone are too coarse and finding that out is most of the
 design.** `cam_dist` steps 110 → 150 → 200 → 250, ratios of about 1.3, so a
@@ -2070,11 +2165,29 @@ ladder of 1, 2, 4 cannot follow it: whichever way you round, one step spreads
 the picture out as you zoom *out*. 1.5 is what makes the sequence read as a
 zoom, and `sra d : rr e` is what makes 1.5 affordable.
 
+#### What the magnification costs, and how to measure it
+
+**Twenty T-states an entity, for the whole of it.** Measured at 4000 iterations
+so the quantum is 20 T rather than the cost test's 100:
+
+| factor | ×1 | ×2 | ×2.5 | ×4 |
+|---|---|---|---|---|
+| `proj_point` | 4,860 T | 4,860 T | 4,880 T | 4,880 T |
+
+×2.5 is the default step, so `proj_point` is **4,880 T** against 4,860 with the
+slot NOP'd out — about 480 T of a 530,000 T frame, 0.09%. The frame rate is
+`4.95, 4.95, 5.00` over three 1000-frame windows on both builds, identically.
+
+> **`TestProjectionCost` reads 4,960 for that same build**, and the difference
+> is the test and not the code: it runs 800 iterations, so one PAL frame is
+> 100 T and the reading rounds up a whole quantum. The budget is 5,000. Before
+> believing a regression here, re-measure at 4000 iterations.
+
 #### It came out CHEAPER, and that is where it was paid for
 
-`proj_point` is **4,853 T-states at the default step and 4,867 T at a
-magnifying one, against 4,960 before** — the guard is 5,000 and had forty
-T-states of headroom. Two things paid for the magnification and then some:
+When the magnification first landed, `proj_point` was **4,853 T-states at the
+default step against 4,960 before** — the guard is 5,000 and had forty
+T-states of headroom. Two things paid for it and then some:
 
 - **`qsq_f` is gone**, inlined into its only caller. It was an eleven-byte
   routine reached by `CALL`/`RET` twice per `mul_u8`, which is 54 T of pure

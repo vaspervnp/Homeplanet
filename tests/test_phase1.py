@@ -12,6 +12,7 @@ inputs only -- exactly the kind of thing an eyeball test sails past.
 
 from __future__ import annotations
 
+import os
 import random
 import struct
 import sys
@@ -326,41 +327,86 @@ class TestProjection(EmuFixture):
         self.assertIsNotNone(self._project(far, (0, 0, 0), 0, 0, 250, zoom=11),
                              "the new widest step still cannot see it")
 
-    def test_the_wide_steps_can_reach_the_outer_screen(self):
-        """The outer half of the screen used to be UNREACHABLE, not just empty.
+    def test_the_edge_of_what_can_be_seen_is_the_edge_of_the_screen(self):
+        """The outer part of the screen used to be UNREACHABLE, not just empty.
 
-        PROJ_K puts 45 degrees off axis on the screen edge, and at cam_dist 250
-        nothing in the visible cube gets near 45 degrees: measured over every
-        yaw and pitch, the largest |sx - 160| any point could produce was 79 of
-        a half-width of 160. So this is a property of the arithmetic rather
-        than of where the ships happen to be, and one point past 79 is proof.
+        THIS TEST USED TO MEASURE THE WRONG THING, and that is the whole reason
+        it is worth reading. It took the largest |sx - 160| any point of the
+        +/-127 cube could produce over every yaw and pitch -- 79 before the
+        magnification, 156 after -- and called 156 of 160 a success. But that
+        worst case is a CORNER of the cube swung round close to the near plane,
+        where the perspective divide blows up; it is not where ships are and it
+        is not what a player sees. Along the play area's own axes, at the depth
+        the camera is focused on, the same build reached 40 pixels of 160.
 
-        proj_mag is what changed it, and the second half of the test is what
-        makes it a magnification rather than a zoom: the depth every size tier
-        is chosen from must be exactly what it was.
+        So the property is stated the way a player would state it: a ship at
+        the edge of what this zoom step can see must be drawn near the edge of
+        the screen. tests/test_phase5.TestTheWidthOfTheScreen is the same claim
+        made with real entities and real key presses.
+
+        The second half is what makes this a magnification rather than a zoom:
+        the depth every size tier is chosen from must be exactly what it was.
         """
-        UNREACHABLE_BEFORE = 79
-        worst = 0
-        #  Only the corners IN FRONT of the focus survive at yaw 0 -- cam_dist
-        #  250 leaves the far plane five camera units past it -- so the ones
-        #  that clip are not a failure, they are the depth clip doing its job.
-        for point in ((-32000, 0, -32000), (32000, 0, -32000),
-                      (-32000, 0, 32000), (32000, 0, 32000)):
-            got = self._project(point, (0, 0, 0), 0, 0, 250, zoom=11)
-            if got is None:
-                continue
-            worst = max(worst, abs(got[0] - g.SCR_CENTRE_X))
+        MARGIN = 12                      # of a half-width of 160
+        for step, (dist, shift, mul3, _mag) in enumerate(g.ZOOM_STEPS):
+            #  Walk IN from the radius rather than assuming the rim itself is
+            #  drawable. The factors overshoot 160 a little at the short
+            #  cam_dists (see ZOOM_STEPS), so the outermost rim clips -- which
+            #  is a frustum doing what a frustum does. What must be true is
+            #  that the outermost ship still DRAWN is at the edge of the
+            #  screen, so that the picture never stops short of it.
+            radius = g.zoom_radius(step)
+            got = None
+            for n in range(64):
+                edge = radius - radius * n // 64 - 1
+                got = self._project((edge, 0, 0), (0, 0, 0), 0, 0, dist, zoom=step)
+                if got is not None:
+                    break
+            self.assertIsNotNone(got, f"zoom step {step} draws nothing at all "
+                                      "on its own x axis")
+            off = abs(got[0] - g.SCR_CENTRE_X)
+            self.assertGreater(
+                off, g.SCR_CENTRE_X - MARGIN,
+                f"zoom step {step} runs out of visible world {off} pixels off "
+                f"centre, of 160 -- the outer screen is dead from there")
 
             #  ...and the tier is untouched: the model run WITHOUT the
             #  magnification has to give the same depth.
-            plain = g.project(point, (0, 0, 0), g.camera_matrix(0, 0), 250, 8)
+            plain = g.project((edge, 0, 0), (0, 0, 0), g.camera_matrix(0, 0),
+                              dist, shift, mul3, mag=1.0)
             self.assertEqual(got[2], plain[2],
                              "the magnification moved the depth the size tier comes from")
 
-        self.assertGreater(
-            worst, UNREACHABLE_BEFORE,
-            f"the widest zoom still cannot put a ship further than {worst} "
-            "pixels off centre, so the outer screen is still dead")
+    def test_the_magnification_is_not_keyed_to_the_visible_radius(self):
+        """The hypothesis that looks right and is not, recorded as a test.
+
+        Steps 8 to 11 quadruple the visible radius at a fixed cam_dist, so the
+        obvious guess is that they need progressively more magnification. They
+        do not: proj_scale clips v to +/-127 whatever the radius means in world
+        units, so the edge of the radius lands on the same pixel at every one
+        of them. What the magnification is keyed to is cam_dist and nothing
+        else -- and if that ever stops being true, ZOOM_STEPS has four rows
+        that quietly disagree with each other.
+        """
+        by_dist: dict[int, set[float]] = {}
+        for dist, _shift, _mul3, mag in g.ZOOM_STEPS:
+            by_dist.setdefault(dist, set()).add(mag)
+        for dist, mags in by_dist.items():
+            self.assertEqual(len(mags), 1,
+                             f"cam_dist {dist} is magnified {sorted(mags)} at "
+                             "different steps, so one of them is wrong")
+
+        #  ...measured, not asserted from the table: the same world offset
+        #  scaled by each step's own shift must land on the same sx.
+        seen = set()
+        for step, (dist, shift, mul3, _mag) in enumerate(g.ZOOM_STEPS):
+            if dist != 250 or mul3:
+                continue
+            got = self._project((100 << shift, 0, 0), (0, 0, 0), 0, 0, dist,
+                                zoom=step)
+            seen.add(got[0])
+        self.assertEqual(len(seen), 1,
+                         f"the plain steps at cam_dist 250 disagree: {seen}")
 
     def test_a_distant_entity_is_dropped_rather_than_wrapped(self):
         """The failure this replaces put the ship somewhere it was not.
@@ -411,6 +457,43 @@ class TestProjection(EmuFixture):
 #  tests above and the cost guard below are what actually protected the
 #  projection, and they call the routines directly, so they carry over
 #  unchanged.
+
+
+class TestTheAssembledDefault(unittest.TestCase):
+    """The zoom patch sites hold a real step before anything presses a key.
+
+    proj_scale and proj_mag are instruction streams that order_apply_zoom
+    overwrites, and what src/math/proj.asm assembles into them has to BE one of
+    the twelve records -- the default one -- or the first frame of every mission
+    projects at a scaling no zoom step asks for. main.asm cannot assert it
+    (RASM will not read back its own output), so it is checked here, against
+    the image on disc rather than against a running machine: by the time the
+    game is up, demo_init has already patched it.
+    """
+
+    def test_proj_mag_assembles_as_the_default_step(self):
+        sym = h.symbols()
+        with open(os.path.join(h.BUILD, "home.raw"), "rb") as f:
+            image = f.read()
+        off = sym["PROJ_MAG"] - 0x0040                  # CODE_START
+        got = list(image[off:off + 6])
+        want = g.zoom_patch(g.ZOOM_DEFAULT)[14:]
+        self.assertEqual(
+            got, want,
+            "proj_mag is assembled as "
+            f"{['#%02X' % b for b in got]} but zoom step {g.ZOOM_DEFAULT} is "
+            f"{['#%02X' % b for b in want]}")
+
+    def test_proj_scale_assembles_as_the_default_step(self):
+        sym = h.symbols()
+        with open(os.path.join(h.BUILD, "home.raw"), "rb") as f:
+            image = f.read()
+        want = g.zoom_patch(g.ZOOM_DEFAULT)
+        for name, at, size in (("PROJ_ZOOM_CHECK", 2, 4), ("PROJ_ZOOM_SHL", 6, 4),
+                               ("PROJ_ZOOM_SHR", 10, 2), ("PROJ_ZOOM_MUL", 12, 2)):
+            off = sym[name] - 0x0040
+            self.assertEqual(list(image[off:off + size]), want[at:at + size],
+                             f"{name} is not assembled as the default step")
 
 
 class TestProjectionCost(EmuFixture):

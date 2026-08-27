@@ -35,14 +35,20 @@
 ;
 ;  Step 6 has a MAGNIFICATION in it, and that is a different thing again. PROJ_K
 ;  was chosen so that 45 degrees off axis lands on the screen edge; nothing in
-;  this game ever gets near 45 degrees off axis once cam_dist is long, so at the
-;  wide steps the outer half of the screen was not merely empty but unreachable
-;  -- measured, the largest |sx - 160| any point of the visible cube could
-;  produce at cam_dist 250 was 79, of a half-width of 160. proj_mag multiplies
-;  the offset AFTER the divide and before the centre, by 1, 1.5 or 2 depending
-;  on the step, which brings all four cam_dists to about 160. It is not zoom: it
-;  shows the same world -- proj_deltas' clip radius is untouched -- and it does
-;  not touch proj_z, so every ship's size tier is exactly what it was.
+;  this game ever gets near 45 degrees off axis once cam_dist is long, so the
+;  outer part of the screen was not merely empty but unreachable. proj_mag
+;  multiplies the offset AFTER the divide and before the centre, by 2 to 4
+;  depending on cam_dist. It is not zoom: it shows the same world --
+;  proj_deltas' clip radius is untouched -- and it does not touch proj_z, so
+;  every ship's size tier is exactly what it was.
+;
+;  MEASURE IT ALONG THE PLAY AREA'S OWN AXES. The first version of this was
+;  calibrated against the largest |sx - 160| the +/-127 cube could produce over
+;  every yaw and pitch, which is a corner swung round near the near plane where
+;  the divide blows up; it reported 98% of the width while a fleet spread across
+;  the play area still came out inside the middle third. The number that matters
+;  is the edge of the visible radius at the focus' own depth, and at x1 it is
+;  91, 67, 50 and 40 pixels of a half-width of 160. See ZOOM_STEPS.
 ; ----------------------------------------------------------------------------
 
 ; ----------------------------------------------------------------------------
@@ -144,18 +150,29 @@ proj_clip:
 ;
 ;      HL = (t << j) + (t >> k)
 ;
-;  with DE holding t on the way in, so the factors it can reach are 1, 1.5, 2,
-;  2.5 and 3 -- see ZOOM_MAG_FORMS in tools/gentables.py.
+;  with DE holding t on the way in. The four-byte head is EITHER the halving of
+;  DE -- `sra d : rr e`, two CB-prefixed instructions that fill it on their own
+;  -- OR further doublings of HL, so the factors it can reach are 1, 1.5, 2,
+;  2.5, 3, 4 and 5. See ZOOM_MAG_FORMS in tools/gentables.py.
 ;
 ;  The whole slot is 32 T-states an axis at x1 (six NOPs and a dead
-;  `ld d,h : ld e,l`) and 39 at x1.5 or x2, so the magnification costs 14
-;  T-states an entity over never magnifying at all -- measured, proj_point is
-;  4,853 T at the default step and 4,867 T at a magnifying one. A patched JR to
-;  skip the NOPs would save 24 of the 64 and is exactly the shape that took
-;  proj_scale over the budget guard the first time it was written.
+;  `ld d,h : ld e,l`) and 46 at the worst of the factors in use. Measured, at
+;  4000 iterations so the quantum is 20 T rather than the cost test's 100:
 ;
-;  The bytes below are the NEUTRAL step (x1) assembled in place, so proj_point
-;  is correct before anything has pressed a key.
+;      x1  4,860 T     x2    4,860 T
+;      x4  4,880 T     x2.5  4,880 T   <- the default step
+;
+;  Twenty T-states an entity for the whole magnification, ~480 of a 530,000 T
+;  frame. (TestProjectionCost reads 4,960 for the same build: it runs 800
+;  iterations, so one PAL frame is 100 T and the reading rounds up a whole
+;  quantum. Budget 5,000. Measure at 4000 before believing a regression here.)
+;  A patched JR to skip the NOPs would save 24 of the 64 and is exactly the
+;  shape that took proj_scale over the budget guard the first time it was
+;  written.
+;
+;  The bytes below are the DEFAULT step's factor (x2.5) assembled in place, so
+;  proj_point is correct before anything has pressed a key -- the same
+;  arrangement proj_scale's ladder has, and for the same reason.
 ; ----------------------------------------------------------------------------
 proj_offset:
     ld b,a
@@ -174,12 +191,11 @@ proj_offset:
     ld d,h
     ld e,l                              ; DE = t
 proj_mag:
-    nop                                 ; `sra d` on the x1.5 and x2.5 steps
-    nop
-    nop                                 ; `rr e` with it
-    nop
-    nop                                 ; `add hl,hl` from x2 up
-    nop                                 ; `add hl,de` on the odd factors
+    sra d                               ; DE = t >> 1, on the steps with a half
+    rr e                                ;   in the factor; four bytes that hold
+                                        ;   `add hl,hl` or NOPs on the others
+    add hl,hl                           ; HL = t << 1, or NOP
+    add hl,de                           ; + DE, or NOP
 proj_mag_end:
     ret
 

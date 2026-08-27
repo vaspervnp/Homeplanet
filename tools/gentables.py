@@ -151,36 +151,74 @@ TIER_B_MAX_Z = 190                   # nearer than this -> 16x10
 #
 #      idx  dist  radius   world units per screen pixel
 #        0   110    2048    11
-#        4   110    8192    44          <- the old step 0
-#        5   150    8192    60          <- the old step 1, still the default
+#        4   110    8192    45          <- the old step 0
+#        5   150    8192    49          <- the old step 1, still the default
 #        7   250    8192    51          <- the old step 3
-#       11   250   32768   207
+#       11   250   32768   205
+#
+#  That column is radius/reach, so it is the magnification's business as much
+#  as the shift's, and it is the honest reading of "does zooming out zoom out".
+#  It has to climb. It did not: at the old factors steps 4, 5, 6, 7 read
+#  90, 122, 109, 102 -- two of the twelve notches ran BACKWARDS, because those
+#  four share a radius and the magnification was rising across them.
 #
 #  --- and the fourth column, the MAGNIFICATION -------------------------------
 #
 #  PROJ_K was chosen so that x == z -- 45 degrees off axis -- lands exactly on
 #  the screen edge. Nothing in this game ever gets near 45 degrees off axis at
 #  the long cam_dists, so the outer part of the screen was not merely empty,
-#  it was UNREACHABLE. Measured, as the largest |sx - 160| any point of the
-#  visible cube can produce, over every yaw and pitch:
+#  it was UNREACHABLE, and the magnification is what buys it back. It
+#  multiplies the projected OFFSET, after the perspective divide and before the
+#  centre is added. It is not zoom and it does not touch proj_z, so the size
+#  tier of every ship is exactly what it was: the same world, spread across the
+#  screen it has.
+#
+#  WHAT TO MEASURE IT AGAINST, because the first attempt at this measured the
+#  wrong thing and reported success. It took the largest |sx - 160| any point
+#  of the +/-127 cube could produce over every yaw and pitch:
 #
 #      cam_dist    110    150    200    250
-#      reach       172    170    107     79      <- of a half-width of 160
+#      cube worst  172    170    107     79      <- of a half-width of 160
+#      mag           1      1    1.5      2
+#      cube worst  172    170    160    158      <- "98% of the width"
 #
-#  So at cam_dist 250 -- steps 7 to 11, five of the twelve -- the picture is
-#  confined to the middle half of the screen by construction, and no amount of
-#  flying about could ever put a ship in the outer half.
+#  That is a CORNER of the cube which has swung round close to the near plane,
+#  where the perspective divide blows up. It is not where ships are and it is
+#  not what a player sees. The honest measure is the edge of the visible radius
+#  along the play area's own axes, at the depth the camera is focused on:
 #
-#  The magnification multiplies the projected OFFSET, after the perspective
-#  divide and before the centre is added. It is not zoom and it does not touch
-#  proj_z, so the size tier of every ship is exactly what it was: the same
-#  world, spread across the screen it has. The factors below bring all four
-#  reaches to about 160, which is the screen edge and is what cam_dist 110
-#  already did:
+#      x   = (MAT_ONE * 127) >> 8   =  63       the far corner of the cube, flat
+#      sx' = (63 * recip[cam_dist]) >> PROJ_SHIFT
 #
 #      cam_dist    110    150    200    250
-#      mag         1      1      1.5    2
-#      reach       172    170    160    158
+#      real reach   91     67     50     40      <- of a half-width of 160
+#      old mag       1      1    1.5      2
+#      old reach    91     67     75     80      <- a third of the screen
+#
+#  Two thirds of the screen was still margin, and worse, the ladder ran
+#  BACKWARDS across steps 5, 6 and 7: they share a visible radius, so pressing
+#  zoom-out spread the picture from 67 to 75 to 80 while the ships got smaller.
+#
+#  The reach is 160 * 63 / cam_dist, so the factor that puts the edge of what
+#  can be seen on the edge of the screen is cam_dist/63 -- 1.75, 2.38, 3.17,
+#  3.97. Note what is NOT in that expression: the SHIFT. Steps 7 to 11 quadruple
+#  the visible radius at a fixed cam_dist and need no more magnification for it,
+#  because v is clipped to +/-127 whatever the radius means in world units. The
+#  magnification is a property of cam_dist alone, and the twelve rows below
+#  repeat it four times over for that reason.
+#
+#  proj_mag can express 1, 1.5, 2, 2.5, 3, 4 and 5 (see ZOOM_MAG_FORMS), so:
+#
+#      cam_dist    110    150    200    250
+#      mag           2    2.5      3      4
+#      reach       182    167    150    160
+#
+#  Deliberately a little OVER 160 at the short distances: overshooting means
+#  the outermost rim of the visible radius clips, which is a frustum doing what
+#  a frustum does, and measured against a real mission scene -- the Y=0
+#  lattice, a formation and an enemy line, over sixty camera angles -- it costs
+#  two to four per cent of the entities on screen and doubles the width they
+#  are drawn across.
 #
 #  Vertically the same factor, because the projection has to stay isotropic --
 #  an anisotropic one would change a formation's shape as the camera orbited.
@@ -197,18 +235,18 @@ TIER_B_MAX_Z = 190                   # nearer than this -> 16x10
 #
 #  (dist, shift, mul3, mag)
 ZOOM_STEPS = [
-    (110, 4, False, 1.0),            # 0  in  x16
-    (110, 6, True,  1.0),            # 1
-    (110, 5, False, 1.0),            # 2
-    (110, 7, True,  1.0),            # 3
-    (110, 6, False, 1.0),            # 4  the old four steps begin here
-    (150, 6, False, 1.0),            # 5  ...and this is where the game starts
-    (200, 6, False, 1.5),            # 6
-    (250, 6, False, 2.0),            # 7  the old widest
-    (250, 8, True,  2.0),            # 8  out
-    (250, 7, False, 2.0),            # 9
-    (250, 9, True,  2.0),            # 10
-    (250, 8, False, 2.0),            # 11 the whole 16-bit world at once
+    (110, 4, False, 2.0),            # 0  in  x16
+    (110, 6, True,  2.0),            # 1
+    (110, 5, False, 2.0),            # 2
+    (110, 7, True,  2.0),            # 3
+    (110, 6, False, 2.0),            # 4  the old four steps begin here
+    (150, 6, False, 2.5),            # 5  ...and this is where the game starts
+    (200, 6, False, 3.0),            # 6
+    (250, 6, False, 4.0),            # 7  the old widest
+    (250, 8, True,  4.0),            # 8  out
+    (250, 7, False, 4.0),            # 9
+    (250, 9, True,  4.0),            # 10
+    (250, 8, False, 4.0),            # 11 the whole 16-bit world at once
 ]
 
 #  Where the game starts, and the step whose scaling is plain >> WORLD_SHIFT --
@@ -241,7 +279,6 @@ _Z80_JR_0 = (0x18, 0x00)             # to the instruction immediately after
 _Z80_SRA_D = (0xCB, 0x2A)
 _Z80_RR_E = (0xCB, 0x1B)
 _Z80_ADD_HL_DE = 0x19
-_Z80_NOP2 = (0x00, 0x00)
 
 #  The magnification, as (j, k, add) for
 #
@@ -251,12 +288,26 @@ _Z80_NOP2 = (0x00, 0x00)
 #  rather than derived because the useful factors are few and picking them is
 #  a judgement about the picture, not arithmetic -- see ZOOM_STEPS. Anything
 #  here is one slot's worth of straight-line code with no branch in it.
+#
+#  The slot is four bytes and then two, and THAT is what decides the set. The
+#  four are either `sra d : rr e` -- two CB-prefixed instructions, DE holding
+#  the halved t -- or up to four more `add hl,hl`; they cannot be both, so a
+#  half is only available while j is 0 or 1. The two are one `add hl,hl` and
+#  one `add hl,de`. Hence 1, 1.5, 2, 2.5 and 3 with a half in them, and the
+#  whole numbers 4 and 5 (and 8, 9, ... which nothing needs) without.
+#
+#  There is no 3.5 and no 1.75, and that is the whole reason the reaches in
+#  ZOOM_STEPS come out 182/167/150/160 rather than four numbers alike: a
+#  quarter would want `sra d : rr e` twice, which is eight bytes of a six-byte
+#  slot.
 ZOOM_MAG_FORMS = {
     1.0: (0, 0, False),              # t
     1.5: (0, 1, True),               # t + (t >> 1)
     2.0: (1, 0, False),              # t << 1
     2.5: (1, 1, True),               # (t << 1) + (t >> 1)
     3.0: (1, 0, True),               # (t << 1) + t
+    4.0: (2, 0, False),              # t << 2
+    5.0: (2, 0, True),               # (t << 2) + t
 }
 
 ZOOM_RECORD = 20                     # exactly what it holds; see order_apply_zoom
@@ -270,8 +321,9 @@ def zoom_patch(step: int) -> list[int]:
         +6   the shift ladder: four `add hl,hl`, each NOP'd out or not
         +10  `sra a`, or two NOPs
         +12  `scf : ret`, or a `jr` into the x3 tail
-        +14  proj_mag, six bytes of it: `sra d : rr e` or four NOPs, then
-             `add hl,hl` and `add hl,de`, each NOP'd out or not
+        +14  proj_mag, six bytes of it: four that are either `sra d : rr e`
+             or extra `add hl,hl`, then `add hl,hl` and `add hl,de`, each
+             NOP'd out or not
 
     The first fourteen bytes go into proj_scale, which is where the ZOOM is;
     the last six go into proj_point, which is where the MAGNIFICATION is.
@@ -310,10 +362,21 @@ def zoom_patch(step: int) -> list[int]:
     #  proj_mag. DE is always loaded with t (two bytes of `ld d,h : ld e,l`
     #  that never change and are therefore not in the record); these six say
     #  what happens to it and to HL afterwards.
+    #
+    #  The four-byte head is either the halving of DE or extra doublings of HL,
+    #  never both -- `sra d : rr e` fills it on its own. So j reaches 1 with a
+    #  half in the factor and 5 without.
     j, k, add = ZOOM_MAG_FORMS[mag]
-    assert j <= 1 and k <= 1, f"zoom step {step}: magnification {mag} is off the slot"
-    mag_bytes = (list(_Z80_SRA_D) + list(_Z80_RR_E) if k
-                 else list(_Z80_NOP2) + list(_Z80_NOP2))
+    assert k <= 1, f"zoom step {step}: magnification {mag} halves more than once"
+    assert j <= (1 if k else 5), \
+        f"zoom step {step}: magnification {mag} is off the slot"
+    if k:
+        head = list(_Z80_SRA_D) + list(_Z80_RR_E)
+    else:
+        #  One `add hl,hl` lives in the fifth byte, so the head carries j - 1.
+        head = [_Z80_ADD_HL_HL] * max(0, j - 1)
+        head += [_Z80_NOP] * (4 - len(head))
+    mag_bytes = head
     mag_bytes += [_Z80_ADD_HL_HL if j else _Z80_NOP]
     mag_bytes += [_Z80_ADD_HL_DE if add else _Z80_NOP]
 
@@ -479,16 +542,24 @@ def scale_delta(d: int, shift: int = WORLD_SHIFT, mul3: bool = False):
     return None if t < PROJ_V_MIN or t > PROJ_V_MAX else t
 
 
-def project(point, focus, matrix, cam_dist, shift=WORLD_SHIFT, mul3=False,
-            mag=1.0):
+def project(point, focus, matrix, cam_dist, shift=None, mul3=None, mag=None):
     """One entity through the whole pipeline.
 
     Returns (sx, sy, z) or None if it was clipped. `z` is the camera-space
     depth the size tier is chosen from. `shift`/`mul3`/`mag` are the zoom
-    step's scaling -- see ZOOM_STEPS; the defaults are the neutral step, which
+    step's scaling -- see ZOOM_STEPS; the defaults are ZOOM_DEFAULT's, which
     is what proj_point assembles with and what the machine is left holding
     when a test pokes cam_dist without walking the ladder.
+
+    They are READ FROM THE TABLE rather than written out. They used to be
+    WORLD_SHIFT, False and 1.0, which was the default step's row until the
+    magnification stopped being 1 there -- and the differential tests then
+    compared the metal against a scaling no zoom step has.
     """
+    _shift, _mul3, _mag = ZOOM_STEPS[ZOOM_DEFAULT][1:]
+    shift = _shift if shift is None else shift
+    mul3 = _mul3 if mul3 is None else mul3
+    mag = _mag if mag is None else mag
     #  v = (P - focus) scaled down, CLIPPED rather than truncated -- see
     #  PROJ_V_MAX. Two ways to be out of range, and the Z80 tests for both:
     #  the 16-bit subtract itself can overflow (SBC HL,DE sets P/V, and the
@@ -578,8 +649,8 @@ def render_zoom() -> str:
         ";    +6   the shift ladder: four `add hl,hl`, NOP'd out or not",
         ";    +10  `sra a`, or two NOPs",
         ";    +12  `scf : ret`, or a `jr` into the x3 tail",
-        ";    +14  proj_mag: `sra d : rr e` or four NOPs, then `add hl,hl` and",
-        ";         `add hl,de`, each NOP'd out or not",
+        ";    +14  proj_mag: `sra d : rr e`, or more `add hl,hl`, or NOPs; then",
+        ";         `add hl,hl` and `add hl,de`, each NOP'd out or not",
         ";",
         ";  Eighteen of the twenty bytes are Z80 INSTRUCTIONS: order_apply_zoom",
         ";  LDIRs them into the middle of proj_scale, which is where the zoom",
