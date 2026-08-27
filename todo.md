@@ -10,29 +10,7 @@ see [CLAUDE.md](CLAUDE.md) for both.
 Mothership indicator, splitting the fleet into squadrons by class, and
 resources in every mission and visible — are done; see the marker pass in
 CLAUDE.md.)*
-## 1. RU reads as one byte and wraps at 256
-
-**The resources are not lost** -- `eco_ru` is a word and every add is 16-bit.
-Only the readout is wrong: `phase4_hud` does `ld a,(eco_ru)`, which takes the
-low byte, into a three-digit field. At 300 RU the strip shows `044`.
-
-The comment beside it says "RU never nears 65535", and that was true when the
-only things to buy were 35 and 40. It stopped being true the moment all eight
-classes landed: the Destroyer is **250**, so a player must save past 255 to
-afford one -- and the counter reads zero exactly when they get there. The
-assumption did not age; the feature that broke it is unrelated to it.
-
-- `txt_draw_num` takes the value in `A`, so it is byte-only. This needs a
-  16-bit form, or the value clamping at 999 with the reason written down.
-- **There is no room on row A.** `RU ` starts at byte 56, three digits reach
-  68, and `?HELP` runs 70 to 80 -- the last glyph starts at 78 of 80. A wider
-  field means moving something, and item 2's context bar may be where the help
-  hint should go anyway.
-- Worth a test that spends past 255 and reads the screen back, not just the
-  variable. Every economy test today asserts on `ECO_RU`, which is correct and
-  says nothing about what the player can see.
-
-## 2. Show that the game is paused
+## 1. Show that the game is paused
 
 `SPACE` freezes the battle (`order_paused`) and nothing on screen says so. §9
 calls it "τακτική παύση" and it is a state the player chooses and then forgets
@@ -52,7 +30,7 @@ they are in — the fleet simply stops obeying and looks broken.
   finding somewhere. CLAUDE.md's "Where the bytes came from" notes how the last
   two features found theirs.
 
-## 3. A context bar along the top
+## 2. A context bar along the top
 
 A strip at the **top** of the screen showing which keys do something *right
 now*. Starts `ESC FOR MENU`, and while any mode is open it shows that mode's
@@ -93,7 +71,7 @@ Things that decide the shape:
   drawing can go there too, since a context bar only redraws when the context
   changes. Nothing is blocking this now but the writing.
 
-## 4. Use the whole screen for the playfield
+## 3. Use the whole screen for the playfield
 
 The tactical view does not fill the screen and at wide zoom it is not close.
 

@@ -236,6 +236,70 @@ txt_draw_char:
 ;  In : A = value, B = x in bytes, C = y in lines, D = field width in chars
 ;  Uses: everything
 ; ----------------------------------------------------------------------------
+; ----------------------------------------------------------------------------
+;  txt_draw_num4 -- draw HL as four decimal digits, leading zeros
+;  In : HL = value (0..9999), B = x in bytes, C = y
+;  Uses: everything
+;
+;  The 8-bit form below divides by ten with repeated subtraction, which costs
+;  25 iterations at worst and is cheaper than a table. At 16 bits that becomes
+;  6553, so this one goes the other way: subtract each power of ten as many
+;  times as it fits, most significant first. Thirty-six subtractions at worst,
+;  no division and no reciprocal table.
+;
+;  Four digits rather than a width parameter, because there is one caller. A
+;  general version was written first and cost 250 bytes -- most of it the
+;  right-align-into-a-narrower-field logic that nothing wanted.
+; ----------------------------------------------------------------------------
+txt_draw_num4:
+    push bc                             ; x and y, for the txt_draw below
+    ld de,txt_pow10
+    ld bc,txt_num_buf
+    ld (txt_n4_ptr),bc
+    ld b,4
+
+@txt_n4_place:
+    push bc
+    ld a,(de)
+    ld c,a
+    inc de
+    ld a,(de)
+    ld b,a
+    inc de                              ; BC = this power of ten
+    push de
+
+    ld e,'0'
+@txt_n4_sub:
+    or a
+    sbc hl,bc
+    jr c,@txt_n4_undo
+    inc e
+    jr @txt_n4_sub
+@txt_n4_undo:
+    add hl,bc                           ; one subtraction too many; put it back
+
+    ld a,e                              ; the digit, BEFORE DE is reused
+    ld de,(txt_n4_ptr)
+    ld (de),a
+    inc de
+    ld (txt_n4_ptr),de
+
+    pop de                              ; the powers pointer
+    pop bc
+    djnz @txt_n4_place
+
+    ld de,(txt_n4_ptr)
+    xor a
+    ld (de),a                           ; terminator, one past the four digits
+
+    pop bc
+    ld hl,txt_num_buf
+    jp txt_draw
+
+txt_pow10:          defw 1000, 100, 10, 1
+txt_n4_ptr:         defw 0
+
+
 txt_draw_num:
     ld e,a                              ; E = what is left to convert
     ld a,d

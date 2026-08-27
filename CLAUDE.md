@@ -552,6 +552,34 @@ was judged on are not checked in — regenerate them by rendering `art/` with
 `YAW_STEPS = 8` into a scratch directory and putting the tier C rows side by
 side.
 
+### The RU figure is sixteen bits, and was not
+
+`phase4_hud` used to do `ld a,(eco_ru)` into a three-digit field, with a
+comment saying RU never goes near 65535. `eco_ru` has always been a word and
+every add has always been 16-bit — only the *readout* took the low byte, so
+300 RU showed as `044`.
+
+**The assumption was sound when it was written and was invalidated from
+somewhere else entirely.** Nothing cost more than 40 until all eight of §8's
+classes landed and made the Destroyer buyable at 250 — so a player has to save
+past 255 to afford one, and the counter read zero exactly when they got there.
+
+`txt_draw_num4` draws HL in four digits by subtracting powers of ten, most
+significant first: 36 subtractions at worst. The 8-bit `txt_draw_num` divides
+by ten by repeated subtraction, which is 25 iterations and cheaper than a
+table — at 16 bits that would be 6553, which is why the two are different
+shapes rather than one general routine. A general one was written first and
+cost 250 bytes, nearly all of it right-aligning into a narrower field that
+nothing asked for.
+
+`HUD_RU_X` moved 56 → 54 to fit the fourth digit: the squadron list ends at
+byte 52 and `?HELP` starts at 70.
+
+**Every economy test passed while this was broken**, because they all assert on
+`ECO_RU` — which was correct. `TestTheReadout` reads the pixels instead, and
+its sharpest case is that 300 and 44 must not be drawn identically. Against the
+old build they are byte-for-byte the same.
+
 ### The palette is semantic, and the HUD uses it
 
 `txt_draw` produces **pen 1 only** by construction: ink 1 is `%01`, so four

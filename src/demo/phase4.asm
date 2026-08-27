@@ -86,7 +86,9 @@ HUD_ENTRY_BYTES     equ HUD_ENTRY_CHARS * 2
 HUD_PER_ROW         equ 5
 
 ;  The right-hand half of the strip: resources above, the yard below.
-HUD_RU_X            equ 56
+HUD_RU_X            equ 54          ; two bytes clear of the squadron list,
+                                        ; which ends at 52; four digits then
+                                        ; reach 70, where ?HELP starts
 HUD_YARD_X          equ 44
 HUD_MIS_X           equ 56
 ;  What is left of row A after the RU figure, one character clear of it.
@@ -1828,11 +1830,15 @@ phase4_hud:
     ld b,HUD_RU_X
     ld c,HUD_ROW_A_Y
     call phase4_hud_label
-    ld a,(eco_ru)                       ; the low byte: RU never nears 65535
+    ;  All sixteen bits, in four digits. It used to be `ld a,(eco_ru)` into a
+    ;  three-digit field, with a comment saying RU never goes near 65535 --
+    ;  true when the only things to buy cost 35 and 40. All eight classes
+    ;  landing made the Destroyer buyable at 250, so a player has to save past
+    ;  255 to afford one, and the low byte read 0 exactly when they got there.
+    ld hl,(eco_ru)
     ld b,HUD_RU_X + 3 * TXT_CHAR_W_BYTES
     ld c,HUD_ROW_A_Y
-    ld d,3
-    call txt_draw_num
+    call txt_draw_num4
 
     ;  The way out of not knowing the keys. Five characters is all the strip
     ;  has left after the RU figure -- the last glyph starts at byte 78 of 80.

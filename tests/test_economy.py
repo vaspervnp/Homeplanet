@@ -184,6 +184,66 @@ class TestConstruction(EconomyFixture):
                                 "the yard is still holding a finished ship")
 
 
+class TestTheReadout(EconomyFixture):
+    """What the player can SEE, which is not what ECO_RU says.
+
+    eco_ru has always been a word and every add has always been 16-bit, so
+    every test in this file passed while the strip showed the wrong number:
+    phase4_hud did `ld a,(eco_ru)`, took the low byte, and printed it in a
+    three-digit field. 300 RU read as 044.
+
+    It went unnoticed because nothing could be bought for more than 40. All
+    eight of section 8's classes landing made the Destroyer buyable at 250 --
+    so a player has to save past 255 to afford one, and the counter read zero
+    exactly when they got there. The assumption was sound when written; what
+    invalidated it was somewhere else entirely.
+    """
+
+    RU_X, RU_W = 54, 16                 # the field, in screen bytes
+    RU_Y, RU_H = 176, 10
+
+    def readout(self, ru):
+        """The pixels of the RU field with that much in hand."""
+        self.c.write_ram(self.sym["ECO_RU"], int(ru).to_bytes(2, "little"))
+        #  The HUD only redraws when it changes, and nothing else has.
+        self.c.write_ram(self.sym["PHASE4_HUD_DIRTY"], bytes([2]))
+        self.c.run_frames(60)
+        ram = self.c.read_ram(h.front_buffer(self.c), 0x4000)
+        return bytes(ram[h.screen_offset(y, x)]
+                     for y in range(self.RU_Y, self.RU_Y + self.RU_H)
+                     for x in range(self.RU_X, self.RU_X + self.RU_W))
+
+    def test_the_readout_does_not_wrap_at_256(self):
+        """300 and 44 differ by exactly one high byte, and used to look alike."""
+        self.assertNotEqual(self.readout(300), self.readout(44),
+                            "300 RU is drawn the same as 44 -- the readout wrapped")
+        self.assertNotEqual(self.readout(256), self.readout(0),
+                            "256 RU is drawn the same as none at all")
+
+    def test_every_amount_a_player_can_hold_looks_different(self):
+        seen = {}
+        for ru in (0, 44, 120, 250, 255, 256, 300, 1000, 1234, 9999):
+            pixels = self.readout(ru)
+            self.assertNotIn(pixels, seen,
+                             f"{ru} RU is drawn exactly like {seen.get(pixels)} RU")
+            seen[pixels] = ru
+
+    def test_it_fits_beside_the_help_hint(self):
+        """Four digits reach byte 70, which is where ?HELP starts.
+
+        txt_draw clips at the screen edge, not at a field, so an overrun would
+        silently overwrite the hint rather than fail.
+        """
+        self.readout(9999)
+        ram = self.c.read_ram(h.front_buffer(self.c), 0x4000)
+        label = h.read_cpu(self.c, self.sym["PHASE4_HUD_HELP"], 6)
+        self.assertEqual(label, b"?HELP\x00")
+        ink = sum(bin(ram[h.screen_offset(y, x)]).count("1")
+                  for y in range(self.RU_Y, self.RU_Y + self.RU_H)
+                  for x in range(70, 80))
+        self.assertGreater(ink, 20, "the widest RU figure wiped out ?HELP")
+
+
 class TestHarvesting(EconomyFixture):
 
     def _harvester_slots(self):
