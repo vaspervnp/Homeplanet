@@ -28,3 +28,26 @@ ships actually were, so dividing a formation flung half of it off the screen.
 See "A squadron is born where its ships are" in CLAUDE.md for the rule, and
 for why every existing squadron test — all of which counted — agreed with the
 bug.)*
+
+## Zoom on `+` and `-` as well as `Z` and `X`
+
+Same two commands, second pair of keys. `order_zoom` in `src/game/order.asm`
+already does the work; this is two more `key_hit` tests beside the existing
+ones in `phase4_commands`.
+
+**The matrix is the whole of the difficulty.** Line 3 of the CPC keyboard is,
+bit 0 upward: `^ - @ P ; : / .` — so
+
+- **`-` is a key of its own**: `3*8 + 1`.
+- **`+` is not.** It is SHIFT + `;`, and the matrix only ever reports the
+  PHYSICAL key, so binding `;` (`3*8 + 4`) catches `+` whether or not shift is
+  down. That is exactly the trick `KEY_SLASH` already uses for `?` — see the
+  comment on it in `src/sys/keyboard.asm`.
+
+Check nothing else wants `;` before taking it, and add both to the help page
+and to the context bar's playing line if they fit — `Z X ZOOM` is already
+there and would become `Z X + - ZOOM`, which may not.
+
+Watch the case-insensitivity trap when naming the equates: a routine
+`key_minus` beside a constant `KEY_MINUS` is the collision that has caught
+four times already.
