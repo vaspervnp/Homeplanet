@@ -72,6 +72,11 @@ ORDER_NO_TARGET     equ #FF
 ;  Where each squadron is stationed. A move order rewrites the entry for the
 ;  selected squadron and the formation follows, so this is the ONLY thing an
 ;  order changes -- no per-ship destinations to keep in step.
+;
+;  AN ENTRY ONLY MEANS ANYTHING WHILE ITS SQUADRON HAS SHIPS. order_home seeds
+;  all nine once at boot, but a squadron created by d, m, n, c or O takes its
+;  station from the ship that created it -- see squad_born in game/squadcmd.asm
+;  for the bug that came of reading a fixed table instead.
 squad_dest:         defs SQUAD_MAX * 6, 0
 
 disc_active:        defb 0
@@ -119,9 +124,17 @@ order_octant_step:
     defw  0,                  -DISC_STEP
     defw  DISC_STEP_DIAG,     -DISC_STEP_DIAG
 
-;  Starting stations. Squadron 1 sits in the middle of the battle and the rest
-;  fan out around it, spread in Z as well as X so ships sit at genuinely
-;  different depths and so at different sprite tiers.
+;  Starting stations, copied into squad_dest once by order_init. Squadron 1
+;  sits in the middle of the battle and the rest fan out around it, spread in
+;  Z as well as X so ships sit at genuinely different depths and so at
+;  different sprite tiers.
+;
+;  ONLY ROW 1 EVER APPLIES TO A NEW GAME: phase4_spawn_fleet puts the whole
+;  fleet on squadron 1's station and nothing else has ships. The other eight
+;  are the layout a RESTORED fleet fans out into, and they are no longer what
+;  a squadron created mid-mission is given -- squad_born stations it on its own
+;  ships instead. Reading these on creation is what made dividing a squadron
+;  fling half of it 4500 to 11400 units across the map.
 order_home:
     defw      0,   500,      0           ; 1
     defw  -4500,  -750,   2000           ; 2

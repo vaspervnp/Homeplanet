@@ -19,12 +19,14 @@ The spec being tested:
 
 from __future__ import annotations
 
+import struct
 import sys
 import unittest
 
 sys.path.insert(0, __file__.rsplit("/", 2)[0])
 
 from tests import harness as h
+import cpc
 
 #  Long enough for the game to run several frames with the key down, so a
 #  wrongly level-triggered command would fire more than once and be caught.
@@ -69,11 +71,51 @@ class SquadFixture(unittest.TestCase):
         self.c.key_up(key)
         self.c.run_frames(HOLD_FRAMES)
 
+    def fleet(self):
+        """{slot: (squadron, (x, y, z))} for every live ship.
+
+        Keyed by SLOT, so a test can follow one individual ship across a
+        command rather than watching a total. Counts are preserved by a swap
+        that puts the wrong ships in the wrong squadrons, which is exactly
+        what "the squadrons get mixed up" looks like from the player's chair.
+        """
+        raw = self.c.read_ram(self.sym["ENTITIES"], ENT_MAX * ENT_SIZE)
+        out = {}
+        for i in range(ENT_MAX):
+            b = raw[i * ENT_SIZE:(i + 1) * ENT_SIZE]
+            if b[ENT_FLAGS] & F_ACTIVE:
+                out[i] = (b[ENT_SQUAD], struct.unpack("<hhh", b[0:6]))
+        return out
+
+    def members(self, fleet=None):
+        """{squadron: [slot, ...]} -- which ships, not how many."""
+        out = {}
+        for slot, (squadron, _) in (fleet or self.fleet()).items():
+            out.setdefault(squadron, []).append(slot)
+        return out
+
+    def station(self, squadron):
+        """Where squadron 1..9 is told to form up."""
+        raw = self.c.read_ram(self.sym["SQUAD_DEST"] + (squadron - 1) * 6, 6)
+        return struct.unpack("<hhh", raw)
+
 
 ENT_SIZE = 20
-ENT_CLASS = 9
+ENT_MAX = 48
+ENT_CLASS, ENT_FLAGS, ENT_SQUAD = 9, 11, 12
+F_ACTIVE = 1
 CLASS_INTERCEPTOR, CLASS_MOTHERSHIP, CLASS_HARVESTER = 0, 1, 2
 CLASS_BOMBER, CLASS_FRIGATE = 4, 5
+
+
+def manhattan(a, b):
+    return sum(abs(p - q) for p, q in zip(a, b))
+
+
+def spread(points):
+    """The widest the fleet is, on any one axis."""
+    return max(max(p[i] for p in points) - min(p[i] for p in points)
+               for i in range(3))
 
 
 class TestInitialState(SquadFixture):
@@ -339,3 +381,198 @@ class TestSplitByClass(SquadFixture):
         sel = self.selected()
         self.assertGreater(self.counts()[sel - 1], 0,
                            f"squadron {sel} is selected and empty")
+
+
+class TestWhichShipsEndUpWhere(SquadFixture):
+    """The reshaping commands, asserted on ENT_SQUAD across all 48 slots.
+
+    Every other test in this file asserts on SQUAD_COUNT, and a count is
+    preserved by a swap that puts the wrong ships in the wrong squadrons --
+    which is precisely what a player means by "the squadrons get mixed up".
+    So these follow individual ships, by slot, across each command, and say
+    what each command is allowed to touch.
+    """
+
+    def step(self, key):
+        """Press one key; return (selection before, {slot: (from, to)})."""
+        before, sel = self.fleet(), self.selected()
+        self.tap(key, frames=20)
+        after = self.fleet()
+        self.assertEqual(sorted(before), sorted(after),
+                         f"'{key}' created or destroyed a ship")
+        return sel, {slot: (before[slot][0], after[slot][0])
+                     for slot in before if before[slot][0] != after[slot][0]}
+
+    def test_m_moves_one_named_ship_and_touches_nothing_else(self):
+        sel, moved = self.step("m")
+        self.assertEqual(len(moved), 1, f"'m' moved {len(moved)} ships: {moved}")
+        self.assertEqual(list(moved.values())[0], (sel, sel + 1), moved)
+
+    def test_n_moves_one_named_ship_and_1_wraps_to_9(self):
+        sel, moved = self.step("n")
+        self.assertEqual(len(moved), 1, f"'n' moved {len(moved)} ships: {moved}")
+        self.assertEqual(list(moved.values())[0], (1, 9), moved)
+
+    def test_d_peels_half_of_one_squadron_into_one_empty_number(self):
+        held = len(self.members()[1])
+        sel, moved = self.step("d")
+        self.assertEqual(len(moved), held // 2,
+                         f"'d' moved {len(moved)} of {held}: {moved}")
+        self.assertEqual({a for a, _ in moved.values()}, {sel},
+                         f"'d' took ships out of a squadron it was not given: {moved}")
+        self.assertEqual(len({b for _, b in moved.values()}), 1,
+                         f"'d' scattered the half it peeled: {moved}")
+
+    def test_c_absorbs_one_whole_squadron_and_no_part_of_another(self):
+        self.tap("d")
+        self.tap("2")
+        self.tap("d")                       # 1, 2 and 3 all have ships
+        self.tap("1")
+        members = self.members()
+        sel, moved = self.step("c")
+        sources = {a for a, _ in moved.values()}
+        self.assertEqual(len(sources), 1, f"'c' emptied more than one squadron: {moved}")
+        source = sources.pop()
+        self.assertEqual(sorted(moved), sorted(members[source]),
+                         f"'c' left part of squadron {source} behind: {moved}")
+        self.assertEqual({b for _, b in moved.values()}, {sel}, moved)
+
+    def test_selecting_never_moves_a_ship(self):
+        self.tap("d")
+        self.tap("2")
+        self.tap("d")
+        for digit in "123456789":
+            _, moved = self.step(digit)
+            self.assertEqual(moved, {}, f"pressing '{digit}' reassigned ships")
+
+    def test_a_long_sequence_leaves_every_ship_accounted_for(self):
+        """No ship may end up in a squadron the HUD does not list, and the
+        derived counts must agree with the table they are derived from."""
+        for key in "dmn2dcnm1dc":
+            self.tap(key, frames=20)
+            fleet = self.fleet()
+            tally = [0] * 10
+            for squadron, _ in fleet.values():
+                self.assertTrue(0 <= squadron <= 9,
+                                f"after '{key}' a ship is in squadron {squadron}")
+                tally[squadron] += 1
+            self.assertEqual(self.counts(), tally[1:],
+                             f"after '{key}' squad_count disagrees with ENT_SQUAD")
+
+
+class TestANewSquadronIsBornWhereItsShipsAre(SquadFixture):
+    """The bug the player reported as "selecting squadrons mixes them up".
+
+    squad_dest held nine FIXED stations, copied out of order_home at boot and
+    scattered up to 6000 units apart. Only squadron 1's was ever anywhere near
+    the fleet, because that is where the fleet is spawned. So the instant a
+    reshaping command put a ship into any other number, that ship was told to
+    form up at a point it had never been sent to and flew off across the map
+    -- half the fleet peeling away from the other half for no reason the
+    player could see.
+
+    The rule now: a squadron that is created takes its station from the ship
+    that created it and its formation from the squadron that ship left. An
+    empty squadron has no station; it acquires one by being made.
+    """
+
+    #  A settled Loose squadron is 6 * FORM_SPACING across -- the lattice runs
+    #  -3 to +3 spacings on two axes (game/formdata.asm) -- and every figure
+    #  below is measured against that rather than guessed. The distances the
+    #  bug produced are 4500 to 11400 units, so none of this is a fine
+    #  judgement; against HEAD the four tests here fail by 2x to 4x.
+    FORM_SPACING = 550
+    SQUADRON_SPAN = 6 * FORM_SPACING            # 3300
+
+    def flying(self):
+        """Every ship in a squadron -- the Mothership holds station and is
+        deliberately in none, so it is not part of "the fleet moved"."""
+        return [p for squadron, p in self.fleet().values() if squadron]
+
+    def settle(self):
+        """Let the fleet unpack into its formation before measuring it."""
+        self.c.run_frames(600)
+
+    def assert_stationed_on_its_own_ships(self, squadron):
+        here = [p for s, p in self.fleet().values() if s == squadron]
+        self.assertTrue(here, f"squadron {squadron} has no ships")
+        near = min(manhattan(self.station(squadron), p) for p in here)
+        self.assertLessEqual(
+            near, self.SQUADRON_SPAN,
+            f"squadron {squadron} is stationed at {self.station(squadron)}, "
+            f"{near} units from the nearest of its own ships {here}")
+
+    def test_a_squadron_made_by_d_is_stationed_where_its_ships_are(self):
+        self.tap("d")
+        members = self.members()
+        new = [s for s in members if s not in (0, 1)]
+        self.assertEqual(len(new), 1, f"expected one new squadron: {members}")
+        self.assert_stationed_on_its_own_ships(new[0])
+
+    def test_a_squadron_made_by_m_or_n_is_stationed_where_its_ship_is(self):
+        """One ship, alone. 'm' creates squadron 2 and 'n' creates squadron 9,
+        whose fixed stations were 4500 and 6000 units away in opposite
+        directions -- so the ship left the screen on its own."""
+        self.tap("m")
+        self.assert_stationed_on_its_own_ships(2)
+        self.tap("n")
+        self.assert_stationed_on_its_own_ships(9)
+
+    def test_a_squadron_made_by_O_is_stationed_where_its_ships_are(self):
+        """`O` writes ENT_SQUAD without going through squad_move_ship, so it
+        had the same defect -- invisible only because the starting fleet is
+        all interceptors and therefore all still squadron 1."""
+        for slot, cls in {2: CLASS_BOMBER, 3: CLASS_BOMBER,
+                          5: CLASS_HARVESTER}.items():
+            self.c.write_ram(self.sym["ENTITIES"] + slot * ENT_SIZE + ENT_CLASS,
+                             bytes([cls]))
+        self.settle()
+        self.tap("o")
+        for squadron in (CLASS_BOMBER + 1, CLASS_HARVESTER + 1):
+            self.assert_stationed_on_its_own_ships(squadron)
+
+    def test_dividing_does_not_tear_the_fleet_in_half(self):
+        self.settle()
+        was = spread(self.flying())
+        self.tap("d")
+        self.c.run_frames(900)              # long enough to fly a long way
+        now = spread(self.flying())
+        self.assertLessEqual(
+            now, was + self.SQUADRON_SPAN,
+            f"the fleet was {was} units across and is {now} after 'd'")
+
+    def test_it_holds_after_the_squadron_has_been_moved(self):
+        """The play scenario, and the worst case. The fixed stations were near
+        the origin, so once the player had taken the fleet somewhere the new
+        half was called all the way back -- 11400 units, right off the screen.
+        """
+        #  ENTER opens the move disc, the cursor keys drive it, ENTER confirms.
+        self.tap(cpc.KEY_ENTER, frames=20)
+        self.assertEqual(self.c.read_ram(self.sym["DISC_ACTIVE"], 1)[0], 1,
+                         "the move disc did not open")
+        self.c.key_down(cpc.KEY_RIGHT)
+        self.c.run_frames(300)
+        self.c.key_up(cpc.KEY_RIGHT)
+        self.c.run_frames(20)
+        self.tap(cpc.KEY_ENTER, frames=20)
+        self.c.run_frames(900)              # let the squadron get there
+
+        was = spread(self.flying())
+        self.tap("d")
+        self.c.run_frames(900)
+        now = spread(self.flying())
+        self.assertLessEqual(
+            now, was + self.SQUADRON_SPAN,
+            f"the fleet was {was} units across and is {now} after 'd'")
+
+    def test_the_new_half_keeps_the_formation_it_peeled_off_in(self):
+        """game/formation.asm has said so since it was written: 'Splitting a
+        squadron gives the new half the same shape, which is what you would
+        expect of ships peeling off in formation.'"""
+        self.tap("f")                       # squadron 1 out of Loose
+        shape = self.c.read_ram(self.sym["SQUAD_FORM"] + 1, 1)[0]
+        self.assertNotEqual(shape, 0, "'f' did not change the formation")
+        self.tap("d")
+        new = [s for s in self.members() if s not in (0, 1)][0]
+        self.assertEqual(self.c.read_ram(self.sym["SQUAD_FORM"] + new, 1)[0], shape,
+                         f"squadron {new} peeled off in a different formation")

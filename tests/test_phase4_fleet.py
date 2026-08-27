@@ -7,6 +7,7 @@ running game does with it.
 
 from __future__ import annotations
 
+import struct
 import sys
 import unittest
 
@@ -75,10 +76,20 @@ class TestFleet(unittest.TestCase):
 
         Two things have to be arranged before this means anything.
 
-        First, split the fleet. It starts as ONE squadron sitting at one
-        place, which is the specified starting state but gives every ship
-        almost the same depth -- a single squadron legitimately only ever
-        needs one tier, and that is what it reports.
+        First, spread the fleet out in depth. It starts as ONE squadron
+        sitting at one place, which is the specified starting state but gives
+        every ship almost the same depth -- a single squadron legitimately
+        only ever needs one tier, and that is what it reports. So: divide it
+        twice, then SEND the two new squadrons somewhere, which is what a
+        player does and what the tiers are for.
+
+        Sending them is written out here because it used to be free, and it
+        was free because of a bug. squad_dest held nine fixed stations up to
+        6000 units apart and a new squadron was given whichever number it
+        happened to take, so 'd' scattered the fleet across the map all by
+        itself -- see squad_born in game/squadcmd.asm and
+        tests/test_squad.py. A squadron now stays where its ships already are,
+        so a test that wants ships at three different depths has to say so.
 
         Second, drive the camera round rather than waiting for it. The demo
         orbits one step of 256 per game frame, so waiting for a full turn at
@@ -91,6 +102,13 @@ class TestFleet(unittest.TestCase):
             self.c.run_frames(25)
             self.c.key_up(key)
             self.c.run_frames(25)
+
+        #  Squadrons 2 and 3, out to either side and at genuinely different
+        #  depths. Well inside proj_deltas' +/-8191, which is measured from
+        #  the selection's station and still squadron 1's.
+        dest = self.sym["SQUAD_DEST"]
+        self.c.write_ram(dest + 1 * 6, struct.pack("<hhh", -4500, -750, 2000))
+        self.c.write_ram(dest + 2 * 6, struct.pack("<hhh", 4500, 750, -2000))
         self.c.run_frames(250)              # let them fly to their formations
 
         seen = set()

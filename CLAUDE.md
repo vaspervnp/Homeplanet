@@ -156,7 +156,7 @@ gives you a CRTC that has never been initialised. `harness.boot_quick` runs
 and prints how many bytes are left in the low 16K and in every bank. Watch all
 of them, and watch the "hand-written code ends at" figure rather than `free:` —
 see "Where 700 bytes came from" for why the second one lies. The low 16K has
-**2048 bytes of which about 1600 are reachable**, and bank 4 has **360**.
+**2048 bytes of which about 1600 are reachable**, and bank 4 has **299**.
 Before six yaw views they were 512 and 9; see "Six yaw views, and where the
 space went" for what that bought. The short version is that the low 16K
 stopped being desperate and bank 4 is the place most new code should go by
@@ -904,6 +904,81 @@ next *active* squadron instead, because merging with an empty one would be a
 no-op and the HUD only lists the active ones. All the commands are
 edge-triggered — holding `d` divides once, not once a frame — and
 `tests/test_squad.py` presses real keys in the emulator to prove it.
+
+#### A squadron is born where its ships are
+
+`squad_dest` — where a squadron is stationed, and the only thing a move order
+changes — used to be nine FIXED points, copied out of `order_home` once at
+boot and fanned out up to 6000 units apart. **Only row 1 was ever near the
+fleet**, because `phase4_spawn_fleet` puts the whole fleet on squadron 1's
+station. So the instant `d`, `m`, `n` or `O` put a ship into any other number,
+`phase4_fly` began dragging it towards a point it had never been sent to.
+Divide a formation and half of it turned and flew off the screen.
+
+The player reported it as **"selecting squadrons mixes them up"** and narrowed
+it to after the reshaping commands, which is exactly right and is the whole
+diagnosis: those are the only things that put a ship into a number that has
+never been given an order. Plain `1`-`9` moves no ship, so it cannot trigger
+it; `O` can and does, and looked innocent only because the starting fleet is
+all interceptors and therefore all still squadron 1.
+
+The rule now, and it is the same shape as `squad_count` being derived rather
+than maintained:
+
+> **An empty squadron has no station.** It acquires one by being made — from
+> the ship that made it — and its formation from the squadron that ship left.
+
+`squad_born` in `game/squadcmd.asm` is the whole of it, 61 bytes of bank 4, on
+the one path every reassignment goes through (`squad_move_ship`) plus the one
+that does not (`squad_by_class`, which writes `ENT_SQUAD` itself). The guard
+is `squad_count`, which still holds the value it had before the command
+started — nothing calls `squad_refresh` until the command has finished — so a
+divide that peels seven ships runs it seven times and the last one wins. All
+seven were inside the parent's formation, so any of them will do.
+
+Three things worth knowing:
+
+- **`B` and `C` have to survive it.** `squad_split` and `squad_combine` both
+  loop on `squad_move_ship` with the two squadron numbers in `BC`, so the
+  `LDIR` that copies the six bytes of station has to sit inside a `push bc`.
+  Without it a divide moves one ship and stops.
+- **`game/formation.asm` had claimed the formation was inherited since the day
+  it was written** — "Splitting a squadron gives the new half the same shape,
+  which is what you would expect of ships peeling off in formation" — and
+  nothing implemented it. `form_init` set all nine to Loose and `form_cycle`
+  was the only thing that ever wrote one. A comment is not a test.
+- **`order_home`'s other eight rows are now only the layout a RESTORED fleet
+  fans out into.** `order_init` runs once, from `demo_init`, so `squad_dest`
+  survives a jump and a squadron carried between missions keeps the station it
+  was given. They are 48 bytes of the low 16K and they can go the day a
+  restored fleet is given something better; they are not the bug.
+
+**Every squadron test asserted on `SQUAD_COUNT`, and that is why this lived so
+long.** A count is preserved by a swap that puts the wrong ships in the wrong
+squadrons, and it is preserved *absolutely* by a station that is wrong — the
+entire defect is invisible to a test that counts. There are two nets now.
+`TestWhichShipsEndUpWhere` follows individual ships **by slot** across each
+command and says what each command is allowed to touch; it passed before the
+fix as well as after, which is the point — the membership arithmetic was never
+what was broken, and now there is something saying so. `TestANewSquadronIsBornWhereItsShipsAre`
+reads `squad_dest`, then lets the fleet fly and measures how far apart it ends
+up. Against HEAD all six of its cases fail by 2× to 4×: a divided squadron
+stationed 5950 units from the nearest of its own ships, and a fleet that goes
+from 3300 units across to **19000** after one keypress.
+
+**`tools/balance.py` is unaffected and has to be**: the script holds station
+and presses `A`, and never presses `d`, `m`, `n`, `c` or `O` — so the fleet is
+one squadron from the first frame to the last and `squad_born` never runs in
+it. It prints the same campaign as the two entries above, losing the
+Mothership at mission 7. Nothing in the frame loop changed; this is a keypress
+path.
+
+**And one test was leaning on the bug.** `test_all_three_size_tiers_get_used`
+pressed `dd` and relied on the resulting squadrons sitting at genuinely
+different depths — which they did, because `order_home` scattered them. It
+writes the two stations it wants now. A test that gets its preconditions from
+a defect passes for the wrong reason and fails the day the defect goes, which
+is what it did.
 
 ### The campaign, and where the fleet lives
 

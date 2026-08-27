@@ -169,6 +169,12 @@ squad_select:
 ;  In : B = squadron to take from, C = squadron to give to
 ;  Out: CF set if a ship was moved
 ;  Uses: AF, DE, HL  (B and C survive)
+;
+;  The funnel every one of d, m, n and c goes through, which is why squad_born
+;  hangs off it rather than off the four commands: a squadron that did not
+;  exist a moment ago is stationed here, once, wherever the reassignment came
+;  from. squad_by_class is the only other thing that writes ENT_SQUAD and it
+;  calls squad_born itself.
 ; ----------------------------------------------------------------------------
 squad_move_ship:
     xor a
@@ -192,6 +198,12 @@ squad_move_ship:
     cp b
     jr nz,@sq_scan_next
     ld (hl),c
+
+    ;  HL is the ship's ENT_SQUAD; back up twelve bytes for its position,
+    ;  which is what squadron C's station becomes if C is only now being made.
+    ld de,-ENT_SQUAD
+    add hl,de
+    call squad_born
     scf
     ret
 
@@ -202,6 +214,77 @@ squad_move_ship:
 
 @sq_none:
     or a
+    ret
+
+
+; ----------------------------------------------------------------------------
+;  squad_born -- a squadron that had no ships takes a station and a shape
+;  In : B = the squadron the ship is leaving, C = the one it is joining,
+;       HL -> the ship's record (ENT_X is offset 0)
+;  Out: nothing; B and C survive, HL does not
+;  Uses: AF, DE, HL
+;
+;  THE BUG THIS EXISTS TO FIX. squad_dest used to be nine FIXED stations,
+;  copied out of order_home at boot and scattered up to 6000 units apart --
+;  and only squadron 1's was anywhere near the fleet, because that is where
+;  phase4_spawn_fleet puts it. So the instant `d`, `m` or `n` put a ship into
+;  any other number, phase4_fly started dragging it towards a point it had
+;  never been sent to. Divide a formation and half of it turned and flew off
+;  the screen. The player reported it as "selecting squadrons mixes them up",
+;  which is exactly what it looks like: press a key, the fleet comes apart.
+;
+;  The rule now, and it is the same reasoning as squad_count being derived:
+;  an EMPTY SQUADRON HAS NO STATION. It acquires one by being made, from the
+;  ship that made it, and its formation from the squadron that ship left --
+;  which game/formation.asm has claimed in its header comment since the day it
+;  was written without anything implementing it.
+;
+;  The guard is squad_count, and it reads the value from before the command
+;  started: nothing calls squad_refresh until the command is finished, so a
+;  divide that peels seven ships runs this seven times and the last one wins.
+;  All seven were inside the parent's formation, so any of them will do.
+;
+;  B and C are pushed because squad_split and squad_combine both loop on
+;  squad_move_ship and need their two squadron numbers back -- the LDIR below
+;  would otherwise quietly end a divide after one ship.
+; ----------------------------------------------------------------------------
+squad_born:
+    push bc
+    push hl
+    ld a,c
+    call squad_count_of
+    or a
+    pop hl
+    jr nz,@sq_born_done                 ; it has ships: it keeps what it has
+
+    ;  The shape it peeled off in. squad_form is indexed by squadron number,
+    ;  so B and C go in as they stand.
+    push hl
+    ld d,0
+    ld e,b
+    ld hl,squad_form
+    add hl,de
+    ld a,(hl)
+    ld e,c
+    ld hl,squad_form
+    add hl,de
+    ld (hl),a
+    pop hl
+
+    ;  ...and the station: where this ship already is.
+    ld a,c
+    dec a                               ; squad_dest is 0-based
+    push hl
+    call phase4_times6
+    ld de,squad_dest
+    add hl,de
+    ex de,hl                            ; DE -> squad_dest[C]
+    pop hl                              ; HL -> the ship's position
+    ld bc,6
+    ldir
+
+@sq_born_done:
+    pop bc
     ret
 
 

@@ -153,10 +153,11 @@ phase4_moth_fields:
 ;  fleet is for. `0` selects it, it belongs to no squadron, and its number --
 ;  2 -- is simply never handed out.
 ;
-;  squad_count is derived, never maintained, so writing ENT_SQUAD and calling
-;  squad_refresh is the whole of it. Everything else follows: the HUD, the
-;  selection falling back if it emptied, and every squadron flying to its own
-;  station because phase4_fly derives a ship's slot from its membership.
+;  squad_count is derived, never maintained, so writing ENT_SQUAD, handing the
+;  ship to squad_born and calling squad_refresh is the whole of it. Everything
+;  else follows: the HUD, the selection falling back if it emptied, and every
+;  squadron flying to its own station because phase4_fly derives a ship's slot
+;  from its membership.
 ;  Uses: everything
 ; ----------------------------------------------------------------------------
 squad_by_class:
@@ -183,9 +184,22 @@ squad_by_class:
     inc a
     cp SQUAD_MAX + 1
     jr nc,@sq_class_next                ; more classes than squadrons one day
+
+    ;  Through squad_born like the four reshaping commands, so a class
+    ;  squadron that did not exist a moment ago is stationed where its ships
+    ;  are rather than at whatever order_home left in the slot. `O` has the
+    ;  same defect as `d` -- it is simply invisible on the starting fleet,
+    ;  which is all interceptors and therefore all still squadron 1.
+    push hl
+    ld c,a
     ld de,ENT_SQUAD
     add hl,de
-    ld (hl),a
+    ld b,(hl)                           ; the squadron it is leaving
+    ld (hl),c
+    pop hl
+    ld a,b
+    or a
+    call nz,squad_born                  ; nothing to inherit from squadron 0
 @sq_class_next:
     ld hl,squad_index
     inc (hl)
