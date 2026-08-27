@@ -10,7 +10,7 @@
 ;  a high byte plane on consecutive pages -- see tools/gentables.py.
 ; ----------------------------------------------------------------------------
 
-;  qsq_f indexes both planes off one page register, so the high plane must sit
+;  mul_u8 indexes both planes off one page register, so the high plane must sit
 ;  exactly 512 bytes above the low one and both must be page-aligned. The
 ;  generator emits them that way and main.asm asserts it -- the check has to
 ;  live there because RASM evaluates ASSERT where it stands, and the tables
@@ -19,45 +19,50 @@
 
 
 ; ----------------------------------------------------------------------------
-;  qsq_f -- f(index), where index is 9 bits
-;  In : A = low 8 bits, CF = bit 8
-;  Out: DE = f(index)
-;  Uses: AF, DE, HL
-; ----------------------------------------------------------------------------
-qsq_f:
-    ld l,a
-    ld h,qsq_lo / 256
-    jr nc,@page0
-    inc h
-@page0:
-    ld e,(hl)
-    inc h
-    inc h                               ; +512 -> the high plane, same index
-    ld d,(hl)
-    ret
-
-
-; ----------------------------------------------------------------------------
 ;  mul_u8 -- unsigned 8 x 8 -> 16
 ;  In : H = a, L = b
 ;  Out: HL = a * b
 ;  Uses: AF, BC, DE, HL
+;
+;  The two table lookups are WRITTEN OUT rather than called. They used to be a
+;  routine, qsq_f, and the pair of CALL/RET was 54 T-states of a routine whose
+;  whole body is eleven; proj_point runs mul_u8 twice and cam_build_matrix nine
+;  times, so it was ~110 T an entity and ~500 T a frame for nothing. Inlining
+;  costs one byte, because the second copy also loses the `jr nc` -- the second
+;  index is eight bits by construction and can only be on page 0.
+;
+;  f is indexed by a NINE-bit number: a+b reaches 510, so the carry out of the
+;  add is bit 8, and LD does not touch flags, which is why the two `ld` in the
+;  middle are safe.
 ; ----------------------------------------------------------------------------
 mul_u8:
     ld a,h
     add a,l                             ; a+b, CF = bit 8
     ld b,h                              ; LD does not touch flags, so CF
-    ld c,l                              ; survives into qsq_f
-    call qsq_f
+    ld c,l                              ; survives to the `jr nc` below
+
+    ld l,a
+    ld h,qsq_lo / 256
+    jr nc,@qsq_page0
+    inc h
+@qsq_page0:
+    ld e,(hl)
+    inc h
+    inc h                               ; +512 -> the high plane, same index
+    ld d,(hl)
     push de                             ; f(a+b)
 
     ld a,b
     sub c
     jr nc,@positive
-    neg                                 ; |a-b|
+    neg                                 ; |a-b|, which is 8 bits, page 0 only
 @positive:
-    or a                                ; index is 8-bit: clear CF for qsq_f
-    call qsq_f                          ; f(|a-b|)
+    ld l,a
+    ld h,qsq_lo / 256
+    ld e,(hl)
+    inc h
+    inc h
+    ld d,(hl)                           ; DE = f(|a-b|)
 
     pop hl
     or a

@@ -23,6 +23,16 @@ SCR_BYTES_PER_LINE = 80
 SCR_CENTRE_X = 160
 SCR_CENTRE_Y = 100
 
+#  ...but the projection does NOT centre on the screen, because the screen is
+#  not the playfield any more. CTX_BAR_H (10) and HUD_TOP (168) in
+#  src/demo/phase4.asm own a strip at each end, so the band a ship may be
+#  drawn in runs 10..167 and its middle is 89, eleven lines above the middle
+#  of the screen. Centring on 100 put every projected point eleven lines low.
+#  src/main.asm asserts these against the two equates that actually define them.
+PLAYFIELD_TOP = 10
+PLAYFIELD_BOTTOM = 168               # first line of the HUD, exclusive
+PROJ_CENTRE_Y = (PLAYFIELD_TOP + PLAYFIELD_BOTTOM) // 2      # 89
+
 # --- fixed point ------------------------------------------------------------
 #  Trig is 8.8: 1.0 is stored as 256. Values therefore span -256..+256, which
 #  needs 16 bits, which is why sin is split into two byte planes.
@@ -143,23 +153,62 @@ TIER_B_MAX_Z = 190                   # nearer than this -> 16x10
 #        0   110    2048    11
 #        4   110    8192    44          <- the old step 0
 #        5   150    8192    60          <- the old step 1, still the default
-#        7   250    8192   100          <- the old step 3
-#       11   250   32768   400
+#        7   250    8192    51          <- the old step 3
+#       11   250   32768   207
 #
-#  (dist, shift, mul3)
+#  --- and the fourth column, the MAGNIFICATION -------------------------------
+#
+#  PROJ_K was chosen so that x == z -- 45 degrees off axis -- lands exactly on
+#  the screen edge. Nothing in this game ever gets near 45 degrees off axis at
+#  the long cam_dists, so the outer part of the screen was not merely empty,
+#  it was UNREACHABLE. Measured, as the largest |sx - 160| any point of the
+#  visible cube can produce, over every yaw and pitch:
+#
+#      cam_dist    110    150    200    250
+#      reach       172    170    107     79      <- of a half-width of 160
+#
+#  So at cam_dist 250 -- steps 7 to 11, five of the twelve -- the picture is
+#  confined to the middle half of the screen by construction, and no amount of
+#  flying about could ever put a ship in the outer half.
+#
+#  The magnification multiplies the projected OFFSET, after the perspective
+#  divide and before the centre is added. It is not zoom and it does not touch
+#  proj_z, so the size tier of every ship is exactly what it was: the same
+#  world, spread across the screen it has. The factors below bring all four
+#  reaches to about 160, which is the screen edge and is what cam_dist 110
+#  already did:
+#
+#      cam_dist    110    150    200    250
+#      mag         1      1      1.5    2
+#      reach       172    170    160    158
+#
+#  Vertically the same factor, because the projection has to stay isotropic --
+#  an anisotropic one would change a formation's shape as the camera orbited.
+#  The playfield is 158 lines against 320 columns, so filling the width
+#  overfills the height by 2:1; that costs very little here because the
+#  content is essentially planar (section 4.1's reference plane, formations,
+#  resource fields all sit near Y=0).
+#
+#  proj_mag is the patch site, and the arithmetic it can do is
+#
+#      out = (t << j) + (t >> k)       with the second term optional
+#
+#  where t is the divided offset. See ZOOM_MAG_FORMS and proj_point.
+#
+#  (dist, shift, mul3, mag)
 ZOOM_STEPS = [
-    (110, 4, False),                 # 0  in  x16
-    (110, 6, True),                  # 1
-    (110, 5, False),                 # 2
-    (110, 7, True),                  # 3
-    (110, 6, False),                 # 4  the old four steps begin here
-    (150, 6, False),                 # 5  ...and this is where the game starts
-    (200, 6, False),                 # 6
-    (250, 6, False),                 # 7  the old widest
-    (250, 8, True),                  # 8  out
-    (250, 7, False),                 # 9
-    (250, 9, True),                  # 10
-    (250, 8, False),                 # 11 the whole 16-bit world at once
+    (110, 4, False, 1.0),            # 0  in  x16
+    (110, 6, True,  1.0),            # 1
+    (110, 5, False, 1.0),            # 2
+    (110, 7, True,  1.0),            # 3
+    (110, 6, False, 1.0),            # 4  the old four steps begin here
+    (150, 6, False, 1.0),            # 5  ...and this is where the game starts
+    (200, 6, False, 1.5),            # 6
+    (250, 6, False, 2.0),            # 7  the old widest
+    (250, 8, True,  2.0),            # 8  out
+    (250, 7, False, 2.0),            # 9
+    (250, 9, True,  2.0),            # 10
+    (250, 8, False, 2.0),            # 11 the whole 16-bit world at once
 ]
 
 #  Where the game starts, and the step whose scaling is plain >> WORLD_SHIFT --
@@ -175,7 +224,7 @@ ZOOM_GROUP_FROM = 8
 
 def zoom_radius(step: int) -> int:
     """Largest world delta per axis that still projects, at this zoom step."""
-    _, shift, mul3 = ZOOM_STEPS[step]
+    _, shift, mul3, _ = ZOOM_STEPS[step]
     return 42 << shift if mul3 else 128 << shift
 
 
@@ -189,8 +238,28 @@ _Z80_NOP = 0x00
 _Z80_SRA_A = (0xCB, 0x2F)
 _Z80_SCF_RET = (0x37, 0xC9)
 _Z80_JR_0 = (0x18, 0x00)             # to the instruction immediately after
+_Z80_SRA_D = (0xCB, 0x2A)
+_Z80_RR_E = (0xCB, 0x1B)
+_Z80_ADD_HL_DE = 0x19
+_Z80_NOP2 = (0x00, 0x00)
 
-ZOOM_RECORD = 14                     # exactly what it holds; see order_apply_zoom
+#  The magnification, as (j, k, add) for
+#
+#      out = (t << j) + (t >> k)      the second term only when `add`
+#
+#  which is what proj_mag's six instructions can express. Written as a table
+#  rather than derived because the useful factors are few and picking them is
+#  a judgement about the picture, not arithmetic -- see ZOOM_STEPS. Anything
+#  here is one slot's worth of straight-line code with no branch in it.
+ZOOM_MAG_FORMS = {
+    1.0: (0, 0, False),              # t
+    1.5: (0, 1, True),               # t + (t >> 1)
+    2.0: (1, 0, False),              # t << 1
+    2.5: (1, 1, True),               # (t << 1) + (t >> 1)
+    3.0: (1, 0, True),               # (t << 1) + t
+}
+
+ZOOM_RECORD = 20                     # exactly what it holds; see order_apply_zoom
 
 
 def zoom_patch(step: int) -> list[int]:
@@ -201,11 +270,18 @@ def zoom_patch(step: int) -> list[int]:
         +6   the shift ladder: four `add hl,hl`, each NOP'd out or not
         +10  `sra a`, or two NOPs
         +12  `scf : ret`, or a `jr` into the x3 tail
+        +14  proj_mag, six bytes of it: `sra d : rr e` or four NOPs, then
+             `add hl,hl` and `add hl,de`, each NOP'd out or not
+
+    The first fourteen bytes go into proj_scale, which is where the ZOOM is;
+    the last six go into proj_point, which is where the MAGNIFICATION is.
+    Two different jobs sharing one record because one keypress changes both.
 
     Deriving it here rather than writing twelve rows of magic numbers by hand
-    is the point: the shift is the only thing ZOOM_STEPS states.
+    is the point: the shift and the factor are the only things ZOOM_STEPS
+    states.
     """
-    dist, shift, mul3 = ZOOM_STEPS[step]
+    dist, shift, mul3, mag = ZOOM_STEPS[step]
 
     #  HL >> shift, as `<< (8 - shift)` and then "take H" when that fits, and
     #  as "take H" and then arithmetic halvings when it does not.
@@ -231,9 +307,25 @@ def zoom_patch(step: int) -> list[int]:
     halve = list(_Z80_SRA_A) if m else [_Z80_NOP, _Z80_NOP]
     tail = list(_Z80_JR_0) if mul3 else list(_Z80_SCF_RET)
 
-    rec = [dist & 0xFF, dist >> 8] + check + ladder + halve + tail
+    #  proj_mag. DE is always loaded with t (two bytes of `ld d,h : ld e,l`
+    #  that never change and are therefore not in the record); these six say
+    #  what happens to it and to HL afterwards.
+    j, k, add = ZOOM_MAG_FORMS[mag]
+    assert j <= 1 and k <= 1, f"zoom step {step}: magnification {mag} is off the slot"
+    mag_bytes = (list(_Z80_SRA_D) + list(_Z80_RR_E) if k
+                 else list(_Z80_NOP2) + list(_Z80_NOP2))
+    mag_bytes += [_Z80_ADD_HL_HL if j else _Z80_NOP]
+    mag_bytes += [_Z80_ADD_HL_DE if add else _Z80_NOP]
+
+    rec = [dist & 0xFF, dist >> 8] + check + ladder + halve + tail + mag_bytes
     assert len(rec) == ZOOM_RECORD
     return rec
+
+
+def magnify(t: int, mag: float) -> int:
+    """proj_mag, as arithmetic. The model for the six bytes above."""
+    j, k, add = ZOOM_MAG_FORMS[mag]
+    return (t << j) + (t >> k if add else 0)
 
 
 def screen_line_offsets() -> list[int]:
@@ -387,12 +479,15 @@ def scale_delta(d: int, shift: int = WORLD_SHIFT, mul3: bool = False):
     return None if t < PROJ_V_MIN or t > PROJ_V_MAX else t
 
 
-def project(point, focus, matrix, cam_dist, shift=WORLD_SHIFT, mul3=False):
+def project(point, focus, matrix, cam_dist, shift=WORLD_SHIFT, mul3=False,
+            mag=1.0):
     """One entity through the whole pipeline.
 
     Returns (sx, sy, z) or None if it was clipped. `z` is the camera-space
-    depth the size tier is chosen from. `shift`/`mul3` are the zoom step's
-    scaling -- see ZOOM_STEPS; the defaults are the neutral step.
+    depth the size tier is chosen from. `shift`/`mul3`/`mag` are the zoom
+    step's scaling -- see ZOOM_STEPS; the defaults are the neutral step, which
+    is what proj_point assembles with and what the machine is left holding
+    when a test pokes cam_dist without walking the ladder.
     """
     #  v = (P - focus) scaled down, CLIPPED rather than truncated -- see
     #  PROJ_V_MAX. Two ways to be out of range, and the Z80 tests for both:
@@ -420,9 +515,12 @@ def project(point, focus, matrix, cam_dist, shift=WORLD_SHIFT, mul3=False):
     if z < Z_NEAR or z > Z_FAR:
         return None
 
+    #  The divide, then the magnification, then the centre. proj_shr7 leaves a
+    #  value in -256..255 -- which is the whole range (x*r)>>7 can take -- and
+    #  proj_mag works on that, so the truncation is the same on both sides.
     r = recip_table()[z]
-    sx = SCR_CENTRE_X + ((x * r) >> PROJ_SHIFT)
-    sy = SCR_CENTRE_Y - ((y * r) >> PROJ_SHIFT)
+    sx = SCR_CENTRE_X + magnify((x * r) >> PROJ_SHIFT, mag)
+    sy = PROJ_CENTRE_Y - magnify((y * r) >> PROJ_SHIFT, mag)
 
     if not (0 <= sx < SCR_WIDTH_PX and 0 <= sy < SCR_HEIGHT_PX):
         return None
@@ -480,19 +578,22 @@ def render_zoom() -> str:
         ";    +6   the shift ladder: four `add hl,hl`, NOP'd out or not",
         ";    +10  `sra a`, or two NOPs",
         ";    +12  `scf : ret`, or a `jr` into the x3 tail",
+        ";    +14  proj_mag: `sra d : rr e` or four NOPs, then `add hl,hl` and",
+        ";         `add hl,de`, each NOP'd out or not",
         ";",
-        ";  Twelve of the fourteen bytes are Z80 INSTRUCTIONS: order_apply_zoom",
+        ";  Eighteen of the twenty bytes are Z80 INSTRUCTIONS: order_apply_zoom",
         ";  LDIRs them into the middle of proj_scale, which is where the zoom",
-        ";  actually happens. Radius below is the largest world delta per axis",
-        ";  that still projects -- what \"how much can I see\" means.",
+        ";  actually happens, and into proj_point, which is where the picture is",
+        ";  spread across the screen. Radius below is the largest world delta per",
+        ";  axis that still projects -- what \"how much can I see\" means.",
         "; " + "=" * 74,
         "",
         "cam_zoom_table:",
     ]
-    for i, (dist, shift, mul3) in enumerate(ZOOM_STEPS):
+    for i, (dist, shift, mul3, mag) in enumerate(ZOOM_STEPS):
         kind = "3*(d>>%d)" % shift if mul3 else "d>>%d" % shift
-        lines.append("    ; %2d: dist %3d, %-9s radius %d"
-                     % (i, dist, kind, zoom_radius(i)))
+        lines.append("    ; %2d: dist %3d, %-9s radius %5d, x%.1f on screen"
+                     % (i, dist, kind, zoom_radius(i), mag))
         lines.append("    defb " + ",".join("#%02X" % b for b in zoom_patch(i)))
     lines += ["cam_zoom_table_end:", ""]
     return "\n".join(lines) + "\n"
@@ -551,6 +652,12 @@ def render() -> str:
         ";  Emitted so src/main.asm can assert that proj_deltas' hand-written",
         ";  range check still matches the model's WORLD_SHIFT.",
         f"WORLD_SHIFT  equ {WORLD_SHIFT}",
+        "",
+        ";  ...and likewise the line the projection centres on, which is the",
+        ";  middle of the PLAYFIELD and not of the screen. src/main.asm checks",
+        ";  this against PROJ_CENTRE_Y in src/equ/memmap.asm and against the",
+        ";  CTX_BAR_H / HUD_TOP that actually decide it.",
+        f"PROJ_CENTRE_Y_MODEL equ {PROJ_CENTRE_Y}",
         "",
         _defb_block("sin7", sin7_quarter()),
         f"SIN7_ENTRIES equ {TRIG_QUARTER + 1}",

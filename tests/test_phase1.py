@@ -279,7 +279,7 @@ class TestProjection(EmuFixture):
         at all twelve rather than trusting the neutral one to speak for them.
         """
         rng = random.Random(7)
-        for step, (dist, shift, mul3) in enumerate(g.ZOOM_STEPS):
+        for step, (dist, shift, mul3, mag) in enumerate(g.ZOOM_STEPS):
             radius = g.zoom_radius(step)
             visible = 0
             for _ in range(24):
@@ -294,9 +294,10 @@ class TestProjection(EmuFixture):
 
                 got = self._project(point, focus, yaw, pitch, dist, zoom=step)
                 want = g.project(point, focus, g.camera_matrix(yaw, pitch),
-                                 dist, shift, mul3)
+                                 dist, shift, mul3, mag)
                 self.assertEqual(got, want,
-                                 f"zoom step {step} (>>{shift}{' x3' if mul3 else ''}): "
+                                 f"zoom step {step} (>>{shift}{' x3' if mul3 else ''}"
+                                 f" x{mag} on screen): "
                                  f"point={point} focus={focus} yaw={yaw} pitch={pitch}")
                 visible += got is not None
             self.assertGreater(visible, 0, f"zoom step {step} showed nothing at all")
@@ -325,6 +326,42 @@ class TestProjection(EmuFixture):
         self.assertIsNotNone(self._project(far, (0, 0, 0), 0, 0, 250, zoom=11),
                              "the new widest step still cannot see it")
 
+    def test_the_wide_steps_can_reach_the_outer_screen(self):
+        """The outer half of the screen used to be UNREACHABLE, not just empty.
+
+        PROJ_K puts 45 degrees off axis on the screen edge, and at cam_dist 250
+        nothing in the visible cube gets near 45 degrees: measured over every
+        yaw and pitch, the largest |sx - 160| any point could produce was 79 of
+        a half-width of 160. So this is a property of the arithmetic rather
+        than of where the ships happen to be, and one point past 79 is proof.
+
+        proj_mag is what changed it, and the second half of the test is what
+        makes it a magnification rather than a zoom: the depth every size tier
+        is chosen from must be exactly what it was.
+        """
+        UNREACHABLE_BEFORE = 79
+        worst = 0
+        #  Only the corners IN FRONT of the focus survive at yaw 0 -- cam_dist
+        #  250 leaves the far plane five camera units past it -- so the ones
+        #  that clip are not a failure, they are the depth clip doing its job.
+        for point in ((-32000, 0, -32000), (32000, 0, -32000),
+                      (-32000, 0, 32000), (32000, 0, 32000)):
+            got = self._project(point, (0, 0, 0), 0, 0, 250, zoom=11)
+            if got is None:
+                continue
+            worst = max(worst, abs(got[0] - g.SCR_CENTRE_X))
+
+            #  ...and the tier is untouched: the model run WITHOUT the
+            #  magnification has to give the same depth.
+            plain = g.project(point, (0, 0, 0), g.camera_matrix(0, 0), 250, 8)
+            self.assertEqual(got[2], plain[2],
+                             "the magnification moved the depth the size tier comes from")
+
+        self.assertGreater(
+            worst, UNREACHABLE_BEFORE,
+            f"the widest zoom still cannot put a ship further than {worst} "
+            "pixels off centre, so the outer screen is still dead")
+
     def test_a_distant_entity_is_dropped_rather_than_wrapped(self):
         """The failure this replaces put the ship somewhere it was not.
 
@@ -340,8 +377,11 @@ class TestProjection(EmuFixture):
         self.assertIsNone(self._project((32767, 0, 0), (-32768, 0, 0), 0, 0, 250))
 
     def test_a_point_at_the_focus_lands_dead_centre(self):
+        """Dead centre of the PLAYFIELD, which is eleven lines above the middle
+        of the screen: the context bar owns 0..9 and the HUD 168..199."""
         got = self._project((0, 0, 0), (0, 0, 0), 0, 0, 150)
-        self.assertEqual(got, (160, 100, 150))
+        self.assertEqual(got, (160, g.PROJ_CENTRE_Y, 150))
+        self.assertEqual(g.PROJ_CENTRE_Y, 89)
 
     def test_clips_behind_the_camera(self):
         """A point behind the focus must fall outside the NEAR PLANE.

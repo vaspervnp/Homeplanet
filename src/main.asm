@@ -90,7 +90,7 @@ code_end:
 ; ----------------------------------------------------------------------------
 ;  Table layout invariants.
 ;
-;  The lookup routines index these tables by page register -- qsq_f does
+;  The lookup routines index these tables by page register -- mul_u8 does
 ;  `inc h : inc h` to cross from the low plane to the high one, scr_line_addr
 ;  does a single `inc h`. That only works if the generator lays them out
 ;  exactly so. Check it here rather than at the point of use, because RASM
@@ -119,6 +119,21 @@ code_end:
     assert CAM_ZOOM_DEFAULT_SHIFT == WORLD_SHIFT, "the default zoom step is not the neutral one"
     assert CAM_ZOOM_DEFAULT < CAM_ZOOM_STEPS, "the default zoom step is off the ladder"
     assert CAM_ZOOM_GROUP_FROM <= CAM_ZOOM_STEPS, "grouping starts past the last zoom step"
+
+;  proj_mag is the other half of a zoom record and it lives in a DIFFERENT
+;  routine, so three things have to agree about its size: the slot, the record,
+;  and the LDIR in order_apply_zoom. Get it wrong and the zoom does not fail
+;  visibly -- it patches six bytes of somebody else's code.
+    assert proj_mag_end - proj_mag == 6, "proj_mag is not six patchable bytes"
+    assert CAM_ZOOM_RECORD == 14 + (proj_mag_end - proj_mag), "a zoom record does not fit proj_scale and proj_mag"
+
+;  The projection centres on the middle of the PLAYFIELD, which is not the
+;  middle of the screen: the context bar and the HUD each own a strip. Checked
+;  against the two equates that actually define those strips, and against the
+;  model's own copy -- all three are literals, and nothing else would notice if
+;  one of them moved.
+    assert PROJ_CENTRE_Y == PROJ_CENTRE_Y_MODEL, "the model and the code disagree about the centre line"
+    assert PROJ_CENTRE_Y == (CTX_BAR_H + HUD_TOP) / 2, "the projection is not centred on the playfield"
 
 ;  gfx/mark.asm sizes its patch cache before game/economy.asm has been read --
 ;  RASM evaluates a `defs` where it stands -- so it states the count itself and

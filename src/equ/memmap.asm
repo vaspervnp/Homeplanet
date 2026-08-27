@@ -41,6 +41,18 @@ SCR_USED_BYTES      equ 16000           ; 25 * 8 * 80
 SCR_CENTRE_X        equ 160
 SCR_CENTRE_Y        equ 100
 
+;  ...but NOT vertically, because the screen is not the playfield. The context
+;  bar owns lines 0..9 and the HUD everything from 168, so a ship may only be
+;  drawn between them and the middle of that band is 89, not 100. Projecting
+;  about 100 put the whole picture eleven lines low and pushed it under the
+;  HUD from one end.
+;
+;  A literal here rather than (CTX_BAR_H + HUD_TOP) / 2, because those two live
+;  in src/demo/phase4.asm and are included long after the projection; src/main.asm
+;  asserts it against them, and against the model's own copy in
+;  tools/gentables.py, once everything is in scope.
+PROJ_CENTRE_Y       equ 89
+
 ; --- Semantic palette (Homeplanet.md section 2) -----------------------------
 ;  The four inks are meanings, not decoration.
 INK_SPACE           equ 0               ; empty space

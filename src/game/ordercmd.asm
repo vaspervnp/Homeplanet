@@ -505,14 +505,19 @@ order_zoom:
 ;  order_apply_zoom -- put cam_zoom_table[cam_zoom] into force
 ;  Uses: AF, DE, HL
 ;
-;  Two bytes of it are cam_dist. The other twelve are Z80 INSTRUCTIONS, copied
-;  into the middle of proj_scale: its range check, its shift ladder, and its
-;  tail. That is where the zoom actually happens -- see proj_scale, and
-;  ZOOM_STEPS in tools/gentables.py for why cam_dist alone cannot do it.
+;  Two bytes of it are cam_dist. The other eighteen are Z80 INSTRUCTIONS,
+;  copied into the middle of two routines:
 ;
-;  Four LDIRs because the four runs are separated by instructions that never
-;  change. Nothing in the interrupt handler goes near proj_scale, so there is
-;  no window to guard.
+;    * proj_scale -- its range check, its shift ladder and its tail. That is
+;      where the ZOOM happens, and ZOOM_STEPS in tools/gentables.py says why
+;      cam_dist alone cannot do it.
+;    * proj_mag, inside proj_offset -- six bytes that spread the projected
+;      picture across the width of the screen at the long cam_dists, where
+;      PROJ_K's 45-degree field of view leaves the outer half unreachable.
+;
+;  Five LDIRs because the five runs are separated by instructions that never
+;  change. Nothing in the interrupt handler goes near either routine, so there
+;  is no window to guard.
 ;
 ;  cam_zoom_table is in BANK 4, which is the window's resting state. This runs
 ;  on a keypress and never during a blit, so it costs nothing to reach -- and
@@ -523,13 +528,12 @@ order_apply_zoom:
     ld l,a
     ld h,0
     add hl,hl
+    add hl,hl                           ; HL = 4n
     ld d,h
-    ld e,l                              ; DE = 2n
+    ld e,l                              ; DE = 4n
     add hl,hl
-    add hl,hl                           ; HL = 8n
-    add hl,de
-    add hl,de
-    add hl,de                           ; HL = 14n, CAM_ZOOM_RECORD apiece
+    add hl,hl                           ; HL = 16n
+    add hl,de                           ; HL = 20n, CAM_ZOOM_RECORD apiece
     ld de,cam_zoom_table
     add hl,de
 
@@ -550,6 +554,9 @@ order_apply_zoom:
     ldir
     ld de,proj_zoom_mul
     ld c,2
+    ldir
+    ld de,proj_mag
+    ld c,6
     ldir
     ret
 

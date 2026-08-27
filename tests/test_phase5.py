@@ -30,7 +30,7 @@ DISC_STEP = 400
 #  keeping a second copy that can drift.
 from tools import gentables as g
 
-ZOOM_DISTANCES = [d for d, _, _ in g.ZOOM_STEPS]
+ZOOM_DISTANCES = [d for d, _, _, _ in g.ZOOM_STEPS]
 ZOOM_DEFAULT = g.ZOOM_DEFAULT
 
 
@@ -171,10 +171,12 @@ class TestZoom(ControlFixture):
         ones are all at 250 -- so a test that only watched cam_dist would pass
         while the new steps did nothing at all. What has to change every notch
         is how far a world delta is shifted on its way into the camera cube,
-        which is what these twelve bytes of instruction stream say.
+        which is what these eighteen bytes of instruction stream say -- twelve
+        of them proj_scale's and six proj_mag's.
         """
         runs = (("PROJ_ZOOM_CHECK", 4), ("PROJ_ZOOM_SHL", 4),
-                ("PROJ_ZOOM_SHR", 2), ("PROJ_ZOOM_MUL", 2))
+                ("PROJ_ZOOM_SHR", 2), ("PROJ_ZOOM_MUL", 2),
+                ("PROJ_MAG", 6))
 
         for _ in range(len(ZOOM_DISTANCES) + 2):
             self.hold("z", frames=25)
@@ -184,8 +186,9 @@ class TestZoom(ControlFixture):
             self.assertEqual(self.byte("CAM_ZOOM"), step)
             got = tuple(b for n, k in runs
                         for b in self.c.read_ram(self.sym[n], k))
-            want = tuple(g.zoom_patch(step)[2:14])
-            self.assertEqual(got, want, f"step {step} patched proj_scale wrongly")
+            want = tuple(g.zoom_patch(step)[2:g.ZOOM_RECORD])
+            self.assertEqual(got, want,
+                             f"step {step} patched proj_scale/proj_mag wrongly")
             seen.append((ZOOM_DISTANCES[step], got))
             self.hold("x", frames=25)
 

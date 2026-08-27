@@ -6,8 +6,8 @@
 ;      3.  x = rx>>8, y = ry>>8, z = rz>>8 + cam_dist
 ;      4.  clip on z
 ;      5.  recip = recip[z]
-;      6.  sx = 160 + ((x * recip) >> 7)
-;          sy = 100 - ((y * recip) >> 7)
+;      6.  sx = 160 + mag((x * recip) >> 7)
+;          sy =  89 - mag((y * recip) >> 7)
 ;      7.  clip on screen
 ;
 ;  Every truncation here is deliberate and is mirrored exactly by project() in
@@ -32,6 +32,17 @@
 ;  visible world at identical screen positions and identical size tiers.
 ;  cam_dist cannot do that job -- it only decides how much of the SCREEN the
 ;  cube covers, and it runs out of byte at 255.
+;
+;  Step 6 has a MAGNIFICATION in it, and that is a different thing again. PROJ_K
+;  was chosen so that 45 degrees off axis lands on the screen edge; nothing in
+;  this game ever gets near 45 degrees off axis once cam_dist is long, so at the
+;  wide steps the outer half of the screen was not merely empty but unreachable
+;  -- measured, the largest |sx - 160| any point of the visible cube could
+;  produce at cam_dist 250 was 79, of a half-width of 160. proj_mag multiplies
+;  the offset AFTER the divide and before the centre, by 1, 1.5 or 2 depending
+;  on the step, which brings all four cam_dists to about 160. It is not zoom: it
+;  shows the same world -- proj_deltas' clip radius is untouched -- and it does
+;  not touch proj_z, so every ship's size tier is exactly what it was.
 ; ----------------------------------------------------------------------------
 
 ; ----------------------------------------------------------------------------
@@ -69,13 +80,9 @@ proj_point:
     ld a,(hl)
     ld (proj_r),a
 
-    ; --- sx = 160 + ((x * r) >> 7) ----------------------------------------
+    ; --- sx = 160 + mag((x * r) >> 7) -------------------------------------
     ld a,(proj_x)
-    ld b,a
-    ld a,(proj_r)
-    ld c,a
-    call mul_s8u8
-    call proj_shr7
+    call proj_offset
     ld de,SCR_CENTRE_X
     add hl,de
 
@@ -88,15 +95,13 @@ proj_point:
     add hl,de
     ld (proj_sx),hl
 
-    ; --- sy = 100 - ((y * r) >> 7) ----------------------------------------
+    ; --- sy = 89 - mag((y * r) >> 7) --------------------------------------
+    ;  89, not 100: the playfield is CTX_BAR_H..HUD_TOP and its middle is not
+    ;  the screen's. See PROJ_CENTRE_Y.
     ld a,(proj_y)
-    ld b,a
-    ld a,(proj_r)
-    ld c,a
-    call mul_s8u8
-    call proj_shr7
+    call proj_offset
     ex de,hl
-    ld hl,SCR_CENTRE_Y
+    ld hl,PROJ_CENTRE_Y
     or a
     sbc hl,de
 
@@ -113,6 +118,69 @@ proj_point:
 
 proj_clip:
     or a                                ; CF clear
+    ret
+
+
+; ----------------------------------------------------------------------------
+;  proj_offset -- one axis of the perspective divide, magnified
+;  In : A = the rotated component (signed), (proj_r) = recip[z]
+;  Out: HL = the signed offset from the centre of the screen
+;  Uses: everything
+;
+;  ONE routine for both axes rather than two calls each, which is where the
+;  magnification is paid for: proj_point used to `call mul_s8u8` and then
+;  `call proj_shr7` per axis, and folding the pair into one call with the shift
+;  written out gives back 54 T-states -- rather more than proj_mag costs.
+;
+;  (x * r) >> 7 always fits -256..255: |x| <= 128 and r <= 244, so the product
+;  is at most 32640 and the shift at most 255. That is what lets the >>7 be six
+;  instructions instead of seven SRA/RR pairs -- the low byte of the result is
+;  (H<<1) | (L>>7), which one ADD and one ADC produce, and the carry left over
+;  is the sign for SBC A,A to smear into H. It is proj_shr7 written out; the
+;  routine itself stays for gfx/markproj.asm.
+;
+;  proj_mag is then the same trick as proj_scale: SIX PATCHED BYTES, no branch,
+;  LDIR'd in by order_apply_zoom out of cam_zoom_table. It computes
+;
+;      HL = (t << j) + (t >> k)
+;
+;  with DE holding t on the way in, so the factors it can reach are 1, 1.5, 2,
+;  2.5 and 3 -- see ZOOM_MAG_FORMS in tools/gentables.py.
+;
+;  The whole slot is 32 T-states an axis at x1 (six NOPs and a dead
+;  `ld d,h : ld e,l`) and 39 at x1.5 or x2, so the magnification costs 14
+;  T-states an entity over never magnifying at all -- measured, proj_point is
+;  4,853 T at the default step and 4,867 T at a magnifying one. A patched JR to
+;  skip the NOPs would save 24 of the 64 and is exactly the shape that took
+;  proj_scale over the budget guard the first time it was written.
+;
+;  The bytes below are the NEUTRAL step (x1) assembled in place, so proj_point
+;  is correct before anything has pressed a key.
+; ----------------------------------------------------------------------------
+proj_offset:
+    ld b,a
+    ld a,(proj_r)
+    ld c,a
+    call mul_s8u8                       ; HL = component * recip[z]
+
+    ld a,l
+    add a,a                             ; CF = bit 7 of L
+    ld a,h
+    adc a,a                             ; A = low byte; CF = sign of HL
+    ld l,a
+    sbc a,a                             ; #FF if negative, #00 if not
+    ld h,a                              ; HL = t, in -256..255
+
+    ld d,h
+    ld e,l                              ; DE = t
+proj_mag:
+    nop                                 ; `sra d` on the x1.5 and x2.5 steps
+    nop
+    nop                                 ; `rr e` with it
+    nop
+    nop                                 ; `add hl,hl` from x2 up
+    nop                                 ; `add hl,de` on the odd factors
+proj_mag_end:
     ret
 
 

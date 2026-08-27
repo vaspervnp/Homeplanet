@@ -156,7 +156,7 @@ gives you a CRTC that has never been initialised. `harness.boot_quick` runs
 and prints how many bytes are left in the low 16K and in every bank. Watch all
 of them, and watch the "hand-written code ends at" figure rather than `free:` —
 see "Where 700 bytes came from" for why the second one lies. The low 16K has
-**2048 bytes of which about 1600 are reachable**, and bank 4 has **438**.
+**2048 bytes of which about 1600 are reachable**, and bank 4 has **360**.
 Before six yaw views they were 512 and 9; see "Six yaw views, and where the
 space went" for what that bought. The short version is that the low 16K
 stopped being desperate and bank 4 is the place most new code should go by
@@ -165,7 +165,8 @@ data, the cached half of the marker pass, the context bar, the player's
 commands and the campaign's setup and teardown all live there.
 
 **Bank 4 is the tight one again.** The context bar spent 595 of its 1032 on
-code and words. The low 16K is still comfortable, and the two are not
+code and words and the magnification another 78 — six bytes a zoom record,
+twelve records, plus the LDIR that carries them. The low 16K is still comfortable, and the two are not
 interchangeable — see "The one rule" below for what may go where.
 
 **The low 16K's real floor is not `#4000`.** `tests/test_sound.py` puts 384
@@ -371,7 +372,8 @@ a hand count of the instruction table.
 
 | Routine | Measured | Design §6 |
 |---|---|---|
-| `proj_point` (one entity, full pipeline) | ~4,960 T | 1,200 T |
+| `proj_point` (one entity, full pipeline) | ~4,853 T | 1,200 T |
+| `proj_point` at a magnifying zoom step | ~4,867 T | — |
 | `proj_point` (rejected by the distance clip) | ~260 T | — |
 | `proj_rotate` (9 multiplies, m01 skipped) | ~2,790 T | — |
 | `cam_build_matrix` (once per frame) | ~3,360 T | — |
@@ -769,7 +771,13 @@ Design document section 13 lists ten phases.
   line 168 and the **context bar** everything above line 10, and both are
   redrawn only when what they say changes. The bar is what tells the player
   which keys are live, and in the build panel it names the class and its price
-  — see "The context bar".
+  — see "The context bar". **The projection centres on the middle of that
+  band, line 89, not on the middle of the screen.**
+- **The playfield uses the whole width now.** It used to be arithmetically
+  incapable of it: at the five widest zoom steps no point of the visible world
+  could project further than 79 pixels off centre, of a half-width of 160. See
+  "Using the width of the screen", which is also where the eleven lines above
+  come from.
 
 `src/demo/phase4.asm` is the acceptance test running on the CPC itself.
 
@@ -994,7 +1002,7 @@ mission table.
 
 **`DISC.BIN`'s ceiling is what decides where a sprite library can live.** It
 loads at `#4000` and must finish below `#A700`, so it has 26368 bytes to play
-with; it is currently 24812, ending just under `#A09C`, and that is **about
+with; it is currently 24889, ending just under `#A0E9`, and that is **about
 1.5 KB of headroom**. One RLE-packed library is 2-3 KB. That arithmetic is the
 whole reason six of the eight classes are read off the disc into banks 5-7
 instead of travelling in the file — it is not a stylistic choice, and no amount
@@ -1005,7 +1013,7 @@ and it moves with it: every byte added to the bank-4 image costs `DISC.BIN`
 whatever it packs down to. The context bar's 595 bytes cost the file 861,
 because code does not compress.
 
-The bank-4 image stays RLE-compressed (`tools/packsprites.py`, 14922 → 10716
+The bank-4 image stays RLE-compressed (`tools/packsprites.py`, 15000 → 10793
 bytes); without it the file would not fit at all. It packs worse than it used
 to — 72% rather than 62% — because most of what six yaw views freed there was
 promptly filled with CODE, and code does not have runs of `#FF,#00` in it. Uninitialised bank data (the
@@ -1199,6 +1207,16 @@ number in `classdata.asm` or `campaign.asm` moved — and the middle row is the
 proof. Do not tune anything in response to this; if the campaign is to reach
 mission 8 again it is because the frame got faster, not because a hull got
 bigger.
+
+**And the frame did get faster, by about the same 2,500 T, and mission 8 did
+NOT come back.** Inlining `qsq_f` and folding `proj_point`'s two per-axis calls
+into one is ~100 T an entity — see "It came out CHEAPER" — and against that
+build `tools/balance.py` prints the campaign line for line identically, losing
+the Mothership at mission 7 with the same hulls at every mission before it. So
+a T-state is not a currency you can spend back: `demo_wait_frame` quantises to
+whole 50 Hz ticks, the game runs at 5.00 fps either side, and it is which side
+of a tick boundary a *particular* frame lands on that decides the fight. The
+row above is still the right way to read this — it just does not run backwards.
 
 That is the same shape as before the classes arrived, and it has to be: the
 script never spends its RU, so every ship in it is an interceptor, and the
@@ -1405,8 +1423,9 @@ v = 3 * (delta >> S)     radius  42 << S      -- 3*43 is 129, so 42 is the cap
 ```
 
 Alternating them gives steps of 4/3 and 3/2. `ZOOM_STEPS` in
-`tools/gentables.py` is the table; it states only `(dist, shift, mul3)` and
-derives everything else.
+`tools/gentables.py` is the table; it states only `(dist, shift, mul3, mag)`
+and derives everything else. The fourth column is the magnification, and it is
+a different mechanism entirely — see "Using the width of the screen".
 
 **`proj_scale` is the zoom.** Everything else — the key handler, the table,
 `cam_dist` — is bookkeeping around twenty instructions. It has **no branches**,
@@ -1418,7 +1437,8 @@ and over the budget guard. Patching the *instructions* instead costs nothing:
 `and 0 : cp 1` where no check is wanted, the tail's `scf : ret` becomes a `jr`
 into the ×3 code, and `>>9` — which the ladder cannot reach — is one `sra a`
 after `H` is taken. `order_apply_zoom` LDIRs four runs of it out of
-`cam_zoom_table`. Measured: **4,960 T**, up 200 from 4,760.
+`cam_zoom_table` — five now, the fifth being `proj_mag`. Measured when it
+landed: **4,960 T**, up 200 from 4,760.
 
 Two things that bound the ends of the ladder:
 
@@ -1430,19 +1450,117 @@ Two things that bound the ends of the ladder:
   subtract overflows past 32767 anyway, so a thirteenth step would show more
   empty space and nothing else.
 
-**What this does NOT fix is the wasted screen.** The wide steps sit at
-`cam_dist` 250, so the visible cube still covers only the middle quarter — the
-same as step 7 always did. Filling the screen would need a magnification stage
-between the perspective divide and the clip, and the low 16K has 512 bytes.
-Dropping `cam_dist` for the wide steps instead is not the answer: `cam_dist`
-IS the size tier, and ships would jump a size larger at the very step where
-there are most of them.
+**What this did NOT fix was the wasted screen**, and that is now its own
+section below — the magnification stage this paragraph said the low 16K had no
+room for turned out to be six patched bytes. What is still true, and is why
+that was the shape it took, is that **dropping `cam_dist` for the wide steps
+is not the answer**: `cam_dist` IS the size tier, and ships would jump a size
+larger at the very step where there are most of them.
 
 The differential test in `test_phase1` runs the model against the metal at
 **all twelve steps**, not just the neutral one. It has to: the plain steps and
 the ×3 steps reject on different tests — a bound on the high byte against a
 check on the scaled value — and either edge off by one puts a ship somewhere
 it is not.
+
+### Using the width of the screen
+
+The outer half of the screen was not empty, it was **unreachable**, and that
+is the difference between a content problem and an arithmetic one.
+
+`PROJ_K` is `160 << PROJ_SHIFT`, chosen so that `x == z` — 45° off axis —
+lands exactly on the screen edge. Nothing in this game ever gets near 45° off
+axis once `cam_dist` is long, because what can be seen at all is a ±127 camera
+cube and `cam_dist` pushes that cube away from the eye. Measured, as the
+largest `|sx - 160|` any point of the cube can produce over every yaw and
+pitch:
+
+| `cam_dist` | 110 | 150 | 200 | 250 |
+|---|---|---|---|---|
+| reach, of a half-width of 160 | 172 | 170 | 107 | **79** |
+
+At 250 — steps 7 to 11, **five of the twelve** — the picture was confined to
+the middle half of the screen by construction. No amount of flying about could
+have put a ship in the outer half.
+
+`proj_mag` multiplies the projected offset **after the perspective divide and
+before the centre is added**, by 1, 1.5 or 2 depending on the step, which
+brings all four reaches to 158-172. That is the whole change.
+
+**It is not zoom and the distinction is worth holding on to.** `proj_deltas`'
+clip radius is untouched, so the same world is visible; `proj_z` is untouched,
+so every ship's size tier is exactly what it was. The screenshots at step 7
+before and after show the reference lattice at twice the spread with the same
+sprites drawn on it.
+
+**Vertically the same factor, because the projection has to stay isotropic.**
+An anisotropic one would fill the width perfectly and change a formation's
+shape as the camera orbited. The playfield is 158 lines against 320 columns,
+so filling the width overfills the height twice over — which costs very little
+here because the content is essentially planar: §4.1's reference plane, the
+formations and the resource fields all sit near Y=0.
+
+#### The eleven lines the projection was low
+
+The other half of the job, and it was free. `sy = 100 - offset` centred the
+picture on the middle of the **screen** while the band a ship may be drawn in
+is `CTX_BAR_H`..`HUD_TOP`, 10..167, whose middle is **89**. So everything was
+eleven lines low and closer to the HUD than to the bar. `PROJ_CENTRE_Y` is 89
+now, and `src/main.asm` asserts it against `(CTX_BAR_H + HUD_TOP) / 2` and
+against the model's own copy, because all three are literals.
+
+`MOTH_CENTRE_Y` was stale in the same way and by the same amount — a literal
+84, the middle of 0..168, which is what the tactical view was before the
+context bar took the top ten lines. It is `PROJ_CENTRE_Y` now: the off-screen
+Mothership marker says which way to turn from the middle of the view, so a box
+centred anywhere else points a few degrees off everything else on screen.
+
+#### Six patched bytes, and why it is the same shape as `proj_scale`
+
+`proj_mag` sits in `proj_offset` and is **six bytes of instruction stream**,
+LDIR'd in by `order_apply_zoom` as a fifth run out of the same zoom record:
+
+```
+    ld d,h : ld e,l          ; DE = t, always
+    sra d  : rr e            ; or four NOPs
+    add hl,hl                ; or NOP
+    add hl,de                ; or NOP
+```
+
+which is `HL = (t << j) + (t >> k)` and reaches 1, 1.5, 2, 2.5 and 3. No
+branch, for the reason `proj_scale` has none: a `JR` to skip the ×1 case costs
+more than the two NOPs it skips. `ZOOM_MAG_FORMS` in `tools/gentables.py` is
+the mapping and the record went from 14 bytes to 20.
+
+**Powers of two alone are too coarse and finding that out is most of the
+design.** `cam_dist` steps 110 → 150 → 200 → 250, ratios of about 1.3, so a
+ladder of 1, 2, 4 cannot follow it: whichever way you round, one step spreads
+the picture out as you zoom *out*. 1.5 is what makes the sequence read as a
+zoom, and `sra d : rr e` is what makes 1.5 affordable.
+
+#### It came out CHEAPER, and that is where it was paid for
+
+`proj_point` is **4,853 T-states at the default step and 4,867 T at a
+magnifying one, against 4,960 before** — the guard is 5,000 and had forty
+T-states of headroom. Two things paid for the magnification and then some:
+
+- **`qsq_f` is gone**, inlined into its only caller. It was an eleven-byte
+  routine reached by `CALL`/`RET` twice per `mul_u8`, which is 54 T of pure
+  overhead per multiply; `proj_point` runs two and `cam_build_matrix` nine. The
+  second copy also loses the `jr nc`, because the second index is eight bits by
+  construction. Net cost: **one byte**.
+- **`proj_offset`** is one routine per axis instead of two. `proj_point` used
+  to `call mul_s8u8` and then `call proj_shr7`; folding the pair into one call
+  with the shift written out gives back another 27 T an axis. `proj_shr7`
+  stays, because `gfx/markproj.asm` still calls it — and note that it must NOT
+  contain the magnify slot: `moth_scale` uses it to place a border marker and
+  would be magnified twice.
+
+Measured at 24 entities that is ~2,500 T a frame back, which is almost exactly
+what the context bar cost. It is **not** enough to move a `demo_wait_frame`
+tick boundary: the frame rate is 5.00 fps over 1000 frames before and after,
+and `tools/balance.py` prints the same campaign line for line, mission 7 and
+all. Mission 8 did not come back and nothing was tuned to try.
 
 ### Markers: the world points that are not ships
 

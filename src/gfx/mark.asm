@@ -65,7 +65,13 @@ MOTH_H_SHIFT        equ 8               ; world units per pixel of it: 256
 ;  Where the indicator rides. A box twice as wide as it is tall, centred on
 ;  the tactical view, and held far enough in from the top and bottom that the
 ;  height bar always has somewhere to go.
-MOTH_CENTRE_Y       equ 84
+;
+;  The SAME line the projection centres on, and it has to be: the marker says
+;  which way to turn from the middle of the view, so a box centred anywhere
+;  else points a few degrees off everything else on the screen. It was a
+;  literal 84 -- the middle of 0..168, which is what the tactical view was
+;  before the context bar took the top ten lines.
+MOTH_CENTRE_Y       equ PROJ_CENTRE_Y
 MOTH_Y_MIN          equ CTX_BAR_H + MOTH_H_MAX + 2
 MOTH_Y_MAX          equ HUD_TOP - MOTH_H_MAX - 4
 
