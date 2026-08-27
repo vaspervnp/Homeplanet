@@ -246,6 +246,38 @@ def boot_quick(frames: int = 40, briefing: bool = False,
     return c
 
 
+def pin_rng(c: cpc.CPC, seed: int = 0x1234) -> None:
+    """Pin the game's random sequence, so a test that spawns a wave is not flaky.
+
+    src/sys/rand.asm seeds itself from sys_tick_50hz at the moment of the FIRST
+    keypress and never again -- and every boot_quick presses SPACE past the
+    title and ENTER past the briefing, so that stir is already spent by the time
+    a test is handed the machine. Writing the state here therefore owns the
+    sequence for the rest of the run.
+
+    Anything but zero will do; the recurrence has zero as a fixed point and
+    would hand back the same byte forever.
+    """
+    if seed == 0:
+        raise ValueError("zero is a fixed point of the xorshift")
+    sym = symbols()
+    c.write_ram(sym["SYS_RNG"], bytes([seed & 0xFF, (seed >> 8) & 0xFF]))
+
+
+def force_wave(c: cpc.CPC, sym: dict[str, int], within: int = 2) -> None:
+    """Bring the next attack wave forward to (almost) now.
+
+    The clock is three minutes of GAME frames -- 900 of them -- which is a long
+    time to emulate and is not what most of these tests are about. Writing
+    wave_next moves the arrival without touching the arithmetic that decides
+    what arrives, and tests/test_waves.TestTheClock is what checks the clock
+    itself.
+    """
+    now = int.from_bytes(c.read_ram(sym["MIS_TIMER"], 2), "little")
+    target = min(now + within, 0xFFFF)
+    c.write_ram(sym["WAVE_NEXT"], bytes([target & 0xFF, target >> 8]))
+
+
 def close(c) -> None:
     """Free an emulator as soon as the test that owns it is done with it.
 
@@ -291,7 +323,26 @@ def boot_disc(frames: int = 400) -> cpc.CPC:
     return c
 
 
-def run_until_pc_in(c: cpc.CPC, lo: int, hi: int, max_us: int = 400_000) -> bool:
+#  Two seconds of emulated time, which is ten GAME frames at the rate this
+#  actually runs. It was 400,000 -- and 400 ms is TWO game frames, which is not
+#  a budget, it is a coin toss.
+#
+#  The frames right after a briefing is dismissed are the heaviest the game
+#  ever runs: mis_wipe clears all 16,000 bytes of the back buffer twice, the
+#  HUD repaints into both buffers, the context bar does the same for its strip
+#  and so does the hull row. run_to_stable_point is called immediately after
+#  boot_quick, which is exactly when those frames happen -- so the old budget
+#  could be spent inside ONE demo_update without the frame loop ever reaching
+#  scr_wait_vsync at all. Adding half a per cent to the frame tipped it over,
+#  and six tests about bank paging and size tiers failed with "never caught the
+#  frame loop", which says nothing whatever about what was wrong.
+#
+#  It costs nothing to raise: the search returns the moment it lands.
+STABLE_POINT_US = 2_000_000
+
+
+def run_until_pc_in(c: cpc.CPC, lo: int, hi: int,
+                    max_us: int = STABLE_POINT_US) -> bool:
     """Step until the CPU is executing inside [lo, hi), or give up.
 
     Needed because the game's own data structures are only consistent at
@@ -300,7 +351,8 @@ def run_until_pc_in(c: cpc.CPC, lo: int, hi: int, max_us: int = 400_000) -> bool
     not match the array beside it -- a race in the TEST, not in the game.
 
     Steps in 100 microsecond slices, which is fine enough to land inside a
-    short spin loop like scr_wait_vsync.
+    short spin loop like scr_wait_vsync. `max_us` has to cover several GAME
+    frames, not several emulator frames -- see STABLE_POINT_US.
     """
     for _ in range(max_us // 100):
         if lo <= c.pc < hi:

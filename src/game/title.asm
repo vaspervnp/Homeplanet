@@ -189,25 +189,17 @@ title_mod80:
     ret
 
 
-;  A = the next byte of the scatter. A 16-bit xorshift, which is eight
-;  instructions and has no state but the word itself.
+;  A = the next byte of the scatter.
 ;  Uses: AF, HL
+;
+;  The STEP is sys_rand_step, in the low 16K, shared with the attack waves. The
+;  STATE is this file's own and must stay that way: the loop above reseeds it to
+;  a constant at the top of every frame so the starfield does not twinkle, which
+;  is the exact opposite of what game/waves.asm needs from the same eight
+;  instructions. Sharing the word would make every campaign send the same waves.
 title_rand:
     ld hl,(title_rng)
-    ld a,h
-    rra
-    ld a,l
-    rra
-    xor h
-    ld h,a
-    ld a,l
-    rra
-    ld a,h
-    rra
-    xor l
-    ld l,a
-    xor h
-    ld h,a
+    call sys_rand_step
     ld (title_rng),hl
     ret
 

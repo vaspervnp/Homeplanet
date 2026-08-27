@@ -29,7 +29,7 @@ python3 -m unittest tests.test_phase0 -v     # one test module
 **Always `make test` before saying something works.** The emulator gives us
 the whole machine state; there is no reason to guess.
 
-373 tests, about **six minutes**. It doubled when the sprite libraries moved
+418 tests, about **seven minutes**. It doubled when the sprite libraries moved
 onto the disc: every `boot_quick` spins the drive up and reads `LIB_SECTORS`
 per bank, which is a second and a half of emulated time per machine and there
 are about a hundred machines. That is the price of testing the real loader
@@ -102,7 +102,22 @@ Gotchas:
   on screen every *other* frame — which looks like flicker on the machine and
   like nothing at all in `read_ram(front_buffer(c))`. The context bar shipped
   that bug and `tests/test_ctxbar.py` reads `0x8000` and `0xC000` both.
+- **`run_to_stable_point`'s budget is in GAME frames, not emulator frames**,
+  and the two are ten apart. It was 400,000 microseconds, which sounds
+  generous and is *two* game frames — and it is called immediately after
+  `boot_quick`, which is exactly when the two heaviest frames the game ever
+  runs happen (`mis_wipe` clears 16,000 bytes twice, the HUD repaints into
+  both buffers, the context bar and the hull row do the same). So the whole
+  budget could be spent inside one `demo_update` without the loop ever
+  reaching `scr_wait_vsync`. Adding half a per cent to the frame tipped it
+  over and six tests about bank paging and size tiers failed with "never
+  caught the frame loop", which says nothing whatever about what was wrong.
+  It is `STABLE_POINT_US`, two seconds, and raising it costs nothing because
+  the search returns the moment it lands.
 - Two `CPC` instances in one process interfere. One emulator per process.
+  **`setUp()` called a second time inside a test does NOT close the first
+  one** — `tests/test_waves.py` has a `restart()` for that, and without it two
+  of its comparison tests were quietly comparing a machine against itself.
 - It comes up with **cassette** as the default filing system, unlike a real
   6128 with a drive. `boot_disc` sends `|DISC` first.
 - `quickload(start=True)` types `CALL &xxxx` into the BASIC line buffer, so it
@@ -156,7 +171,7 @@ gives you a CRTC that has never been initialised. `harness.boot_quick` runs
 and prints how many bytes are left in the low 16K and in every bank. Watch all
 of them, and watch the "hand-written code ends at" figure rather than `free:` —
 see "Where 700 bytes came from" for why the second one lies. The low 16K has
-**2048 bytes of which about 1600 are reachable**, and bank 4 has **299**.
+**1536 bytes of which about 1100 are reachable**, and bank 4 has **307**.
 Before six yaw views they were 512 and 9; see "Six yaw views, and where the
 space went" for what that bought. The short version is that the low 16K
 stopped being desperate and bank 4 is the place most new code should go by
@@ -168,6 +183,12 @@ commands and the campaign's setup and teardown all live there.
 code and words and the magnification another 78 — six bytes a zoom record,
 twelve records, plus the LDIR that carries them. The low 16K is still comfortable, and the two are not
 interchangeable — see "The one rule" below for what may go where.
+
+The attack waves went the other way and are the exception worth knowing about:
+they are **681 bytes of the LOW 16K** and gave bank 4 eight back, because
+`title_rand`'s xorshift moved down here to be shared with them. That is
+deliberate — see "Attack waves, and the price of staying" — and it is the same
+reasoning that kept `game/combat.asm` and `game/economy.asm` out of the bank.
 
 **The low 16K's real floor is not `#4000`.** `tests/test_sound.py` puts 384
 bytes of stub above `CODE_END` and `harness` puts another 0x60 there, so the
@@ -380,6 +401,8 @@ a hand count of the instruction table.
 | `phase4_group` (consolidation off) | ~800 T | — |
 | `phase4_group` (16 entities, widest zoom) | ~15,200 T | — |
 | paging a class's bank in and bank 4 back | ~30 T per entity | — |
+| `wave_health` + `wave_percent` (one reading of the fleet) | ~7,950 T | — |
+| `wave_update` (averaged over its four-frame cycle) | ~2,350 T | — |
 
 **The zoom ladder costs 200 T an entity**, all of it in `proj_scale`: three
 calls, one per axis, against the two `add hl,hl` that used to be inline. It is
@@ -726,6 +749,11 @@ Design document section 13 lists ten phases.
   through `FLEET.DAT` on the disc, so it survives the power going off too.
   Played as the design intends, missions 1-5 cost one ship. What is left is
   authoring and taste, not engineering.
+
+  **Loitering now costs.** Three minutes into a mission the Vekhar start
+  arriving in waves, so `J` is a decision rather than a formality — see
+  "Attack waves, and the price of staying" for the scaling rule, the measured
+  win rate, and the three design decisions behind it.
 - **Phase 7 — done.** Resource patches, harvesters, RU, and a build panel;
   `H` and `B` are live. The loop closes: build a harvester, send it out, and
   what it mines pays for the next ship. **All seven of §8's buildable classes
@@ -1129,6 +1157,287 @@ same thing:
 `H` only orders **harvesters**, which §9 marks explicitly. Ordering the whole
 squadron out put fifteen interceptors on a patch and mined the map dry in
 seconds — the economy is meant to be a choice, not a free action.
+
+### Attack waves, and the price of staying
+
+Stay in a mission more than three minutes and the Vekhar start arriving, in
+waves of random size at random spacing, and they never stop. `src/game/waves.asm`,
+in the **low 16K** with the rest of the frame loop's simulation.
+
+**It exists because nothing made staying cost anything.** §10's campaign is
+about a fleet that only ever shrinks and §1 says the same in prose — what is
+lost is lost — but once the picket was dead a mission was a room with the
+lights on: mine the fields dry, build what the RU will buy, jump when you feel
+like it. `J` was a formality rather than a decision.
+
+#### The scaling rule, and why it is HULL
+
+> **A wave is a fraction of the hull the player still has: a sixteenth to a
+> quarter of it, plus one, rounded.**
+
+The requirement is not "waves are hard", it is **"at least a 70% chance of
+winning"** — and that has to hold for a fleet that has already lost half of
+itself by mission 7. So the wave cannot be an absolute number.
+
+Of the things that could stand for "what the player still has", hull is the
+honest one and headcount is not. Headcount says a fleet of fifteen ships at
+twenty hull each is as strong as fifteen fresh ones; it is not, it dies to the
+first volley. **Summed `ENT_HULL` falls when a ship is lost AND when a ship is
+hurt**, which are exactly the two ways a fleet becomes less able to take a
+wave, and it needs no second table — it is one byte per entity that is already
+there. Divided by 256 it reads directly as "ships' worth of fleet left",
+because an interceptor's hull is 255. The readout on the screen is the same
+number, so the player can see what they are being measured by.
+
+What it does not capture is the balance triangle: a harvester counts nearly as
+much as an interceptor and shoots for 4 rather than 24. That is a real
+approximation, it errs towards a wave too big for a fleet of harvesters, and no
+script or sane player fields one. `tools/waverate.py` is what says whether the
+approximation holds — it is measured, not argued.
+
+**The rounding is not tidiness.** A plain `>>4` gives a small fleet the same
+answer whatever it rolls: half a fleet is three ships' worth, three times four
+is twelve, and twelve shifted down four is zero for every multiplier there is.
+So the late campaign — the whole reason the wave is scaled at all — would get a
+wave of exactly one ship every time and the randomness would quietly stop
+existing at the end where it matters most. `+8` before the shift costs one
+`add hl,de`. Same shape as `phase4_cache`'s view index.
+
+#### The measured win rate
+
+`tools/waverate.py`. It reaches each mission with `balance.py`'s tactic and no
+loitering, **photographs the entity table**, loiters through three waves, and
+puts the photograph back before jumping — so mission 6's number means "loiter
+in mission 6 with the fleet you would actually have there", not "with whatever
+five previous loiters left". Each mission is then run twice: once with the
+fleet it has, and once **crippled to half the ships at half hull**, which is
+the mission-7 condition arranged rather than played into.
+
+WIN means: after three waves the Mothership is alive *and* the objective is met,
+so the player can actually press `J`. LOSS is `mis_failed`, which in this game
+is one thing — the Mothership gone and sixty thousand sleepers with it. §8
+makes that the end of the campaign, so it is the floor and nothing softer is
+worth measuring.
+
+Eight campaigns, ninety-six mission trials, `python3 tools/waverate.py 8`:
+
+```
+mis       whole fleet      half a fleet
+  1       8/8    100%       7/8     88%
+  2       8/8    100%       7/8     88%
+  3       8/8    100%       8/8    100%
+  4       8/8    100%       7/8     88%
+  5       8/8    100%       8/8    100%
+  6       8/8    100%       7/8     88%
+     whole: 48/48 = 100%
+    halved: 44/48 = 92%
+     all: 92/96 = 96%   -- the floor is 70%
+```
+
+**Missions 7 and 8 have no samples and that is not the waves.** The picket at
+THE GATE takes the Mothership before any wave lands, in this build and in the
+one before it, for the frame-boundary reasons the balance section documents and
+tells you not to tune. That is exactly what the "half a fleet" column is for:
+it arranges the mission-7 condition — half the ships at half hull — instead of
+playing into it, and it is the only column where the waves ever win.
+
+**The margin is the point, not the number.** 96% is not "too easy": three waves
+still cost a whole fleet 10-15% of its hull, permanently, and hull never comes
+back. Loiter in EVERY mission and the campaign dies around mission 5 — measured,
+and printed by the tool's own header. What the margin buys is that a rate
+measured over ninety-six trials at 96% is a rate you can believe is above 70%;
+one measured at 71% is not.
+
+**The first configuration measured 71% and was thrown away.** It was an eighth
+to a half of the fleet rather than a sixteenth to a quarter, and 71% over
+thirty trials is the floor with no margin — indistinguishable from a
+configuration that is actually below it. Every loss had the same shape and it
+is worth knowing: a wave arrives on the Mothership, every ship in it picks the
+nearest target — which is the Mothership, because that is what the fleet is
+stationed on — and seven interceptors take 255 hull off at ten a hit faster
+than fifteen of ours can kill seven of theirs. **That is the concentration
+argument in "A fleet has to be able to concentrate", running the other way.**
+
+#### The bug the measurement found, which is not in this feature at all
+
+The first campaign-length run died at **mission 5 in six runs out of six**, at
+full hull, with no wave on the screen. It was not the waves.
+
+> **An `ENT_ORDER_ATTACK` ship is skipped by `phase4_fly` — deliberately, so
+> `cbt_move_enemies` can close it on its target without the two systems
+> cancelling — and NOTHING clears the order when the target dies.**
+
+So a fleet that has just killed a wave six thousand units out stays there,
+permanently, and `fleet_save` carries those coordinates into the next mission.
+Loiter through three waves in mission 4 and the fleet begins mission 5 scattered
+around wherever the last wave happened to arrive, with the Mothership alone at
+the origin and THE NEBULA's eight hostiles spawning on top of it.
+
+This is pre-existing and the waves only exposed it: any fight leaves the fleet
+displaced. `G` is what a player presses to disengage and it puts the ships back
+under formation flight, so `waverate.py` presses it — but a player who does not
+know that is one mission from losing the game. It is the next thing worth
+fixing in `game/combat.asm` and it is deliberately not fixed here.
+
+#### The clock, converted honestly
+
+`mis_timer` counts **game frames**, and the game measures 5.0 fps against
+§2's 12.5 target. So three minutes is `180 * 5.0 = 900` game frames, one minute
+is 300 and four is 1200, and the spacing is `300 + 3.5 * a random byte` which
+reaches 1192. Three and a half is two adds and a shift; `900/256` exactly would
+be a multiply for a quarter of a frame's difference.
+
+It is honest to a few per cent and no better — the frame rate falls as the
+entity count rises, so three minutes with a wave already on screen is nearer
+three and a half. Making it exact means a second counter on `sys_tick_50hz`,
+and `mis_timer` is already a word that already resets in exactly the right
+place: **`mis_setup` zeroes it, so the three minutes are per mission by
+construction**, and `demo_update` skips `mis_update` while `order_paused`, so
+SPACE stops the clock along with the battle.
+
+#### Three decisions, written down
+
+- **A wave does not count towards the objective.** `ENT_F_WAVE` is a fourth
+  flag bit and `mis_count_enemies` folds it into its mask, which costs nothing:
+  a wave ship's flags no longer equal `ACTIVE+ENEMY` so the compare rejects it.
+  Count them and a CLEAR mission becomes uncompletable the moment the first
+  wave lands, `J` is never offered, and "loitering costs you" becomes
+  "loitering traps you" — the opposite of the point.
+- **Waves keep coming after the objective is met.** They are the reason to
+  jump. `mis_update` returns early once `mis_complete` is set, which is why
+  `wave_update` is called from `demo_update` beside it rather than from inside
+  it.
+- **They arrive from ONE bearing, on a shell around the Mothership.** Around
+  the Mothership because that is the thing that must not be lost and a wave
+  that always arrived where the camera was pointing would be a different
+  mechanic; one bearing because ships appearing all round at once reads as
+  nothing, and an attack from a direction is something the player can turn to
+  face. Each ship is jittered inside 45° of it, and `ENT_YAW` is set to face
+  inward — nothing requires that (the mission table's own hostiles inherit
+  whatever yaw the slot last held) but a wave pointing outward reads as debris.
+
+#### `tools/balance.py` is unaffected, and here is the proof
+
+Its missions **peak at 44 game frames of the 900** — the script jumps the
+moment it is allowed to, so no wave has ever fired in it and `WAVE_COUNT` is 0
+at the end of a whole campaign. Any difference in its output is the frame
+boundary moving, which CLAUDE.md already tells you not to tune for. It still
+ends at mission 7 with the Mothership lost, exactly as it did before this
+landed:
+
+```
+mis enemy  in out lost   hull  fleet
+  4     8  16  16    0   3408  int=15 moth=1
+  6     6  16  15    1   2755  int=14 moth=1
+  7    12  15  11    4   2325  int=11  FAILED -- the Mothership was lost
+```
+
+#### Randomness, and how a test pins it
+
+`src/sys/rand.asm`. A 16-bit xorshift — the same eight instructions the title
+screen's starfield already used, which is why the **step** lives there now and
+is shared. The **state** is not, and must not be: `title_draw_stars` reseeds to
+a constant at the top of every frame so the field does not twinkle, and a wave
+generator that restarted like that would send the same wave in every mission of
+every campaign.
+
+`sys_rng` starts at a fixed constant and the **first keypress of the run** stirs
+`sys_tick_50hz` into it. That counter free-runs at 50 Hz and wraps every 5.12
+seconds, so the moment a human presses a key is worth most of eight bits for
+the cost of a load, and `key_consume` is the one place that already knows a key
+went down.
+
+**It happens once and never again, and that is what makes the suite
+deterministic** rather than merely repeatable. Every `boot_quick` presses SPACE
+past the title and ENTER past the briefing, so the stir is already spent by the
+time a test is handed the machine — and a test that then writes `SYS_RNG` owns
+the sequence for the rest of the run. `harness.pin_rng` is that write and
+`tests/test_waves.TestTheGenerator` checks the "never again" part directly,
+because everything else in that file rests on it.
+
+### The fleet's hull, on the screen
+
+`HULL nnn%` at `HUD_ROW_C_Y`, a **third HUD row**, in ink 2 for the caption and
+ink 1 for the figure — ink 3 below `HUD_HP_ALARM` (33%), which is §2's ink for
+the thing that wants attention and is the moment "one more wave or jump now"
+changes its answer.
+
+**Where it went was the decision, and the room was already there.** §5.5
+budgets a 32-pixel strip and the two rows of squadron counts sit at 178 and
+188, so **lines 168–177 have been part of the HUD and black since the strip was
+drawn**. Neither existing row had four characters to spare: row A runs
+squadrons to byte 51, RU to 67 and `?HELP` to 79, and row B runs squadrons to
+41, the yard to 51 and `M n JUMP` to 71. The context bar was the other
+candidate and was rejected — it says what the KEYS do, and a hull figure is not
+a key. §5.5 had already asked for two of the things this row now carries: a
+"μπάρα ενέργειας Mothership", generalised from the Mothership to the fleet
+because a number is smaller than a bar and says more, and a "γραμμή μηνυμάτων",
+which today carries one message: `INCOMING`.
+
+168 and not 169, which is what it was first. The strip's three rows want the
+same gap or they read as two blocks rather than three lines; at 169 the gap to
+row A is two scanlines and A to B is three. At 168 all three are three, and the
+cost is glyphs sitting hard against the playfield's last line — which is the
+line a sprite is already clipped in half on.
+
+**It keeps its own dirty flag**, and that is the point rather than tidiness.
+The percentage moves every time a shot lands; flagging `phase4_hud_dirty` would
+repaint the whole strip — ~90,000 T-states, twice, once per buffer — several
+times a second in a battle and undo the entire bargain that makes the HUD
+affordable. This is nine characters. `phase4_hud` sets `wave_dirty` when it
+repaints, because a `mis_wipe` clears all 200 lines including this row and
+nothing else would put it back.
+
+#### The only division in the game
+
+`pct = 100 * hull / full`, where `full` is what the same ships would have
+undamaged, summed out of `class_hull`. There is no general divide in this
+project and there should not be — `txt_draw_num` divides by ten by repeated
+subtraction and `txt_draw_num4` subtracts powers of ten, because in both cases
+the divisor is a constant. Here it is whatever fleet the player has, so:
+
+- eight steps of a **restoring divide** give `C = floor(256 * hull / full)`.
+  Both operands stay inside sixteen bits by construction — HL is left below DE
+  at the top of every step and DE is at most `ENT_MAX * 255` = 12240, so the
+  doubling cannot run out of register;
+- then `(C * 100) >> 8` is one `mul_u8` and taking `H`.
+
+**It is measured against the current roster, not the mission's starting one**,
+and the consequence is worth stating: killing off a badly damaged ship raises
+the percentage. That is the honest reading of the question it answers — *how
+battered is the fleet I still have* — and the squadron counts beside it answer
+*how much fleet is there*. One number cannot answer both without lying about
+one of them.
+
+#### It cost 0.9% of the frame and now costs 0.4%
+
+The first version walked the entity table **every frame** and reloaded the
+record base out of memory four times a slot: 174 T-states on an EMPTY slot, and
+there are usually thirty of those. Measured end to end, **5.00 fps became 4.85
+over two thousand frames** — a real regression, not the tick-boundary
+quantisation this file warns about elsewhere, and `test_frame_rate_does_not_regress`
+caught it. Two changes:
+
+- **The pointer walks the `ENT_FLAGS` byte, not the record.** Starting at
+  `entities + ENT_FLAGS` and stepping by `ENT_SIZE` makes the common case
+  `ld a,(hl)` and a compare — 57 T — and `ENT_HULL` and `ENT_CLASS` are the two
+  bytes immediately *before* the flags, so a live slot reaches them with two
+  `DEC`s and no arithmetic at all. That adjacency is §7's record layout being
+  convenient rather than designed, so `src/main.asm` asserts it: move
+  `ENT_CLASS` and the fleet's hull is silently summed out of `ENT_SPEED`.
+- **One reading in four** (`WAVE_READ_EVERY`). Nothing is lost: at five game
+  frames a second a figure that moves five times a second and one that moves
+  once are the same figure to a human eye, and `wave_send` takes its own
+  reading at the moment it sizes a wave, so the number the scaling uses is
+  never stale by even one frame. Every fourth frame rather than "when something
+  changed", deliberately — the things that move the fleet's hull are combat, a
+  death, a ship being BUILT and a mission being set up, and a trigger that had
+  to list all four would be wrong the first time a fifth was added.
+
+Measured after: **7,953 T for a reading, 2,353 T averaged over the cycle**, and
+5.000 / 4.950 / 4.975 fps over 400 / 1000 / 2000 frames — the same 5.0 the
+build had before. `tests/test_waves.TestWhatItCosts` holds that line with
+test_sound's loop-and-count technique.
 
 ### The keyboard is scanned from the interrupt, and why it has to be
 
@@ -1737,6 +2046,7 @@ there twice. Worth reading as a list of the shapes to look for:
 | `form_offsets` | 216 | Loose and Wall are the SAME 4×4 lattice, one flat and one on end; Wedge is flat so its Y is structurally zero. 384 bytes of `defw` became four numbers, sixteen pairs and one real 3D shape |
 | `help_col_right` | ~120 | the help page's right column was the orders menu written out a second time. It now DRAWS `menu_entries`, stepping over the key id in front of each string |
 | `title_star_table` | ~95 | forty stars as (x, y, pixel). The objection to generating them was TWINKLING, and twinkling comes from randomness — a xorshift reseeded to the same constant every frame lays the same field down every frame |
+| `title_rand` | ~8 of bank 4 | ...and then the attack waves needed the same eight instructions with the opposite habit. `sys_rand_step` takes the word in HL and hands it back, so the STEP is shared and the STATE is not — which is the whole distinction, and sharing the state would have made every campaign send the same waves |
 | `dist_manhattan` | ~90 | combat and the economy each had their own copy of the P/V test, the negate, the shift and the saturate |
 | `phase4_add_rect` | ~80 | six things record dirty rectangles and every one carried its own ten instructions |
 | `grid_lattice` | 96 | sixteen points made of four numbers. Stepped now, like `mark_lattice_step` |
@@ -1885,6 +2195,10 @@ in the file is the order on screen. Keep every line inside 19 characters;
 `txt_draw` clips at the screen edge, not at the column.
 
 ### The HUD
+
+Three rows now, not two: `HUD_ROW_C_Y` at 168 carries the fleet's hull
+percentage and `INCOMING`, in ten lines of the strip that had been black since
+the day it was drawn. See "The fleet's hull, on the screen".
 
 Owns the strip below `HUD_TOP` (line 168). `spr_clip_bottom` keeps the
 tactical view out of it, which is what lets the HUD be redrawn only when it

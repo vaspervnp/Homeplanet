@@ -29,6 +29,38 @@ See "A squadron is born where its ships are" in CLAUDE.md for the rule, and
 for why every existing squadron test — all of which counted — agreed with the
 bug.)*
 
+*(The fifth — attack waves after three minutes, random in number, strength and
+spacing, and a fleet-health percentage on screen — is done. See "Attack waves,
+and the price of staying" in CLAUDE.md for the scaling rule (hull, not
+headcount), the measured win rate, and the three design decisions; and "The
+fleet's hull, on the screen" for the third HUD row and the only division in
+the game. `tools/waverate.py` is the measuring stick.)*
+
+## An attacking ship never comes home
+
+Found by `tools/waverate.py` and deliberately not fixed there, because it is
+not about the waves.
+
+`phase4_fly` skips a ship whose `ENT_ORDER` is `ENT_ORDER_ATTACK` — correctly,
+so `cbt_move_enemies` can close it on its target without the two systems
+cancelling by stepping it `PHASE4_STEP` in opposite directions. But **nothing
+clears the order when the target dies.** So after any fight the fleet sits
+wherever the last enemy was, forever, and `fleet_save` carries those
+coordinates into the next mission.
+
+It has always been true and the waves only made it visible: loiter through
+three waves in mission 4 and the fleet begins mission 5 scattered six thousand
+units from the Mothership, which is alone at the origin when THE NEBULA's eight
+hostiles spawn on top of it. Measured: the campaign died at mission 5 in six
+runs out of six, at full hull, with no wave on the screen.
+
+`G` is the workaround and a player has to know to press it. The fix is in
+`cbt_fire_if_able`, where the target is already found to be wreckage: if the
+re-acquire comes back with `ENT_NO_TARGET` there is nothing left to attack, and
+the order could drop to `ENT_ORDER_GUARD` there — which is what "the fight is
+over" means. Check what `cbt_retarget_one` does with GUARD first; it also
+returns early for it, for the same "not the AI's to overwrite" reason.
+
 ## Zoom on `+` and `-` as well as `Z` and `X`
 
 Same two commands, second pair of keys. `order_zoom` in `src/game/order.asm`

@@ -37,6 +37,14 @@ ENT_F_ACTIVE        equ %00000001
 ENT_F_ENEMY         equ %00000010
 ENT_F_DISABLED      equ %00000100       ; crippled: capturable by a Salvage Corvette
 
+;  Arrived with an attack wave rather than with the mission (game/waves.asm).
+;  The ONE thing it changes is that mis_count_enemies looks past it: a CLEAR
+;  objective asks for the mission's own picket, and counting the arrivals would
+;  make the objective uncompletable the moment the first wave landed -- so `J`
+;  would never be offered and the waves would trap the player in the mission
+;  they exist to push them out of.
+ENT_F_WAVE          equ %00001000
+
 ENT_ORDER_IDLE      equ 0
 ENT_ORDER_MOVE      equ 1
 ENT_ORDER_ATTACK    equ 2

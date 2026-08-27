@@ -138,6 +138,11 @@ mis_setup:
     ld hl,0
     ld (mis_timer),hl
 
+    ;  The attack-wave clock runs off mis_timer, which has just gone back to
+    ;  zero, so the three minutes are per MISSION by construction. wave_init is
+    ;  in the low 16K with the rest of the frame loop's simulation.
+    call wave_init
+
     ;  Clear out whatever the last mission left behind.
     call mis_clear_enemies
 
@@ -337,8 +342,16 @@ mis_update:
 
 
 ; ----------------------------------------------------------------------------
-;  mis_count_enemies -- A = how many hostiles are left alive
+;  mis_count_enemies -- A = how many of the MISSION'S hostiles are left alive
 ;  Uses: everything
+; ----------------------------------------------------------------------------
+;  Attack waves are excluded, and that is a design decision rather than an
+;  optimisation: a CLEAR objective is the picket the mission placed, and the
+;  waves are pressure to leave once it is dead. Count them and the objective
+;  can never be met again, `J` is never offered, and the player is trapped in
+;  the mission the waves exist to push them out of. ENT_F_WAVE is folded into
+;  the mask below and costs nothing -- a wave ship's flags no longer equal
+;  ACTIVE+ENEMY, so the compare rejects it.
 ; ----------------------------------------------------------------------------
 mis_count_enemies:
     xor a
@@ -350,7 +363,7 @@ mis_count_enemies:
     ld de,ENT_FLAGS
     add hl,de
     ld a,(hl)
-    and ENT_F_ACTIVE + ENT_F_ENEMY
+    and ENT_F_ACTIVE + ENT_F_ENEMY + ENT_F_WAVE
     cp ENT_F_ACTIVE + ENT_F_ENEMY
     jr nz,@mis_count_next
     ld hl,mis_left

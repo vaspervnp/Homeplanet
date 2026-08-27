@@ -218,7 +218,13 @@ key_scan:
 ;
 ;  In : -
 ;  Out: key_hits = every edge accumulated since the last call; key_edge zeroed
-;  Uses: AF, B, DE, HL
+;  Uses: AF, BC, DE, HL
+;
+;  It also SEEDS THE GAME'S RANDOM GENERATOR, once, on the first key of the
+;  run. This is the one place that already knows a key went down, and
+;  sys_tick_50hz at the moment a human presses one is worth most of eight bits
+;  for the cost of a load -- see sys/rand.asm for why that has to happen
+;  exactly once and how the tests pin the result.
 ;
 ;  Called ONCE, at the top of demo_update, before anything reads key_hit. Runs
 ;  from the main loop with interrupts on and ends with EI unconditionally --
@@ -235,15 +241,21 @@ key_consume:
     ld hl,key_edge
     ld de,key_hits
     ld b,KEY_ROWS
+    ld c,0                              ; every edge byte, ORed together
 @key_take:
     ld a,(hl)
     ld (hl),0
     ld (de),a
+    or c
+    ld c,a
     inc hl
     inc de
     djnz @key_take
     ei
-    ret
+    ld a,c
+    or a
+    ret z
+    jp sys_rand_stir                    ; does nothing after the first press
 
 
 ; ----------------------------------------------------------------------------

@@ -90,6 +90,28 @@ CTX_Y               equ 1
 ;  HUD: two rows of five slots at the bottom of the screen.
 HUD_ROW_A_Y         equ 178
 HUD_ROW_B_Y         equ 188
+
+;  ...and a THIRD row above them, which cost nothing to find. Section 5.5
+;  budgets a 32-pixel strip and HUD_TOP is 168, but the two rows above are at
+;  178 and 188 -- so lines 168..177 have been part of the HUD's strip and black
+;  since the day it was drawn. The fleet's hull percentage lives there
+;  (game/waves.asm); neither existing row had four characters to spare.
+;  168 and not 169, which is what it was first and what it looked wrong at.
+;  The strip's three rows want the SAME gap between them or they read as two
+;  blocks rather than three lines: at 169 the gap to row A is two scanlines and
+;  A to B is three, and the hull figure visibly leans on the squadron list. At
+;  168 all three gaps are three. The cost is that the glyphs sit hard against
+;  the last line of the playfield -- which is the line a sprite is already
+;  clipped in half on, so there is nothing there to crowd.
+HUD_ROW_C_Y         equ 168
+HUD_HP_X            equ 2
+HUD_HP_CHARS        equ 9               ; "HULL 100%"
+HUD_SAY_X           equ 24
+
+;  Below this the figure goes to ink 3. Section 2 keeps that ink for the thing
+;  that wants attention, and a third of a fleet's hull is when the answer to
+;  "one more wave or jump now" changes.
+HUD_HP_ALARM        equ 33
 HUD_X               equ 2
 HUD_ENTRY_CHARS     equ 5               ; ">n:cc"
 HUD_ENTRY_BYTES     equ HUD_ENTRY_CHARS * 2
@@ -254,6 +276,11 @@ demo_update:
     call cbt_update
     call eco_update
     call mis_update
+    ;  The attack-wave clock, on mis_timer's own tick and immediately after it
+    ;  -- including in the sensor view below, which runs the battle at triple
+    ;  speed but still advances the mission once. Three minutes is three
+    ;  minutes whichever view the player is in.
+    call wave_update
     ;  Sensors run the battle at triple speed (section 9): the view exists for
     ;  the long transits, and there is nothing to look at while they happen.
     ld a,(view_sensors)
@@ -294,6 +321,10 @@ demo_update:
     call phase4_draw_explosions
     call phase4_draw_disc
     call phase4_hud
+    ;  The hull readout owns the top row of the HUD's strip and keeps its own
+    ;  dirty flag, because it changes every time a shot lands and phase4_hud's
+    ;  costs ninety thousand T-states to honour. See game/waves.asm.
+    call wave_draw
 
 ;  ...and the context bar last of all, for the same reason the HUD is drawn
 ;  late: it owns its strip outright, and nothing that ran above may be allowed
@@ -1837,6 +1868,15 @@ phase4_hud:
     or a
     ret z
     dec (hl)                            ; once into each buffer
+
+    ;  The hull row is repainted with us, and this is the only coupling between
+    ;  the two. Everything that schedules a mis_wipe marks the HUD dirty, and a
+    ;  wipe clears ALL 200 lines -- including the row above this strip, which
+    ;  wave_draw owns and which nothing else would ever put back. Setting the
+    ;  flag rather than calling it keeps the "once into each buffer" bookkeeping
+    ;  in one place.
+    ld a,2
+    ld (wave_dirty),a
 
     ld a,1
     ld (phase4_hud_squad),a

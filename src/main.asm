@@ -54,6 +54,7 @@ game_main:
     include "sys/irq.asm"
     include "sys/screen.asm"
     include "sys/keyboard.asm"
+    include "sys/rand.asm"
     include "sys/sound.asm"
     include "sys/fdc.asm"
     include "sys/libload.asm"
@@ -73,6 +74,10 @@ game_main:
     include "game/economy.asm"
     include "game/mission.asm"
     include "demo/phase4.asm"
+;  After phase4, because it draws into the HUD's strip and takes its layout
+;  equates from there. It is the frame loop's simulation like combat and the
+;  economy, so it stays in the low 16K with them rather than going to bank 4.
+    include "game/waves.asm"
 
 ; ----------------------------------------------------------------------------
 ;  Generated lookup tables. Must come last: they are page-aligned and would
@@ -145,6 +150,50 @@ code_end:
 ;  added with a check back in it, the Mothership indicator stops working for
 ;  exactly the distances it exists to cover.
     assert CAM_ZOOM_LAST_RADIUS == 32768, "the widest zoom step no longer covers the whole world"
+
+; ----------------------------------------------------------------------------
+;  Attack waves (game/waves.asm) and the hull readout that shares their number.
+; ----------------------------------------------------------------------------
+;  ENT_F_WAVE has to be its own bit. It is ORed into a flags byte that already
+;  carries three, and mis_count_enemies masks all four together -- an overlap
+;  would make every wave ship read as active, hostile or crippled depending on
+;  which bit it collided with, and two of those are silent.
+    assert (ENT_F_WAVE & (ENT_F_ACTIVE + ENT_F_ENEMY + ENT_F_DISABLED)) == 0, "ENT_F_WAVE collides with another entity flag"
+
+;  Mission 8's objective is MIS_OBJ_SURVIVE, which is a countdown on the same
+;  mis_timer the waves run off. If the first wave could land before that
+;  countdown expired, the last mission of the campaign would be a different
+;  game from the one it was authored as -- and nothing at run time would say so.
+    assert WAVE_FIRST_FRAMES > MIS_SURVIVE_TICKS, "the first wave lands before a SURVIVE objective can be met"
+
+;  The spacing is WAVE_GAP_MIN + 3.5 * a byte and the player was promised one
+;  to four minutes; at the measured 5.0 game frames a second that is 300..1200.
+    assert WAVE_GAP_MIN >= 300, "the shortest gap between waves is under a minute"
+    assert WAVE_GAP_MIN + 3 * 255 + 127 <= 1200 + 32, "the longest gap between waves is over four minutes"
+
+;  A wave ship's hull is WAVE_HULL_MIN + (a byte AND WAVE_HULL_SPAN), and it is
+;  written into one byte. Overflow would wrap a tough ship into a paper one.
+    assert WAVE_HULL_MIN + WAVE_HULL_SPAN <= 255, "a wave ship's hull does not fit a byte"
+
+;  wave_health walks a pointer along the ENT_FLAGS byte and reaches the other
+;  two fields it needs with two DECs, which is what takes it from 174 T-states
+;  a slot to 57. That the three are adjacent is section 7's record layout being
+;  convenient rather than anything having been designed, so say so here: move
+;  ENT_CLASS and the fleet's hull is silently summed out of ENT_SPEED.
+    assert ENT_HULL == ENT_FLAGS - 1, "wave_hp_add reaches ENT_HULL with one DEC"
+    assert ENT_CLASS == ENT_FLAGS - 2, "wave_hp_add reaches ENT_CLASS with two DECs"
+
+;  The third HUD row. It has to be inside the strip the HUD owns -- otherwise
+;  the tactical view draws over it and the dirty-rectangle erase scrubs it --
+;  and clear of row A, which nothing at run time would notice.
+    assert HUD_ROW_C_Y >= HUD_TOP, "the hull row is outside the strip the HUD owns"
+    assert HUD_ROW_C_Y + TXT_CHAR_H <= HUD_ROW_A_Y, "the hull row runs into the squadron list"
+
+;  ...and its two fields against each other and against the screen edge.
+;  txt_draw clips at the edge and says nothing, so these are the only guard.
+    assert HUD_HP_X + HUD_HP_CHARS * TXT_CHAR_W_BYTES <= HUD_SAY_X, "the hull figure runs into INCOMING"
+    assert HUD_SAY_X + (wave_say_text_end - wave_say_text - 1) * TXT_CHAR_W_BYTES <= SCR_BYTES_PER_LINE, "INCOMING runs off the screen"
+    assert HUD_HP_ALARM < 100, "the hull alarm threshold is not a percentage"
 
 ; ----------------------------------------------------------------------------
 ;  The low 16K is the whole world below the bank window. If we ever spill past
