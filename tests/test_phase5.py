@@ -465,8 +465,7 @@ class TestSensorView(ControlFixture):
         case the fast-forward has to pay for.
         """
         def lit():
-            ram = self.c.read_ram(h.front_buffer(self.c), 0x4000)
-            return sum(1 for y in range(168) for x in range(80) if ram[h.screen_offset(y, x)])
+            return h.playfield_lit(self.c, self.sym)
 
         self.hold("z", frames=25)                # in one step
         self.c.run_frames(150)
@@ -519,13 +518,13 @@ class TestSensorView(ControlFixture):
                            f"sensors advance {ratio:.1f}x per frame, not the ~3x of section 9")
 
     def test_no_residue_in_the_sensor_view(self):
+        #  The PLAYFIELD, not "everything above the HUD" -- see playfield_lit.
         self.hold("s", frames=20)
         self.open_disc()
         self.c.key_down(cpc.KEY_RIGHT)
         for _ in range(6):
             self.c.run_frames(15)
-            ram = self.c.read_ram(h.front_buffer(self.c), 0x4000)
-            lit = sum(1 for y in range(168) for x in range(80) if ram[h.screen_offset(y, x)])
+            lit = h.playfield_lit(self.c, self.sym)
             self.assertLess(lit, 200, f"{lit} lit bytes: the dots are trailing")
         self.c.key_up(cpc.KEY_RIGHT)
 

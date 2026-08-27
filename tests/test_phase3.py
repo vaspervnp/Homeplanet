@@ -35,9 +35,12 @@ class SpriteFixture(unittest.TestCase):
         #  The sprite library lives in extended bank 4, so it has to be read
         #  through the CPU's view of memory rather than by base-RAM address.
         cls.block = h.read_cpu(cls.c, cls.sym["INTERCEPTOR_C"], TIER_C_BLOCK_SZ)
-        #  The demo clips the tactical view above the HUD strip. These tests
-        #  are about the blitter itself, so give it the whole screen back.
+        #  The demo clips the tactical view out of the HUD strip below and the
+        #  context bar above. These tests are about the blitter itself, so give
+        #  it the whole screen back -- BOTH ends, or every negative-y clipping
+        #  case below is really testing where the context bar happens to stop.
         cls.c.write_ram(cls.sym["SPR_CLIP_BOTTOM"], bytes([200]))
+        cls.c.write_ram(cls.sym["SPR_CLIP_TOP"], bytes([0]))
 
     def poke_word(self, name, value):
         self.c.write_ram(self.sym[name], struct.pack("<H", value & 0xFFFF))

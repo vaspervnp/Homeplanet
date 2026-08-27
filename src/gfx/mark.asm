@@ -66,7 +66,7 @@ MOTH_H_SHIFT        equ 8               ; world units per pixel of it: 256
 ;  the tactical view, and held far enough in from the top and bottom that the
 ;  height bar always has somewhere to go.
 MOTH_CENTRE_Y       equ 84
-MOTH_Y_MIN          equ MOTH_H_MAX + 2
+MOTH_Y_MIN          equ CTX_BAR_H + MOTH_H_MAX + 2
 MOTH_Y_MAX          equ HUD_TOP - MOTH_H_MAX - 4
 
 
@@ -132,10 +132,67 @@ mark_cross:
     jr z,mark_store                     ; already hard against the left edge
     dec a                               ; ...and a byte either side
 
+; ----------------------------------------------------------------------------
+;  mark_store -- record the rectangle just drawn, clamped to the viewport
+;  In : A = the left byte column; (mark_rect + 1) = y, (mark_rect + 3) = rows
+;  Uses: everything
+;
+;  gfx_vline clips what is DRAWN, but every caller above works its rectangle
+;  out from the UNCLIPPED position -- so a marker half off the top of the
+;  viewport recorded a rectangle reaching into the context bar, and next
+;  frame's phase4_erase scrubbed a row out of it. The bar is only repainted
+;  when the context changes, so the hole would have stayed there.
+;
+;  The same was quietly true at the bottom, where a dot at y=190 took a bite
+;  out of the HUD -- the HUD does not clear its strip, it draws labels onto
+;  it, so anywhere it happened not to put a glyph the erased pixels stayed
+;  erased. Clamping here fixes both, once, for every marker there is.
+; ----------------------------------------------------------------------------
 mark_store:
     ld (mark_rect + 0),a
+
+    ld a,(mark_rect + 1)
+    ld c,a                              ; C = top
+    ld a,(mark_rect + 3)
+    add a,c
+    ld b,a                              ; B = bottom, exclusive
+
+    ;  The common case is a marker nowhere near either edge, and it pays for
+    ;  two compares. spr_clip_top is deliberately the byte AFTER
+    ;  spr_clip_bottom so the second one is an INC HL; src/main.asm asserts it.
+    ld hl,spr_clip_bottom
+    ld a,(hl)
+    cp b
+    jr c,@mark_clip
+    inc hl                              ; -> spr_clip_top
+    ld a,(hl)
+    cp c
+    jr z,@mark_append
+    jr nc,@mark_clip
+@mark_append:
     ld hl,mark_rect
     jp phase4_add_rect
+
+@mark_clip:
+    ld a,(spr_clip_top)
+    cp c
+    jr c,@mark_top_ok
+    jr z,@mark_top_ok
+    ld c,a
+@mark_top_ok:
+    ld a,(spr_clip_bottom)
+    cp b
+    jr nc,@mark_bottom_ok
+    ld b,a
+@mark_bottom_ok:
+    ld a,b
+    sub c
+    ret c                               ; entirely outside it: nothing to erase
+    ret z
+    ld (mark_rect + 3),a
+    ld a,c
+    ld (mark_rect + 1),a
+    jr @mark_append
 
 
 ; ----------------------------------------------------------------------------
@@ -215,7 +272,7 @@ mark_patch:
     ld (mark_rect + 3),a
     ld hl,(mark_px)
     call mark_x_bytes
-    jr mark_store
+    jp mark_store                       ; JP: mark_store is 144 bytes back
 
 
 

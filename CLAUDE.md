@@ -29,7 +29,7 @@ python3 -m unittest tests.test_phase0 -v     # one test module
 **Always `make test` before saying something works.** The emulator gives us
 the whole machine state; there is no reason to guess.
 
-354 tests, about **six minutes**. It doubled when the sprite libraries moved
+373 tests, about **six minutes**. It doubled when the sprite libraries moved
 onto the disc: every `boot_quick` spins the drive up and reads `LIB_SECTORS`
 per bank, which is a second and a half of emulated time per machine and there
 are about a hundred machines. That is the price of testing the real loader
@@ -90,6 +90,18 @@ You can also call any routine directly: poke a stub that sets up registers and
 drawing routine, and it is a real unit test of real Z80 code.
 
 Gotchas:
+- **A test that counts lit bytes must count the PLAYFIELD**, not "everything
+  above the HUD". There is permanent chrome at both ends of the screen now —
+  the context bar is ~330 lit bytes and the HUD another hundred — and counting
+  either swamps whatever the test was asking about. `harness.playfield_lit`
+  is the one copy; three tests started failing the day the bar arrived and
+  every one of them was counting the same 330 bytes on both sides of its own
+  comparison.
+- **A screen test that only reads the front buffer is half a test.** The
+  display page-flips, so anything drawn into one buffer and not the other is
+  on screen every *other* frame — which looks like flicker on the machine and
+  like nothing at all in `read_ram(front_buffer(c))`. The context bar shipped
+  that bug and `tests/test_ctxbar.py` reads `0x8000` and `0xC000` both.
 - Two `CPC` instances in one process interfere. One emulator per process.
 - It comes up with **cassette** as the default filing system, unlike a real
   6128 with a drive. `boot_disc` sends `|DISC` first.
@@ -144,13 +156,17 @@ gives you a CRTC that has never been initialised. `harness.boot_quick` runs
 and prints how many bytes are left in the low 16K and in every bank. Watch all
 of them, and watch the "hand-written code ends at" figure rather than `free:` —
 see "Where 700 bytes came from" for why the second one lies. The low 16K has
-**2304 bytes of which about 1850 are reachable**, and bank 4 has **1032** —
-and both of those numbers are new. They were 512 and 9. See "Six yaw views,
-and where the space went" for what changed and what it bought; the short
-version is that the low 16K stopped being desperate and bank 4 is now the
-place most new code should go by default. The help text, the mission table,
-the formation shapes, the per-class data, the cached half of the marker pass,
-the player's commands and the campaign's setup and teardown all live there.
+**2048 bytes of which about 1600 are reachable**, and bank 4 has **438**.
+Before six yaw views they were 512 and 9; see "Six yaw views, and where the
+space went" for what that bought. The short version is that the low 16K
+stopped being desperate and bank 4 is the place most new code should go by
+default. The help text, the mission table, the formation shapes, the per-class
+data, the cached half of the marker pass, the context bar, the player's
+commands and the campaign's setup and teardown all live there.
+
+**Bank 4 is the tight one again.** The context bar spent 595 of its 1032 on
+code and words. The low 16K is still comfortable, and the two are not
+interchangeable — see "The one rule" below for what may go where.
 
 **The low 16K's real floor is not `#4000`.** `tests/test_sound.py` puts 384
 bytes of stub above `CODE_END` and `harness` puts another 0x60 there, so the
@@ -227,6 +243,11 @@ not, and the line is deliberate rather than forced — the low 16K is not
 desperate any more, and having the per-frame simulation in one place is worth
 more than the bytes. If it gets desperate again, those two are next and they
 are safe.
+
+`game/ctxbar.asm` is the newest thing across that line and the clearest case
+of the narrow test: it runs **once every frame**, at the very end, and it is
+still bank code because nothing pages bank 4 out between `phase4_hud` and the
+frame counter. `gfx/markproj.asm` is the other one.
 
 **Code moves for free; data costs a hundred test call sites.** Every one of
 the three files above was SPLIT rather than moved: the routines went to the
@@ -482,6 +503,9 @@ Six is a quarter off every library — **5760 bytes a class → 4320**, 45 KB �
 | `DISC.BIN` | 25179 | 23951 |
 | sectors read at boot | 69 | 51 |
 
+(Those are the figures on the day. The context bar has since spent 595 of the
+bank and one page of the low 16K; today's numbers are in "Memory map".)
+
 **The low 16K figure is the point, and it is not a direct consequence.**
 Freeing bank 4 does nothing on its own; what it does is make room for code to
 LEAVE the low 16K. `game/ordercmd.asm` (the §9 commands), `game/squadcmd.asm`
@@ -594,7 +618,22 @@ so a routine drawing in white never has to ask what the last one left.
 In the strip: labels and chrome (`RU`, `M`, `?HELP`) and the squadrons that are
 *not* selected are ink 2, so the selection is the only white entry and the eye
 finds it without reading a digit. `JUMP` is ink 3 -- the one thing in the HUD
-that demands an action, in the ink §2 reserves for attention.
+that demands an action, in the ink §2 reserves for attention. The context bar
+follows the same reading: `PAUSED` and `ENTER BUY` in ink 3, the `RU` caption
+in ink 2, everything else white.
+
+**A test can read the words back off the screen whichever ink they are in**,
+because the three inks are one pixel pattern in three positions: folding a
+screen byte's low nibble up with `(b | (b << 4)) & 0xF0` recovers the pen-1
+glyph. `tests/test_ctxbar.py` decodes the whole bar that way and compares
+against the machine's own font table, so "the bar says NEED MORE RU" is a
+statement about pixels rather than about a flag.
+
+> **The comma and the full stop used to differ by ONE PIXEL**, and the bar's
+> `, . PICK` therefore read as `. . PICK` -- which says nothing at all about
+> which keys walk the build list. The comma now sits a row higher with its
+> tail below, and both stay inside rows 0-6 so row 7 is still blank leading.
+> Look at a glyph before spending a line of the screen on it.
 
 ### The palette is semantic
 
@@ -726,6 +765,11 @@ Design document section 13 lists ten phases.
   Mothership indicator all draw through one pass** — see "Markers" below. All
   three are fixed world points, so all three are cached against a hash of the
   camera and cost nothing on the frames it has not moved.
+- **The screen has a strip at each end now.** The HUD owns everything below
+  line 168 and the **context bar** everything above line 10, and both are
+  redrawn only when what they say changes. The bar is what tells the player
+  which keys are live, and in the build panel it names the class and its price
+  — see "The context bar".
 
 `src/demo/phase4.asm` is the acceptance test running on the CPC itself.
 
@@ -770,6 +814,10 @@ not needed and should stay unspent.
 | `SPACE` | on the title screen, start the game |
 
 `J` jumps when the objective is met, and writes the save on its way out.
+
+**The context bar at the top of the screen names whichever of these are live
+right now** — see its own section. That is where a player is meant to find
+out that `,` and `.` have changed meaning, rather than from this table.
 
 While the build panel is open it takes over `,`, `.` and `ENTER` — one pair of
 keys, two meanings, decided by the mode the player can see on screen.
@@ -946,15 +994,20 @@ mission table.
 
 **`DISC.BIN`'s ceiling is what decides where a sprite library can live.** It
 loads at `#4000` and must finish below `#A700`, so it has 26368 bytes to play
-with; it is currently 23951, ending just under `#9D3F`, and that is **about
-2.4 KB of headroom**. One RLE-packed library is 2-3 KB. That arithmetic is the
+with; it is currently 24812, ending just under `#A09C`, and that is **about
+1.5 KB of headroom**. One RLE-packed library is 2-3 KB. That arithmetic is the
 whole reason six of the eight classes are read off the disc into banks 5-7
 instead of travelling in the file — it is not a stylistic choice, and no amount
-of better packing gets 34 KB of sprites under a 2.4 KB gap.
+of better packing gets 34 KB of sprites under a 1.5 KB gap.
 
-The bank-4 image stays RLE-compressed (`tools/packsprites.py`, 14328 → 10111
+**Watch this figure, not just the bank's.** It is the second ceiling on bank 4
+and it moves with it: every byte added to the bank-4 image costs `DISC.BIN`
+whatever it packs down to. The context bar's 595 bytes cost the file 861,
+because code does not compress.
+
+The bank-4 image stays RLE-compressed (`tools/packsprites.py`, 14922 → 10716
 bytes); without it the file would not fit at all. It packs worse than it used
-to — 70% rather than 62% — because most of what six yaw views freed there was
+to — 72% rather than 62% — because most of what six yaw views freed there was
 promptly filled with CODE, and code does not have runs of `#FF,#00` in it. Uninitialised bank data (the
 fleet buffer) is deliberately declared *after* `bank4_end` so it costs nothing
 in the file.
@@ -1127,6 +1180,25 @@ mission from four to seven. The fight is decided by which ship re-targets on
 which game frame, `demo_wait_frame` drops the rate rather than the picture,
 and a few hundred T-states move a frame boundary. Missions 1-6 and 8 did not
 move at all. Run the control before believing a swing here.
+
+**And it happened again, exactly as predicted, so here is the whole
+experiment.** The context bar costs ~2,500 T-states a frame and the campaign
+now ends at mission **7** rather than 8 — the Mothership is lost there instead
+of surviving with four ships. Three runs of `tools/balance.py`, same day, same
+machine:
+
+| build | mis 1-6 lost | mission 7 | mission 8 |
+|---|---|---|---|
+| HEAD | 1 | 7 lost, survives | fleet lost |
+| HEAD + 520 T of `djnz` and nothing else | 1 | 9 lost, survives | fleet lost |
+| HEAD + the context bar | 2 | **Mothership lost** | — |
+
+520 T-states of pure delay moves mission 7 from seven ships to nine. The bar's
+2,500 pushes it past the edge. **Nothing about the balance changed** — no
+number in `classdata.asm` or `campaign.asm` moved — and the middle row is the
+proof. Do not tune anything in response to this; if the campaign is to reach
+mission 8 again it is because the frame got faster, not because a hull got
+bigger.
 
 That is the same shape as before the classes arrived, and it has to be: the
 script never spends its RU, so every ship in it is an interceptor, and the
@@ -1397,8 +1469,9 @@ pitch, zoom and the focus, exactly the way §5.4 caches the stars. Twenty-one
 points through `proj_point` is about 100,000 T-states, a fifth of a frame, and
 the player is not turning the camera on most frames. The cached half is
 `gfx/markproj.asm` and it lives **in bank 4**, because it only ever runs with
-the window at rest; it is the one piece of bank code reached from inside the
-frame loop, and the rule it must not break is the one in `game/shipclass.asm`.
+the window at rest; it is one of the two pieces of bank code reached from
+inside the frame loop — `game/ctxbar.asm` is the other — and the rule neither
+may break is the one in `game/shipclass.asm`.
 
 **The one thing NOT cached is a patch's ink**, because that is a function of a
 stock that runs down while the camera sits still. A cached colour would be
@@ -1489,10 +1562,15 @@ that have nothing to do with the change start failing because `test_sound`
 reserves `#180` of scratch above `CODE_END`.
 
 That was the ceiling for a long time and the hand-written code sat at `#31B3`,
-four bytes under it. It is `#2A7A` now — see "Six yaw views, and where the
-space went" — so there are seven whole pages of room before that edge is
+four bytes under it. It is `#2B04` now — see "Six yaw views, and where the
+space went" — so there are six whole pages of room before that edge is
 anywhere near again. The table above is still the list of shapes to look for
 when it is.
+
+**And the 256-byte step is real, so budget for it.** The context bar's top
+clip added 70 bytes to the low 16K and cost a whole page: `free:` went from
+2304 to 2048 for 70 bytes of `spr_blit` and `mark_store`. Measure `CODE_END`,
+not `free:`, and expect the bill in units of 256.
 
 Both `print` statements now come BEFORE their asserts. RASM stops at a failing
 assert, and "bank 4 contents overflow the window" without a number is a
@@ -1621,6 +1699,131 @@ changes rather than every frame — worth ~90,000 T. `phase4_hud_changed`
 compares the counts against a shadow copy rather than having each command
 remember to flag itself, because ships dying will change the counts with
 nobody pressing anything.
+
+### The context bar
+
+One line across the top of the screen saying what the keys do **right now**.
+It is the mirror of the HUD in every respect — it owns a strip, ships are
+clipped out of it, and it is repainted only when what it says changes.
+
+`src/game/ctxbar.asm`, in bank 4. `CTX_BAR_H` is 10 and the text sits at
+`CTX_Y` 1, so the playfield is lines 10..167 rather than 0..167 — which moves
+the middle of the visible band from y=84 to y=89 and therefore *closer* to the
+y=100 the projection centres on, not further from it.
+
+| context | what it says |
+|---|---|
+| playing | `ESC MENU  ENTER MOVE  B BUILD  , . TARGET` |
+| `order_paused` | `PAUSED` in ink 3, then `SPACE RESUME   ESC MENU` |
+| `disc_active` | `ARROWS MOVE  SHIFT UP/DN  ENTER OK  ESC` |
+| `eco_build_open` | the class by NAME, its cost in RU, `, . PICK`, and whether ENTER will work |
+| title, briefing, help, orders menu | nothing: suppressed |
+
+**It exists because of a specific failure.** A player who had been told the
+build panel is `B`, then `,`/`.`, then ENTER, asked **twice** how to choose
+what to build. The yard's whole readout was `>SCT` in the corner of the bottom
+strip: no name, no price, and nothing to say `,` and `.` were live at all —
+and those two keys mean "step the target" with the panel shut and "step the
+price list" with it open, with no way to see which. So the build context is
+the one the layout is built around, and it is the only one with fields rather
+than a single string.
+
+**Why `PAUSED` is here and not in the bottom strip.** It is the same idea —
+the game telling the player what state it is in — and a word in the HUD would
+only have had to move up here two days later. Ink 3, because §2 reserves it
+for the thing that wants attention and a paused fleet does not look paused, it
+looks broken: it simply stops obeying.
+
+**The build panel's three refusals are eco_queue's own, re-derived.**
+`ctx_build_state` walks the same checks in the same order — yard busy first,
+then the cost — because `eco_queue` does not leave a flag to read and a bar
+that says `ENTER BUY` to a yard that says no is worse than no bar.
+`ENTER BUY` is ink 3, like `JUMP`: the one key on screen asking to be pressed.
+The refusals stay white, because they are an answer rather than an alarm.
+
+#### The full-screen pages are suppressed, and that is a decision
+
+The title, the briefing, the help page and the orders menu each own the whole
+screen and each already draws its own prompt — `PRESS SPACE TO START`,
+`ENTER`, `ESC - BACK`, `UP/DOWN  ENTER  ESC` under the list it belongs to. Two
+prompts for one screen is one of them being wrong the first time the other
+changes.
+
+It also costs nothing to implement: every one of those pages clears from line
+0, so putting the page up IS taking the bar down, and coming back is a context
+change like any other.
+
+> **The bug that came out of that, and it is the one worth reading.** A page
+> closes by clearing its own flag inside its `_key` routine, and `demo_update`
+> then draws the page **one more time in the same frame**. So on that frame
+> the context already said "playing" while the screen still held the briefing.
+> The bar got painted there, into whichever buffer that frame owned — and the
+> two frames of `mis_wipe` that follow then cleared it out of the *other* one,
+> with `ctx_dirty` already spent. Front buffer only, it looked perfect; the
+> display page-flips, so on the machine the bar was there every **other**
+> frame for the rest of the mission. `@p4_static_done` therefore calls
+> `ctx_changed` and not `ctx_bar`: notice the change, leave the paint to the
+> first genuinely playing frame, which is after both wipes.
+>
+> `tests/test_ctxbar.TestTheFullScreenPages` reads BOTH buffers. A screen test
+> that only looks at the front one cannot see this class of bug at all.
+
+#### `spr_clip_top`
+
+The mirror of `spr_clip_bottom`, in `gfx/sprite.asm`, and it had to be
+threaded through **three** places, not one:
+
+- `spr_blit`'s vertical clip. The old code treated "y is negative" as the skip
+  case; it now computes `clip_top - y` and skips that many rows, which is the
+  same arithmetic with `clip_top` of 0.
+- `gfx_vline`, which every marker, the move disc and the sensor view draw
+  through.
+- **`mark_store`, and this is the one that is easy to miss.** `gfx_vline`
+  clips what is DRAWN, but `mark_bar`/`mark_cross`/`mark_patch` work their
+  dirty rectangle out from the *unclipped* position — so a marker half off the
+  top recorded a rectangle reaching into the bar, and next frame's
+  `phase4_erase` scrubbed a row out of it. Nothing would ever repair that: the
+  bar comes back only when the context changes.
+
+  **The same was quietly true at the bottom and had been all along.** A
+  lattice dot at y=190 was taking a bite out of the HUD, which does not clear
+  its strip but draws labels onto it, so the erased pixels stayed erased.
+  Clamping in `mark_store` fixes both, once, for every marker there is.
+
+`spr_clip_top` and `spr_clip_bottom` **must both stay in the low 16K** —
+`spr_blit` is the only thing that runs with a foreign bank under the window
+and it reads both on every sprite. `src/main.asm` asserts that, and also that
+they are ADJACENT, because `mark_store` and `gfx_vline` read the second with
+an `INC HL`.
+
+`title_draw_ships` opens both ends to the whole screen and closes both again
+itself, for the reason the title section explains.
+
+#### Hoisting the clip out of `gfx_vline` is a pessimisation
+
+Written first, and reverted. Clipping the run once and dropping the test from
+the row loop costs ~100 T-states either way, and **almost everything drawn
+through `gfx_vline` is one row**: the reference plane is sixteen single-pixel
+dots and a resource patch is three more. Break-even is three rows and only the
+move disc's stem is ever long. The per-row version with an `INC HL` for the
+second bound is ~20 T a row and wins outright.
+
+#### What it costs, and the tick boundary it landed on
+
+About 2,500 T-states a frame — 0.4% — nearly all of it the two extra bounds
+tests in `spr_blit`, `gfx_vline` and `mark_store`. The bar's own `ctx_changed`
+is a handful of byte compares and its paint happens twice per context change.
+
+That 0.4% moved the frame-rate test from 5.00 to 4.75 fps, which is the
+quantisation trap this file already documents in "Six loops walked all 48
+slots". Measured over 1000 frames instead of 200 the two builds are the same
+5.0: `4.95, 5.0, 5.0, 5.05` — one game frame lost at the start and one made up
+later. The frames right after a briefing is dismissed are the heaviest the
+game ever runs (`mis_wipe` clears all 16,000 bytes twice, the HUD repaints
+into both buffers, the bar does the same), two of them cross a tick boundary,
+and `demo_frames` is an integer — so 19.8 game frames counted as 19.
+`test_frame_rate_does_not_regress` now settles for 100 frames and measures
+over 400.
 
 ### Known open questions
 

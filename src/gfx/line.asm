@@ -43,7 +43,8 @@ gfx_pixel_setup:
 ;  Uses: everything
 ;
 ;  Clipped against the tactical viewport, not the screen: the HUD strip below
-;  spr_clip_bottom is not ours to draw on.
+;  spr_clip_bottom and the context bar above spr_clip_top are not ours to draw
+;  on.
 ; ----------------------------------------------------------------------------
 gfx_vline:
     ld (gfx_pen),a
@@ -55,11 +56,26 @@ gfx_vline:
     ld (gfx_y),a
     ld (gfx_x),hl
 
+;  Both bounds, per row, and NOT hoisted out of the loop.
+;
+;  Hoisting was written first and is the obvious optimisation: clip the run
+;  once, drop the test from the loop. It is a PESSIMISATION here, and the
+;  arithmetic says so -- clipping the run costs about a hundred T-states
+;  either way, and almost everything drawn through this is ONE row. The
+;  reference plane is sixteen single-pixel dots, a resource patch is three
+;  more, and only the move disc's stem is ever long. Break-even is three rows
+;  and the frame is full of ones.
+;
+;  spr_clip_top is deliberately the byte after spr_clip_bottom so the second
+;  bound is an INC HL rather than another LD HL,nn; src/main.asm asserts it.
 @gfx_line_row:
     ld a,(gfx_y)
     ld hl,spr_clip_bottom
     cp (hl)
     jr nc,@gfx_line_next                ; at or below the HUD strip: not ours
+    inc hl                              ; -> spr_clip_top, next door on purpose
+    cp (hl)
+    jr c,@gfx_line_next                 ; ...and above it is the context bar
 
     ld hl,(gfx_x)
     ld a,(gfx_y)

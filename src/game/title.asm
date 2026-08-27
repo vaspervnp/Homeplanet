@@ -230,6 +230,7 @@ title_draw_ships:
     ld a,SCR_HEIGHT_PX
     ld (spr_clip_bottom),a
     xor a
+    ld (spr_clip_top),a                 ; ...both ends, and both put back below
     ld (spr_enemy),a
 
     ld hl,title_ship_table
@@ -269,6 +270,8 @@ title_draw_ships:
 
     ld a,HUD_TOP                        ; the strip belongs to the HUD again
     ld (spr_clip_bottom),a
+    ld a,CTX_BAR_H                      ; ...and the top one to the context bar
+    ld (spr_clip_top),a
     ret
 
 

@@ -98,6 +98,32 @@ class_tag:
 class_tag_end:
 
 ; ----------------------------------------------------------------------------
+;  ...and the whole word, for the context bar.
+;
+;  Three letters in the corner of the HUD is what the player could not read:
+;  they were told the build panel was B then , and . then ENTER, and asked
+;  twice how to choose what to build, because "SCT" in a five-byte field says
+;  nothing about what it is or what it costs. The bar has forty characters and
+;  can afford the word.
+;
+;  Stored back to back and zero-terminated rather than at a fixed stride --
+;  eight names is 71 bytes this way and 96 at twelve apiece, and ctx_class_name
+;  walks them with the same mis_next_line the briefing uses. No length may
+;  exceed CTX_NAME_CHARS or it runs into the cost figure; txt_draw clips at
+;  the screen edge, not at a field, so nothing else would catch it.
+; ----------------------------------------------------------------------------
+class_name:
+    defb "INTERCEPTOR",0
+    defb "MOTHERSHIP",0
+    defb "HARVESTER",0
+    defb "SCOUT",0
+    defb "BOMBER",0
+    defb "FRIGATE",0
+    defb "SALVAGE",0
+    defb "DESTROYER",0
+class_name_end:
+
+; ----------------------------------------------------------------------------
 ;  What the yard offers, in the order , and . step through -- cheapest first,
 ;  so the panel reads as a price list.
 ; ----------------------------------------------------------------------------

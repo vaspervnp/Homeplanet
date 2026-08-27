@@ -485,12 +485,15 @@ txt_font:
     defb %00000000
     defb %00000000
 
-    ;  comma
+    ;  comma. Sits a row HIGHER than the full stop, with the tail below it,
+    ;  because the two used to differ by exactly one pixel -- and the context
+    ;  bar's ", . PICK" then read as ". . PICK", which says nothing at all
+    ;  about which keys walk the build list.
     defb %00000000
     defb %00000000
     defb %00000000
     defb %00000000
-    defb %00000000
+    defb %01100000
     defb %01100000
     defb %01000000
     defb %00000000

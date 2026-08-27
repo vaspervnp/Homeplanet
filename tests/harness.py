@@ -328,6 +328,22 @@ def front_buffer(c: cpc.CPC) -> int:
     return crtc_page(c)
 
 
+def playfield_lit(c: cpc.CPC, sym: dict[str, int], bottom: int = 168) -> int:
+    """Count the non-empty bytes of the TACTICAL VIEW in the buffer on show.
+
+    From spr_clip_top down, and both edges matter. The screen has permanent
+    chrome at each end -- the context bar's forty characters are about 330 lit
+    bytes and the HUD's two rows about a hundred -- and a test that counts
+    either is measuring furniture that never moves. It swamps whatever the
+    test was actually asking about: three of them started failing the day the
+    bar arrived, and every one of them was counting the same 330 bytes on both
+    sides of its own comparison.
+    """
+    ram = c.read_ram(front_buffer(c), 0x4000)
+    return sum(1 for y in range(sym["CTX_BAR_H"], bottom) for x in range(80)
+               if ram[screen_offset(y, x)])
+
+
 def crtc_page(c: cpc.CPC) -> int:
     """Which 16K buffer the CRTC is currently displaying, as its base address."""
     r12 = (c.crtc_screen_addr >> 8) & 0xFF

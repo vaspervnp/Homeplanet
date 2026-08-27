@@ -189,6 +189,11 @@ bank4_start:
     include "game/titletext.asm"
     include "game/menutext.asm"
     include "game/staticscreens.asm"
+;  The context bar. It runs once a GAME FRAME rather than only while the game
+;  is stopped, which makes it the second thing here reached from inside the
+;  frame loop -- see the note at the top of the file for why that is still
+;  bank code, and gfx/markproj.asm for the other one.
+    include "game/ctxbar.asm"
 ;  Section 14's mitigation -- six yaw views instead of eight -- took the two
 ;  bank-4 sprite libraries from 11520 bytes to 8640, and these three moved
 ;  into what it freed. They are the same kind of thing as everything above
@@ -367,3 +372,50 @@ bank7_end:
     assert class_sprite < BANK_WINDOW, "class_sprite is in the bank window and would page itself out"
     assert class_geom < BANK_WINDOW, "class_geom is in the bank window and would page itself out"
     assert class_bank < BANK_WINDOW, "class_bank is in the bank window"
+
+;  ...and so are the two clip bounds. spr_blit is the ONLY thing that ever runs
+;  with a foreign bank under the window, and it reads both of them on every
+;  sprite. A clip bound in bank 4 would be read out of a sprite library, which
+;  is a plausible-looking number and would clip the ships to a random band.
+    assert spr_clip_top < BANK_WINDOW, "spr_clip_top is in the bank window"
+    assert spr_clip_bottom < BANK_WINDOW, "spr_clip_bottom is in the bank window"
+
+;  mark_store reads the two of them with an INC HL rather than a second
+;  LD HL,nn, because it runs about twenty times a frame and this is a marker
+;  pass that was measured at 2% of it. Separate them and the fast path tests
+;  the top edge against whatever byte lands in between.
+    assert spr_clip_top == spr_clip_bottom + 1, "mark_store's fast path needs the two clip bounds adjacent"
+
+; ----------------------------------------------------------------------------
+;  The context bar's layout.
+;
+;  Nothing at run time would catch a line that is too long: txt_draw clips at
+;  the SCREEN edge and not at a field, so a string that overruns silently
+;  writes over its neighbour and a string that reaches byte 80 is simply
+;  truncated. These are the only guard there is, and they are here rather than
+;  beside the text because ASSERT is evaluated where it stands and the bank is
+;  included further down than the code that draws it.
+; ----------------------------------------------------------------------------
+    assert CTX_Y + TXT_CHAR_H <= CTX_BAR_H, "the context bar's text does not fit the strip it owns"
+    assert CTX_BAR_H < HUD_TOP, "the context bar and the HUD strip overlap"
+
+    assert ctx_text_play_end - ctx_text_play <= CTX_BAR_CHARS + 1, "the playing line is wider than the screen"
+    assert ctx_text_disc_end - ctx_text_disc <= CTX_BAR_CHARS + 1, "the move disc line is wider than the screen"
+    assert (ctx_text_pause_tail - ctx_text_paused - 1) * TXT_CHAR_W_BYTES <= CTX_PAUSE_TAIL_X, "PAUSED runs into the rest of its line"
+    assert CTX_PAUSE_TAIL_X + (ctx_text_pause_end - ctx_text_pause_tail - 1) * TXT_CHAR_W_BYTES <= SCR_BYTES_PER_LINE, "the paused line is wider than the screen"
+
+;  The build panel's four fields, each against the start of the next one.
+    assert CTX_NAME_X + CTX_NAME_CHARS * TXT_CHAR_W_BYTES <= CTX_COST_X, "a class name would run into the cost"
+    assert CTX_COST_X + 3 * TXT_CHAR_W_BYTES <= CTX_RU_X, "the cost figure would run into the RU label"
+    assert CTX_RU_X + (ctx_text_pick - ctx_text_ru - 1) * TXT_CHAR_W_BYTES <= CTX_KEYS_X, "the RU label would run into the keys"
+    assert CTX_KEYS_X + (ctx_text_pick_end - ctx_text_pick - 1) * TXT_CHAR_W_BYTES <= CTX_STAT_X, "the key hint would run into the status"
+    assert CTX_STAT_X + (ctx_text_poor - ctx_text_buy - 1) * TXT_CHAR_W_BYTES <= SCR_BYTES_PER_LINE, "ENTER BUY runs off the screen"
+    assert CTX_STAT_X + (ctx_text_busy - ctx_text_poor - 1) * TXT_CHAR_W_BYTES <= SCR_BYTES_PER_LINE, "NEED MORE RU runs off the screen"
+    assert CTX_STAT_X + (ctx_text_end - ctx_text_busy - 1) * TXT_CHAR_W_BYTES <= SCR_BYTES_PER_LINE, "YARD BUSY runs off the screen"
+
+;  A SUM, and it only catches gross overrun -- one name eighteen characters
+;  long and three short ones would slip through. There is no way to ask RASM
+;  for the longest of eight strings, and the alternative was a fixed stride
+;  that costs 25 bytes to buy an exact check on a table that changes once a
+;  year. Keep every name inside CTX_NAME_CHARS by hand.
+    assert class_name_end - class_name <= CLASS_COUNT * (CTX_NAME_CHARS + 1), "the class names do not fit the context bar's name field"

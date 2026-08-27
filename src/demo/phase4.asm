@@ -77,6 +77,16 @@ DEMO_TICKS_PER_FRAME equ 4              ; 50 Hz / 4 = 12.5 fps
 ;  out of the strip is what lets the HUD be redrawn only when it changes.
 HUD_TOP             equ 168
 
+;  ...and the context bar owns the strip ABOVE this line, by the same bargain:
+;  ships are clipped out of it, so it only has to be repainted when the words
+;  on it change. One 8-pixel text row and a scanline of air under it.
+;
+;  The playfield is 10..167 rather than 0..167. That is 158 lines of the 200,
+;  and it moves the middle of the visible band from y=84 to y=89 -- CLOSER to
+;  the y=100 the projection centres on, not further from it.
+CTX_BAR_H           equ 10
+CTX_Y               equ 1
+
 ;  HUD: two rows of five slots at the bottom of the screen.
 HUD_ROW_A_Y         equ 178
 HUD_ROW_B_Y         equ 188
@@ -125,6 +135,8 @@ demo_init:
 
     ld a,HUD_TOP
     ld (spr_clip_bottom),a
+    ld a,CTX_BAR_H
+    ld (spr_clip_top),a
     ld a,2
     ld (phase4_hud_dirty),a
 
@@ -169,10 +181,7 @@ demo_update:
     jr z,@p4_check_brief
     call title_key
     call title_draw
-    call phase4_rects_reset
-    ld hl,demo_frames
-    inc (hl)
-    ret
+    jr @p4_static_done
 
 @p4_check_brief:
     ;  While the briefing is up nothing else runs: no orders, no simulation,
@@ -183,10 +192,7 @@ demo_update:
     call mis_brief_key
     call phase4_select_list
     call mis_brief_draw
-    call phase4_rects_reset
-    ld hl,demo_frames
-    inc (hl)
-    ret
+    jr @p4_static_done
 
     ;  The key list stops the world for the same reason the briefing does, and
     ;  is checked after it so a briefing is never covered by one.
@@ -197,10 +203,7 @@ demo_update:
     call help_key
     call phase4_select_list
     call help_draw
-    call phase4_rects_reset
-    ld hl,demo_frames
-    inc (hl)
-    ret
+    jr @p4_static_done
 
     ;  The orders menu. Choosing an entry injects that entry's key and closes,
     ;  and then we deliberately fall THROUGH into the playing path so
@@ -217,10 +220,26 @@ demo_update:
     jr z,@p4_playing                    ; finished with: let the order happen
     call phase4_select_list
     call menu_draw
+
+;  Every full-screen page leaves the same way: throw this buffer's dirty list
+;  away, because the page painted over all of it and pays that debt with
+;  mis_wipe instead. Four copies of that used to be written out, and the fifth
+;  thing to add would have gone into three of them.
+;
+;  THE CONTEXT BAR IS NOTICED HERE BUT NOT DRAWN, and that is not tidiness.
+;  A page closes by clearing its own flag inside its `_key` routine, and the
+;  frame loop then goes on to draw the page one last time in the SAME frame --
+;  so by the time this runs, the context already says "playing" while the
+;  screen still holds the briefing. Painting the bar there put it into
+;  whichever buffer that frame owned, and the two frames of mis_wipe that
+;  follow then cleared it out of the other one with ctx_dirty already spent.
+;  The bar was on screen every OTHER frame for the rest of the mission.
+;  Setting the flag here and leaving the paint to the first PLAYING frame gets
+;  both buffers, after both wipes.
+@p4_static_done:
     call phase4_rects_reset
-    ld hl,demo_frames
-    inc (hl)
-    ret
+    call ctx_changed
+    jp @p4_frame_counted                ; JP: the whole playing path is between
 
 @p4_playing:
     call phase4_commands
@@ -276,6 +295,12 @@ demo_update:
     call phase4_draw_disc
     call phase4_hud
 
+;  ...and the context bar last of all, for the same reason the HUD is drawn
+;  late: it owns its strip outright, and nothing that ran above may be allowed
+;  to have the last word on it.
+@p4_frame_done:
+    call ctx_bar
+@p4_frame_counted:
     ld hl,demo_frames
     inc (hl)
     ret
@@ -1355,6 +1380,13 @@ phase4_draw_count:
     ret c
     cp HUD_TOP - TXT_CHAR_H + 1
     ret nc
+    ;  ...and out of the context bar's strip at the other end. txt_draw has no
+    ;  vertical clip at all -- it clips at the right-hand edge and nowhere else
+    ;  -- so this is the only thing standing between a stack of ships near the
+    ;  top of the view and a "+12" written across the bar.
+    ld hl,spr_clip_top
+    cp (hl)
+    ret c
     ld (phase4_grp_y),a
 
     ;  One digit or two, and no leading space: txt_draw_num pads its field on

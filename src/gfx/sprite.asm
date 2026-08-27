@@ -33,20 +33,44 @@ SPR_ENEMY_UNIT      equ 17              ; the recolouring unit is longer
 ; ----------------------------------------------------------------------------
 spr_blit:
     ; ================= vertical clip =====================================
+    ;  Against the VIEWPORT, not against the screen. The context bar owns the
+    ;  strip above spr_clip_top exactly the way the HUD owns the one below
+    ;  spr_clip_bottom, and for the same reason: a strip that only redraws
+    ;  when it changes cannot have ships drawn over it.
+    ;
+    ;  A caller that wants the whole screen sets spr_clip_top to 0, at which
+    ;  point this is the code that was here before -- one SUB where there used
+    ;  to be a NEG.
     ld hl,(spr_y)
     ld a,(spr_h)
     ld b,a                              ; B = rows still to draw
     ld de,(spr_src)
 
-    bit 7,h
-    jr z,@y_not_negative
+    ld a,h
+    or a
+    jr z,@y_top_byte_zero
+    inc a
+    jp nz,spr_reject                    ; |y| >= 256; nothing of it can land
 
-    ;  Top edge above the screen: drop that many rows and step the source
-    ;  past them.
-    ld a,l
-    neg                                 ; rows to skip (y is > -256 in practice)
+    ;  y is negative and above -256, so L is y + 256 and the rows above the
+    ;  viewport are clip_top + 256 - L. That only fits a byte while L is
+    ;  bigger than clip_top -- and if it is not, the sprite is 240-odd rows up
+    ;  and no height we draw could reach back down.
+    ld a,(spr_clip_top)
+    sub l
+    jp nc,spr_reject
+    jr @y_skip_rows
+
+@y_top_byte_zero:
+    ld a,(spr_clip_top)
+    sub l
+    jr z,@y_inside                      ; exactly on the top edge
+    jr c,@y_inside                      ; below it: nothing to skip
+
+@y_skip_rows:
+    ;  A = rows above the viewport. Drop them and step the source past them.
     cp b
-    jp nc,spr_reject                    ; the whole sprite is above the screen
+    jp nc,spr_reject                    ; the whole sprite is above it
     ld c,a                              ; C = rows skipped
     ld a,b
     sub c
@@ -64,13 +88,12 @@ spr_blit:
     dec c
     jr nz,@skip_rows
 
-    ld hl,0                             ; y = 0
+    ld a,(spr_clip_top)
+    ld l,a
+    ld h,0                              ; y = the top of the viewport
 
-@y_not_negative:
-    ;  Bottom edge: clamp the row count so we stop at line 199.
-    ld a,h
-    or a
-    jp nz,spr_reject                    ; y >= 256, off the bottom
+@y_inside:
+    ;  Bottom edge: clamp the row count so we stop at spr_clip_bottom.
     ld a,(spr_clip_bottom)
     sub l
     jp z,spr_reject
@@ -302,6 +325,13 @@ spr_erow_end:
 ;  Callers that want the whole screen (the blitter's own tests) set this to
 ;  SCR_HEIGHT_PX.
 spr_clip_bottom:    defb SCR_HEIGHT_PX
+
+;  ...and the first scanline it MAY touch. The context bar owns everything
+;  above it. Zero here rather than CTX_BAR_H so that a caller which never
+;  heard of the bar -- the blitter's own tests, anything drawing before
+;  demo_init has run -- gets the whole screen; demo_init sets it, and
+;  title_draw_ships opens it and closes it again the way it does the other end.
+spr_clip_top:       defb 0
 
 ;  Set before spr_blit to draw the sprite in the enemy colour.
 spr_enemy:          defb 0

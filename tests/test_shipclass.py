@@ -490,10 +490,13 @@ class TestTheFallback(ClassFixture):
         self.assertEqual(self.byte("MIS_FAILED"), 0)
 
     def ink(self):
-        """Bytes of the tactical view that are not empty space."""
-        ram = self.c.read_ram(h.front_buffer(self.c), 0x4000)
-        return sum(1 for y in range(160) for x in range(80)
-                   if ram[h.screen_offset(y, x)])
+        """Bytes of the tactical view that are not empty space.
+
+        Between the context bar and the HUD -- see harness.playfield_lit. The
+        bar alone is more lit bytes than the ships are at this zoom, so
+        counting it would let a fleet of invisible stand-ins pass.
+        """
+        return h.playfield_lit(self.c, self.sym, bottom=160)
 
 
 class TestTierBias(ClassFixture):
