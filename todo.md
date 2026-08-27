@@ -54,3 +54,40 @@ does not touch it.
   from, if anyone wants mission 8 back.** See the balance table under "A fleet
   has to be able to concentrate": the campaign ending at 7 rather than 8 is
   2,500 T-states, not a balance change.
+
+## Squadron numbers get mixed up after `d` / `m` / `n` / `c`
+
+Reported from play: selecting squadrons "mixes them up", and the player
+narrowed it to **after the reshaping commands** — divide, move one forward,
+move one back, combine. Not after `1`-`9` on their own, and not after `O`.
+
+**Three obvious causes are already ruled out** — do not spend the afternoon on
+them again:
+
+- **The digit mapping is right.** `key_digit_ids` was checked entry by entry
+  against the hardware matrix: rows 8, 7, 6, 5, 4 with the odd/even pairs the
+  right way round. This is the trap CLAUDE.md documents and it is not this.
+- **The HUD lists squadrons by NUMBER, not by position.** `phase4_hud_row`
+  walks 1..5 then 6..9 and prints each number with its count, blank if empty,
+  so what sits in the third slot really is squadron 3. The display and the keys
+  cannot disagree about which is which.
+- **The derived counts are not stale.** All four commands end in
+  `jp squad_refresh`, which recounts the whole entity table, so
+  `squad_find_free` is never reading yesterday's `squad_count`.
+
+Where to look next:
+
+- `squad_move_ship` (`src/game/squadcmd.asm`) moves the FIRST active entity
+  whose `ENT_SQUAD` matches — it has no notion of which ship, so repeated
+  moves can walk the same ship back and forth, and `d` peels from the low slot
+  numbers every time. Worth checking what a divide-then-divide actually leaves.
+- `squad_find_free` searches upward *from the selection* and wraps. Combined
+  with `O`'s class-based numbering, which leaves deliberate gaps, "the next
+  free number" and "the number the player expects" may simply differ.
+- `squad_refresh` also moves the SELECTION if the selected squadron emptied.
+  A command that empties the selection and then reports through a HUD keyed on
+  the new selection would look exactly like the numbers jumping about.
+- Reproduce it as a test first: press the real keys in the emulator and assert
+  on `ENT_SQUAD` across all 48 slots after each command, not just on
+  `SQUAD_COUNT`. Every squadron test today checks counts, and counts are
+  preserved by a swap that puts the wrong ships in the wrong places.
