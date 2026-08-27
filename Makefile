@@ -86,8 +86,18 @@ $(DISC_RAW) $(DSK) $(DISC_SYM) &: $(GAME_RAW) $(SPRITE_RLE) $(DISC)
 # the .dsk is minted -- the `rm -f` above throws the previous copy away with
 # everything else on the image. The stamp file is what makes that a make
 # dependency rather than a thing to remember.
-$(BANKED): $(DSK) $(LIB_RAW) $(SYM) tools/discbanks.py
+# The splash screen and its loader. HOME.BAS is ASCII so BASIC can RUN it
+# straight off the disc without tokenising; the .scr is a headerless Mode 0
+# screen and needs its load address given explicitly, or AMSDOS has no way to
+# know where 16K of pixels belongs. The palette lives in assets/revive8b.txt
+# and is written out as INK statements inside HOME.BAS.
+SPLASH_SCR := assets/revive8b.scr
+SPLASH_BAS := assets/home.bas
+
+$(BANKED): $(DSK) $(LIB_RAW) $(SYM) tools/discbanks.py $(SPLASH_SCR) $(SPLASH_BAS)
 	$(PYTHON) tools/discbanks.py $(DSK) $(SYM) $(LIB_RAW)
+	$(IDSK) $(DSK) -i $(SPLASH_BAS) -t 0
+	$(IDSK) $(DSK) -i $(SPLASH_SCR) -c C000 -e C000 -t 1
 	touch $@
 
 $(GEN_DIR)/tables.asm $(GEN_DIR)/zoom.asm &: tools/gentables.py
