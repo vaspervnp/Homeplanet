@@ -100,6 +100,17 @@ press("x", down=40, up=20, note="zoom out")
 press("f", down=25, up=30, note="F -- change formation")
 record(120)
 
+#  The squadron bug this was recorded to check. Dividing used to send the new
+#  half at a FIXED station out of order_home -- up to 6000 units from where
+#  its ships actually were -- so half the formation turned and flew off the
+#  screen. Watch it stay together, then pick each half in turn.
+press("d", note="d -- divide the squadron")
+record(400, "both halves hold together")
+press("2", note="2 -- the new half")
+record(120)
+press("1", note="1 -- the old half")
+record(120)
+
 press(cpc.KEY_ESC, note="ESC -- the orders menu")
 record(90, "the orders, with their shortcuts")
 press(cpc.KEY_DOWN, down=25, up=30, note="down")
