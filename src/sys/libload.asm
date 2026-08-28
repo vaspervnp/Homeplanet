@@ -39,7 +39,24 @@
 ;  the controller writes straight into the window.
 ; ----------------------------------------------------------------------------
 
-LIB_TRACK           equ 12              ; first track of the library area
+;  TWENTY, and it was twelve until MUSIC1.BIN and MUSIC2.BIN went on the disc.
+;  These tracks are RAW SECTORS and AMSDOS knows nothing about them: they are
+;  not files and they are not in its allocation map, so it hands the same
+;  blocks out again to the next file it is asked to write. DISC.BIN, the 16 KB
+;  splash and the two music binaries come to about twelve tracks, and
+;  MUSIC2.BIN landed on top of bank 5.
+;
+;  IT DID NOT FAIL. lib_load read its sectors perfectly and set LIB_OK, because
+;  the sectors were there and readable -- they just held a music player. That
+;  is exactly the failure this file's header warns about, and what caught it
+;  was test_each_bank_holds_exactly_what_the_build_put_on_the_disc comparing
+;  the bank against build/bank5.raw. A test that only asks whether the load
+;  SUCCEEDED cannot see this at all, and the one written alongside the music
+;  asked precisely that and passed.
+;
+;  Twenty leaves eight tracks of headroom above what is on the disc today, and
+;  the libraries end at 28 -- clear of FLEET_TRACK at 39.
+LIB_TRACK           equ 20              ; first track of the library area
 LIB_TRACKS_PER_BANK equ 3               ; 27 sectors, of which we use LIB_SECTORS
 LIB_BANKS           equ 3               ; banks 5, 6 and 7
 

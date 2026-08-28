@@ -31,6 +31,17 @@ MAIN   := $(SRC_DIR)/main.asm
 DISC   := $(SRC_DIR)/disc.asm
 TABLES := $(GEN_DIR)/tables.asm $(GEN_DIR)/zoom.asm
 
+# The two standalone music programs. They are NOT part of the game: each is a
+# whole piece plus a copy of the player, assembled on its own and dropped on
+# the disc as MUSIC1.BIN / MUSIC2.BIN. That is the order tools/genmusic.py and
+# src/musicplay.asm were built in on purpose -- a player with no game around
+# it proves the converter and the AY writes before either has to share a
+# machine with a battle.
+MUSIC_TUNES := tranquility morninglight
+MUSIC_GEN   := $(patsubst %,$(GEN_DIR)/mus_full_%.asm,$(MUSIC_TUNES)) \
+               $(patsubst %,$(GEN_DIR)/mus_loop_%.asm,$(MUSIC_TUNES))
+MUSIC_BIN   := $(BUILD_DIR)/music1.bin $(BUILD_DIR)/music2.bin
+
 DSK      := $(BUILD_DIR)/homeplanet.dsk
 GAME_RAW := $(BUILD_DIR)/home.raw
 SPRITE_RAW := $(BUILD_DIR)/sprites.raw
@@ -51,7 +62,7 @@ RASMFLAGS := -I $(SRC_DIR) -I . -eo
 
 ASM_SOURCES := $(shell find $(SRC_DIR) -name '*.asm' -not -path '$(GEN_DIR)/*')
 
-.PHONY: all tables ships test run clean dsk-list
+.PHONY: all tables ships music test run clean dsk-list
 
 all: $(BANKED)
 
@@ -94,11 +105,25 @@ $(DISC_RAW) $(DSK) $(DISC_SYM) &: $(GAME_RAW) $(SPRITE_RLE) $(DISC)
 SPLASH_SCR := assets/revive8b.scr
 SPLASH_BAS := assets/home.bas
 
-$(BANKED): $(DSK) $(LIB_RAW) $(SYM) tools/discbanks.py $(SPLASH_SCR) $(SPLASH_BAS)
+$(BANKED): $(DSK) $(LIB_RAW) $(SYM) tools/discbanks.py $(SPLASH_SCR) $(SPLASH_BAS) $(MUSIC_BIN)
 	$(PYTHON) tools/discbanks.py $(DSK) $(SYM) $(LIB_RAW)
 	$(IDSK) $(DSK) -i $(SPLASH_BAS) -t 0
 	$(IDSK) $(DSK) -i $(SPLASH_SCR) -c C000 -e C000 -t 1
+	$(IDSK) $(DSK) -i $(BUILD_DIR)/music1.bin -c 4000 -e 4000 -t 1
+	$(IDSK) $(DSK) -i $(BUILD_DIR)/music2.bin -c 4000 -e 4000 -t 1
 	touch $@
+
+# The note streams. Analysing four and a half minutes of ogg takes about half
+# a minute, so this is a real dependency on the source audio rather than
+# something rerun every build.
+$(MUSIC_GEN) &: tools/genmusic.py musicsamples/Tranquility.ogg musicsamples/MorningLight.ogg
+	$(PYTHON) tools/genmusic.py
+
+music:
+	$(PYTHON) tools/genmusic.py
+
+$(BUILD_DIR)/music%.bin: $(SRC_DIR)/music%.asm $(SRC_DIR)/musicplay.asm $(MUSIC_GEN) | $(BUILD_DIR)
+	$(RASM) $< -I $(SRC_DIR) -I . -o $(basename $@)
 
 $(GEN_DIR)/tables.asm $(GEN_DIR)/zoom.asm &: tools/gentables.py
 	$(PYTHON) tools/gentables.py

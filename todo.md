@@ -6,17 +6,112 @@ see [CLAUDE.md](CLAUDE.md) for both.
 
 ---
 
-## 1. Music — the two `musicsamples/*.ogg`, in the game and on the disc
+## 1. Music IN THE GAME — the intro and the battle
+
+**Half of this is done.** `MUSIC1` and `MUSIC2` are on the disc and play, the
+converter works, and the note streams for the two in-game loops are generated
+and waiting in `src/gen/mus_loop_*.asm`. What is left is putting them behind
+the game, and it has one hard problem and one taste problem.
+
+### The hard problem: the interrupt and the bank window
+
+The player has to tick at 50 Hz, which means the interrupt. But the interrupt
+can fire **while `phase4_blit_one` has bank 5, 6 or 7 paged into `#4000`** —
+that is the one rule in `game/shipclass.asm` — so a player that reads its note
+stream out of a bank would read whichever sprite library happened to be under
+the window, and a player that paged its own bank in would corrupt the blit it
+interrupted. Neither is survivable.
+
+There is no fourth option that is free. The three that exist:
+
+- **A shadow byte of "which bank is paged in".** The gate array is write-only,
+  so the interrupt cannot ask. Every `OUT` in `class_tier_addr` would have to
+  update it and the interrupt would restore it. Touches the hottest code in
+  the game to serve the coldest.
+- **A prefetch ring in the low 16K.** The main loop refills a few events per
+  voice from the bank; the interrupt only counts down and writes the AY, and
+  never touches the window at all. This is the shape the rest of the project
+  already has — the interrupt does the minimum — and it is the recommended one.
+  A ring of eight events a voice is 24 bytes each and covers well over a second
+  at 5 fps.
+- **Put the loops in the low 16K.** 723 + 624 bytes against 1024 free. One of
+  them fits and both do not, and it spends the reserve the tests need.
+
+### The taste problem: three channels, and the game already uses them
+
+`snd_update` owns all three voices for the effects and costs 4,433 T-states of
+the ~6,300 a 50 Hz tick spends. Music plus a shot plus a kill does not fit in
+three channels, so something has to give: music on two voices and effects on
+the third, or effects stealing a voice for as long as they last. **This is a
+decision about how the game should sound and it has not been made** — it wants
+an ear, not an argument.
+
+The intro is easier than the battle and should come first: the title screen
+has no effects competing with it and no blitting, so `title_draw` could drive
+the player straight from the frame loop.
+
+---
+
+## 2. What is already built, and where it is
+
+`tools/genmusic.py` decodes with ffmpeg and finds pitches by FFT in three
+bands, one per AY voice. **Its header is careful about what is measured and
+what is chosen**: the pitches are measurement and can be re-run; the three
+bands and where they are cut are an arrangement, and are the first thing to
+change if a tune sounds wrong.
+
+`src/musicplay.asm` is the player and `src/music1.asm` / `src/music2.asm` are
+the two standalone programs. They poll VSYNC rather than using interrupts,
+which is exactly the freedom the in-game version does not have.
+
+**`make music` re-analyses; it is a dependency on the ogg files rather than
+something every build pays for** (about half a minute for four and a half
+minutes of audio).
+
+`tests/test_music.py` reads the AY's registers back out of the chip while the
+player runs and checks the periods against the generated table — that is the
+only test of the whole chain, and it is why the periods are known to be right
+rather than merely plausible.
+
+### The disc filled up, and the music landed on a sprite bank
+
+`LIB_TRACK` is **20** now and was 12. `DISC.BIN` + the 16 KB splash + the two
+music binaries come to about twelve tracks, and AMSDOS wrote `MUSIC2.BIN`
+straight over bank 5 — the library tracks are raw sectors, not files, so they
+are not in its allocation map and it hands the same blocks out again.
+
+**It did not fail.** `lib_load` read its sectors, set `LIB_OK`, and the game
+came up with a bank full of music player. The guard written alongside the music
+asked whether the load had SUCCEEDED and passed throughout; what caught it was
+`test_shipclass`'s comparison of each bank against `build/bank*.raw`. Both
+tests compare CONTENT now.
+
+Twenty leaves eight tracks of headroom. Repacking the libraries as 3+3+2 across
+banks 5-7 is still the move that buys real room, and it now buys it in two
+places: about 900 bytes of `DISC.BIN` (which has 343) and four tracks.
+
+---
+
+## 3. The original entry, kept for the parts still true
 
 `musicsamples/MorningLight.ogg` (4.3 MB) and `musicsamples/Tranquility.ogg`
 (2.7 MB). Wanted: music on the **intro** and **during play**, and two files on
 the disc that can be run on their own as `MUSIC1` and `MUSIC2`. In an upper
 bank.
 
-**Read these three things before starting, because two of them contradict the
-request as stated.**
+### There was no ogg converter, and now there is one
 
-### There is no ogg converter
+**This entry said the only paths were hand transcription or nothing. That was
+wrong, and the reason it was wrong is worth keeping:** it assumed the tool had
+to recognise music the way a person does. It does not. Both pieces turned out
+to have a strong, stable fundamental in each of three registers -- MorningLight
+holds a bass note for seven seconds at a time at 50-70% of its band's energy --
+so an FFT and a peak per band gets the notes out, and the result can be checked
+against the chip afterwards. Measure the input before concluding it cannot be
+done.
+
+The paragraph below is still exactly right about `genmusic.py` in
+GravassistCPC, which is a different tool with a different job.
 
 `~/repos/GravassistCPC/tools/genmusic.py` is **not** an audio converter. It is
 a note-table generator: the melody is written out in Python as `("D2", 100)`

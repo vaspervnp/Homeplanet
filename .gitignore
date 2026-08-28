@@ -1,4 +1,16 @@
 build/
-src/gen/
+src/gen/*
 __pycache__/
 *.pyc
+
+# ...except the note streams. src/gen is ignored because everything in it is
+# cheap to regenerate from checked-in sources -- art/*.json, gentables.py. The
+# music is not: its source is 7 MB of ogg in musicsamples/, which is not worth
+# putting in history for ever. So the 70 KB of generated streams IS checked in,
+# and the repo builds without the audio. Run `make music` when the ogg files
+# are present and a tune has changed.
+!src/gen/mus_*.asm
+
+# The source audio: 7 MB, and the generated streams above are what the
+# build actually needs. Add them deliberately if you want them versioned.
+musicsamples/

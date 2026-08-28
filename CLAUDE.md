@@ -1055,13 +1055,32 @@ upward and `DISC.BIN` takes about six tracks, so the last one is a long way
 from anything it would use — but copy another file onto this disc with CP/M
 and it may land on the save.
 
-**The sprite libraries are on the disc the same way**, tracks 12-20, read by
+**The sprite libraries are on the disc the same way**, tracks 20-28, read by
 `lib_load` at boot and written by `tools/discbanks.py` at build time. Same
 trade, same caveat, and the layout lives in exactly one place: the `LIB_*`
 equates in `src/sys/libload.asm`, which the Python tool reads back out of
 `build/homeplanet.sym` rather than keeping its own copy. A loader and a writer
 that disagree about where a sector is do not crash — they give you a bank full
 of the wrong ship, which reads as a rendering bug.
+
+> **And that is not hypothetical any more. `LIB_TRACK` was 12 and the disc
+> caught up with it.** Adding `MUSIC1.BIN` and `MUSIC2.BIN` took the AMSDOS
+> files to about twelve tracks, and AMSDOS wrote the second one **straight over
+> bank 5** — the library tracks are raw sectors, so they are not in its
+> allocation map and it hands the same blocks out again to the next file.
+>
+> **Nothing failed.** `lib_load` read its sectors, they were there and
+> readable, `LIB_OK` came back 1, and the game booted with a bank full of music
+> player. The test written alongside the music asked whether the load had
+> *succeeded* and passed throughout; what caught it was
+> `test_shipclass.test_each_bank_holds_exactly_what_the_build_put_on_the_disc`,
+> which compares each bank against `build/bank*.raw`. **A disc test that does
+> not compare CONTENT cannot see this class of bug at all** — the same shape as
+> the squadron tests that counted and the combat tests that counted kills.
+>
+> `LIB_TRACK` is 20 now, which leaves eight tracks of headroom above what is on
+> the disc today and still ends clear of `FLEET_TRACK` at 39. Adding another
+> file to the image means checking that figure.
 
 They are stored **uncompressed**, unlike the bank-4 library. Bank 4 is packed
 because `DISC.BIN` has a hard ceiling under AMSDOS; the disc does not, so
@@ -1517,6 +1536,54 @@ rather than "went down at the last scan", and something has to clear it at the
 right moment — a key held across frames must still act once, because every
 command in the game is edge-triggered and `d` dividing a squadron once a frame
 would be a disaster.
+
+### Music: `MUSIC1` and `MUSIC2`, and what is not in the game yet
+
+Two standalone programs on the disc, `RUN"MUSIC1` and `RUN"MUSIC2`, playing
+`musicsamples/Tranquility.ogg` and `musicsamples/MorningLight.ogg` on three AY
+voices. **The game itself has no music yet** — see `todo.md` for the two things
+in the way, one of which is hard and one of which needs an ear.
+
+**The pitches are MEASURED, not transcribed**, and `tools/genmusic.py` is
+careful about the difference. It decodes with ffmpeg, runs one FFT per frame
+per band, and takes each band's strongest partial as that band's note; runs of
+the same note collapse into one entry with a duration, which is why four
+minutes of music is 4.7 KB and a bass note held for seven seconds is one byte
+of duration rather than seventy events. What is *not* measurement is the
+arrangement — that there are three bands, where they are cut, and which gets
+which channel. Those are in `BANDS` and are the first thing to change if a tune
+comes out wrong.
+
+**This was written off as impossible in `todo.md` first, and the reason it was
+written off is the lesson.** The note said the only paths were hand
+transcription — which is not available to anyone here, since nobody working on
+this can listen — or nothing. That assumed the tool had to hear music the way a
+person does. It does not: both pieces have a strong stable fundamental in each
+register, MorningLight holding a bass note for seven seconds at 50-70% of its
+band's energy, so a peak per band gets the notes out. **Measure the input
+before concluding it cannot be done.**
+
+Three things worth knowing:
+
+- **The bands overlap on purpose and the choice is made across them.** Cut so
+  they do not, a note on a boundary flickers between channels frame to frame
+  and sounds like a fault. Chosen independently, the lead and the harmony both
+  pick the loudest thing in the piece and play it in unison — measured, and
+  Tranquility's first bars came out identical note for note. So `assign()`
+  picks the lead first and strikes what it took out of the bands below.
+- **The standalone player uses no interrupts**, and that is the whole reason it
+  is simple: it polls VSYNC like `scr_wait_vsync` and keeps the ROMs, so it can
+  `RET` to BASIC. The in-game version cannot have any of that.
+- **`tests/test_music.py` reads the AY's registers back out of the chip** while
+  the player runs and checks every period against the generated table. That is
+  the only test of the whole chain, and it is what makes "period 2273" mean
+  "A1, the note the analyser found" rather than "some number".
+
+> **Its sampling was wrong first, in the direction that matters.** Six samples
+> two and a half seconds apart reported that a voice never sounded at all — on
+> a player that a 0.3-second sweep shows driving all three continuously. Both
+> pieces are about a third rests by frame count; they are ambient, not
+> chiptunes. It samples twenty-four times across ten seconds now.
 
 ### Sound and the keyboard share port A
 
