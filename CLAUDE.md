@@ -1546,8 +1546,15 @@ makes it the only one a checkout without `musicsamples/` can rebuild. **The
 game itself has no music yet** — see `todo.md` for the two things in the way,
 one of which is hard and one of which needs an ear.
 
-**Everything is quiet and flat: 8/6/7 out of 15, and not one level moves.**
-That is a bed for a game that may be on for an hour, not a title theme.
+**Everything is quiet and flat, and not one level moves.** MUSIC1 and MUSIC2
+are 8/6/7 out of 15; **MUSIC3 is 5/4/6**, half the loudness again, because it
+is the one meant to sit under something. That is a bed for a game that may be
+on for an hour, not a title theme.
+
+> **Half the loudness is two steps down, not half the number.** The AY's
+> amplitude register is logarithmic at about 3 dB a step, so 7/6/8 halved is
+> 5/4/6 and not 4/3/4 — the latter is another 6 dB below that. Worth knowing
+> before answering a request to make something quieter with arithmetic.
 
 > **MUSIC3's first version shaped every held note into four entries that
 > swelled and faded**, on the argument that an unshaped AY square wave reads as

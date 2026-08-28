@@ -6,7 +6,83 @@ see [CLAUDE.md](CLAUDE.md) for both.
 
 ---
 
-## 1. Music IN THE GAME — the intro and the battle
+## 0. THE ORDER, agreed: clean the tests → repack the libraries → title
+## music → the PNG tool
+
+Step 0 is done (MUSIC1 and MUSIC2 are off the disc, 462 tests). **Step 1 is
+the repack, and it is what unblocks step 2** — the title music is written and
+does not fit. Do them in that order or the third one wastes a session.
+
+---
+
+## 1. Repack the sprite libraries as 3+3+2
+
+Six yaw views made a library 4320 bytes, so THREE fit in a 16K window. Eight
+classes are 3+3+2 across banks 5-7 instead of 2+2+2 plus two riding inside
+`DISC.BIN`. It buys, in one change:
+
+- **about 900 bytes of `DISC.BIN`**, which has 343 and is the binding
+  constraint on the whole project;
+- **four tracks of the disc**, which ran out once already and put a music
+  binary on top of bank 5;
+- **the two bank-4 libraries' worth of bank 4**, which has 235.
+
+It touches `LIB_SECTORS`, `LIB_TRACKS_PER_BANK`, `class_bank`,
+`tools/discbanks.py` and the `BANK` sections of `src/main.asm` — all of which
+already read their layout from one place, which is the whole reason this is a
+day's work and not a week's.
+
+**The test that matters is `test_shipclass`'s
+`test_each_bank_holds_exactly_what_the_build_put_on_the_disc`.** It compares
+each bank against `build/bank*.raw`. A repack that gets an offset wrong does
+not crash — it gives a bank full of the wrong ship — and that test is the only
+thing that says so.
+
+---
+
+## 2. Music on the TITLE SCREEN, on `M`
+
+**It is written and it does not fit.** `src/sys/music.asm` is complete and is
+deliberately NOT included in the build; putting it in took bank 4 from 235
+bytes to 20, the low 16K from 1024 to 512, and `DISC.BIN` over `#A700`, where
+`src/disc.asm`'s own assert stopped the build. Do step 1 first and this becomes
+four lines of wiring.
+
+What it needs when the room exists:
+
+- `include "sys/music.asm"` after `sys/sound.asm`, and
+  `include "gen/mus_menu.asm"` in the bank-4 section (199 bytes);
+- `title_open` calls `mus_start`, `title_key` checks `KEY_M` before `KEY_SPACE`
+  and calls `mus_toggle`, and calls `mus_stop` on the way out;
+- `mus_update` from the title's frame loop;
+- ONE change in `sound.asm`: channel B takes a TONE mixer mask rather than a
+  noise one while `snd_music_on` is set. The diff is in this session's history.
+
+**Why it writes no PSG registers at all** is the part worth not re-deriving:
+`snd_update` owns the AY, runs from the 50 Hz interrupt, rebuilds the mixer
+every tick and MUTES every idle channel — a second writer is silenced within a
+tick whatever it writes. So the music fills in the three VOICE BLOCKS instead,
+which turn out to be a held note already (`timer=200, pri=0, vol=v<<4, dvol=0,
+period=p, dstep=0`, refreshed every frame). And it advances by the difference
+in `sys_tick_50hz` rather than by frames, so the tempo is right whatever the
+frame rate does AND none of it has to run in the interrupt — which matters,
+because the interrupt can fire with a sprite bank paged into the window.
+
+---
+
+## 3. A sprite PNG export/import tool
+
+Asked for and not started. `tools/rt2sprite.py` already reads the RetroTools
+project JSON and `tools/mkships.py` already writes PNG contact sheets, so both
+halves of the pixel handling exist; what is missing is a round trip that a
+person can edit in an ordinary paint program and put back. Note that the mask
+is the hard part -- see the graphics-pipeline section of CLAUDE.md for why
+RetroTools' own mask cannot be used, and that pen 0 is transparent when a
+frame has none.
+
+---
+
+## 4. Music IN THE GAME — the battle
 
 **Half of this is done.** `MUSIC1` and `MUSIC2` are on the disc and play, the
 converter works, and the note streams for the two in-game loops are generated

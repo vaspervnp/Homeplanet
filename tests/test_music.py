@@ -1,4 +1,4 @@
-"""MUSIC1 and MUSIC2: the standalone players, and the disc they share.
+"""MUSIC3: the standalone player, and the disc it shares.
 
 The tests that matter here are not "does a file exist" -- they are "does the
 AY end up holding the notes the analyser said it found". So the ones that
@@ -8,11 +8,17 @@ running, and check the periods against the period table the generator wrote.
 The other half is the DISC, and it is the reason this file has a test that
 looks like it belongs somewhere else. The sprite libraries live at tracks
 12-20 as RAW SECTORS, which AMSDOS knows nothing about: they are not files and
-they are not in its allocation map. Adding MUSIC1.BIN and MUSIC2.BIN put about
-8 KB more of real files on an image that was already carrying DISC.BIN and a
-16 KB screen, and the arithmetic came out at twelve tracks -- exactly where
-the libraries start. It fits, and nothing but a test says it still does after
-the next thing is added.
+they are not in its allocation map. Adding the music binaries put real files on an image
+already carrying DISC.BIN and a 16 KB screen, the arithmetic came out at
+twelve tracks -- exactly where the libraries started -- and one of them landed
+on bank 5. LIB_TRACK is 20 now. Nothing but a test says it still fits after
+the next thing is added, and the test has to compare CONTENT: the load
+SUCCEEDS either way.
+
+MUSIC1 and MUSIC2 -- the two transcribed tunes -- have been taken off the
+disc. tools/genmusic.py still has the analyser that made them, behind
+--analyse; nothing here exercises it, because there is nothing left for it to
+produce.
 """
 
 from __future__ import annotations
@@ -34,10 +40,6 @@ STUB = 0x9000
 PSG_BUF = 0x9200
 
 R_MIXER, R_AMP_A, R_AMP_B, R_AMP_C = 7, 8, 9, 10
-
-#  Written by tools/genmusic.py's BANDS, one per voice.
-BAND_VOLUMES = (8, 6, 7)
-
 
 def _w(a):
     return [a & 0xFF, a >> 8]
@@ -103,8 +105,8 @@ def periods_of(stem):
 
 class PlayerFixture(unittest.TestCase):
 
-    TUNE = "MUSIC1"
-    STEM = "tranquility"
+    TUNE = "MUSIC3"
+    STEM = "deepspace"
 
     @classmethod
     def setUpClass(cls):
@@ -190,22 +192,18 @@ class TestItPlays(PlayerFixture):
                         f"periods {sorted(seen - table)} are not in the tune's "
                         f"period table")
 
-    def test_the_three_voices_carry_the_three_band_volumes(self):
-        """Each voice gets its band's amplitude out of BANDS, or zero while it
-        is resting. Anything else means the volume byte of the triple is being
-        read from the wrong offset."""
-        for _, amps, _ in self.sample():
-            for voice, amp in enumerate(amps):
-                self.assertIn(amp, (0, BAND_VOLUMES[voice]),
-                              f"voice {voice} is at amplitude {amp}, which is "
-                              f"neither silent nor {BAND_VOLUMES[voice]}")
-
     def test_all_three_voices_are_used(self):
         """Three separate streams, not one played three times. If the bands
         were assigned independently the lead and the harmony came out in
         unison -- measured, and why assign() in the generator exists."""
+        #  THIRTY SECONDS. The lead is deliberately absent for a third of the
+        #  cycle -- that is the piece's third design decision, not a fault --
+        #  and the cycle is 64 seconds, so a ten-second window can miss it
+        #  entirely and did. Third time this file has been wrong about a
+        #  sampling window; the rule is that the window has to cover the
+        #  STRUCTURE, not just several notes.
         sounding = set()
-        for periods, amps, _ in self.sample(count=6):
+        for periods, amps, _ in self.sample(count=38, every=40):
             for voice, amp in enumerate(amps):
                 if amp:
                     sounding.add(voice)
@@ -222,21 +220,13 @@ class TestItPlays(PlayerFixture):
         self.skipTest("never caught all three voices sounding at once")
 
 
-class TestTheSecondTune(TestItPlays):
-    TUNE = "MUSIC2"
-    STEM = "morninglight"
-
-
-class TestTheComposedOne(TestItPlays):
+class TestTheComposedTune(PlayerFixture):
     """MUSIC3 is written rather than measured, so it is the one tune whose
     notes are known in advance -- and the only one a checkout with no
     musicsamples/ can rebuild at all."""
 
-    TUNE = "MUSIC3"
-    STEM = "deepspace"
-
     #  The composed tune uses its own three levels, all of them low.
-    LEVELS = (7, 6, 8)
+    LEVELS = (5, 4, 6)
 
     def test_the_volume_never_moves(self):
         """The correction the tune was rewritten for.
@@ -266,15 +256,14 @@ class TestTheComposedOne(TestItPlays):
 
     def test_it_is_quiet(self):
         """A bed for a strategy game that may be on for an hour, not a title
-        theme. The AY's amplitude is about 3 dB a step, so eight is roughly
-        12 dB under where a chiptune would sit."""
+        theme. The AY's amplitude register is logarithmic at about 3 dB a
+        step, so six is roughly 18 dB under where a chiptune would sit -- and
+        that is why halving it meant two steps down rather than half the
+        number, which would have been another 6 dB on top."""
         for _, amps, _ in self.sample(count=8, every=40):
             for voice, amp in enumerate(amps):
-                self.assertLessEqual(amp, 8,
+                self.assertLessEqual(amp, 6,
                                      f"voice {voice} is at amplitude {amp}")
-
-    def test_the_three_voices_carry_the_three_band_volumes(self):
-        self.skipTest("composed: it has its own levels, see test_the_volume_never_moves")
 
     def test_the_harmony_never_states_a_third(self):
         """The decision the piece is built on: the two accompanying voices
@@ -328,12 +317,14 @@ class TestTheDiscStillHoldsTheSpriteLibraries(unittest.TestCase):
 
 
 class TestTheGeneratorIsRepeatable(unittest.TestCase):
-    """It is analysis, so it has to give the same answer twice -- otherwise
-    nothing downstream can be tested at all."""
+    """Composition is deterministic by construction and analysis has to be
+    measured to be; either way, two runs that disagree make everything
+    downstream untestable."""
 
     def test_the_report_is_deterministic(self):
-        cmd = [sys.executable, os.path.join(ROOT, "tools", "genmusic.py"),
-               "--report", "tranquility"]
+        #  The default run, which composes MUSIC3 and touches no audio at
+        #  all -- so this works in a checkout with no musicsamples/.
+        cmd = [sys.executable, os.path.join(ROOT, "tools", "genmusic.py")]
         first = subprocess.run(cmd, cwd=ROOT, check=True,
                                stdout=subprocess.PIPE).stdout
         second = subprocess.run(cmd, cwd=ROOT, check=True,

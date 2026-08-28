@@ -31,18 +31,13 @@ MAIN   := $(SRC_DIR)/main.asm
 DISC   := $(SRC_DIR)/disc.asm
 TABLES := $(GEN_DIR)/tables.asm $(GEN_DIR)/zoom.asm
 
-# The two standalone music programs. They are NOT part of the game: each is a
-# whole piece plus a copy of the player, assembled on its own and dropped on
-# the disc as MUSIC1.BIN / MUSIC2.BIN. That is the order tools/genmusic.py and
-# src/musicplay.asm were built in on purpose -- a player with no game around
-# it proves the converter and the AY writes before either has to share a
-# machine with a battle.
-MUSIC_TUNES := tranquility morninglight
-MUSIC_GEN   := $(patsubst %,$(GEN_DIR)/mus_full_%.asm,$(MUSIC_TUNES)) \
-               $(patsubst %,$(GEN_DIR)/mus_loop_%.asm,$(MUSIC_TUNES)) \
-               $(GEN_DIR)/mus_full_deepspace.asm
-MUSIC_BIN   := $(BUILD_DIR)/music1.bin $(BUILD_DIR)/music2.bin \
-               $(BUILD_DIR)/music3.bin
+# MUSIC3.BIN: the composed piece as a standalone program, and the same notes
+# again as src/gen/mus_menu.asm for the title screen. The two transcribed
+# tunes that used to be here are gone; tools/genmusic.py keeps the analyser
+# that made them, behind --analyse, because it works and the next tune may
+# want it.
+MUSIC_GEN   := $(GEN_DIR)/mus_full_deepspace.asm $(GEN_DIR)/mus_menu.asm
+MUSIC_BIN   := $(BUILD_DIR)/music3.bin
 
 DSK      := $(BUILD_DIR)/homeplanet.dsk
 GAME_RAW := $(BUILD_DIR)/home.raw
@@ -116,15 +111,13 @@ $(BANKED): $(DSK) $(LIB_RAW) $(SYM) tools/discbanks.py $(SPLASH_SCR) $(SPLASH_BA
 	$(PYTHON) tools/discbanks.py $(DSK) $(SYM) $(LIB_RAW)
 	$(IDSK) $(DSK) -i $(SPLASH_BAS) -t 0
 	$(IDSK) $(DSK) -i $(SPLASH_SCR) -c C000 -e C000 -t 1
-	$(IDSK) $(DSK) -i $(BUILD_DIR)/music1.bin -c 4000 -e 4000 -t 1
-	$(IDSK) $(DSK) -i $(BUILD_DIR)/music2.bin -c 4000 -e 4000 -t 1
 	$(IDSK) $(DSK) -i $(BUILD_DIR)/music3.bin -c 4000 -e 4000 -t 1
 	touch $@
 
 # The note streams. Analysing four and a half minutes of ogg takes about half
 # a minute, so this is a real dependency on the source audio rather than
 # something rerun every build.
-$(MUSIC_GEN) &: tools/genmusic.py musicsamples/Tranquility.ogg musicsamples/MorningLight.ogg
+$(MUSIC_GEN) &: tools/genmusic.py
 	$(PYTHON) tools/genmusic.py
 
 music:

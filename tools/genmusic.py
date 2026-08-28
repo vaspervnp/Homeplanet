@@ -173,10 +173,10 @@ COMPOSE_DISC = "MUSIC3"
 
 _S = 50                             # one second, in 50 Hz ticks
 
-#  QUIET, AND FLAT. The AY's amplitude is roughly 3 dB a step, so these sit
-#  about 12 dB under where a chiptune would put them -- this is a bed for a
-#  strategy game, not a title theme, and it has to survive being on for an
-#  hour.
+#  QUIET, AND FLAT. These sit about 18 dB under where a chiptune would put
+#  them -- this is a bed for a strategy game, not a title theme, and it has to
+#  survive being on for an hour. MUSIC1 and MUSIC2 are deliberately louder at
+#  8/6/7: they are pieces somebody chose to sit down and listen to.
 #
 #  AND NOT SHAPED. The first version wrote every held note as four entries
 #  whose volume rose and fell, on the theory that an unshaped AY square wave
@@ -189,7 +189,11 @@ _S = 50                             # one second, in 50 Hz ticks
 #  The stream format still carries a volume per entry, so shaping costs
 #  nothing and can come back for something short. It should not come back for
 #  a drone.
-VOL_BASS, VOL_HARMONY, VOL_LEAD = 7, 6, 8
+#  HALVED from 7/6/8. The AY's amplitude register is logarithmic -- about
+#  3 dB a step -- so half the LOUDNESS is two steps down, not half the number.
+#  Halving the numbers instead (4/3/4) would be about a third of this again,
+#  and is one word away if this is still too present.
+VOL_BASS, VOL_HARMONY, VOL_LEAD = 5, 4, 6
 
 
 def _hold(note, seconds, vol):
@@ -567,6 +571,8 @@ def main():
     ap.add_argument("--whole", action="store_true",
                     help="the whole piece rather than the game's loop")
     ap.add_argument("--list", action="store_true")
+    ap.add_argument("--analyse", action="store_true",
+                    help="also transcribe the musicsamples/*.ogg (needs them)")
     ap.add_argument("--outdir", default=os.path.join(ROOT, "src", "gen"))
     args = ap.parse_args()
 
@@ -583,21 +589,27 @@ def main():
         return
 
     os.makedirs(args.outdir, exist_ok=True)
-    #  Both shapes every time: the loops for the game and the whole pieces for
-    #  the two standalone disc programs.
-    for whole in (False, True):
-        for t in TUNES:
-            path, size, bands, playable = build(t, whole, args.outdir)
-            print(f"{os.path.relpath(path, ROOT):34} {size:6} bytes, "
-                  f"{len(playable):3} distinct notes")
+    #  The analysed tunes are BEHIND A FLAG now. MUSIC1 and MUSIC2 were taken
+    #  off the disc, so nothing consumes them -- but the analyser is kept, and
+    #  kept working, because it is the hard half and the next tune may want it.
+    if args.analyse:
+        for whole in (False, True):
+            for t in TUNES:
+                path, size, bands, playable = build(t, whole, args.outdir)
+                print(f"{os.path.relpath(path, ROOT):34} {size:6} bytes, "
+                      f"{len(playable):3} distinct notes")
 
     #  ...and the composed one, which needs no audio at all -- which is why it
     #  is the only tune here that a clone with no musicsamples/ can rebuild.
-    path = os.path.join(args.outdir, f"mus_full_{COMPOSE_NAME}.asm")
-    with open(path, "w") as fh:
-        size, playable = emit_streams(fh, "mus", composed(), COMPOSE_NOTE)
-    print(f"{os.path.relpath(path, ROOT):34} {size:6} bytes, "
-          f"{len(playable):3} distinct notes")
+    #  Twice, under two labels: `mus` for the standalone MUSIC3.BIN, which is
+    #  assembled on its own, and `mus_menu` for the copy the title screen
+    #  plays, which has to coexist with the whole game.
+    for stem, label in ((f"mus_full_{COMPOSE_NAME}", "mus"), ("mus_menu", "mus_menu")):
+        path = os.path.join(args.outdir, f"{stem}.asm")
+        with open(path, "w") as fh:
+            size, playable = emit_streams(fh, label, composed(), COMPOSE_NOTE)
+        print(f"{os.path.relpath(path, ROOT):34} {size:6} bytes, "
+              f"{len(playable):3} distinct notes")
 
 
 if __name__ == "__main__":
