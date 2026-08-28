@@ -9,6 +9,15 @@ DISC.BIN loads at #4000 and must finish below #A700, where AMSDOS keeps its
 workspace. Uncompressed, the game plus the sprite library ended at #A66C --
 148 bytes of headroom for everything the game might ever grow by.
 
+THERE IS NO SPRITE LIBRARY IN BANK 4 ANY MORE. All eight are in banks 5-7 and
+are read off the disc raw (three, three and two -- see src/sys/libload.asm), so
+what this now packs is the bank's CODE and TEXT, which has none of the runs
+below in it: 6445 bytes come out as 6650. The tool is a small net LOSS today
+and is kept because DISC.BIN has thousands of bytes of headroom, the round-trip
+check below is worth having either way, and the moment a ninth class has to
+travel inside the file again this is what makes it fit. Do not read the "about
+half" figure below as a current measurement.
+
 Why RLE, and why de-interleaved
 -------------------------------
 The library is mask/data pairs, and run-length coding it as-is saves NOTHING:

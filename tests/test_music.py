@@ -113,27 +113,64 @@ class PlayerFixture(unittest.TestCase):
         cls.sym = h.symbols()
 
     def setUp(self):
-        self.c = cpc.CPC()
-        self.c.run_frames(h.BOOT_FRAMES)
-        self.assertTrue(self.c.insert_disc(h.DSK), "insert_disc failed")
-        self.c.type_text("|DISC\n")
-        self.c.run_frames(60)
-        self.c.type_text(f'RUN"{self.TUNE}\n')
-        self.c.run_frames(220)
+        self.c = self.boot_player()
 
     def tearDown(self):
         h.close(getattr(self, "c", None))
 
+    def boot_player(self, settle: int = 0):
+        """A fresh machine with the tune playing, `settle` frames further in.
+
+        ONE EMULATOR AT A TIME -- close self.c before calling this for a
+        second machine, or the two interfere; the harness says so and this
+        file is not an exception.
+        """
+        c = cpc.CPC()
+        c.run_frames(h.BOOT_FRAMES)
+        self.assertTrue(c.insert_disc(h.DSK), "insert_disc failed")
+        c.type_text("|DISC\n")
+        c.run_frames(60)
+        c.type_text(f'RUN"{self.TUNE}\n')
+        c.run_frames(220 + settle)
+        return c
+
+    def first_reading(self, settle: int):
+        """(periods, amplitudes, mixer) once, `settle` frames into the tune.
+
+        A WHOLE MACHINE FOR ONE READING, because that is what a reading costs.
+        See sample() for why.
+        """
+        c = self.boot_player(settle)
+        try:
+            r = read_psg(c)
+            return ((r[0] | (r[1] << 8), r[2] | (r[3] << 8), r[4] | (r[5] << 8)),
+                    (r[R_AMP_A], r[R_AMP_B], r[R_AMP_C]),
+                    r[R_MIXER])
+        finally:
+            h.close(c)
+
     def sample(self, every=20, count=24):
         """(periods, amplitudes, mixer) at several points, player resumed.
 
-        DENSELY, and that is not caution. Both pieces are a third rests by
-        frame count -- they are ambient, not a chiptune -- so six samples two
-        and a half seconds apart landed on silence often enough to report that
-        a voice never sounded at all. It said that about voice 1 of one tune
-        and voice 2 of the other, on a player that a 0.3-second sweep shows
-        driving all three continuously. Twenty-four samples across ten seconds
-        is a fair look at a piece this sparse.
+        ONLY THE FIRST READING IS REAL, and everything after it is silence.
+        read_psg takes the CPU away from the player -- that much the comment on
+        it always said -- and the player does not come back: putting the PC
+        where it was is not enough, and saving and restoring AF/BC/DE/HL/IX/IY
+        around the stub does not help either. Measured: every amplitude in
+        every sample after the first is zero, on a player that a run with no
+        sampling in it at all shows driving three voices for a whole minute.
+        So the list this returns is one reading and then `count - 1` rests, and
+        every test built on it is really a one-sample test that has been
+        passing on where the first sample happened to land.
+
+        The 3+3+2 sprite repack is what surfaced that: it took four kilobytes
+        off DISC.BIN, which moved MUSIC3.BIN onto different AMSDOS blocks, which
+        moved the load by about a second -- and the first reading went from
+        just after the third voice enters to just before it.
+        test_all_three_voices_are_used therefore does not use this any more;
+        it boots a machine per sample point (see first_reading), which is slow
+        and true. The three tests still here are the ones a single reading can
+        honestly answer.
         """
         out = []
         for _ in range(count):
@@ -196,17 +233,29 @@ class TestItPlays(PlayerFixture):
         """Three separate streams, not one played three times. If the bands
         were assigned independently the lead and the harmony came out in
         unison -- measured, and why assign() in the generator exists."""
-        #  THIRTY SECONDS. The lead is deliberately absent for a third of the
-        #  cycle -- that is the piece's third design decision, not a fault --
-        #  and the cycle is 64 seconds, so a ten-second window can miss it
-        #  entirely and did. Third time this file has been wrong about a
-        #  sampling window; the rule is that the window has to cover the
-        #  STRUCTURE, not just several notes.
+        #  A MACHINE PER SAMPLE POINT. sample() cannot answer this: only its
+        #  first reading is real -- see its docstring -- so what looked like
+        #  thirty seconds of evidence was one instant, and the day the sprite
+        #  repack moved MUSIC3.BIN by a block that instant landed a second
+        #  earlier and the third voice had not come in yet. Fourth time this
+        #  file has been wrong about a sampling window, and the first time the
+        #  window turned out to be one sample wide.
+        #
+        #  The rule it keeps failing to apply is its own: cover the STRUCTURE.
+        #  The piece is about 64 seconds and ends there -- past ~3200 frames
+        #  the player has handed back to BASIC -- so this walks 0 to 2800 in
+        #  eight steps, which is most of a cycle and every entry in it.
+        h.close(self.c)                 # one emulator per process, always
+        self.c = None
+
         sounding = set()
-        for periods, amps, _ in self.sample(count=38, every=40):
+        for settle in range(0, 2801, 400):
+            _, amps, _ = self.first_reading(settle)
             for voice, amp in enumerate(amps):
                 if amp:
                     sounding.add(voice)
+            if sounding == {0, 1, 2}:
+                break
         self.assertEqual(sounding, {0, 1, 2},
                          f"only voices {sorted(sounding)} ever sounded")
 

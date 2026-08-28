@@ -50,7 +50,7 @@ class MenuFixture(unittest.TestCase):
         return self.c.read_ram(self.sym[name], 1)[0]
 
     def banked(self, name):
-        return h.read_cpu(self.c, self.sym[name], 1)[0]
+        return h.read_bank4(self.c, self.sym[name], 1)[0]
 
     def press(self, key, frames=25):
         self.c.key_down(key)
@@ -242,7 +242,7 @@ class TestTheShortcutsAreShown(MenuFixture):
         has to end in one, and the key it ends in has to be the key the entry
         actually injects."""
         base = self.sym["MENU_ENTRIES"]
-        raw = h.read_cpu(self.c, base, self.sym["MENU_ENTRIES_END"] - base)
+        raw = h.read_bank4(self.c, base, self.sym["MENU_ENTRIES_END"] - base)
 
         rows, i = [], 0
         while i < len(raw):

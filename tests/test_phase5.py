@@ -295,6 +295,15 @@ class TestTheWidthOfTheScreen(ControlFixture):
                 rec[12] = 1                     # squadron 1
                 rec[14] = 0xFF                  # ENT_NO_TARGET
             self.c.write_ram(base + i * 20, bytes(rec))
+
+        #  Let a whole game frame go by before anybody measures. phase4_vis is
+        #  written once a frame by phase4_project, and if the write above lands
+        #  after this frame's projection then the next thing to park at
+        #  scr_wait_vsync reads the PREVIOUS fleet -- which is the starting
+        #  formation, bunched around the station, twelve pixels wide. The test
+        #  then reports the projection wasting the screen when what it actually
+        #  measured was the fleet it had just replaced.
+        self.c.run_frames(30)
         return len(rungs)
 
     def sx_spread(self):

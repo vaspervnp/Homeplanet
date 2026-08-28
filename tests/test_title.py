@@ -45,7 +45,7 @@ class TitleFixture(unittest.TestCase):
         h.close(getattr(self, "c", None))
 
     def banked(self, name, size=1):
-        return h.read_cpu(self.c, self.sym[name], size)
+        return h.read_bank4(self.c, self.sym[name], size)
 
     def string(self, name, limit=40):
         raw = self.banked(name, limit)

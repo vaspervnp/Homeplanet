@@ -2,29 +2,41 @@
 ;  sys/libload.asm -- the sprite libraries that do not fit in DISC.BIN
 ; ============================================================================
 ;  Homeplanet.md section 8 has eight ship classes. A class's sprite library is
-;  5.62 KB (see the note in CLAUDE.md about the pre-shift spill byte), so all
-;  eight are 45 KB -- and DISC.BIN cannot carry them:
+;  4320 bytes (six yaw views; see the note in CLAUDE.md about the pre-shift
+;  spill byte), so all eight are 33.75 KB -- and DISC.BIN cannot carry them:
 ;
 ;      DISC.BIN loads at #4000 and must finish below #A700, where AMSDOS keeps
 ;      its workspace. That is a 26368-byte ceiling and the file is already
-;      24183 bytes. Even ONE more library, RLE-packed, is 3746 bytes against
-;      2185 of headroom.
+;      25 KB. Even ONE library, RLE-packed, is most of what is left.
 ;
-;  So six of the eight libraries go on the disc as RAW SECTORS, exactly the
-;  way the fleet save does, and lib_load reads them straight into banks 5, 6
-;  and 7 at boot. Section 14's answer to "πολλή διακίνηση δισκέτας" is
-;  "ολόκληρη η αποστολή φορτώνεται μία φορά στην αρχή, στις τράπεζες", and
-;  this is that: one read, at boot, and the drive is never touched again
-;  except to save the fleet.
+;  So ALL EIGHT libraries go on the disc as RAW SECTORS, exactly the way the
+;  fleet save does, and lib_load reads them straight into banks 5, 6 and 7 at
+;  boot -- three, three and two. Section 14's answer to "πολλή διακίνηση
+;  δισκέτας" is "ολόκληρη η αποστολή φορτώνεται μία φορά στην αρχή, στις
+;  τράπεζες", and this is that: one read, at boot, and the drive is never
+;  touched again except to save the fleet.
+;
+;  It was two a bank until six yaw views made a library 4320 bytes, at which
+;  point THREE fit in a 16K window (12960 of 16384) and the two that used to
+;  ride inside DISC.BIN -- the interceptor and the frigate -- stopped needing
+;  to. What that bought is in CLAUDE.md; the price is that a machine with no
+;  disc now has no ship art at all, which is why class_use_fallback paints a
+;  stand-in instead of naming one.
 ;
 ;  WHERE THEY ARE ON THE DISC
 ;  --------------------------
 ;  Three tracks a bank from LIB_TRACK, LIB_SECTORS sectors of each read in
 ;  order. Not AMSDOS files: a real file needs directory allocation, which is
 ;  several hundred bytes more than the low 16K has, and the fleet save already
-;  made this trade. AMSDOS hands out blocks from track 0 upward and DISC.BIN
-;  takes six tracks, so track 12 is a long way from anything it would use --
-;  but copy another file onto this disc with CP/M and it may land on them.
+;  made this trade. AMSDOS hands out blocks from track 0 upward and everything
+;  on this disc together takes about ten tracks, so track 20 is a long way from
+;  anything it would use -- but copy another file on with CP/M and it may land
+;  on them.
+;
+;  Three tracks a bank was already the reservation and the repack did not
+;  change it: 26 sectors of 27. What it did change is that all three are now
+;  nearly full, so a NINTH class no longer fits in the tracks that are set
+;  aside -- it wants a fourth track for one of the banks, or a library packed.
 ;
 ;  tools/discbanks.py writes them, and it reads the four equates below out of
 ;  build/homeplanet.sym rather than having its own copy. Change a number here
@@ -32,11 +44,13 @@
 ;
 ;  WHY THEY ARE NOT PACKED
 ;  -----------------------
-;  The bank-4 library is RLE-packed because it lives in a file with a hard
-;  ceiling. These do not: the disc has 29 free tracks after DISC.BIN and needs
-;  9. Storing them raw means the sector read IS the load -- no decoder in the
-;  low 16K, which has 512 bytes to its name, and no staging buffer, because
-;  the controller writes straight into the window.
+;  Because the disc has no ceiling the way DISC.BIN does: 29 free tracks after
+;  the files and we need 9. Storing them raw means the sector read IS the load
+;  -- no decoder in the low 16K, and no staging buffer, because the controller
+;  writes straight into the window. (The bank-4 image is still run through
+;  tools/packsprites.py, and now that there is no sprite data left in it the
+;  RLE makes it very slightly BIGGER. That is DISC.BIN's business, not this
+;  file's, and it is worth about 200 bytes of a file with 4500 spare.)
 ; ----------------------------------------------------------------------------
 
 ;  TWENTY, and it was twelve until MUSIC1.BIN and MUSIC2.BIN went on the disc.
@@ -54,25 +68,39 @@
 ;  SUCCEEDED cannot see this at all, and the one written alongside the music
 ;  asked precisely that and passed.
 ;
-;  Twenty leaves eight tracks of headroom above what is on the disc today, and
-;  the libraries end at 28 -- clear of FLEET_TRACK at 39.
+;  Twenty leaves about ten tracks of headroom above what is on the disc today,
+;  and the libraries end at 28 -- clear of FLEET_TRACK at 39. The 3+3+2 repack
+;  did NOT buy any of that back: it fills the same nine tracks more fully
+;  rather than needing fewer of them, and the ~4 KB it takes off DISC.BIN is
+;  one AMSDOS block, not a track.
 LIB_TRACK           equ 20              ; first track of the library area
 LIB_TRACKS_PER_BANK equ 3               ; 27 sectors, of which we use LIB_SECTORS
 LIB_BANKS           equ 3               ; banks 5, 6 and 7
 
-;  8704 bytes: two 4320-byte libraries and a little padding. It was 23 when a
-;  library was 5760 bytes; section 14's six yaw views took a quarter off every
-;  one of them, and this number has to follow or every boot reads three
-;  kilobytes of nothing per bank -- 51 sectors at boot rather than 69.
+;  13312 bytes: THREE 4320-byte libraries and a little padding. It was 23 when
+;  a library was 5760 bytes and two went in a bank, and 17 when six yaw views
+;  took a quarter off each of them. Twenty-six is what a third one costs, and
+;  it is the whole of this repack as far as the loader is concerned -- 78
+;  sectors at boot rather than 51, for eight libraries rather than six.
 ;
-;  That is a real saving on a real 6128 and it is NOT a measurable one under
-;  test: cpcemu resolves the controller's execution phase synchronously, so
-;  emulated sector reads are nearly free and timing the suite before and after
-;  gives you the machine's load, not the change. Do not go looking for it.
+;  LIB_TRACKS_PER_BANK was already 3, which is 27 sectors, so 26 still fits
+;  and no track moves. The library area is the same nine tracks it always was;
+;  what changed is that it is now nearly full rather than two thirds full.
+;
+;  Twenty-seven more sectors is a real cost on a real 6128 -- about another
+;  second of drive at boot -- and it is NOT a measurable one under test:
+;  cpcemu resolves the controller's execution phase synchronously, so emulated
+;  sector reads are nearly free and timing the suite before and after gives you
+;  the machine's load, not the change. Do not go looking for it either way.
+;
+;  It is not entirely invisible under test, though, and that is worth knowing:
+;  it moves the boot by enough emulated time to change which side of a frame
+;  boundary everything after it lands on. Two tests that read a running machine
+;  at an arbitrary instant started failing on it and neither was about discs.
 ;
 ;  The assert in src/main.asm is what stops this being set too low; nothing
 ;  stops it being set too high except this comment.
-LIB_SECTORS         equ 17
+LIB_SECTORS         equ 26
 
 LIB_FIRST_SECTOR    equ #C1
 LIB_LAST_SECTOR     equ #C9

@@ -179,14 +179,19 @@ default. The help text, the mission table, the formation shapes, the per-class
 data, the cached half of the marker pass, the context bar, the player's
 commands and the campaign's setup and teardown all live there.
 
-**`DISC.BIN`'s ceiling is the binding constraint now, ahead of either bank.**
-It is 26025 bytes against 26368, so **343 bytes of headroom** — see "What it
+**`DISC.BIN`'s ceiling WAS the binding constraint and is not any more.**
+It is 21770 bytes against 26368, so **4598 bytes of headroom**, after the
+sprite libraries were repacked 3+3+2 — see "The repack, and the three things
+it was expected to buy". The paragraph below is the arithmetic from before
+that, kept because the reasoning still holds: it is 21770 — see "What it
 cost, and the ceiling it moved" for where the last five hundred went, and note
 that low-16K code costs the file byte for byte while bank-4 code costs it
 whatever RLE makes of it (which for code is nearly nothing). Watch this figure
 first.
 
-**Bank 4 is the tight one of the two banks.** 235 bytes. The context bar spent
+**Bank 4 is no longer tight: 6227 bytes.** The two sprite libraries it used to
+carry left in the repack. What follows is how it got to 235, kept because the
+shapes are the ones to look for when it fills again. The context bar spent
 595 of its 1032 on code and words and the magnification another 78 — six bytes
 a zoom record, twelve records, plus the LDIR that carries them. It is now full
 enough that `game/squadinfo.asm` could not go there and sits in the low 16K
@@ -215,9 +220,9 @@ power-on layout. Equates in `src/equ/hardware.asm`.
 
 | Bank | Holds | How it gets there |
 |---|---|---|
-| 4 | interceptor + frigate sprites; mission table; help, menu and title CODE; the §9 command code and the campaign's setup/teardown CODE; the cached marker projection; per-class data; formation shapes; the zoom table; the fleet buffer | inside `DISC.BIN` |
-| 5 | mothership + harvester sprites | raw sectors, read by `lib_load` |
-| 6 | scout + bomber sprites | " |
+| 4 | mission table; help, menu and title CODE; the §9 command code and the campaign's setup/teardown CODE; the cached marker projection; per-class data; formation shapes; the zoom table; the fleet buffer | inside `DISC.BIN` |
+| 5 | interceptor + mothership + harvester sprites | raw sectors, read by `lib_load` |
+| 6 | scout + bomber + frigate sprites | " |
 | 7 | salvage + destroyer sprites | " |
 
 Getting bank 4 there is the awkward part, and `src/disc.asm` explains it at
@@ -2319,6 +2324,75 @@ what the context bar cost. It is **not** enough to move a `demo_wait_frame`
 tick boundary: the frame rate is 5.00 fps over 1000 frames before and after,
 and `tools/balance.py` prints the same campaign line for line, mission 7 and
 all. Mission 8 did not come back and nothing was tuned to try.
+
+### The repack, and the three things it was expected to buy
+
+Eight libraries as **3+3+2 across banks 5, 6 and 7**, none in bank 4. Six yaw
+views made a library 4320 bytes, so three fit a 16K window (12960 of 16384),
+and `LIB_SECTORS` went 17 → 26 of the 27 that `LIB_TRACKS_PER_BANK` already
+reserved.
+
+| | before | after |
+|---|---|---|
+| `DISC.BIN` | 26025 | **21770** |
+| headroom under `#A700` | 343 | **4598** |
+| bank 4 free | 235 | **6227** |
+| sectors read at boot | 51 | 78 |
+| library tracks | 20-28 | 20-28, unchanged |
+
+**Two of the three things it was predicted to buy were wrong, and the way they
+were wrong is the useful part.**
+
+- **"About 900 bytes of `DISC.BIN`" was out by 4.7×; it is 4255.** The bank-4
+  image packed 15125 → 10905, 72%, and it was the SPRITES that compressed.
+  With them gone `tools/packsprites.py` takes 6445 → **6650, 103%** — the RLE
+  is now a net LOSS of 205 bytes on code and text. It is left in: taking it out
+  means deleting the Z80 decoder and a Makefile step to recover 4% of a
+  headroom that is now thousands of bytes.
+- **"Four tracks of the disc" was zero, and the library area got TIGHTER.**
+  `LIB_TRACKS_PER_BANK` was already 3 — 27 sectors — with only 17 used. Nine
+  tracks were reserved before and nine after; what changed is 26/27 used rather
+  than 17/27. **A ninth class no longer fits the reserved tracks**, which is a
+  real loss and the opposite of what was expected. The 4255 bytes off
+  `DISC.BIN` are one AMSDOS block, not a track.
+- Bank 4 gained 5992 rather than 8640: 2688 went to the painted stand-in below.
+
+**The no-disc fallback had to change and nobody predicted it.** With every
+library on the disc there is no bank-4 art left for `class_fallback` to name,
+so a machine with no disc would blit whatever powered up. `class_standin` is
+2688 bytes declared *after* `bank4_end` — free in `DISC.BIN`, the same trick
+`fleet_block` uses — and `class_use_fallback` fills it and points all eight
+classes and all three tiers at it.
+
+#### Bank 4 is the RESTING state, not the only state, and tests forgot that
+
+The biggest finding, and it is not a game bug. The interceptor used to live in
+bank 4 and a fleet is nearly all interceptors, so the window sat still through
+most of the draw. Now every library is foreign, and **4 samples in 40 land with
+a sprite bank under the window**.
+
+So `harness.read_cpu` on a bank-4 symbol started returning sprite bytes: a
+mission descriptor claiming eight enemies where the table says none,
+`class_hull` giving a percentage four points out, `ctx_dirty` reading 255.
+`class_blit_done` always restores bank 4 — the game was never wrong, the tests
+were reading a machine mid-blit.
+
+`harness.read_bank4()` checks a `class_tag` sentinel against
+`build/sprites.raw`, runs a frame and looks again if bank 4 is out. Eleven call
+sites across nine test files use it. **Use it for anything in the window.**
+
+Three more failures were tests reading a running machine at an arbitrary
+instant, shaken loose by the boot moving 27 sectors: `test_combat` read
+`squad_count` mid-`squad_refresh`, `test_phase5` measured the previous frame's
+projection, and `test_phase3` blitted a tier-C sprite with bank 4 under the
+window. All three are the same shape as the sampling-window mistakes recorded
+elsewhere in this file.
+
+**Not verified on Retro Virtual Machine.** `lib_load`'s logic is unchanged, but
+each bank now spans three tracks rather than two, so the track-advance path
+runs one more time per bank. cpcemu resolves the controller synchronously and
+will agree with anything — this file's own rule is to believe the FDC only
+after RVM.
 
 ### Markers: the world points that are not ships
 

@@ -78,7 +78,7 @@ class EconomyFixture(unittest.TestCase):
         it has to be read through the CPU's view -- read_ram would hand back
         bank 1 and index() would find the class at a fictional position.
         """
-        order = list(h.read_cpu(self.c, self.sym["ECO_BUILD_ORDER"],
+        order = list(h.read_bank4(self.c, self.sym["ECO_BUILD_ORDER"],
                                 CLASS_BUILDABLE))
         want = order.index(ship_class)
         for _ in range(len(order)):
@@ -236,7 +236,7 @@ class TestTheReadout(EconomyFixture):
         """
         self.readout(9999)
         ram = self.c.read_ram(h.front_buffer(self.c), 0x4000)
-        label = h.read_cpu(self.c, self.sym["PHASE4_HUD_HELP"], 6)
+        label = h.read_bank4(self.c, self.sym["PHASE4_HUD_HELP"], 6)
         self.assertEqual(label, b"?HELP\x00")
         ink = sum(bin(ram[h.screen_offset(y, x)]).count("1")
                   for y in range(self.RU_Y, self.RU_Y + self.RU_H)

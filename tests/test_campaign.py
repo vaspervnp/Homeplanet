@@ -58,7 +58,7 @@ class CampaignFixture(unittest.TestCase):
     def descriptor(self, index):
         """A mission row, read out of bank 4 through the CPU's view."""
         base = self.sym["MISSION_TABLE"] + index * MIS_SIZE
-        return h.read_cpu(self.c, base, MIS_SIZE)
+        return h.read_bank4(self.c, base, MIS_SIZE)
 
     # -- playing ------------------------------------------------------------
     def hold(self, key, frames=25):

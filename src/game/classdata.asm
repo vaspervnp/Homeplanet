@@ -62,27 +62,6 @@ class_hull:
     defb 255                            ; destroyer
 
 ; ----------------------------------------------------------------------------
-;  What each class wears if its library never arrived off the disc. Only the
-;  two libraries inside DISC.BIN can be a stand-in, because they are the only
-;  two guaranteed to be in memory: a fighter borrows the interceptor, anything
-;  bigger borrows the frigate. This is exactly the arrangement the game had
-;  before the extra libraries existed at all.
-;
-;  Every entry must name a class that is its OWN stand-in -- class_use_fallback
-;  rewrites the tables in place and skips those, which is what makes the order
-;  it visits the classes in not matter.
-; ----------------------------------------------------------------------------
-class_fallback:
-    defb CLASS_INTERCEPTOR              ; interceptor -- itself
-    defb CLASS_FRIGATE                  ; mothership
-    defb CLASS_FRIGATE                  ; harvester
-    defb CLASS_INTERCEPTOR              ; scout
-    defb CLASS_INTERCEPTOR              ; bomber
-    defb CLASS_FRIGATE                  ; frigate -- itself
-    defb CLASS_FRIGATE                  ; salvage corvette
-    defb CLASS_FRIGATE                  ; destroyer
-
-; ----------------------------------------------------------------------------
 ;  Three letters a class for the yard readout, four bytes apart so the index
 ;  is two shifts. The HUD strip has room for exactly this much.
 ; ----------------------------------------------------------------------------
@@ -199,66 +178,64 @@ cbt_damage_matrix_end:
 
 
 ; ----------------------------------------------------------------------------
-;  class_use_fallback -- there are no disc libraries, so wear stand-ins
+;  class_use_fallback -- there are no disc libraries, so paint a stand-in
 ;
-;  Rewrites class_bank and class_sprite so that every class in banks 5-7 draws
-;  the bank-4 library named in class_fallback. Nothing else about the class
-;  changes: a Destroyer still costs 250, still has a Destroyer's damage row,
-;  and is still gated to mission 5 -- it just looks like a Frigate.
+;  Every class, every tier, points at class_standin in bank 4, and the block is
+;  filled with mask 0 / data #F0 -- opaque, four pen-1 pixels a byte. A ship
+;  then draws as a solid rectangle of its own tier's width and height, which is
+;  the right size, in the right place, moving the right way, and unmistakably
+;  not a ship. Nothing else about the class changes: a Destroyer still costs
+;  250 and still has a Destroyer's damage row.
 ;
-;  Called when lib_load fails, which on a real machine means the disc was
-;  taken out between RUN" and now. Drawing a stand-in is a cosmetic loss;
-;  blitting whatever bank 5 happens to contain is 24 sprites of noise a frame.
+;  IT USED TO NAME A CLASS RATHER THAN PAINT ONE. That worked because the
+;  interceptor and the frigate lived in bank 4, inside DISC.BIN, and were
+;  therefore the two libraries guaranteed to be in memory whatever the drive
+;  did. All eight are on the disc now -- see src/sys/libload.asm -- so there is
+;  no real art to borrow and the fallback has to make its own.
+;
+;  Called when lib_load fails, which on a real machine means the disc was taken
+;  out between RUN" and now. Drawing a block is a cosmetic loss; blitting
+;  whatever bank 5 happens to contain is 24 sprites of noise a frame.
+;
+;  One mask/data pattern for the whole block, and not a shape, because a shape
+;  would need the tier's width to know where a row ends -- three tiers, three
+;  strides, and code in bank 4 to do it. A rectangle needs none of that: every
+;  byte of every block is the same two bytes, whichever tier reads it.
 ;  Uses: everything
 ; ----------------------------------------------------------------------------
 class_use_fallback:
-    xor a
-    ld (class_index),a
-@class_fb_one:
-    ld a,(class_index)
-    ld l,a
-    ld h,0
-    ld de,class_fallback
-    add hl,de
-    ld a,(hl)                           ; A = the stand-in's class
-    ld (class_stand_in),a
-    ld hl,class_index
-    cp (hl)
-    jr z,@class_fb_next                 ; its own stand-in: already correct
+    ld hl,class_standin
+    ld de,CLASS_STANDIN_SIZE / 2        ; mask/data pairs
+@class_fb_paint:
+    ld (hl),0                           ; mask: keep nothing of the background
+    inc hl
+    ld (hl),#F0                         ; data: four pen-1 pixels
+    inc hl
+    dec de
+    ld a,d
+    or e
+    jr nz,@class_fb_paint
 
-    ;  It moves into whichever bank the stand-in is in, which is always one of
-    ;  the two libraries DISC.BIN carries.
-    ld l,a
-    ld h,0
-    ld de,class_bank
-    add hl,de
-    ld c,(hl)
-    ld a,(class_index)
-    ld l,a
-    ld h,0
-    ld de,class_bank
-    add hl,de
-    ld (hl),c
+    ;  Bank 4 for every class, because that is where the block is...
+    ld hl,class_bank
+    ld b,CLASS_COUNT
+@class_fb_bank:
+    ld (hl),GA_BANK_4
+    inc hl
+    djnz @class_fb_bank
 
-    ;  ...and it draws the stand-in's sprites, at all three tiers.
-    ld a,(class_index)
-    call class_sprite_addr
-    push hl
-    ld a,(class_stand_in)
-    call class_sprite_addr
-    pop de
-    ld bc,CLASS_SPRITE_STRIDE
-    ldir
-
-@class_fb_next:
-    ld hl,class_index
-    inc (hl)
-    ld a,(hl)
-    cp CLASS_COUNT
-    jr c,@class_fb_one
+    ;  ...and the same address for every tier of every class. They step by
+    ;  different block sizes and all three stay inside it -- src/main.asm
+    ;  asserts that against the largest tier there is.
+    ld hl,class_sprite
+    ld de,class_standin
+    ld b,CLASS_COUNT * CLASS_TIERS
+@class_fb_addr:
+    ld (hl),e
+    inc hl
+    ld (hl),d
+    inc hl
+    djnz @class_fb_addr
     ret
-
-class_index:        defb 0
-class_stand_in:     defb 0
 
 

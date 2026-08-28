@@ -7,13 +7,18 @@
 Why the banks are not in DISC.BIN
 ---------------------------------
 DISC.BIN loads at #4000 and must finish below #A700, where AMSDOS keeps its
-workspace: a 26368-byte ceiling, and the file is already 24 KB. A ship class's
-sprite library is 5.62 KB raw and 3-4 KB packed, so not even one more would
-fit -- and Homeplanet.md section 8 has six more classes.
+workspace: a 26368-byte ceiling, and the file is already 25 KB. A ship class's
+sprite library is 4320 bytes raw and several hundred packed, and Homeplanet.md
+section 8 has eight classes -- 33.75 KB, which no amount of packing fits.
 
-So six libraries live in extended banks 5, 6 and 7, and those banks travel on
-the disc as raw sectors that src/sys/libload.asm reads at boot. This tool is
-the writing half of that.
+So ALL EIGHT libraries live in extended banks 5, 6 and 7 -- three, three and
+two, because six yaw views made a library small enough that three fit a 16K
+window -- and those banks travel on the disc as raw sectors that
+src/sys/libload.asm reads at boot. This tool is the writing half of that.
+
+Bank 7 is the short one and is padded out to LIB_SECTORS like the others: the
+loader reads a fixed count into every bank, because a per-bank length would be
+a fourth number for the assembler, this tool and lib_load to keep in step.
 
 Raw sectors, not AMSDOS files
 -----------------------------

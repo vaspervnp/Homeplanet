@@ -62,9 +62,18 @@ game_image:
 game_image_end:
 
 ;  Run-length coded by tools/packsprites.py, which explains the format and
-;  why the two streams are separated. About half size, and that is what keeps
-;  the file under AMSDOS: uncompressed, DISC.BIN ended at #A66C against a
-;  #A700 ceiling -- 148 bytes of headroom for anything the game might grow by.
+;  why the two streams are separated. It used to be about half size, and that
+;  was what kept the file under AMSDOS: uncompressed, DISC.BIN ended at #A66C
+;  against a #A700 ceiling -- 148 bytes of headroom.
+;
+;  IT NO LONGER COMPRESSES ANYTHING, and that is the 3+3+2 repack rather than a
+;  fault in the packer. Bank 4 held two sprite libraries and packed to 72%;
+;  they are on the disc now and what is left is code and text, which has no
+;  runs of #FF/#00 in it -- 6445 bytes go to 6650, so the RLE COSTS 205 bytes.
+;  It is left in place because DISC.BIN has about 4500 bytes of headroom and
+;  taking it out means deleting the decoder below and a Makefile step to buy
+;  4% of that. The day the bank has sprites in it again -- a ninth class that
+;  does not fit banks 5-7 -- it pays for itself once more.
 sprite_image:
     incbin "build/sprites.rle"
 sprite_image_end:

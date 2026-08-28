@@ -197,7 +197,7 @@ class WaveFixture(unittest.TestCase):
         it out of the machine rather than copying the numbers here is the point:
         a class whose hull changes must not need this file edited.
         """
-        table = h.read_cpu(self.c, self.sym["CLASS_HULL"], 8)
+        table = h.read_bank4(self.c, self.sym["CLASS_HULL"], 8)
         hull = full = 0
         for slot in self.friendly():
             hull += self.ent(slot, ENT_HULL)

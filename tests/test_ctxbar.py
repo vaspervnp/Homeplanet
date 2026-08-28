@@ -60,7 +60,7 @@ class BarFixture(unittest.TestCase):
         return self.c.read_ram(self.sym[name], 1)[0]
 
     def banked(self, name):
-        return h.read_cpu(self.c, self.sym[name], 1)[0]
+        return h.read_bank4(self.c, self.sym[name], 1)[0]
 
     # -- reading the strip back as TEXT --------------------------------------
     def glyph(self, ch: str) -> list[int]:
@@ -527,7 +527,16 @@ class TestTheTopClip(BarFixture):
         self.c.write_ram(sym["SPR_Y"], struct.pack("<h", top - 8))
 
         addr = sym["SPR_BLIT"]
-        self.c.write_ram(h.STUB, bytes([0xF3, 0xCD, addr & 0xFF, addr >> 8,
+        #  Bank 5 in around the call and bank 4 back after, the way
+        #  class_tier_addr and class_blit_done do it. The interceptor moved out
+        #  of bank 4 with the 3+3+2 repack, and a blit with the wrong bank
+        #  under the window still draws SOMETHING -- whatever bank 4 has at
+        #  that address -- so this test would go on passing while measuring
+        #  the clipping of a page of help text.
+        self.c.write_ram(h.STUB, bytes([0xF3,
+                                        0x01, 0xC5, 0x7F, 0xED, 0x49,
+                                        0xCD, addr & 0xFF, addr >> 8,
+                                        0x01, 0xC4, 0x7F, 0xED, 0x49,
                                         0x18, 0xFE]))
         self.c.set_pc(h.STUB)
         self.c.run_frames(3)

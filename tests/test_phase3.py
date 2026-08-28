@@ -25,16 +25,36 @@ TIER_C_W_BYTES = 7
 TIER_C_H = 16
 TIER_C_BLOCK_SZ = TIER_C_W_BYTES * 2 * TIER_C_H
 
+#  Where the interceptor's library actually is. Bank 4 used to carry it and the
+#  frigate; all eight classes are in banks 5-7 now (3 + 3 + 2), so a test that
+#  wants real sprite bytes has to page the bank in exactly the way
+#  class_tier_addr does -- and put bank 4 back afterwards, exactly the way
+#  class_blit_done does.
+GA_BANK_4 = 0xC4
+INTERCEPTOR_BANK = 0xC5
+
 
 class SpriteFixture(unittest.TestCase):
+
+    @staticmethod
+    def page(c, bank):
+        """Put an extended bank under the window and leave it there."""
+        c.write_ram(h.STUB, bytes([0x01, bank, 0x7F, 0xED, 0x49, 0x18, 0xFE]))
+        c.set_pc(h.STUB)
+        c.run_us(200)
 
     @classmethod
     def setUpClass(cls):
         cls.c = h.boot_quick(frames=30)
         cls.sym = h.symbols()
-        #  The sprite library lives in extended bank 4, so it has to be read
-        #  through the CPU's view of memory rather than by base-RAM address.
+        #  The interceptor's library is in extended bank 5 -- since the 3+3+2
+        #  repack, bank 4 holds no sprite data at all -- so it has to be paged
+        #  in and read through the CPU's view of memory. read_ram would hand
+        #  back bank 1 and bank 4 (the resting state) now holds the help text
+        #  at this address, which is the shape a sprite is NOT.
+        cls.page(cls.c, INTERCEPTOR_BANK)
         cls.block = h.read_cpu(cls.c, cls.sym["INTERCEPTOR_C"], TIER_C_BLOCK_SZ)
+        cls.page(cls.c, GA_BANK_4)
         #  The demo clips the tactical view out of the HUD strip below and the
         #  context bar above. These tests are about the blitter itself, so give
         #  it the whole screen back -- BOTH ends, or every negative-y clipping
@@ -61,10 +81,17 @@ class SpriteFixture(unittest.TestCase):
         self.poke_byte("SPR_H", hgt)
 
         addr = self.sym["SPR_BLIT"]
+        #  The bank goes in around the call, which is what class_tier_addr and
+        #  class_blit_done do for real. spr_blit reads its source out of the
+        #  window, and since the repack there is no sprite data in bank 4 to
+        #  read by accident -- so leaving this out does not draw the wrong
+        #  ship, it draws the help text.
         stub = bytes([0xF3,
+                      0x01, INTERCEPTOR_BANK, 0x7F, 0xED, 0x49,  # out (#7Fxx),bank
                       0xCD, addr & 0xFF, addr >> 8,
                       0x9F,                                  # sbc a,a
                       0x32, h.RESULT & 0xFF, h.RESULT >> 8,                      # ld (#2F00),a
+                      0x01, GA_BANK_4, 0x7F, 0xED, 0x49,     # ...and bank 4 back
                       0x18, 0xFE])
         self.c.write_ram(h.STUB, stub)
         self.c.set_pc(h.STUB)

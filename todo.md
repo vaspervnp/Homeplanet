@@ -15,7 +15,14 @@ does not fit. Do them in that order or the third one wastes a session.
 
 ---
 
-## 1. Repack the sprite libraries as 3+3+2
+## 1. Repack the sprite libraries as 3+3+2 — DONE
+
+*(4598 bytes of `DISC.BIN` headroom and 6227 of bank 4. Two of the three
+things this entry predicted were wrong; see "The repack, and the three things
+it was expected to buy" in CLAUDE.md, and note that a NINTH class no longer
+fits the reserved disc tracks. The entry below is kept for the reasoning.)*
+
+## 1a. The original entry
 
 Six yaw views made a library 4320 bytes, so THREE fit in a 16K window. Eight
 classes are 3+3+2 across banks 5-7 instead of 2+2+2 plus two riding inside

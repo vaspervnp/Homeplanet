@@ -9,13 +9,19 @@
 ;
 ;  WHICH BANK A CLASS LIVES IN, AND WHO IS ALLOWED TO PAGE
 ;  ------------------------------------------------------
-;  A sprite library is 5.62 KB and there are eight of them -- 45 KB, which is
-;  nearly three banks. So they do not all live in bank 4:
+;  A sprite library is 4320 bytes and there are eight of them -- 33.75 KB,
+;  which is nowhere near bank 4. Three fit in a 16K window, so:
 ;
-;      bank 4   interceptor, frigate    inside DISC.BIN, always present
-;      bank 5   mothership, harvester   \
-;      bank 6   scout, bomber            > raw sectors on the disc,
-;      bank 7   salvage, destroyer      /  read in by lib_load at boot
+;      bank 5   interceptor, mothership, harvester   \
+;      bank 6   scout, bomber, frigate                > raw sectors on the
+;      bank 7   salvage, destroyer                   /  disc, read in by
+;                                                       lib_load at boot
+;
+;  Bank 4 holds NO sprite library at all now. It used to carry the interceptor
+;  and the frigate, which made them the two classes guaranteed to be in memory
+;  and therefore the stand-ins for everything else; with all eight on the disc
+;  there is nothing to stand in, so class_use_fallback paints one instead --
+;  see game/classdata.asm.
 ;
 ;  Bank 4 is not just sprites any more: the title screen, the help page, the
 ;  orders menu, the mission table and the fleet buffer all live there, and the
@@ -60,6 +66,20 @@ CLASS_DESTROYER_MIS equ 4
 
 CLASS_TIERS         equ 3               ; far, middle, near
 
+;  How big the painted stand-in is, in bytes. Every class and every tier points
+;  at the SAME block of bank 4 when there is no disc, so it has to be as long
+;  as the greediest of them: tier C is six yaw views by two pre-shifts by
+;  interceptor_c_block_sz, and the two smaller tiers step by less and stay
+;  inside it. The block itself is declared after bank4_end in src/main.asm, so
+;  it has no starting contents and costs DISC.BIN nothing.
+;
+;  Written out as a number rather than as the expression, because RASM
+;  evaluates a `defs` where it stands and the sprite libraries are assembled in
+;  a LATER bank than the block. src/main.asm asserts the three tiers against it
+;  once everything is in scope -- the same arrangement gfx/mark.asm's patch
+;  cache uses.
+CLASS_STANDIN_SIZE  equ 2688
+
 
 ; ----------------------------------------------------------------------------
 ;  class_bank -- which extended bank holds each class's sprite library
@@ -69,12 +89,12 @@ CLASS_TIERS         equ 3               ; far, middle, near
 ;  stand-ins instead of noise.
 ; ----------------------------------------------------------------------------
 class_bank:
-    defb GA_BANK_4                      ; interceptor
+    defb GA_BANK_5                      ; interceptor
     defb GA_BANK_5                      ; mothership
     defb GA_BANK_5                      ; harvester
     defb GA_BANK_6                      ; scout
     defb GA_BANK_6                      ; bomber
-    defb GA_BANK_4                      ; frigate
+    defb GA_BANK_6                      ; frigate
     defb GA_BANK_7                      ; salvage corvette
     defb GA_BANK_7                      ; destroyer
 
@@ -95,12 +115,12 @@ class_bank:
 CLASS_SPRITE_STRIDE equ CLASS_TIERS * 2
 
 class_sprite:
-    defw interceptor_a, interceptor_b, interceptor_c     ; bank 4
+    defw interceptor_a, interceptor_b, interceptor_c     ; bank 5
     defw mothership_a,  mothership_b,  mothership_c      ; bank 5
     defw harvester_a,   harvester_b,   harvester_c       ; bank 5
     defw scout_a,       scout_b,       scout_c           ; bank 6
     defw bomber_a,      bomber_b,      bomber_c          ; bank 6
-    defw frigate_a,     frigate_b,     frigate_c         ; bank 4
+    defw frigate_a,     frigate_b,     frigate_c         ; bank 6
     defw salvage_a,     salvage_b,     salvage_c         ; bank 7
     defw destroyer_a,   destroyer_b,   destroyer_c       ; bank 7
 class_sprite_end:

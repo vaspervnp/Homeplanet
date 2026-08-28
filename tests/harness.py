@@ -211,11 +211,12 @@ def boot_quick(frames: int = 40, briefing: bool = False,
     file -- the same relocating stub runs, so the code under test is
     identical. Use boot_disc() when the thing being tested IS the loading.
 
-    THE DISC IS IN THE DRIVE, and it has to be. Six of the eight sprite
-    libraries do not fit inside DISC.BIN and live on the disc as raw sectors;
-    lib_load reads them into banks 5-7 during demo_init. Boot without one and
-    the game runs perfectly well but wears stand-in art, which is what
-    `disc=False` is for -- and what the fallback tests use.
+    THE DISC IS IN THE DRIVE, and it has to be. ALL EIGHT sprite libraries are
+    on the disc as raw sectors -- bank 4 carries none of them since the 3+3+2
+    repack -- and lib_load reads them into banks 5-7 during demo_init. Boot
+    without one and the game runs perfectly well but draws every ship as a
+    painted block, which is what `disc=False` is for and what the fallback
+    tests use.
 
     The image is handed to the emulator as BYTES, and cpcemu keeps its own
     copy, so a test that saves the fleet writes into that copy and not into
@@ -415,6 +416,65 @@ def read_cpu(c: cpc.CPC, addr: int, size: int) -> bytes:
     the sprite library. Anything reading #4000-#7FFF must come through here.
     """
     return bytes(c.peek((addr + i) & 0xFFFF) for i in range(size))
+
+
+BANK_WINDOW = 0x4000
+SPRITE_RAW = os.path.join(BUILD, "sprites.raw")
+
+_BANK4_SENTINEL: tuple[int, bytes] | None = None
+
+
+def _bank4_sentinel() -> tuple[int, bytes]:
+    """An address in bank 4, and the bytes the build put there.
+
+    class_tag is eight three-letter ship tags back to back -- "INT\\0MTH\\0..."
+    -- so it is TEXT, and text of that shape does not occur in a sprite
+    library. Comparing sixteen bytes of it against build/sprites.raw is a
+    reliable answer to "is bank 4 under the window at this instant".
+    """
+    global _BANK4_SENTINEL
+    if _BANK4_SENTINEL is None:
+        addr = symbols()["CLASS_TAG"]
+        with open(SPRITE_RAW, "rb") as f:
+            image = f.read()
+        off = addr - BANK_WINDOW
+        _BANK4_SENTINEL = (addr, image[off:off + 16])
+    return _BANK4_SENTINEL
+
+
+def read_bank4(c: cpc.CPC, addr: int, size: int, tries: int = 60) -> bytes:
+    """Read bank 4 through the CPU's view, waiting for it to be under the window.
+
+    BANK 4 IS THE RESTING STATE, NOT THE ONLY STATE. class_tier_addr pages a
+    sprite library in for every ship it draws, and blitting is about a third of
+    the frame -- so `peek` at an arbitrary emulator-frame boundary has a real
+    chance of reading a sprite library instead of the mission table, the class
+    data or the context bar's flags.
+
+    That chance used to be small because the interceptor's library WAS in bank
+    4 and the fleet is nearly all interceptors, so the window sat still for
+    most of the draw. The 3+3+2 repack moved every library out, and the same
+    reads started coming back as #FF and #00: a mission descriptor claiming
+    eight enemies where the table says none, a hull table giving a percentage
+    four points out, ctx_dirty reading 255. Measured on mission 1, four samples
+    in forty landed with a sprite bank up.
+
+    None of that is a fault in the game -- class_blit_done always puts bank 4
+    back. It is a fault in reading a moving machine, and this is the fix:
+    check a sentinel that only bank 4 has, and run a frame and look again if it
+    is not there. Costs sixteen peeks when the window is already at rest, which
+    is the usual case and always the case while a static screen is up.
+
+    Use read_cpu instead when the test has deliberately paged another bank in.
+    """
+    sentinel, want = _bank4_sentinel()
+    for _ in range(tries):
+        if read_cpu(c, sentinel, len(want)) == want:
+            return read_cpu(c, addr, size)
+        c.run_frames(1)
+    raise RuntimeError(
+        "bank 4 never came back under the window -- either the machine is not "
+        "running the game, or something pages it out and does not put it back")
 
 
 def write_cpu(c: cpc.CPC, addr: int, data: bytes) -> None:

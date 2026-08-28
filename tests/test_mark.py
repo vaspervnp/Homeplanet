@@ -94,7 +94,7 @@ class TestEveryMissionFieldsResources(MarkFixture):
     def test_no_mission_fields_none(self):
         base = self.sym["MISSION_TABLE"]
         for m in range(MIS_COUNT):
-            n = h.read_cpu(self.c, base + m * MIS_SIZE + MIS_PATCH_COUNT, 1)[0]
+            n = h.read_bank4(self.c, base + m * MIS_SIZE + MIS_PATCH_COUNT, 1)[0]
             self.assertGreater(n, 0, f"mission {m + 1} fields no resource patches")
 
     def test_the_first_mission_actually_lays_them_out(self):

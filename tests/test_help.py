@@ -42,7 +42,7 @@ class HelpFixture(unittest.TestCase):
         #  read_cpu, not read_ram: the help page moved into bank 4 when the
         #  low 16K ran out, and read_ram would hand back bank 1 -- whatever
         #  the sprite library happens to have at that address.
-        return h.read_cpu(self.c, self.sym[name], 1)[0]
+        return h.read_bank4(self.c, self.sym[name], 1)[0]
 
     def press(self, key, frames=25):
         self.c.key_down(key)
@@ -146,7 +146,7 @@ class TestTheHudSaysSo(HelpFixture):
         somewhere" would pass with the two overlapping.
         """
         self.assertEqual(self.byte("HELP_SHOWN"), 0)
-        label = h.read_cpu(self.c, self.sym["PHASE4_HUD_HELP"], 6)
+        label = h.read_bank4(self.c, self.sym["PHASE4_HUD_HELP"], 6)
         self.assertEqual(label, b"?HELP\x00", "the HUD label is not what gets drawn")
 
         #  And it is actually on the screen, in the HUD strip, not just in ROM.

@@ -17,12 +17,13 @@ SRC_DIR   := src
 GEN_DIR   := $(SRC_DIR)/gen
 BUILD_DIR := build
 
-# All eight classes of Homeplanet.md section 8. Two of them (interceptor,
-# frigate) live in bank 4 and travel inside DISC.BIN; the other six are banks
-# 5-7 and go on the DISC as raw sectors, because DISC.BIN has about 2 KB of
-# headroom under AMSDOS's workspace and one packed library is nearly 4.
-# Which bank a class is in is decided in src/main.asm; this list only says
-# which projects get converted.
+# All eight classes of Homeplanet.md section 8. All eight live in banks 5-7 --
+# three, three and two -- and go on the DISC as raw sectors, because DISC.BIN
+# has a few hundred bytes of headroom under AMSDOS's workspace and 33.75 KB of
+# sprite library does not fit under it however it is packed. Two of them used
+# to ride inside the file; six yaw views made three libraries fit a bank and
+# they stopped having to. Which bank a class is in is decided in src/main.asm;
+# this list only says which projects get converted.
 SHIP_CLASSES := interceptor frigate mothership harvester scout bomber \
                 salvage destroyer
 SPRITES := $(patsubst %,$(GEN_DIR)/spr_%.asm,$(SHIP_CLASSES))

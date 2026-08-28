@@ -7,12 +7,15 @@ has a hull, it has a row in the balance triangle, and the yard will build it.
 None of that depends on where its sprites are.
 
 The second is the memory arrangement that makes eight classes possible at all.
-Forty-five kilobytes of sprite library does not fit in DISC.BIN, so six of the
-eight are raw sectors on the disc that lib_load reads into extended banks 5, 6
-and 7 -- and drawing one means paging bank 4 out from under the mission table,
-the fleet buffer and the code for every static screen. The tests for that are
-about the WINDOW: that the right bank is under it while a class is being
-drawn, and that bank 4 is back under it afterwards.
+Thirty-four kilobytes of sprite library does not fit in DISC.BIN, so ALL EIGHT
+are raw sectors on the disc that lib_load reads into extended banks 5, 6 and 7
+-- three, three and two -- and drawing one means paging bank 4 out from under
+the mission table, the fleet buffer and the code for every static screen. The
+tests for that are about the WINDOW: that the right bank is under it while a
+class is being drawn, and that bank 4 is back under it afterwards.
+
+Bank 4 holds no sprite library at all now, so a machine that cannot read the
+disc has no ship art whatever -- see TestTheFallback for what it draws instead.
 """
 
 from __future__ import annotations
@@ -74,7 +77,7 @@ class ClassFixture(unittest.TestCase):
 
     def banked(self, name, size):
         """Read something out of bank 4, the way the CPU sees it."""
-        return h.read_cpu(self.c, self.sym[name], size)
+        return h.read_bank4(self.c, self.sym[name], size)
 
     def ent(self, slot, offset):
         return self.c.read_ram(
@@ -386,13 +389,51 @@ class TestTheBanks(ClassFixture):
                 self.assertTrue(BANK_WINDOW <= addr < BANK_WINDOW + 0x4000,
                                 f"{NAME[cls]} tier {tier} is at #{addr:04X}")
 
-    def test_the_two_classes_inside_disc_bin_are_in_bank_4(self):
-        """They are the fallback for everything else, so they cannot be
-        anywhere that might fail to load."""
+    def test_every_class_finds_its_own_art_in_the_bank_it_names(self):
+        """The one that decides the 3+3+2 repack, and it is stronger than
+        comparing whole banks.
+
+        Three separate things have to agree about a class: class_bank says
+        which bank to page in, class_sprite says where in the window to blit
+        from, and the disc has to have put that class's library at exactly
+        that offset. Getting any one of them wrong does not crash and does not
+        change LIB_OK -- it draws a Destroyer with the Salvage Corvette's art,
+        or with half of one and half of the other, which is a rendering bug if
+        anyone happens to look and nothing at all if nobody does.
+
+        So: for every class and every tier, page in the bank class_bank names,
+        read the bytes class_sprite points at, and compare them with the same
+        offset in the bank image the build wrote. The expected address comes
+        from the symbol file, so a class whose include moved to another bank
+        section fails here rather than silently drawing its neighbour."""
         self.boot()
+        images = {}
+        for select, name in ((0xC5, "bank5"), (0xC6, "bank6"), (0xC7, "bank7")):
+            with open(os.path.join(BUILD_DIR, f"{name}.raw"), "rb") as f:
+                images[select] = f.read()
+
         banks = self.class_bank()
-        self.assertEqual(banks[CLASS_INTERCEPTOR], GA_BANK_4)
-        self.assertEqual(banks[CLASS_FRIGATE], GA_BANK_4)
+        sprites = self.class_sprite()
+        for cls in range(CLASS_COUNT):
+            select = banks[cls]
+            self.assertIn(select, images,
+                          f"{NAME[cls]} names bank #{select:02X}, which holds "
+                          f"no sprite library")
+            self.page_in(select)
+            image = images[select]
+            for tier, letter in enumerate("abc"):
+                addr = sprites[cls][tier]
+                self.assertEqual(
+                    addr, self.sym[f"{NAME[cls]}_{letter}".upper()],
+                    f"class_sprite sends {NAME[cls]} tier {letter} to "
+                    f"#{addr:04X}, not where the build put it")
+                off = addr - BANK_WINDOW
+                want = image[off:off + 64]
+                got = h.read_cpu(self.c, addr, len(want))
+                self.assertEqual(
+                    got, want,
+                    f"{NAME[cls]} tier {letter} is not the art the build wrote "
+                    f"to bank #{select:02X}")
 
     def test_the_window_is_back_on_bank_4_between_frames(self):
         """The single rule the whole arrangement rests on. Bank 4 holds the
@@ -429,12 +470,20 @@ class TestTheBanks(ClassFixture):
 
 
 class TestTheFallback(ClassFixture):
-    """No disc, no libraries -- and the game still has to draw ships."""
+    """No disc, no libraries -- and the game still has to draw ships.
+
+    It used to name a class rather than paint one: the interceptor and the
+    frigate were inside DISC.BIN, so they were the two libraries guaranteed to
+    be in memory and everything else borrowed one of them. All eight are on the
+    disc now, so there is no real art to borrow and class_use_fallback fills a
+    block of bank 4 with mask 0 / data #F0 instead. A ship then draws as a
+    solid rectangle of its own tier's size -- right size, right place, moving
+    the right way, and unmistakably not a ship.
+    """
 
     def test_without_a_disc_the_banked_classes_wear_stand_ins(self):
         """Blitting whatever bank 5 happens to contain is twenty-four sprites
-        of noise a frame. Wearing the frigate's hull is a cosmetic loss, and
-        it is exactly what the game did before there were eight classes."""
+        of noise a frame."""
         self.boot(disc=False)
         self.assertEqual(self.byte("LIB_OK"), 0,
                          "a machine with no disc thinks it loaded the libraries")
@@ -442,25 +491,48 @@ class TestTheFallback(ClassFixture):
         self.assertEqual(banks, [GA_BANK_4] * CLASS_COUNT,
                          f"a class is still pointing at a bank that never loaded: {banks}")
 
-    def test_the_stand_in_is_the_class_named_in_the_fallback_table(self):
-        self.boot(disc=False)
-        fallback = list(self.banked("CLASS_FALLBACK", CLASS_COUNT))
-        sprites = self.class_sprite()
-        for cls in range(CLASS_COUNT):
-            self.assertEqual(sprites[cls], sprites[fallback[cls]],
-                             f"{NAME[cls]} does not draw as {NAME[fallback[cls]]}")
+    def test_every_class_and_every_tier_points_at_the_painted_block(self):
+        """There is one stand-in and everything shares it, at all three tiers.
 
-    def test_every_stand_in_is_its_own_stand_in(self):
-        """class_use_fallback rewrites the tables in place and skips the
-        classes that map to themselves, and that is the ONLY reason the order
-        it visits them in does not matter. A fallback chain two deep would
-        make the result depend on the loop counter."""
+        The tiers step by different block sizes from the same base, which is
+        what makes one block enough -- src/main.asm asserts it is as long as
+        the greediest of them. A class left pointing at its real address would
+        blit out of a bank that never loaded, and the blitter would do it
+        perfectly happily."""
         self.boot(disc=False)
-        fallback = list(self.banked("CLASS_FALLBACK", CLASS_COUNT))
-        for cls, stand_in in enumerate(fallback):
-            self.assertEqual(fallback[stand_in], stand_in,
-                             f"{NAME[cls]} stands in as {NAME[stand_in]}, "
-                             f"which itself stands in as {NAME[fallback[stand_in]]}")
+        want = self.sym["CLASS_STANDIN"]
+        for cls, tiers in enumerate(self.class_sprite()):
+            for tier, addr in enumerate(tiers):
+                self.assertEqual(addr, want,
+                                 f"{NAME[cls]} tier {tier} is at #{addr:04X}, "
+                                 f"not on the stand-in at #{want:04X}")
+
+    def test_the_stand_in_is_actually_painted_and_is_opaque(self):
+        """The block is uninitialised storage -- it is declared after
+        bank4_end so it costs DISC.BIN nothing -- so nothing but
+        class_use_fallback ever puts anything in it. If the paint loop is
+        skipped or gets its count wrong, the sprite pointers are all perfectly
+        correct and every ship draws whatever the machine powered up with.
+
+        Mask 0 and data #F0: opaque, four pen-1 pixels. Checked over the whole
+        block, because getting the length wrong leaves the tail of tier C's
+        run unpainted and only the ships nearest the camera show it."""
+        self.boot(disc=False)
+        size = self.sym["CLASS_STANDIN_SIZE"]
+        block = bytes(h.read_cpu(self.c, self.sym["CLASS_STANDIN"], size))
+        self.assertEqual(set(block[0::2]), {0x00}, "the mask is not opaque")
+        self.assertEqual(set(block[1::2]), {0xF0}, "the data is not pen 1")
+
+    def test_the_stand_in_does_not_reach_into_the_fleet_buffer(self):
+        """It is the neighbour of the save block in bank 4, and the blitter
+        steps `view * shifts` blocks of the tier's size off the base with
+        nothing at run time to stop it."""
+        self.boot(disc=False)
+        start = self.sym["CLASS_STANDIN"]
+        self.assertGreaterEqual(start, BANK_WINDOW)
+        self.assertLessEqual(start + self.sym["CLASS_STANDIN_SIZE"],
+                             self.sym["FLEET_BLOCK"],
+                             "the stand-in overlaps the fleet save block")
 
     def test_the_fallback_draws_about_as_much_as_the_real_thing(self):
         """The failure this exists to catch is a fleet of INVISIBLE ships.

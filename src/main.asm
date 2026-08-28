@@ -14,8 +14,8 @@
 ;  RASM's BANK directive, and why the build needs it now.
 ;
 ;  There are four 16K images in this file and three of them are assembled at
-;  #4000: the game's bank 4, and the two-libraries-each banks 5, 6 and 7 that
-;  hold the ship classes DISC.BIN has no room for. A plain second `org #4000`
+;  #4000: the game's bank 4, and banks 5, 6 and 7, which hold all eight ship
+;  classes between them -- three, three and two. A plain second `org #4000`
 ;  is an error ("located in a previous ORG section") because RASM has one
 ;  output image per bank -- so each gets its own workspace.
 ;
@@ -229,24 +229,26 @@ code_end:
 
 
 ; ============================================================================
-;  Bank 4 -- the sprite library
+;  Bank 4 -- everything that runs while the game is stopped
 ; ============================================================================
 ;  Assembled at #4000 but NOT part of the low-memory image: src/disc.asm pages
 ;  extended bank 4 into the window and copies this there at load time, so the
 ;  labels below resolve to bank-4 addresses and the low 16K keeps its space.
 ;
-;  Bank 4 is the RESTING state of the window, and it holds two things that
-;  could not be more different: the interceptor and frigate sprite libraries,
-;  and all the code that only runs while the game is stopped. Six more
-;  libraries live in banks 5-7 and are read off the disc by lib_load; the one
-;  rule that keeps that safe is in game/shipclass.asm.
+;  Bank 4 is the RESTING state of the window. It used to hold the interceptor
+;  and frigate sprite libraries as well; six yaw views made a library 4320
+;  bytes, so THREE fit in a 16K window and all eight now live in banks 5-7 and
+;  are read off the disc by lib_load. That is 8640 bytes of bank back (5992 of
+;  them free after the painted stand-in below takes its 2688) and 4255 of
+;  DISC.BIN, which is far more than the 900 that was expected -- the packed
+;  size fell from 10905 to 6650, because what is left in here does not compress
+;  at all. It leaves nothing here to blit from; the one rule that keeps the
+;  paging safe is still in game/shipclass.asm.
 ; ----------------------------------------------------------------------------
     BANK 1
 
     org BANK_WINDOW
 bank4_start:
-    include "gen/spr_interceptor.asm"
-    include "gen/spr_frigate.asm"
     include "gen/zoom.asm"
     include "game/classdata.asm"
     include "game/formdata.asm"
@@ -287,6 +289,20 @@ bank4_end:
 ; ----------------------------------------------------------------------------
 ;  Uninitialised bank storage, deliberately BELOW the save above.
 ;
+;  The stand-in ships, for a machine that could not read the disc. Every class
+;  and every tier points here when lib_load fails, and class_use_fallback
+;  paints it -- mask 0, data #F0 -- so a ship draws as a solid block of its
+;  tier's size instead of as whatever bank 5 happens to contain. It has no
+;  starting contents, so like the fleet buffer below it costs DISC.BIN nothing.
+;
+;  This is what the interceptor and frigate libraries used to do for free by
+;  being in bank 4. They are on the disc now, so there is no real art to fall
+;  back to and the fallback has to make its own.
+; ----------------------------------------------------------------------------
+class_standin:
+    defs CLASS_STANDIN_SIZE, 0
+
+; ----------------------------------------------------------------------------
 ;  The fleet between missions -- section 10 calls it FLEET.DAT. It has no
 ;  starting contents, so putting it inside the saved image would add its 960
 ;  bytes to DISC.BIN for nothing, and DISC.BIN has to finish below #A700
@@ -325,12 +341,19 @@ bank4_limit:
 
 
 ; ============================================================================
-;  Banks 5, 6 and 7 -- the six ship classes DISC.BIN cannot carry
+;  Banks 5, 6 and 7 -- all eight ship classes, 3 + 3 + 2
 ; ============================================================================
 ;  These are NOT in DISC.BIN. They go on the disc as raw sectors and lib_load
 ;  reads them in at boot -- src/sys/libload.asm has the arithmetic and the
-;  reason. Two 5.62 KB libraries a bank, which is what LIB_SECTORS is sized
-;  for; the assert below is what stops a third being added by accident.
+;  reason. THREE 4320-byte libraries a bank is 12960 of the window's 16384 and
+;  26 of the 27 sectors LIB_TRACKS_PER_BANK already reserved, which is the
+;  whole reason the interceptor and the frigate could stop riding inside
+;  DISC.BIN. The asserts below are what stop a FOURTH being added by accident.
+;
+;  The order is section 8's class order and nothing cleverer: 0-2, 3-5, 6-7.
+;  Which bank a class is in makes no difference to anything at run time --
+;  class_tier_addr pages whichever one class_bank names -- so the arrangement
+;  that is easiest to check against game/shipclass.asm is the right one.
 ;
 ;  Nothing but sprite data may go in here. Bank 4 is paged out while one of
 ;  these is under the window, so code assembled here could only ever run in a
@@ -340,6 +363,7 @@ bank4_limit:
 
     org BANK_WINDOW
 bank5_start:
+    include "gen/spr_interceptor.asm"
     include "gen/spr_mothership.asm"
     include "gen/spr_harvester.asm"
 bank5_end:
@@ -351,6 +375,7 @@ bank5_end:
 bank6_start:
     include "gen/spr_scout.asm"
     include "gen/spr_bomber.asm"
+    include "gen/spr_frigate.asm"
 bank6_end:
     save "build/bank6.raw", BANK_WINDOW, bank6_end - BANK_WINDOW
 
@@ -387,8 +412,7 @@ bank7_end:
 ;  looks wrong.
 ; ----------------------------------------------------------------------------
     assert class_hull - class_tier_bias == CLASS_COUNT,   "class_tier_bias is not CLASS_COUNT entries"
-    assert class_fallback - class_hull == CLASS_COUNT,    "class_hull is not CLASS_COUNT entries"
-    assert class_tag - class_fallback == CLASS_COUNT,     "class_fallback is not CLASS_COUNT entries"
+    assert class_tag - class_hull == CLASS_COUNT,         "class_hull is not CLASS_COUNT entries"
     assert class_tag_end - class_tag == CLASS_COUNT * 4,  "class_tag is not CLASS_COUNT tags"
     assert eco_class_cost - eco_build_order == CLASS_BUILDABLE, "eco_build_order does not offer CLASS_BUILDABLE classes"
     assert eco_class_frames - eco_class_cost == CLASS_COUNT, "eco_class_cost is not CLASS_COUNT entries"
@@ -440,6 +464,25 @@ bank7_end:
 ;  byte of width, so a sprite wider than the run walks off into whatever
 ;  follows it.
     assert interceptor_c_w_bytes <= SPR_MAX_W_BYTES, "tier C is wider than the unrolled blit run"
+
+; ----------------------------------------------------------------------------
+;  The painted stand-in.
+;
+;  All three tiers of all eight classes point at ONE address when there is no
+;  disc, and each tier steps `view * shifts` blocks of its own size from it. So
+;  the block has to be as long as the greediest tier's whole run -- tier C's,
+;  today -- and CLASS_STANDIN_SIZE is a literal because `defs` is evaluated
+;  where it stands and the libraries are assembled in a later bank. Get it too
+;  small and the blitter reads off the end into the fleet buffer, on the one
+;  path nobody tests on real hardware.
+; ----------------------------------------------------------------------------
+    assert CLASS_STANDIN_SIZE >= interceptor_a_frames * interceptor_a_shifts * interceptor_a_block_sz, "the stand-in is shorter than a tier A library"
+    assert CLASS_STANDIN_SIZE >= interceptor_b_frames * interceptor_b_shifts * interceptor_b_block_sz, "the stand-in is shorter than a tier B library"
+    assert CLASS_STANDIN_SIZE >= interceptor_c_frames * interceptor_c_shifts * interceptor_c_block_sz, "the stand-in is shorter than a tier C library"
+
+;  ...and it is a sprite address like any other, so it has to be in the window.
+    assert class_standin >= BANK_WINDOW, "the stand-in is below the bank window"
+    assert class_standin + CLASS_STANDIN_SIZE <= BANK_WINDOW + BANK_WINDOW_SIZE, "the stand-in runs off the end of bank 4"
 
 ;  class_sprite and class_geom are read AFTER class_tier_addr has paged bank 4
 ;  out, so neither may live in the window.

@@ -233,7 +233,15 @@ class TestBattle(CombatFixture):
         self.assertGreater(self.shots(), 20)
 
     def test_a_kill_frees_the_slot_and_updates_the_squadron_counts(self):
+        """Parked at scr_wait_vsync first, and it has to be.
+
+        squad_count is DERIVED -- squad_refresh zeroes all nine and counts them
+        back up out of the entity table -- so a read taken wherever the
+        emulator happened to stop can catch the walk half done and report a
+        squadron one ship light. That is the same trap phase4_visible has, and
+        the fix is the same: read a finished frame."""
         self._fight()
+        h.run_to_stable_point(self.c, self.sym)
         for slot in range(48):
             if not (self.flags(slot) & F_ACTIVE):
                 continue
