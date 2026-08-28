@@ -495,3 +495,29 @@ bank7_end:
 ;  that costs 25 bytes to buy an exact check on a table that changes once a
 ;  year. Keep every name inside CTX_NAME_CHARS by hand.
     assert class_name_end - class_name <= CLASS_COUNT * (CTX_NAME_CHARS + 1), "the class names do not fit the context bar's name field"
+
+; ----------------------------------------------------------------------------
+;  The two full-screen lists, DOWNWARDS
+; ----------------------------------------------------------------------------
+;  The same trap one axis over, and this one had already happened. The orders
+;  menu grew to thirteen rows when SPLIT BY CLASS went in, and thirteen rows at
+;  the old MENU_STEP put CONTROLS at y=176 and the prompt at 190 -- both inside
+;  the HUD's strip, which does not clear itself but draws labels onto it. So
+;  the last two lines of the menu were printed across "RU 0080 ?HELP" and
+;  "M 1 JUMP", every time ESC was pressed, and stayed there.
+;
+;  Nothing caught it. txt_draw clips at the SCREEN edge and not at HUD_TOP;
+;  tests/test_menu.py reads menu_pick and follows the injected key through to
+;  the command it stands for, which is the right thing for it to test and is
+;  blind to where the row was drawn. It was found by watching a recording --
+;  the same way the screen-space grid in phase4_group was killed.
+    assert MENU_TOP + (MENU_COUNT - 1) * MENU_STEP + TXT_CHAR_H <= HUD_TOP, "the orders menu's last row is drawn inside the HUD strip"
+    assert MENU_TITLE_Y + TXT_CHAR_H <= MENU_TOP, "the orders menu's title runs into its first row"
+    assert MENU_PROMPT_X + (menu_bar - menu_prompt - 1) * TXT_CHAR_W_BYTES <= SCR_BYTES_PER_LINE, "the orders menu's prompt runs off the screen"
+    assert MENU_MARK_X + (menu_prompt - menu_title - 1) * TXT_CHAR_W_BYTES <= MENU_PROMPT_X, "the orders menu's title runs into its prompt"
+
+;  The help page's right column IS menu_entries, so it is MENU_COUNT rows long
+;  and not HELP_ROWS. It clears today only because help.asm already moved its
+;  prompt up beside the title for exactly this reason.
+    assert HELP_BODY_Y + (MENU_COUNT - 1) * HELP_LINE_STEP + TXT_CHAR_H <= HUD_TOP, "the help page's right column is drawn inside the HUD strip"
+    assert HELP_BODY_Y + (HELP_ROWS - 1) * HELP_LINE_STEP + TXT_CHAR_H <= HUD_TOP, "the help page's left column is drawn inside the HUD strip"

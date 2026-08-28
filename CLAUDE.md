@@ -2435,6 +2435,36 @@ Two things this depends on:
 reads the flag out with `RRCA`, so bit n of the row byte **is** key n of that
 row — no reversal.
 
+#### Adding a row is free until it is not
+
+The claim above — *adding an order to the menu is adding a row* — is true about
+the dispatch and was false about the layout. `SPLIT BY CLASS` took the list to
+**thirteen** entries, and at `MENU_TOP` 32 with a 12-pixel step the last row
+lands at y=176 and the prompt at y=190. `HUD_TOP` is 168.
+
+So `CONTROLS  ?` was printed across `RU 0080 ?HELP` and `UP/DOWN ENTER ESC`
+across `M 1 JUMP`, every time `ESC` was pressed — and it **stayed there**,
+because the HUD does not clear its strip, it draws labels onto it. The same
+reason the title screen's credit line used to survive the whole game.
+
+**Nothing could have caught it.** `txt_draw` clips at the edge of the SCREEN
+and not at `HUD_TOP`, so the drawing succeeded; and `tests/test_menu.py` reads
+`menu_pick` and follows the injected key all the way through to the command it
+stands for — which is the right thing for it to test, and is blind to where the
+row was drawn. It was found by **watching a recording**, the same way the
+screen-space grid in `phase4_group` was killed. `tools/record.py` is not only a
+thing to show people.
+
+The prompt now sits **beside the title**, which is where `help.asm` had already
+put its own, with a comment saying why: *"the right column is thirteen rows and
+wants the bottom"*. The help page had met this and solved it; the menu had not,
+and the two files do not read each other. So the guard is six `ASSERT`s in
+`src/main.asm` — the vertical mirror of the context bar's horizontal ones —
+including two for the help page, whose right column is `menu_entries` and is
+therefore `MENU_COUNT` rows long rather than `HELP_ROWS`. They were checked by
+putting the old numbers back and watching the build stop; an assert nobody has
+seen fail is a comment.
+
 ### The help page
 
 `?` (which is SHIFT + `/`; the matrix only ever reports the physical key, so

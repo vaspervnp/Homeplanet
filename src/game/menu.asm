@@ -25,11 +25,15 @@
 ; ----------------------------------------------------------------------------
 
 MENU_COUNT          equ 13
-MENU_TITLE_Y        equ 20
-MENU_TOP            equ 32
-MENU_STEP           equ 12
+MENU_TITLE_Y        equ 12
+MENU_TOP            equ 26
+MENU_STEP           equ 11
 MENU_MARK_X         equ 22              ; x is in BYTES
 MENU_TEXT_X         equ 24
+;  Beside the title, not under the list. Thirteen rows do not leave room for a
+;  line of their own above HUD_TOP -- help.asm reached the same arrangement for
+;  the same reason, and its right column is this same table.
+MENU_PROMPT_X       equ 40
 
 
 ; ----------------------------------------------------------------------------
@@ -152,6 +156,11 @@ menu_draw:
     ld c,MENU_TITLE_Y
     call txt_draw
 
+    ld hl,menu_prompt
+    ld b,MENU_PROMPT_X
+    ld c,MENU_TITLE_Y
+    call txt_draw
+
     ld hl,menu_entries
     ld (menu_ptr),hl
     ld a,MENU_TOP
@@ -199,11 +208,7 @@ menu_draw:
     ld a,(hl)
     cp MENU_COUNT
     jr c,@menu_row_draw
-
-    ld hl,menu_prompt
-    ld b,MENU_MARK_X
-    ld c,MENU_TOP + MENU_COUNT * MENU_STEP + 2
-    jp txt_draw
+    ret
 
 
 ; ============================================================================
