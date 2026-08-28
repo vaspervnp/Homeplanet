@@ -321,6 +321,21 @@ ctx_draw_build:
 ; ----------------------------------------------------------------------------
 ctx_class_name:
     ld hl,class_name
+    ;  ...and fall through.
+
+
+; ----------------------------------------------------------------------------
+;  str_index -- HL -> the Ath of a run of zero-terminated strings
+;  In : HL -> the first string, A = which one
+;  Out: HL -> that one
+;  Uses: AF, B, HL
+;
+;  Split out of ctx_class_name for game/squadinfo.asm's formation names, and
+;  it cost NOTHING: the fall-through means bank 4 holds one copy of the loop
+;  and one `ld hl` in front of it, which is what it held before. The third
+;  caller is the one that would have paid for it.
+; ----------------------------------------------------------------------------
+str_index:
     or a
     ret z
     ld b,a
@@ -425,6 +440,8 @@ ctx_classify:
     ld hl,mis_briefing
     or (hl)
     ld hl,help_shown
+    or (hl)
+    ld hl,info_shown
     or (hl)
     ld hl,menu_shown
     or (hl)

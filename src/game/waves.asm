@@ -292,23 +292,40 @@ wave_hp_add:
 ;  run out of register.
 ; ----------------------------------------------------------------------------
 wave_percent:
-    ld hl,(wave_full)
-    ld a,h
-    or l
-    jr z,@wave_pct_nothing              ; no fleet: nothing to be a fraction of
+    ld hl,(wave_hull)
+    ld de,(wave_full)
+    call wave_pct_of
+    ld (wave_pct),a
+    ret
 
-    ld de,(wave_hull)
-    ex de,hl                            ; HL = hull, DE = full
+
+; ----------------------------------------------------------------------------
+;  wave_pct_of -- A = 100 * HL / DE, clamped to 0..100
+;  In : HL = the part, DE = the whole
+;  Out: A
+;  Uses: everything
+;
+;  Split out of wave_percent when game/squadinfo.asm wanted the same sum over
+;  one squadron rather than over the whole fleet. It takes its operands in
+;  registers and RETURNS the answer, deliberately: wave_hull and wave_full are
+;  the FLEET's, wave_pct is what the HUD's third row draws, and a page that
+;  borrowed the three to work out a squadron's figure would leave the fleet's
+;  percentage reading the squadron's until the next wave_update -- which, on a
+;  page that stops the world, is for as long as the page is up.
+; ----------------------------------------------------------------------------
+wave_pct_of:
+    ld a,d
+    or e
+    jr z,@wave_pct_nothing              ; nothing to be a fraction of
+
     or a
     sbc hl,de
     jr c,@wave_pct_divide
     ld a,100                            ; nothing damaged
-    ld (wave_pct),a
     ret
 
 @wave_pct_nothing:
     xor a
-    ld (wave_pct),a
     ret
 
 @wave_pct_divide:
@@ -332,7 +349,6 @@ wave_percent:
     ld l,100
     call mul_u8
     ld a,h                              ; (C * 100) >> 8
-    ld (wave_pct),a
     ret
 
 

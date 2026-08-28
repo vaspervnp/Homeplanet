@@ -179,9 +179,19 @@ default. The help text, the mission table, the formation shapes, the per-class
 data, the cached half of the marker pass, the context bar, the player's
 commands and the campaign's setup and teardown all live there.
 
-**Bank 4 is the tight one again.** The context bar spent 595 of its 1032 on
-code and words and the magnification another 78 — six bytes a zoom record,
-twelve records, plus the LDIR that carries them. The low 16K is still comfortable, and the two are not
+**`DISC.BIN`'s ceiling is the binding constraint now, ahead of either bank.**
+It is 26025 bytes against 26368, so **343 bytes of headroom** — see "What it
+cost, and the ceiling it moved" for where the last five hundred went, and note
+that low-16K code costs the file byte for byte while bank-4 code costs it
+whatever RLE makes of it (which for code is nearly nothing). Watch this figure
+first.
+
+**Bank 4 is the tight one of the two banks.** 235 bytes. The context bar spent
+595 of its 1032 on code and words and the magnification another 78 — six bytes
+a zoom record, twelve records, plus the LDIR that carries them. It is now full
+enough that `game/squadinfo.asm` could not go there and sits in the low 16K
+instead, which is the first time the "runs while stopped → bank 4" rule has
+been overruled by arithmetic. The low 16K is still comfortable at 1024, and the two are not
 interchangeable — see "The one rule" below for what may go where.
 
 The attack waves went the other way and are the exception worth knowing about:
@@ -861,6 +871,7 @@ not needed and should stay unspent.
 | `H` | send the selected squadron's **harvesters** to work |
 | `B` | open the build panel; `,`/`.` pick a class, ENTER orders it |
 | `ESC` | the orders menu — cursor keys pick, `ENTER` runs it |
+| `I` | what the selected squadron is made of; `ESC` goes back |
 | `?` | the key list; `ESC` goes back |
 | `SPACE` | on the title screen, start the game |
 
@@ -2464,6 +2475,119 @@ including two for the help page, whose right column is `menu_entries` and is
 therefore `MENU_COUNT` rows long rather than `HELP_ROWS`. They were checked by
 putting the old numbers back and watching the build stop; an assert nobody has
 seen fail is a comment.
+
+### The squadron breakdown
+
+`I` puts the selected squadron on the screen: one row per class it actually
+HAS — the full name, how many, and what percentage of hull those ships have
+between them — then an `ALL` row. `ESC` goes back. Fourth screen to work like
+the mission briefing, with the same two obligations.
+
+The title line carries the squadron's **number and its formation** —
+`SQUADRON 1  SPHERE` — because both are properties of the squadron rather than
+of the ships in it. The name alone and no caption: `F` is what changes it and
+both the help page and the orders menu say so, and a caption would push the
+`ESC - BACK` prompt off the line.
+
+Three decisions, and the first two are the same decision twice:
+
+- **The whole word, not the three-letter tag.** `class_tag` exists because the
+  HUD's yard readout has five bytes. This page has eighty, and `INT` in a
+  corner is precisely the readout that made a player ask twice what he was
+  building — see "The context bar".
+- **A class with no ships gets no row.** Eight classes at nought would bury the
+  two lines that matter. Same reasoning as the build panel stepping OVER a
+  class that cannot be ordered yet.
+- **The hull figure is per class, not one number for the squadron.** The
+  reading a player wants is *which half of this squadron is in trouble*, and
+  one number cannot answer it. Below `HUD_HP_ALARM` it turns ink 3, at the same
+  third the HUD's fleet figure turns, or "in trouble" would mean two different
+  things on two rows of the same screen.
+
+**Nothing is cached and nothing is counted incrementally.** The tally walks the
+entity table once per class, eight times a frame — the same reasoning that
+makes `squad_count` derived, plus the fact that this page runs with the world
+stopped, so the time is free. Eight walks of forty-eight slots buys not one
+byte of state.
+
+#### It is in the LOW 16K, and it is the first one that is
+
+By the rule above it belongs in bank 4 with the help page and the orders menu:
+it only ever runs while the game is stopped. **Bank 4 had 235 bytes left and
+this is a bit over four hundred**, so the constraint decided it and not the
+principle. It is the first thing that should move across the day the bank frees
+up. What it reads *from* the bank — `class_hull`, `ctx_class_name`,
+`static_wipe`, `help_prompt` — it reads with the window at rest, which is the
+only test that matters.
+
+**`help_prompt` is shared rather than copied.** One `ESC - BACK`, so the two
+pages cannot come to disagree about how you get out of them — the same
+reasoning that makes the help page's right column *be* `menu_entries`.
+
+#### `wave_pct_of`, and why it returns rather than stores
+
+The percentage needed the only division in the game, which lived inside
+`wave_percent` reading `wave_hull`/`wave_full` and writing `wave_pct`. It is
+split into `wave_pct_of` — HL over DE, answer in A — and `wave_percent` is now
+four lines on top of it.
+
+**Taking the globals would have been a real bug, not a style problem.** Those
+three are the FLEET's, and `wave_pct` is what the HUD's third row draws. The
+world is stopped while this page is up, so `wave_update` is not running to put
+it back: a page that borrowed them would leave the HUD's fleet percentage
+reading some squadron's, for exactly as long as the player looked at the page.
+`test_the_fleet_figure_in_the_hud_is_not_disturbed` is that, and it fails
+against the version that borrowed.
+
+#### Two tests of this page were wrong before the code was
+
+Both were written to check real properties and both accused the page of a
+defect it did not have. Worth reading as the two shapes:
+
+- **`squad_form` is per squadron, so cycle one and the other must not move.**
+  The test pressed `F`, then `2`, and found both reporting `WEDGE`. The page
+  was right: mission 1 has exactly ONE non-empty squadron, the Mothership is
+  in squadron **0** — none at all, not 2 — and squadron 2 is reserved and
+  empty, so `squad_select` correctly refused it and the selection never left
+  1. The second squadron has to be MADE with `d` first.
+- **"Repainted into both buffers."** A single read found screen A empty.
+  `static_wipe` clears the buffer and the page redraws it inside ONE GAME
+  frame, which is about ten emulator frames — so a read at an arbitrary
+  emulator-frame boundary lands between the wipe and the repaint often enough
+  to look deterministic. The same trap as reading `phase4_visible` while
+  `phase4_project` is rebuilding it. The test samples twelve times and asks
+  that each buffer be seen carrying the page at least once, which a page
+  painted into one buffer only still fails.
+
+**And one build-time assert was replaced by a test for the same reason.**
+`info_form_names` is indexed by walking terminators, so a list one name short
+walks off the end of the table rather than drawing the wrong word. RASM cannot
+count zero bytes in a run, and the first attempt was `== 22` — a hand-written
+byte total, which is a comment pretending to be a check, and which was wrong
+on the first build (the four names are 24). `TestTheFormation` presses `F`
+round the whole cycle and reads a different real word off the screen each
+time; the assert that stayed is only the floor, `>= FORM_COUNT * 2`.
+
+#### What it cost, and the ceiling it moved
+
+465 bytes of hand-written low 16K — which cost **two pages**, `free:` 1536 →
+1024, because `gen/tables.asm` is page-aligned and the bill comes in units of
+256. The menu's new row cost 23 of bank 4 (235 left).
+
+**The formation name was free, and that is the same quantisation read the
+other way.** It is 48 bytes of code and 24 of text, and `DISC.BIN` did not move
+at all: the low 16K image ends at the page boundary either way, so those 72
+bytes came out of slack that was already being paid for. `str_index` cost bank
+4 nothing either — `ctx_class_name` now falls through into it, so the bank
+holds the same loop with the same `ld hl` in front of it that it held before.
+There are about 370 bytes of that slack left before the next page.
+
+**`DISC.BIN` is 26025 and the ceiling is 26368, so there are 343 bytes of
+headroom.** That is now the binding constraint on this project, ahead of both
+banks — it was 879 before this. The next thing to add has to either be small,
+or pay for itself: repacking the eight sprite libraries as 3+3+2 across banks
+5-7 (three fit in a window since six yaw views) takes the two that travel
+inside the file out of it and gives about 900 bytes back. See `todo.md`.
 
 ### The help page
 

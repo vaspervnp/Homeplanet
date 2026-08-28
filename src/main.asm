@@ -78,6 +78,11 @@ game_main:
 ;  equates from there. It is the frame loop's simulation like combat and the
 ;  economy, so it stays in the low 16K with them rather than going to bank 4.
     include "game/waves.asm"
+;  ...and this one is in the low 16K only because bank 4 is full. By the rule
+;  it belongs there with the help page and the orders menu -- it runs only
+;  while the game is stopped. It is after waves.asm because it calls
+;  wave_pct_of, and after phase4 for HUD_HP_ALARM and the pens.
+    include "game/squadinfo.asm"
 
 ; ----------------------------------------------------------------------------
 ;  Generated lookup tables. Must come last: they are page-aligned and would
@@ -521,3 +526,27 @@ bank7_end:
 ;  prompt up beside the title for exactly this reason.
     assert HELP_BODY_Y + (MENU_COUNT - 1) * HELP_LINE_STEP + TXT_CHAR_H <= HUD_TOP, "the help page's right column is drawn inside the HUD strip"
     assert HELP_BODY_Y + (HELP_ROWS - 1) * HELP_LINE_STEP + TXT_CHAR_H <= HUD_TOP, "the help page's left column is drawn inside the HUD strip"
+
+;  The squadron breakdown is CLASS_COUNT rows and a total, so it grows with
+;  section 8's class list rather than with the orders.
+    assert INFO_BODY_Y + CLASS_COUNT * INFO_STEP + INFO_TOTAL_GAP + TXT_CHAR_H <= HUD_TOP, "the squadron page's total row is drawn inside the HUD strip"
+    assert INFO_TITLE_Y + TXT_CHAR_H <= INFO_BODY_Y, "the squadron page's title runs into its first row"
+    assert INFO_PCT_X + 4 * TXT_CHAR_W_BYTES <= SCR_BYTES_PER_LINE, "the squadron page's percentage runs off the screen"
+    assert INFO_COUNT_X + 2 * TXT_CHAR_W_BYTES <= INFO_PCT_X, "the squadron page's count would run into the percentage"
+
+;  A SUM, the same shape and with the same limitation as the class-name check
+;  above: the longest name has to clear the count column, and RASM cannot be
+;  asked for the longest of eight strings.
+    assert INFO_NAME_X + ((class_name_end - class_name) / CLASS_COUNT) * TXT_CHAR_W_BYTES <= INFO_COUNT_X, "the class names would run into the squadron page's count"
+
+;  The formation names are indexed by WALKING terminators, so a list shorter
+;  than FORM_COUNT does not draw the wrong word -- it walks off the end of the
+;  table into whatever the assembler put next. RASM cannot be asked how many
+;  zero bytes are in a run, and a hand-maintained byte count would be a comment
+;  rather than a check, so the guard is a test instead:
+;  tests/test_squadinfo.TestTheFormation.test_every_formation_has_its_own_name
+;  presses `F` FORM_COUNT times and reads a different real word off the screen
+;  each time. This much can be asserted, and it is the floor:
+    assert info_form_names_end - info_form_names >= FORM_COUNT * 2, "there are fewer formation names than FORM_COUNT"
+    assert INFO_NUM_X + 2 * TXT_CHAR_W_BYTES <= INFO_FORM_X, "the squadron number would run into the formation name"
+    assert INFO_FORM_X + 6 * TXT_CHAR_W_BYTES <= INFO_PROMPT_X, "the formation name would run into the ESC prompt"

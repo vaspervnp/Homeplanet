@@ -221,10 +221,20 @@ demo_update:
 @p4_check_help:
     ld a,(help_shown)
     or a
-    jr z,@p4_check_menu
+    jr z,@p4_check_info
     call help_key
     call phase4_select_list
     call help_draw
+    jr @p4_static_done
+
+    ;  The squadron breakdown, on the same terms.
+@p4_check_info:
+    ld a,(info_shown)
+    or a
+    jr z,@p4_check_menu
+    call info_key
+    call phase4_select_list
+    call info_draw
     jr @p4_static_done
 
     ;  The orders menu. Choosing an entry injects that entry's key and closes,
@@ -370,6 +380,15 @@ phase4_commands:
     call help_open
     ret
 @p4_no_help:
+
+    ;  `I` breaks the selected squadron down by class. Same shape as `?`, and
+    ;  returning at once for the same reason.
+    ld a,KEY_I
+    call key_hit
+    jr nc,@p4_no_info
+    call info_open
+    ret
+@p4_no_info:
 
     ;  ESC brings up the orders -- but only when it is not already spoken for.
     ;  order_update reads it as "cancel", and cancelling the move disc or the

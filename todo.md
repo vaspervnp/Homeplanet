@@ -6,7 +6,72 @@ see [CLAUDE.md](CLAUDE.md) for both.
 
 ---
 
-*(Nothing outstanding.)*
+## 1. Music — the two `musicsamples/*.ogg`, in the game and on the disc
+
+`musicsamples/MorningLight.ogg` (4.3 MB) and `musicsamples/Tranquility.ogg`
+(2.7 MB). Wanted: music on the **intro** and **during play**, and two files on
+the disc that can be run on their own as `MUSIC1` and `MUSIC2`. In an upper
+bank.
+
+**Read these three things before starting, because two of them contradict the
+request as stated.**
+
+### There is no ogg converter
+
+`~/repos/GravassistCPC/tools/genmusic.py` is **not** an audio converter. It is
+a note-table generator: the melody is written out in Python as `("D2", 100)`
+pairs and the tool turns note names into AY periods (`period = 125000 / f`),
+which is the one calculation worth not doing by hand. Its own comments say
+where the tunes came from — *"Μεταγραμμένα από το
+musicsamples/8-bit-marching-drums_160bpm.wav"* — and **μεταγραμμένα means
+transcribed, by a person, by ear.** The `musicsamples/` directory in that
+project is reference material, not input.
+
+So the job is not "run the ogg through the tool". It is one of:
+
+- **transcribe** the two pieces into `genmusic.py`'s note form — which is the
+  path that has actually been walked once, and the only one that gives three
+  clean AY voices;
+- or find a real chain (ogg → MIDI → AY, or an Arkos Tracker / `.ym` player),
+  none of which exists in either repo today;
+- or sample-playback, which a 4 MHz Z80 with a 6128's memory will not do for
+  anything like the length of these files.
+
+The output format is three bytes a note — index, volume, duration — because
+whole firmware sound blocks would cost triple. Homeplanet does **not** use the
+firmware sound queue (§ "No firmware calls after boot"), so the player has to
+be ours; `src/sys/sound.asm` already owns the AY, drives software envelopes,
+and shares port A with `key_scan` under a documented contract. A music player
+has to go through it, not around it.
+
+### There is no free bank
+
+`OUT (#7Fxx)` reaches banks 4-7 and **all four are in use** — bank 4 is code
+and data with 258 bytes left, banks 5-7 hold two 4320-byte sprite libraries
+each. "Put it in an upper bank" has no bank to put it in as things stand.
+
+What is available, and it is real: six yaw views made a library 4320 bytes, so
+**three** fit in a 16K window. Repacking eight libraries as 3+3+2 across banks
+5, 6 and 7 leaves **7744 bytes free in bank 7** — and takes the two that
+currently travel inside `DISC.BIN` (interceptor and frigate) out of it, which
+is 900 bytes of headroom under `#A700` back as well. That is the space. It
+costs `LIB_SECTORS`, `LIB_TRACKS_PER_BANK`, `class_bank`, `tools/discbanks.py`
+and the `BANK` sections in `src/main.asm`, all of which already read their
+layout from one place.
+
+### The frame budget, and the interrupt
+
+`snd_update` runs from the 50 Hz IM 1 handler and costs 4,433 T-states with
+three voices live, out of the ~6,300 a whole tick currently spends. A music
+player that also runs at 50 Hz is competing for the same tick **and the same
+three AY channels** as the game's own effects — so "music plus a shot plus a
+kill" is a mixing decision (does a sound effect steal a voice, or is music
+two voices and effects one?), not just a memory one. That decision should be
+made before any of the above is written.
+
+`MUSIC1`/`MUSIC2` as standalone disc files is the easy half and is a good
+first step: it is a loader and a player with no game around it, which proves
+the player before it has to share anything.
 
 *(The two items that were here — showing that the game is paused, and a
 context bar along the top — were one job and are done together. See "The

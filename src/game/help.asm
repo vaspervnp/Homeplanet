@@ -16,7 +16,10 @@
 
 HELP_TITLE_Y        equ 8
 HELP_BODY_Y         equ 26
-HELP_LINE_STEP      equ 11
+;  Ten and not eleven: the RIGHT column is menu_entries, so it is MENU_COUNT
+;  rows long and grows every time an order is added. At fourteen rows, eleven
+;  put the last one inside the HUD's strip -- see the asserts in src/main.asm.
+HELP_LINE_STEP      equ 10
 HELP_ROWS           equ 10              ; the left column; the right one is
                                         ; MENU_COUNT long
 HELP_COL1_X         equ 1               ; x is in BYTES: 4 pixels each

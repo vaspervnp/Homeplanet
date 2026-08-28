@@ -20,12 +20,13 @@ sys.path.insert(0, __file__.rsplit("/", 2)[0])
 from tests import harness as h
 import cpc
 
-MENU_COUNT = 13
+MENU_COUNT = 14
 #  Row order, mirrored from src/game/menutext.asm. SPLIT BY CLASS went in at 6,
 #  beside the other thing that reshapes the fleet, and moved everything below it
-#  down one.
+#  down one. SQUADRON INFO went in at 12, next to CONTROLS -- the two entries
+#  that tell you something rather than order somebody -- so only CONTROLS moved.
 ROW_ATTACK, ROW_BY_CLASS, ROW_SENSORS, ROW_MOVE = 0, 6, 7, 8
-ROW_PAN, ROW_CENTRE, ROW_CONTROLS = 10, 11, 12
+ROW_PAN, ROW_CENTRE, ROW_INFO, ROW_CONTROLS = 10, 11, 12, 13
 
 ENT_SIZE = 20
 ENT_FLAGS, ENT_ORDER = 11, 13
@@ -161,6 +162,13 @@ class TestPickingActuallyDoesIt(MenuFixture):
         self.choose(ROW_CONTROLS)
         self.assertEqual(self.banked("HELP_SHOWN"), 1,
                          "choosing CONTROLS did not put the key list up")
+
+    def test_squadron_info_opens_the_breakdown(self):
+        """INFO_SHOWN is in the LOW 16K, not the bank: squadinfo.asm is one of
+        the two static screens that did not fit in bank 4."""
+        self.choose(ROW_INFO)
+        self.assertEqual(self.byte("INFO_SHOWN"), 1,
+                         "choosing SQUADRON INFO did not put the breakdown up")
 
 
 class TestTheView(MenuFixture):

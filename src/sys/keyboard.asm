@@ -103,6 +103,7 @@ KEY_D               equ 7*8 + 5
 KEY_F               equ 6*8 + 5
 KEY_G               equ 6*8 + 4
 KEY_H               equ 5*8 + 4
+KEY_I               equ 4*8 + 3         ; squadron info; same line 4 as O below
 KEY_J               equ 5*8 + 5
 KEY_M               equ 4*8 + 6
 KEY_N               equ 5*8 + 6

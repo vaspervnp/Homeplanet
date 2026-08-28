@@ -24,10 +24,10 @@
 ;  stopped, so it has no business in the low 16K.
 ; ----------------------------------------------------------------------------
 
-MENU_COUNT          equ 13
+MENU_COUNT          equ 14
 MENU_TITLE_Y        equ 12
-MENU_TOP            equ 26
-MENU_STEP           equ 11
+MENU_TOP            equ 24
+MENU_STEP           equ 10
 MENU_MARK_X         equ 22              ; x is in BYTES
 MENU_TEXT_X         equ 24
 ;  Beside the title, not under the list. Thirteen rows do not leave room for a

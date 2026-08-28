@@ -49,6 +49,10 @@ menu_entries:
     defb "PAN VIEW        P",0
     defb KEY_0
     defb "CENTRE ON BASE  0",0
+    ;  The two that tell you something rather than order somebody, last and
+    ;  together.
+    defb KEY_I
+    defb "SQUADRON INFO   I",0
     defb KEY_SLASH
     defb "CONTROLS        ?",0
 menu_entries_end:
