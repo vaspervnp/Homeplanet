@@ -1539,10 +1539,32 @@ would be a disaster.
 
 ### Music: `MUSIC1` and `MUSIC2`, and what is not in the game yet
 
-Two standalone programs on the disc, `RUN"MUSIC1` and `RUN"MUSIC2`, playing
-`musicsamples/Tranquility.ogg` and `musicsamples/MorningLight.ogg` on three AY
-voices. **The game itself has no music yet** — see `todo.md` for the two things
-in the way, one of which is hard and one of which needs an ear.
+Three standalone programs on the disc. `MUSIC1` and `MUSIC2` are
+`musicsamples/Tranquility.ogg` and `musicsamples/MorningLight.ogg`,
+transcribed; **`MUSIC3` is composed here** and needs no audio at all, which
+makes it the only one a checkout without `musicsamples/` can rebuild. **The
+game itself has no music yet** — see `todo.md` for the two things in the way,
+one of which is hard and one of which needs an ear.
+
+**Everything is quiet and flat: 8/6/7 out of 15, and not one level moves.**
+That is a bed for a game that may be on for an hour, not a title theme.
+
+> **MUSIC3's first version shaped every held note into four entries that
+> swelled and faded**, on the argument that an unshaped AY square wave reads as
+> a test tone. It did what it was meant to and it was still wrong: over a
+> four-second step that is not an envelope, it is **tremolo** — a slow wobble
+> under everything, and the one thing an ear locks onto and then cannot let go
+> of. Quiet and steady disappears behind a battle; quiet and wavering does not.
+> The stream format still carries a volume per entry, so shaping is free and
+> can come back for something short. It must not come back for a drone.
+
+`MUSIC3` is 64 seconds on all three voices, so it comes round cleanly, and it
+is 199 bytes. D Aeolian over a D2 drone, and three things carry the mood:
+**no thirds in the harmony** (fifths, fourths and octaves only, so the mode is
+never declared and it reads as open rather than as sad); **the bass moves under
+a held melody note**, so the harmony shifts without anything starting; and
+**the lead is absent for a third of the cycle**, because with three channels
+taking one away is the largest dynamic change there is.
 
 **The pitches are MEASURED, not transcribed**, and `tools/genmusic.py` is
 careful about the difference. It decodes with ffmpeg, runs one FFT per frame
@@ -1577,7 +1599,13 @@ Three things worth knowing:
 - **`tests/test_music.py` reads the AY's registers back out of the chip** while
   the player runs and checks every period against the generated table. That is
   the only test of the whole chain, and it is what makes "period 2273" mean
-  "A1, the note the analyser found" rather than "some number".
+  "A1, the note the analyser found" rather than "some number". For MUSIC3 it
+  also checks that no level ever moves, which is the tremolo staying gone.
+- **The `.dsk` depends on the music binaries, and has to.** `iDSK` will not
+  silently overwrite a file already on the image — it asks, and in a Makefile
+  that means it declines and leaves the old one there. Appending a rebuilt tune
+  to a stale image left last build's music on the disc and the tests measured
+  that. Same lesson as `rm -f $(DSK)`, one step further out.
 
 > **Its sampling was wrong first, in the direction that matters.** Six samples
 > two and a half seconds apart reported that a voice never sounded at all — on

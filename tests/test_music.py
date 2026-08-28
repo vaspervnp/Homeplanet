@@ -36,7 +36,7 @@ PSG_BUF = 0x9200
 R_MIXER, R_AMP_A, R_AMP_B, R_AMP_C = 7, 8, 9, 10
 
 #  Written by tools/genmusic.py's BANDS, one per voice.
-BAND_VOLUMES = (12, 10, 11)
+BAND_VOLUMES = (8, 6, 7)
 
 
 def _w(a):
@@ -225,6 +225,71 @@ class TestItPlays(PlayerFixture):
 class TestTheSecondTune(TestItPlays):
     TUNE = "MUSIC2"
     STEM = "morninglight"
+
+
+class TestTheComposedOne(TestItPlays):
+    """MUSIC3 is written rather than measured, so it is the one tune whose
+    notes are known in advance -- and the only one a checkout with no
+    musicsamples/ can rebuild at all."""
+
+    TUNE = "MUSIC3"
+    STEM = "deepspace"
+
+    #  The composed tune uses its own three levels, all of them low.
+    LEVELS = (7, 6, 8)
+
+    def test_the_volume_never_moves(self):
+        """The correction the tune was rewritten for.
+
+        Every held note was four entries swelling and fading, which at this
+        tempo is not an envelope but a slow tremolo under everything. Quiet
+        and steady disappears behind a battle; quiet and wavering does not.
+        A level that moves at all here is that coming back.
+        """
+        seen = {0: set(), 1: set(), 2: set()}
+        #  Over twenty seconds, because the bass is a sixteen-second drone: a
+        #  six-second window would see one level whatever the tune did, which
+        #  is how the swell version passed its own test on two voices out of
+        #  three. The window has to cover the LONGEST note, not the shortest.
+        for _, amps, _ in self.sample(count=26, every=40):
+            for voice, amp in enumerate(amps):
+                seen[voice].add(amp)
+        for voice, levels in seen.items():
+            sounding = {a for a in levels if a}
+            self.assertLessEqual(len(sounding), 1,
+                                 f"voice {voice} plays at {sorted(sounding)} -- "
+                                 f"the volume is moving")
+            if sounding:
+                self.assertEqual(sounding, {self.LEVELS[voice]},
+                                 f"voice {voice} is at {sounding}, not "
+                                 f"{self.LEVELS[voice]}")
+
+    def test_it_is_quiet(self):
+        """A bed for a strategy game that may be on for an hour, not a title
+        theme. The AY's amplitude is about 3 dB a step, so eight is roughly
+        12 dB under where a chiptune would sit."""
+        for _, amps, _ in self.sample(count=8, every=40):
+            for voice, amp in enumerate(amps):
+                self.assertLessEqual(amp, 8,
+                                     f"voice {voice} is at amplitude {amp}")
+
+    def test_the_three_voices_carry_the_three_band_volumes(self):
+        self.skipTest("composed: it has its own levels, see test_the_volume_never_moves")
+
+    def test_the_harmony_never_states_a_third(self):
+        """The decision the piece is built on: the two accompanying voices
+        move in fifths, fourths and octaves, so the mode is never declared.
+        A third creeping into the harmony would make it sound sad or bright
+        instead of open, and nothing else here would notice."""
+        table = sorted(periods_of(self.STEM))
+        #  Semitones above the D the piece is centred on, for every period in
+        #  the table: 125000/period -> Hz -> semitones from D2 (73.416 Hz).
+        import math
+        degrees = set()
+        for p in table:
+            hz = 125000.0 / p
+            degrees.add(round(12 * math.log2(hz / 73.416)) % 12)
+        self.assertNotIn(4, degrees, "there is a major third in the tune")
 
 
 class TestTheDiscStillHoldsTheSpriteLibraries(unittest.TestCase):

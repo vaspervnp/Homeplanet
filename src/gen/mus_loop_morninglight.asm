@@ -29,204 +29,204 @@ mus_loop_morninglight_periods:
 mus_loop_morninglight_periods_end:
 
 mus_loop_morninglight_bass:
-    defb   1, 12, 160
+    defb   1,  8, 160
     defb   0,  0,   5
-    defb   2, 12, 250
-    defb   2, 12, 120
-    defb   4, 12,  40
-    defb   1, 12, 250
-    defb   1, 12,  85
-    defb   3, 12, 125
-    defb   5, 12, 230
+    defb   2,  8, 250
+    defb   2,  8, 120
+    defb   4,  8,  40
+    defb   1,  8, 250
+    defb   1,  8,  85
+    defb   3,  8, 125
+    defb   5,  8, 230
     defb   0,  0,  10
-    defb   4, 12,  45
-    defb   1, 12, 250
-    defb   1, 12,  25
+    defb   4,  8,  45
+    defb   1,  8, 250
+    defb   1,  8,  25
     defb #FF
 
 mus_loop_morninglight_harmony:
-    defb  10, 10,  15
-    defb  12, 10,  20
+    defb  10,  6,  15
+    defb  12,  6,  20
     defb   0,  0,   5
-    defb  12, 10,  20
+    defb  12,  6,  20
     defb   0,  0,   5
-    defb  12, 10,  30
+    defb  12,  6,  30
     defb   0,  0,  10
-    defb  18, 10,  10
-    defb  12, 10,  10
+    defb  18,  6,  10
+    defb  12,  6,  10
     defb   0,  0,   5
-    defb   7, 10,  25
-    defb  18, 10,  10
+    defb   7,  6,  25
+    defb  18,  6,  10
     defb   0,  0,   5
-    defb  10, 10,  10
-    defb  11, 10,  15
+    defb  10,  6,  10
+    defb  11,  6,  15
     defb   0,  0,   5
-    defb  11, 10,  45
+    defb  11,  6,  45
     defb   0,  0,   5
-    defb  11, 10,  20
+    defb  11,  6,  20
     defb   0,  0,   5
-    defb  11, 10,  40
+    defb  11,  6,  40
     defb   0,  0,  30
-    defb   8, 10,  40
+    defb   8,  6,  40
     defb   0,  0,   5
-    defb   8, 10, 145
+    defb   8,  6, 145
     defb   0,  0,  10
-    defb   9, 10,  50
+    defb   9,  6,  50
     defb   0,  0,  20
-    defb  19, 10,  10
+    defb  19,  6,  10
     defb   0,  0,  10
-    defb  17, 10,  20
-    defb  19, 10,  10
+    defb  17,  6,  20
+    defb  19,  6,  10
     defb   0,  0,  10
-    defb   6, 10,  15
+    defb   6,  6,  15
     defb   0,  0,  15
-    defb   6, 10,  15
-    defb  10, 10,  20
-    defb  12, 10,  10
-    defb  10, 10,  15
-    defb  12, 10,  30
+    defb   6,  6,  15
+    defb  10,  6,  20
+    defb  12,  6,  10
+    defb  10,  6,  15
+    defb  12,  6,  30
     defb   0,  0,   5
-    defb  12, 10,  10
+    defb  12,  6,  10
     defb   0,  0,  30
-    defb  12, 10,  10
+    defb  12,  6,  10
     defb   0,  0,   5
-    defb   7, 10,  10
+    defb   7,  6,  10
     defb   0,  0,  10
-    defb   7, 10,  15
+    defb   7,  6,  15
     defb   0,  0,   5
-    defb   7, 10,  10
+    defb   7,  6,  10
     defb   0,  0,  10
-    defb  12, 10,  25
+    defb  12,  6,  25
     defb   0,  0,   5
-    defb  12, 10, 120
-    defb   6, 10,  10
+    defb  12,  6, 120
+    defb   6,  6,  10
     defb   0,  0,   5
-    defb   6, 10,  10
-    defb  10, 10,  60
+    defb   6,  6,  10
+    defb  10,  6,  60
     defb   0,  0,   5
-    defb   6, 10,  20
-    defb  10, 10,  10
-    defb  16, 10,  15
-    defb  13, 10,  20
+    defb   6,  6,  20
+    defb  10,  6,  10
+    defb  16,  6,  15
+    defb  13,  6,  20
     defb   0,  0,  10
-    defb  13, 10,  20
-    defb  16, 10,  15
-    defb  19, 10,  10
+    defb  13,  6,  20
+    defb  16,  6,  15
+    defb  19,  6,  10
     defb   0,  0,  10
-    defb   9, 10,  10
-    defb  11, 10,  10
-    defb   9, 10,  15
-    defb  11, 10,  25
+    defb   9,  6,  10
+    defb  11,  6,  10
+    defb   9,  6,  15
+    defb  11,  6,  25
     defb   0,  0,  25
-    defb  17, 10,  25
+    defb  17,  6,  25
     defb   0,  0,  35
-    defb   6, 10,  15
+    defb   6,  6,  15
     defb   0,  0,   5
-    defb   6, 10,  10
-    defb  10, 10,  10
-    defb  12, 10,  75
+    defb   6,  6,  10
+    defb  10,  6,  10
+    defb  12,  6,  75
     defb   0,  0,  10
-    defb  13, 10,  10
-    defb  12, 10,  15
+    defb  13,  6,  10
+    defb  12,  6,  15
     defb   0,  0,  15
     defb #FF
 
 mus_loop_morninglight_lead:
     defb   0,  0,   5
-    defb  21, 11,  10
+    defb  21,  7,  10
     defb   0,  0,   5
-    defb  21, 11,  10
+    defb  21,  7,  10
     defb   0,  0,  10
-    defb  18, 11,  15
+    defb  18,  7,  15
     defb   0,  0,   5
-    defb  18, 11,  10
+    defb  18,  7,  10
     defb   0,  0,   5
-    defb  18, 11,  10
+    defb  18,  7,  10
     defb   0,  0,   5
-    defb  18, 11,  15
-    defb  21, 11,  10
+    defb  18,  7,  15
+    defb  21,  7,  10
     defb   0,  0,  20
-    defb  21, 11,  10
+    defb  21,  7,  10
     defb   0,  0,   5
-    defb  21, 11,  15
-    defb  14, 11,  65
+    defb  21,  7,  15
+    defb  14,  7,  65
     defb   0,  0,  30
-    defb  21, 11,  20
-    defb  19, 11,  25
+    defb  21,  7,  20
+    defb  19,  7,  25
     defb   0,  0,   5
-    defb  19, 11,  10
+    defb  19,  7,  10
     defb   0,  0,  10
-    defb  21, 11,  25
+    defb  21,  7,  25
     defb   0,  0,  20
-    defb  19, 11,  10
+    defb  19,  7,  10
     defb   0,  0,  10
-    defb  21, 11,  10
-    defb  19, 11, 130
+    defb  21,  7,  10
+    defb  19,  7, 130
     defb   0,  0,  10
-    defb  14, 11,  25
-    defb  15, 11,  10
-    defb  17, 11,  10
-    defb  19, 11,  10
-    defb  17, 11,  10
+    defb  14,  7,  25
+    defb  15,  7,  10
+    defb  17,  7,  10
+    defb  19,  7,  10
+    defb  17,  7,  10
     defb   0,  0,   5
-    defb  17, 11,  10
+    defb  17,  7,  10
     defb   0,  0,  10
-    defb  19, 11,  20
-    defb  17, 11,  30
+    defb  19,  7,  20
+    defb  17,  7,  30
     defb   0,  0,  35
-    defb  16, 11,  10
+    defb  16,  7,  10
     defb   0,  0,   5
-    defb  16, 11,  60
+    defb  16,  7,  60
     defb   0,  0,  15
-    defb  16, 11,  10
+    defb  16,  7,  10
     defb   0,  0,   5
-    defb  14, 11,  10
+    defb  14,  7,  10
     defb   0,  0,   5
-    defb  14, 11,  25
-    defb  21, 11,  15
+    defb  14,  7,  25
+    defb  21,  7,  15
     defb   0,  0,   5
-    defb  14, 11,  10
-    defb  21, 11,  10
+    defb  14,  7,  10
+    defb  21,  7,  10
     defb   0,  0,   5
-    defb  18, 11,  10
-    defb  14, 11,  20
-    defb  16, 11,  20
+    defb  18,  7,  10
+    defb  14,  7,  20
+    defb  16,  7,  20
     defb   0,  0,   5
-    defb  16, 11,  15
+    defb  16,  7,  15
     defb   0,  0,  10
-    defb  14, 11,  15
-    defb  16, 11,  20
+    defb  14,  7,  15
+    defb  16,  7,  20
     defb   0,  0,   5
-    defb  16, 11,  15
+    defb  16,  7,  15
     defb   0,  0,   5
-    defb  16, 11,  25
+    defb  16,  7,  25
     defb   0,  0,   5
-    defb  16, 11,  50
+    defb  16,  7,  50
     defb   0,  0,   5
-    defb  16, 11,  50
-    defb  13, 11,  15
-    defb  16, 11,  20
-    defb  13, 11,  10
-    defb  16, 11,  20
-    defb  19, 11,  15
-    defb  20, 11,  10
+    defb  16,  7,  50
+    defb  13,  7,  15
+    defb  16,  7,  20
+    defb  13,  7,  10
+    defb  16,  7,  20
+    defb  19,  7,  15
+    defb  20,  7,  10
     defb   0,  0,  10
-    defb  14, 11,  40
-    defb  17, 11,  25
-    defb  16, 11,  15
-    defb  19, 11,  40
+    defb  14,  7,  40
+    defb  17,  7,  25
+    defb  16,  7,  15
+    defb  19,  7,  40
     defb   0,  0,  20
-    defb  17, 11,  10
-    defb  19, 11,  10
+    defb  17,  7,  10
+    defb  19,  7,  10
     defb   0,  0,   5
-    defb  21, 11,  10
+    defb  21,  7,  10
     defb   0,  0,   5
-    defb  16, 11,  15
+    defb  16,  7,  15
     defb   0,  0,   5
-    defb  16, 11,  30
-    defb  18, 11,  20
-    defb  16, 11,  10
-    defb  18, 11,  35
-    defb  21, 11,  15
+    defb  16,  7,  30
+    defb  18,  7,  20
+    defb  16,  7,  10
+    defb  18,  7,  35
+    defb  21,  7,  15
     defb #FF
 

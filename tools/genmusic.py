@@ -82,14 +82,18 @@ DUR_MAX = 250                       # one byte, with room for the #FF terminator
 #  otherwise flickers between two channels from frame to frame, which sounds
 #  like a fault rather than like harmony.
 #
+#  The volumes are LOW and FLAT, for the reason the composed tune's section
+#  gives at length: this is a bed, and a level that moves is the thing an ear
+#  locks onto. They were 12/10/9 and are 8/6/7, about 12 dB down.
+#
 #  `rate` is the sample rate the band is analysed at. It has to be at least
 #  twice the band's top note, and cheaper is better: the bass band at 1378 Hz
 #  costs an eighth of what it would at 11025 for exactly the same answer.
 BANDS = [
     #  name      lo   hi   rate   window   volume
-    ("bass",     33,  55,  1378,  512,     12),   # A1  .. G3
-    ("harmony",  50,  74,  2756,  512,     10),   # D3  .. D5
-    ("lead",     62,  93, 11025, 2048,     11),   # D4  .. A6
+    ("bass",     33,  55,  1378,  512,      8),   # A1  .. G3
+    ("harmony",  50,  74,  2756,  512,      6),   # D3  .. D5
+    ("lead",     62,  93, 11025, 2048,      7),   # D4  .. A6
 ]
 
 #  A frame whose loudest partial holds less than this share of its band's
@@ -122,6 +126,130 @@ TUNES = [
     dict(name="morninglight", src="musicsamples/MorningLight.ogg",
          loop=(4.0, 36.0), disc="MUSIC2"),
 ]
+
+
+#  --- MUSIC3: written here, not measured -----------------------------------
+#
+#  The other two tunes are transcriptions of somebody's recording. This one is
+#  composed, in the same place and the same format, because the tool already
+#  knows how to turn note names into AY periods and that is the only hard sum
+#  in either job.
+#
+#  IT IS FOR THE FICTION. Homeplanet is a fleet running with sixty thousand
+#  sleepers aboard and nothing it loses ever comes back. So this is not
+#  "exciting space", it is cold, patient and unresolved, and three decisions
+#  carry all of that:
+#
+#  1. NO THIRDS IN THE HARMONY. The two accompanying voices move in fifths,
+#     fourths and octaves only, so the mode is never declared and the ear
+#     cannot settle on major or minor. That is what makes it read as open
+#     rather than as sad -- the same trick Gravassist's menu theme uses to
+#     avoid stating a tonic colour, used here for the opposite mood.
+#  2. THE BASS MOVES UNDER A HELD MELODY NOTE. Every drone change happens
+#     while the lead is sustaining, so the harmony shifts without anything
+#     starting. That is what makes it drift instead of progress; a bass that
+#     changed on the melody's attack would sound like chords.
+#  3. SILENCE IS THE THIRD VOICE. The lead is absent for a third of the cycle.
+#     With three channels, taking one away is the largest dynamic change
+#     available -- there is no volume envelope worth the name -- so the piece
+#     breathes by dropping to two voices and back.
+#
+#  Slow: the cycle is 64 seconds and a phrase is 16. D Aeolian, centred on a
+#  D2 drone; the melody touches the flat third and the bass never does.
+#
+#  4. THE LEVELS DO NOT MOVE, and that is a correction. The first version
+#     wrote every held note as four entries whose volume rose and fell, on the
+#     argument that an unshaped AY square wave reads as a test tone. It does
+#     what it was meant to do and it was still wrong: over a four-second step
+#     that is not an envelope, it is TREMOLO -- a slow wobble under
+#     everything, and the one thing an ear locks onto and then cannot let go
+#     of. Steady and quiet disappears behind a battle. Wavering and quiet does
+#     not. The stream format still carries a volume per entry, so shaping is
+#     free and can come back for something short; it must not come back for a
+#     drone.
+
+COMPOSE_NAME = "deepspace"
+COMPOSE_DISC = "MUSIC3"
+
+_S = 50                             # one second, in 50 Hz ticks
+
+#  QUIET, AND FLAT. The AY's amplitude is roughly 3 dB a step, so these sit
+#  about 12 dB under where a chiptune would put them -- this is a bed for a
+#  strategy game, not a title theme, and it has to survive being on for an
+#  hour.
+#
+#  AND NOT SHAPED. The first version wrote every held note as four entries
+#  whose volume rose and fell, on the theory that an unshaped AY square wave
+#  reads as a test tone rather than as a pad. It does the job it was meant to
+#  and it was still wrong: at this tempo a swell over four seconds is not an
+#  envelope, it is TREMOLO -- a slow wobble under everything, which is exactly
+#  what you notice and then cannot stop noticing. Steady and quiet disappears
+#  behind a battle; wavering and quiet does not.
+#
+#  The stream format still carries a volume per entry, so shaping costs
+#  nothing and can come back for something short. It should not come back for
+#  a drone.
+VOL_BASS, VOL_HARMONY, VOL_LEAD = 7, 6, 8
+
+
+def _hold(note, seconds, vol):
+    return [(note, vol, seconds * _S)]
+
+
+def _rest(seconds):
+    return [(None, 0, seconds * _S)]
+
+
+def composed():
+    """The three voices of MUSIC3, as explicit (midi, volume, ticks)."""
+    bass = (
+        _hold("D2", 16, VOL_BASS) +
+        _hold("A#1", 16, VOL_BASS) +
+        _hold("C2", 16, VOL_BASS) +
+        _hold("A1", 8, VOL_BASS) + _hold("D2", 8, VOL_BASS)
+    )
+
+    #  Fifths and fourths over each drone, two to a phrase. Never a third.
+    harmony = (
+        _hold("A3", 8, VOL_HARMONY) + _hold("D4", 8, VOL_HARMONY) +    # over D
+        _hold("F3", 8, VOL_HARMONY) + _hold("A#3", 8, VOL_HARMONY) +   # over A#
+        _hold("G3", 8, VOL_HARMONY) + _hold("C4", 8, VOL_HARMONY) +    # over C
+        _hold("E4", 8, VOL_HARMONY) + _hold("A3", 8, VOL_HARMONY)      # A, then D
+    )
+
+    #  D Aeolian, and the only voice allowed the flat third.
+    lead = (
+        _rest(4) + _hold("A4", 3, VOL_LEAD) + _rest(1) +
+        _hold("G4", 2, VOL_LEAD) + _hold("F4", 2, VOL_LEAD) + _rest(4) +
+
+        _hold("D5", 3, VOL_LEAD) + _rest(1) + _hold("C5", 4, VOL_LEAD) +
+        _rest(2) + _hold("A4", 4, VOL_LEAD) + _rest(2) +
+
+        _rest(2) + _hold("G4", 4, VOL_LEAD) + _hold("A4", 2, VOL_LEAD) +
+        _hold("C5", 4, VOL_LEAD) + _rest(4) +
+
+        _hold("E5", 4, VOL_LEAD) + _rest(2) + _hold("D5", 6, VOL_LEAD) + _rest(4)
+    )
+
+    out = []
+    for name, events in (("bass", bass), ("harmony", harmony), ("lead", lead)):
+        out.append((name, [(None if n is None else name_midi(n), v, t)
+                           for n, v, t in events]))
+    return out
+
+
+COMPOSE_NOTE = [
+    "COMPOSED, not transcribed -- see tools/genmusic.py's COMPOSE section",
+    "for the decisions: no thirds in the harmony, the bass moving under a",
+    "held melody note, the lead dropping out for a third of the cycle, and",
+    "volumes that are low and DO NOT MOVE -- a swell this slow is tremolo.",
+]
+
+
+def name_midi(name):
+    """'A#3' -> a MIDI number. Octave 4 is the one with A4 = 440 Hz."""
+    i = 2 if len(name) > 2 and name[1] == "#" else 1
+    return 12 * (int(name[i:]) + 1) + NAMES.index(name[:i])
 
 
 def midi_hz(m):
@@ -331,16 +459,22 @@ def analyse(path, start=None, dur=None):
 
 # ----------------------------------------------------------------- emitting --
 
-def emit(fh, label, bands):
-    used = sorted({n for _, _, runs in bands for n, _ in runs if n is not None})
+def emit_streams(fh, label, voices, note):
+    """Write a period table and three streams of explicit triples.
+
+    `voices` is [(name, [(midi or None, volume, ticks), ...]), ...]. Both the
+    analysed tunes and the composed one come through here, so exactly one
+    place knows the file format.
+    """
+    used = sorted({m for _, ev in voices for m, _, _ in ev if m is not None})
     playable = [m for m in used if ay_period(m) <= AY_PERIOD_MAX]
     dropped = [m for m in used if m not in playable]
 
     fh.write(f"; {'=' * 74}\n")
     fh.write(f";  {label} -- generated by tools/genmusic.py, do not edit\n")
     fh.write(f"; {'=' * 74}\n")
-    fh.write(";  Pitches are MEASURED off the source; the split into three\n")
-    fh.write(";  voices is an arrangement choice. See the tool's header.\n")
+    for line in note:
+        fh.write(f";  {line}\n")
     if dropped:
         fh.write(f";  Dropped, below the AY's 12-bit period floor: "
                  f"{', '.join(midi_name(m) for m in dropped)}\n")
@@ -351,17 +485,33 @@ def emit(fh, label, bands):
         fh.write(f"    defw {ay_period(m):5}                     ; {midi_name(m)}\n")
     fh.write(f"{label}_periods_end:\n\n")
 
-    total = 0
-    for name, volume, runs in bands:
-        runs = [(n if n in playable else None, c) for n, c in runs]
-        stream = to_stream(runs, playable, volume)
+    total = len(playable) * 2
+    for name, events in voices:
         fh.write(f"{label}_{name}:\n")
-        for idx, vol, dur in stream:
-            fh.write(f"    defb {idx:3},{vol:3},{dur:4}\n")
+        for m, vol, ticks in events:
+            idx = 0 if (m is None or m not in playable) else playable.index(m) + 1
+            v = 0 if idx == 0 else vol
+            while ticks > 0:
+                step = min(ticks, DUR_MAX)
+                fh.write(f"    defb {idx:3},{v:3},{step:4}\n")
+                total += 3
+                ticks -= step
         fh.write("    defb #FF\n\n")
-        total += len(stream) * 3 + 1
-    total += len(playable) * 2
+        total += 1
     return total, playable
+
+
+ANALYSED_NOTE = [
+    "Pitches are MEASURED off the source; the split into three",
+    "voices is an arrangement choice. See the tool's header.",
+]
+
+
+def emit(fh, label, bands):
+    """The analysed path: runs of (note, frames) become explicit triples."""
+    voices = [(name, [(m, volume, frames * TICKS_PER_STEP) for m, frames in runs])
+              for name, volume, runs in bands]
+    return emit_streams(fh, label, voices, ANALYSED_NOTE)
 
 
 def build(tune, whole, outdir):
@@ -440,6 +590,14 @@ def main():
             path, size, bands, playable = build(t, whole, args.outdir)
             print(f"{os.path.relpath(path, ROOT):34} {size:6} bytes, "
                   f"{len(playable):3} distinct notes")
+
+    #  ...and the composed one, which needs no audio at all -- which is why it
+    #  is the only tune here that a clone with no musicsamples/ can rebuild.
+    path = os.path.join(args.outdir, f"mus_full_{COMPOSE_NAME}.asm")
+    with open(path, "w") as fh:
+        size, playable = emit_streams(fh, "mus", composed(), COMPOSE_NOTE)
+    print(f"{os.path.relpath(path, ROOT):34} {size:6} bytes, "
+          f"{len(playable):3} distinct notes")
 
 
 if __name__ == "__main__":

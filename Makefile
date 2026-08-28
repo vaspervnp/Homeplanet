@@ -39,8 +39,10 @@ TABLES := $(GEN_DIR)/tables.asm $(GEN_DIR)/zoom.asm
 # machine with a battle.
 MUSIC_TUNES := tranquility morninglight
 MUSIC_GEN   := $(patsubst %,$(GEN_DIR)/mus_full_%.asm,$(MUSIC_TUNES)) \
-               $(patsubst %,$(GEN_DIR)/mus_loop_%.asm,$(MUSIC_TUNES))
-MUSIC_BIN   := $(BUILD_DIR)/music1.bin $(BUILD_DIR)/music2.bin
+               $(patsubst %,$(GEN_DIR)/mus_loop_%.asm,$(MUSIC_TUNES)) \
+               $(GEN_DIR)/mus_full_deepspace.asm
+MUSIC_BIN   := $(BUILD_DIR)/music1.bin $(BUILD_DIR)/music2.bin \
+               $(BUILD_DIR)/music3.bin
 
 DSK      := $(BUILD_DIR)/homeplanet.dsk
 GAME_RAW := $(BUILD_DIR)/home.raw
@@ -88,7 +90,12 @@ $(SPRITE_RLE): $(SPRITE_RAW) tools/packsprites.py
 # got code that no longer matched build/disc.raw or the symbol file. It shows
 # up as data three bytes out of place and nothing in the source to explain it.
 # Always mint a fresh image.
-$(DISC_RAW) $(DSK) $(DISC_SYM) &: $(GAME_RAW) $(SPRITE_RLE) $(DISC)
+# $(MUSIC_BIN) is in here so that changing a tune RE-MINTS the image. It is
+# not a build input to disc.asm -- the music goes on afterwards with iDSK --
+# but iDSK will not silently overwrite a file that is already there, so
+# appending to a stale image leaves the old binary on the disc and the tests
+# then measure last build's music. Same lesson as the rm below, one step out.
+$(DISC_RAW) $(DSK) $(DISC_SYM) &: $(GAME_RAW) $(SPRITE_RLE) $(DISC) $(MUSIC_BIN)
 	rm -f $(DSK)
 	$(RASM) $(DISC) $(RASMFLAGS) -s -sa -ec -os $(DISC_SYM)
 
@@ -111,6 +118,7 @@ $(BANKED): $(DSK) $(LIB_RAW) $(SYM) tools/discbanks.py $(SPLASH_SCR) $(SPLASH_BA
 	$(IDSK) $(DSK) -i $(SPLASH_SCR) -c C000 -e C000 -t 1
 	$(IDSK) $(DSK) -i $(BUILD_DIR)/music1.bin -c 4000 -e 4000 -t 1
 	$(IDSK) $(DSK) -i $(BUILD_DIR)/music2.bin -c 4000 -e 4000 -t 1
+	$(IDSK) $(DSK) -i $(BUILD_DIR)/music3.bin -c 4000 -e 4000 -t 1
 	touch $@
 
 # The note streams. Analysing four and a half minutes of ogg takes about half
