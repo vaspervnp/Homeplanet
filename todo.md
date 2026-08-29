@@ -47,6 +47,57 @@ thing that says so.
 
 ---
 
+## 1a. A jump EFFECT: a line that wipes the ships away and back
+
+Asked for after the Salvage Corvette and to be done after it. A vertical line
+appears at one side of the ships and travels to the other, **erasing them as it
+passes**. On arriving in the next mission the reverse happens and the line
+**reveals** them.
+
+### Do it as a moving MASK, not as a copy
+
+The obvious implementation of the reveal is to draw the new scene into the back
+buffer and copy it column by column from behind the line. Do not: the CPC's
+screen rows are not contiguous, so a column is 158 separate addresses through
+`scr_line_addr`, and that is about 29,000 T-states a column before anything is
+drawn.
+
+The cheap version looks identical and is three calls a frame. The scene is
+already being drawn every frame by the normal loop, so:
+
+- **vanishing** — draw the frame as usual, then `scr_fill_rect` black over
+  everything BEHIND the line, then draw the line. As it advances, more of the
+  screen is black.
+- **appearing** — the same, with the fill AHEAD of it instead. `mis_wipe`
+  already leaves the screen black, so the first frames are black anyway.
+
+`scr_fill_rect` and `gfx_vline` both exist and both already honour
+`spr_clip_top`/`spr_clip_bottom`, so the effect cannot spill into the context
+bar or the HUD without asking.
+
+### Where it hooks
+
+`mis_jump` is what the player presses `J` for; it increments `mis_index`,
+writes the fleet to the DISC (about a third of a second with the drive spinning
+up) and then opens the briefing. The vanish belongs BEFORE the briefing and the
+reveal AFTER it is dismissed. Note `harness.wait_for_briefing` exists because a
+jump is not instant and a test that looked immediately concluded there was no
+briefing to dismiss.
+
+### Decisions nobody has made
+
+- **How long.** The game runs at ~5 fps, so a sweep of 80 byte-columns at one
+  column a game frame is sixteen seconds and far too slow. It wants either
+  several columns a frame or its own tight loop that does not wait on
+  `demo_wait_frame`.
+- **What ink the line is.** §2's palette is semantic and all three inks already
+  mean something: 1 friendly/text, 2 scenery/chrome, 3 attention. A jump is not
+  an alarm.
+- **Which way it travels**, and whether the reveal mirrors it or repeats it.
+- **Whether the HUD and the context bar are wiped too**, or the effect stays
+  inside the playfield. They are redrawn from dirty flags, so wiping them means
+  setting those flags.
+
 ## 1b. A queued ship joins the squadron selected when it FINISHES
 
 Not when it was ordered. That was already true of the single slipway; the
