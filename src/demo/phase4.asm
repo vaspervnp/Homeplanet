@@ -506,6 +506,11 @@ phase4_fly:
     ld a,(hl)
     cp ENT_ORDER_HARVEST
     jr z,@p4_next_fly
+    ;  ...and a Salvage Corvette out fetching a wreck, which is the same
+    ;  journey with a different cargo -- slv_tow_step steps it by PHASE4_STEP
+    ;  out of eco_update, exactly as the harvester is stepped.
+    cp ENT_ORDER_TOW
+    jr z,@p4_next_fly
     ;  Same again for a ship told to attack: cbt_move_enemies now closes it on
     ;  its target, and two systems stepping the same ship by PHASE4_STEP in
     ;  different directions cancel exactly.

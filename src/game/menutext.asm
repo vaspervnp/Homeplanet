@@ -30,6 +30,10 @@ menu_entries:
     defb "STATION         R",0
     defb KEY_H
     defb "HARVEST         H",0
+    ;  Beside HARVEST, because it is the same order for the other work ship and
+    ;  a player looking for one will be looking at the other.
+    defb KEY_T
+    defb "TOW WRECKS      T",0
     defb KEY_B
     defb "BUILD           B",0
     defb KEY_F

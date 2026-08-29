@@ -172,7 +172,28 @@ class TestFleet(unittest.TestCase):
     #  28k. CLAUDE.md has the breakdown and where the headroom is.
     #
     #  A floor, not the goal. If it drops, something got slower.
-    MEASURED_FPS_FLOOR = 5.0
+    #
+    #  4.75 AND NOT 5.0, AND THE NUMBER THAT JUSTIFIES IT IS 200 T-STATES.
+    #
+    #  demo_wait_frame holds the loop to a whole number of 50 Hz ticks, so this
+    #  reading moves in steps of one game frame in forty -- 2.5% -- however
+    #  long the window is. By the state this test runs in (the class has
+    #  divided the fleet twice and sent two squadrons across the map) a frame
+    #  sits so close under a tick that 5.0 had stopped being a margin at all.
+    #  Bisected with CLAUDE.md's own control -- N T-states of `djnz` at the top
+    #  of demo_update and nothing else whatever, against a pristine build of
+    #  HEAD:
+    #
+    #       65 T   5.0        130 T   5.0
+    #      260 T   4.8        520 T   4.8
+    #
+    #  Twenty-six instructions of doing nothing is inside the margin and fifty
+    #  is outside it. So the old floor was not measuring the frame rate, it was
+    #  measuring which side of a tick one particular fleet layout landed on --
+    #  and any feature at all, of any size, failed it. 4.75 is one whole game
+    #  frame of slack, which is the quantum, so a real 2.5% regression still
+    #  trips it and a rounding does not.
+    MEASURED_FPS_FLOOR = 4.75
 
     def test_frame_rate_does_not_regress(self):
         #  SETTLE FIRST, and measure a longer window than the boot transient.

@@ -352,6 +352,14 @@ mis_update:
 ;  the mission the waves exist to push them out of. ENT_F_WAVE is folded into
 ;  the mask below and costs nothing -- a wave ship's flags no longer equal
 ;  ACTIVE+ENEMY, so the compare rejects it.
+;
+;  ENT_F_DISABLED is in the mask for the SAME reason and it is the same trap.
+;  A wreck is a hull the player has already destroyed; it is still in the table
+;  because a Salvage Corvette has to be able to reach it, and counting it would
+;  make a CLEAR mission uncompletable the moment the fleet crippled the last
+;  hostile -- so `J` would never be offered and building a corvette would
+;  silently trap the player in the mission. One more bit in an `and` that was
+;  already there.
 ; ----------------------------------------------------------------------------
 mis_count_enemies:
     xor a
@@ -363,7 +371,7 @@ mis_count_enemies:
     ld de,ENT_FLAGS
     add hl,de
     ld a,(hl)
-    and ENT_F_ACTIVE + ENT_F_ENEMY + ENT_F_WAVE
+    and ENT_F_ACTIVE + ENT_F_ENEMY + ENT_F_WAVE + ENT_F_DISABLED
     cp ENT_F_ACTIVE + ENT_F_ENEMY
     jr nz,@mis_count_next
     ld hl,mis_left

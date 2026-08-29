@@ -170,6 +170,32 @@ code_end:
 ;  which bit it collided with, and two of those are silent.
     assert (ENT_F_WAVE & (ENT_F_ACTIVE + ENT_F_ENEMY + ENT_F_DISABLED)) == 0, "ENT_F_WAVE collides with another entity flag"
 
+;  ...and the same argument for ENT_F_DISABLED, which now has a writer. A wreck
+;  is ACTIVE and ENEMY and DISABLED all at once, and mis_count_enemies masks all
+;  four bits together to decide whether it counts towards a CLEAR objective. An
+;  overlap would make a wreck read as an ordinary hostile, and a CLEAR mission
+;  would become uncompletable the moment the fleet crippled the last one.
+    assert (ENT_F_DISABLED & (ENT_F_ACTIVE + ENT_F_ENEMY + ENT_F_WAVE)) == 0, "ENT_F_DISABLED collides with another entity flag"
+
+;  slv_survey reaches ENT_CLASS from the flags byte with two DECs, exactly as
+;  wave_hp_add does -- the assert for that is a dozen lines down and this one
+;  names the second reader, so that moving the field fails with both.
+    assert ENT_CLASS == ENT_FLAGS - 2, "slv_survey reaches ENT_CLASS with two DECs"
+
+;  slv_make_wreck writes ENT_SQUAD, ENT_ORDER and ENT_TARGET with two INCs
+;  between them. They are consecutive in section 7's record; separate them and
+;  the wreck comes out in a squadron, under an order, aiming at slot 0.
+    assert ENT_ORDER == ENT_SQUAD + 1, "slv_make_wreck walks ENT_SQUAD into ENT_ORDER"
+    assert ENT_TARGET == ENT_ORDER + 1, "slv_make_wreck walks ENT_ORDER into ENT_TARGET"
+
+;  ENT_TOW is one of the four bytes section 7 reserved for a packed destination,
+;  and ENT_LOAD is another. They must not be the same byte: a harvester's hold
+;  and a corvette's tow would then be one field, and the class that is both does
+;  not exist today -- which is exactly the kind of thing that stops being true
+;  quietly.
+    assert ENT_TOW != ENT_LOAD, "the tow and the harvester's hold share a byte"
+    assert ENT_TOW < ENT_SIZE, "ENT_TOW is outside the entity record"
+
 ;  Mission 8's objective is MIS_OBJ_SURVIVE, which is a countdown on the same
 ;  mis_timer the waves run off. If the first wave could land before that
 ;  countdown expired, the last mission of the campaign would be a different
@@ -299,6 +325,12 @@ bank4_start:
     include "game/ordercmd.asm"
     include "game/squadcmd.asm"
     include "game/campaignrun.asm"
+;  The Salvage Corvette's job. Two of its three routines run from inside the
+;  frame loop -- slv_make_wreck out of cbt_update and slv_tow_step out of
+;  eco_update -- which makes it the third thing here reached from there, after
+;  game/ctxbar.asm and gfx/markproj.asm. It is still bank code by the narrow
+;  rule in game/shipclass.asm: nothing pages bank 4 out during the simulation.
+    include "game/salvage.asm"
 ;  The cached half of the marker pass. It runs only when the camera hash has
 ;  changed and always with the window at rest, so it is bank-4 code by the
 ;  same rule as everything above it -- but it is the ONLY thing here that runs

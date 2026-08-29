@@ -91,20 +91,27 @@ eco_init:
 ;  Uses: everything
 ; ----------------------------------------------------------------------------
 eco_update:
-    call eco_run_harvesters
+    call eco_run_workers
     jp eco_run_yard
 
 
 ; ----------------------------------------------------------------------------
-;  eco_run_harvesters -- move every harvesting ship one step through its cycle
+;  eco_run_workers -- one step for every ship that has been sent to WORK
 ;
-;  Outbound with an empty hold, mining while it sits on a patch, homebound
-;  when full, and paid out when it reaches the Mothership. The ship's
-;  destination is written straight into its squadron's station... no: into the
-;  ship's own ENT_DEST, because a harvester leaves its formation to work.
+;  A harvester: outbound with an empty hold, mining while it sits on a patch,
+;  homebound when full, and paid out when it reaches the Mothership. A Salvage
+;  Corvette: outbound to a crippled enemy hull, homebound dragging it, and paid
+;  out for the hull at the same door. Two cargoes, one journey, one loop.
+;
+;  IT IS ONE WALK BECAUSE IT WAS ALREADY ONE WALK. Six loops in this game used
+;  to step all 48 slots with ent_addr and CLAUDE.md spends a section on what
+;  that cost; a seventh, added for a class the player may not even own, would
+;  have been ~2,700 T-states a frame to ask a question this one is already
+;  standing next to the answer to. Dispatching on ENT_ORDER here is one more
+;  compare on the path where neither matches.
 ;  Uses: everything
 ; ----------------------------------------------------------------------------
-eco_run_harvesters:
+eco_run_workers:
     ld hl,entities
     ld (eco_walk),hl
     ld a,ENT_MAX
@@ -123,8 +130,12 @@ eco_run_harvesters:
     add hl,de
     ld a,(hl)
     cp ENT_ORDER_HARVEST
+    jr z,@eco_mine
+    cp ENT_ORDER_TOW
     jr nz,@eco_next
-
+    call slv_tow_step                   ; bank 4; the window is at rest here
+    jr @eco_next
+@eco_mine:
     call eco_harvester_step
 
 @eco_next:
@@ -226,10 +237,24 @@ eco_harvester_step:
     add hl,de
     ld c,(hl)
     ld (hl),0                           ; hold emptied
+    ;  ...and fall through into eco_earn.
 
-    ;  The only place RU is ever earned, so the only place the ceiling has to
-    ;  be applied. The add cannot itself overflow -- HL is at most ECO_RU_MAX
-    ;  and BC at most ECO_LOAD_MAX -- so a plain 16-bit compare is enough.
+
+; ----------------------------------------------------------------------------
+;  eco_earn -- C resource units arrive at the Mothership
+;  In : C = the amount, 0..255
+;  Uses: AF, BC, DE, HL
+;
+;  The ONLY place RU is ever earned, which is what makes it the only place the
+;  ceiling has to be applied. It was inside the harvester's payout until the
+;  Salvage Corvette turned up with a second cargo to cash in at the same door;
+;  splitting it costs nothing at all, because eco_harvester_step falls straight
+;  through into it.
+;
+;  The add cannot itself overflow -- HL is at most ECO_RU_MAX and C is one byte
+;  -- so a plain 16-bit compare is enough.
+; ----------------------------------------------------------------------------
+eco_earn:
     ld b,0
     ld hl,(eco_ru)
     add hl,bc

@@ -31,11 +31,31 @@ ENT_DEST            equ 15              ; 4 bytes, reserved for the packed
 ;  Deliberately NOT ENT_TIMER: combat decrements that every frame as a weapon
 ;  cooldown, and a hold that drains itself would be a puzzling thing to debug.
 ENT_LOAD            equ 15
+
+;  ...and a Salvage Corvette's tow, borrowed from the second. A corvette is
+;  never a harvester, so the two could have shared a byte; they do not, because
+;  "the hold" and "which wreck" are different kinds of thing and a class that
+;  ever did both would be a silent bug rather than a build error.
+;
+;  IT IS A SLOT INDEX, AND A SLOT INDEX NAMES SOMETHING WHATEVER IS IN IT --
+;  ent_clear_all leaves this zero, which is slot 0, which is a real ship. So
+;  nothing trusts it: slv_towing re-checks that the slot it names is actually
+;  an ACTIVE, ENEMY, DISABLED hull before believing a corvette is towing it.
+;  That is the "never trust a slot index" rule from CLAUDE.md paid for once,
+;  at the point of use, instead of a second initialisation pass here.
+ENT_TOW             equ 16
+
 ENT_TIMER           equ 19              ; weapon cooldown / general counter
 
 ENT_F_ACTIVE        equ %00000001
 ENT_F_ENEMY         equ %00000010
-ENT_F_DISABLED      equ %00000100       ; crippled: capturable by a Salvage Corvette
+
+;  Crippled: a hull that is still in the table but is no longer a ship. It does
+;  not fire, is not fired at, does not close on anything and does not count
+;  towards a CLEAR objective -- see game/salvage.asm for all four and for why
+;  each one is where it is. A Salvage Corvette tows it to the Mothership and
+;  the yard pays for the wreck.
+ENT_F_DISABLED      equ %00000100
 
 ;  Arrived with an attack wave rather than with the mission (game/waves.asm).
 ;  The ONE thing it changes is that mis_count_enemies looks past it: a CLEAR
@@ -51,6 +71,11 @@ ENT_ORDER_ATTACK    equ 2
 ENT_ORDER_GUARD     equ 3
 ENT_ORDER_HARVEST   equ 4
 ENT_ORDER_DOCK      equ 5
+;  Section 8's Salvage Corvette, "ρυμουλκεί εχθρικά ναυάγια στο Mothership".
+;  Exactly the same shape as HARVEST: the ship leaves its formation, flies out,
+;  picks something up, brings it back and is paid for it -- so phase4_fly has to
+;  skip it for the same reason, and eco_run_workers walks it in the same loop.
+ENT_ORDER_TOW       equ 6
 
 ;  ENT_TARGET holds a slot index; this means nobody.
 ENT_NO_TARGET       equ #FF

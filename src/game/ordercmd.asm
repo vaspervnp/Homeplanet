@@ -134,6 +134,14 @@ order_update:
     call key_hit
     call c,eco_set_harvest
 
+    ;  ...and its sibling: the corvettes go and fetch the wrecks. Two work
+    ;  orders, two keys, for the reason section 9 gives H its "(harvesters)" --
+    ;  a player who wants the mining kept going while the salvage ships stay in
+    ;  the line has to be able to say so.
+    ld a,KEY_T
+    call key_hit
+    call c,slv_set_tow
+
     ld a,KEY_B
     call key_hit
     jr nc,@ord_no_build

@@ -75,10 +75,22 @@ cbt_update:
     ld hl,(cbt_walk)
     ld (cbt_ent),hl
 
+    ;  Active AND not a wreck. A crippled hull keeps every field it had --
+    ;  including the target it was aiming at and the side it was on -- so
+    ;  without this a wreck would go on shooting at the fleet that crippled it,
+    ;  which is the one thing a wreck must not do.
+    ;
+    ;  Two BITs and not one masked compare, which is the same lesson
+    ;  cbt_find_enemy learned the expensive way: thirty-two of the forty-eight
+    ;  slots are empty, and the compare version made every one of them pay for
+    ;  a question only the sixteen live ones can answer. This way an empty slot
+    ;  costs exactly what it always did.
     ld de,ENT_FLAGS
     add hl,de
     bit 0,(hl)
-    jr z,@cbt_next
+    jr z,@cbt_next                      ; empty: out on the first test
+    bit 2,(hl)                          ; ENT_F_DISABLED
+    jr nz,@cbt_next                     ; a wreck does not take a turn
 
     call cbt_fire_if_able
 
@@ -119,6 +131,8 @@ cbt_move_enemies:
     ld a,(hl)
     bit 0,a
     jr z,@cbt_move_next                 ; empty slot
+    bit 2,a                             ; ENT_F_DISABLED
+    jr nz,@cbt_move_next                ; a wreck drifts; only a tow moves it
     and ENT_F_ENEMY
     jr nz,@cbt_move_go                  ; theirs: always closes
 
@@ -143,7 +157,7 @@ cbt_move_enemies:
     jr nc,@cbt_move_next                ; nothing to close on
     ld (cbt_target),a
 
-    call ent_is_active
+    call cbt_target_flying
     jr nc,@cbt_move_next
 
     ;  Already close enough to shoot? Then hold station and shoot.
@@ -192,7 +206,7 @@ cbt_fire_if_able:
     jr nc,@cbt_reacquire                ; nothing targeted
     ld (cbt_target),a
 
-    call ent_is_active
+    call cbt_target_flying
     jr c,@cbt_aimed                     ; the target is still flying
 
     ;  The target is wreckage. Find another NOW rather than waiting for the
@@ -357,17 +371,74 @@ cbt_hostile:
 
 
 ; ----------------------------------------------------------------------------
+;  cbt_target_flying -- is (cbt_target) an entity that can still fight?
+;  Out: CF set if it is ACTIVE and not a wreck
+;  Uses: AF, DE, HL
+;
+;  ent_is_active with one more bit, and it replaced ent_is_active at all three
+;  of combat's call sites rather than being a second test beside it. A crippled
+;  hull keeps every field it had, so "still there" and "still a ship" stopped
+;  being the same question the day ENT_F_DISABLED got its first writer.
+;
+;  Reading it as NOT flying is what makes the rest fall out for free:
+;  cbt_fire_if_able treats it exactly as it treats a target that has just been
+;  destroyed -- re-acquire on the spot, and if there is nothing left anywhere,
+;  spend the ATTACK order and let the fleet come home. Without that a squadron
+;  that had shot the last enemy into a wreck would sit over it for the rest of
+;  the mission, which is the bug CLAUDE.md spent a section on.
+; ----------------------------------------------------------------------------
+cbt_target_flying:
+    ld a,(cbt_target)
+    call ent_addr
+    ld de,ENT_FLAGS
+    add hl,de
+    ld a,(hl)
+    and ENT_F_ACTIVE + ENT_F_DISABLED
+    cp ENT_F_ACTIVE
+    jr nz,@cbt_not_flying
+    scf
+    ret
+@cbt_not_flying:
+    or a                                ; A is 0 or ENT_F_DISABLED; CF clear
+    ret
+
+
+; ----------------------------------------------------------------------------
 ;  cbt_kill -- entity A dies
 ;  Uses: everything
+;
+;  ...or is CRIPPLED rather than destroyed, if the player has a Salvage
+;  Corvette flying to come and get it. slv_make_wreck is the whole of that
+;  decision and it is in bank 4; CF set means the slot is still ACTIVE and now
+;  carries ENT_F_DISABLED, so the `ld (hl),0` below must not run.
+;
+;  Everything after it happens either way, and each for its own reason. The
+;  explosion, because the ship WAS destroyed -- what is left is not a ship.
+;  cbt_kills, because a kill is a kill and half the suite counts them. The
+;  forget loop, because a wreck must stop being anybody's target the instant it
+;  becomes one, and cbt_target_flying is the second net rather than the first.
 ; ----------------------------------------------------------------------------
 cbt_kill:
     ld (cbt_target),a
+    call slv_make_wreck                 ; CF: it is a wreck, not an empty slot
+
+    ;  PUSHED, because the flag cannot be tested where it is wanted: ent_addr
+    ;  is a shift ladder and `add hl,hl` writes the carry. This is the trap in
+    ;  CLAUDE.md's own hard rules -- "a routine that returns a flag must have
+    ;  that flag tested immediately" -- and the first version of this walked
+    ;  straight into it, so every wreck was freed as an ordinary kill and
+    ;  fifteen tests said so at once.
+    push af
+    ld a,(cbt_target)
     call ent_addr
+    pop af
+    jr c,@cbt_wrecked
     push hl
     ld de,ENT_FLAGS
     add hl,de
     ld (hl),0                           ; the slot is free again
     pop hl
+@cbt_wrecked:
 
     call cbt_spawn_explosion            ; HL still points at the position
 
@@ -592,8 +663,16 @@ cbt_retarget_one:
     ld (cbt_ent),hl
     ld de,ENT_FLAGS
     add hl,de
-    bit 0,(hl)
-    ret z
+    ;  Active AND not a wreck, for the same reason cbt_update's loop tests both.
+    ;  A wreck cannot fire, so a target in its ENT_TARGET does nothing today --
+    ;  but the round-robin was cheerfully handing it one, which is a loaded gun
+    ;  waiting for somebody to add a fifth thing that reads that field. Seen in
+    ;  the emulator, not reasoned about: the wreck's target went 255, then back
+    ;  to the ship that had just crippled it, three frames later.
+    ld a,(hl)
+    and ENT_F_ACTIVE + ENT_F_DISABLED
+    cp ENT_F_ACTIVE
+    ret nz
 
     ;  Keep a target that is still alive and still in range.
     ld hl,(cbt_ent)
@@ -603,7 +682,7 @@ cbt_retarget_one:
     cp ENT_MAX
     jr nc,@cbt_need_target
     ld (cbt_target),a
-    call ent_is_active
+    call cbt_target_flying
     jr nc,@cbt_need_target
 
     ;  A target the PLAYER chose is not the AI's to overwrite. `A` and `G`
@@ -652,7 +731,8 @@ cbt_find_enemy:
     add hl,de
     ld a,(hl)
     and ENT_F_ENEMY
-    ld (cbt_side),a                     ; the side we are NOT looking for
+    xor ENT_F_ENEMY                     ; ...so this is the side we ARE after,
+    ld (cbt_side),a                     ; and a wreck's extra bit cannot match it
 
     ld a,#FF
     ld (cbt_best),a
@@ -668,13 +748,32 @@ cbt_find_enemy:
     add hl,de
     ld a,(hl)
     pop hl
-    bit 0,a
-    jr z,@cbt_search_next               ; empty slot
 
-    and ENT_F_ENEMY
+    ;  THE EMPTY TEST STAYS IN FRONT, AND THAT IS THE WHOLE PERFORMANCE STORY
+    ;  OF THIS FILE. This is the innermost loop in the game that is not a blit:
+    ;  in a mission with nothing left to shoot at, every live ship reaches
+    ;  @cbt_reacquire every frame and searches the whole table, so cbt_update
+    ;  measures 260,000 T-states -- half the frame -- with sixteen ships and no
+    ;  enemy. Thirty-two of the forty-eight slots are empty and leave here.
+    ;
+    ;  Sixteen T-states on that path is eight thousand a frame. The wreck test
+    ;  was first written as a second `bit` after this one, then as one masked
+    ;  compare with the empty test folded in; the second version reads better
+    ;  and cost exactly that, taking the frame rate from 5.00 to 4.85 over a
+    ;  thousand frames. That is not the demo_wait_frame tick boundary CLAUDE.md
+    ;  warns about -- it was measured against a worktree build of HEAD, and
+    ;  then attributed with a stub around cbt_find_enemy itself.
+    ;
+    ;  So it is folded into the SIDE compare instead, where there was already
+    ;  an `and` and a `cp`: cbt_side is the side we are after, a wreck's flags
+    ;  carry a bit that is not in it, and the mask lets that bit through so the
+    ;  compare fails. One more bit in an immediate, and nothing else.
+    bit 0,a
+    jr z,@cbt_search_next               ; empty slot: the common case
+    and ENT_F_ENEMY + ENT_F_DISABLED
     ld hl,cbt_side
     cp (hl)
-    jr z,@cbt_search_next               ; same side
+    jr nz,@cbt_search_next              ; ours, or wreckage
 
     ld a,(cbt_scan)
     ld (cbt_target),a
@@ -712,6 +811,9 @@ cbt_walk:           defw 0
 cbt_target:         defb #FF
 cbt_best:           defb #FF
 cbt_best_dist:      defb #FF
+;  The side a target must be on -- the OPPOSITE of the searcher's -- as an
+;  ENT_F_ENEMY bit. cbt_find_enemy masks ENT_F_DISABLED in beside it, so a
+;  wreck can never compare equal to it. 
 cbt_side:           defb 0
 cbt_axis:           defb 0
 cbt_dist:           defb 0

@@ -14,10 +14,13 @@
 ;  whole run, so txt_draw reads them where they lie.
 ; ----------------------------------------------------------------------------
 
-HELP_TITLE_Y        equ 8
-HELP_BODY_Y         equ 26
+;  Both moved up eight lines when the orders menu grew a fifteenth row. The
+;  RIGHT column IS menu_entries, so this page's height is set by a file it does
+;  not mention, and the assert in src/main.asm is the only thing that says so.
+HELP_TITLE_Y        equ 4
+HELP_BODY_Y         equ 18
 ;  Ten and not eleven: the RIGHT column is menu_entries, so it is MENU_COUNT
-;  rows long and grows every time an order is added. At fourteen rows, eleven
+;  rows long and grows every time an order is added. At fifteen rows, eleven
 ;  put the last one inside the HUD's strip -- see the asserts in src/main.asm.
 HELP_LINE_STEP      equ 10
 HELP_ROWS           equ 10              ; the left column; the right one is

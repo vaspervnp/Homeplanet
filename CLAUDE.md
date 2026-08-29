@@ -2715,6 +2715,99 @@ therefore `MENU_COUNT` rows long rather than `HELP_ROWS`. They were checked by
 putting the old numbers back and watching the build stop; an assert nobody has
 seen fail is a comment.
 
+### The Salvage Corvette
+
+`T` sends the selected squadron's corvettes to fetch **wrecks**. §8's
+"ρυμουλκεί εχθρικά ναυάγια στο Mothership", and until it landed the class was
+90 RU for a ship that did everything worse than a 35 RU interceptor.
+
+An enemy that would die leaves a hull instead — **deterministically**, when the
+player has a live corvette and fewer than `SLV_WRECK_MAX` (4) are already
+adrift. A coin toss is not something a player can act on; "I built the salvage
+ship, so kills leave hulls" is a rule they can. **The live-corvette test is the
+safety argument, not flavour**: a wreck is an ACTIVE entity that is projected,
+sorted and drawn, so a player who never buys one must be exactly where they
+were. `TestNoCorvetteNoWrecks` states that.
+
+The reward is `eco_class_cost` for the hull's own class — 35 RU for a Vekhar
+interceptor, full price and not half. Measured: mission 3, a corvette at 90 RU,
+four hostiles, all four crippled and fetched, **+140 RU in 780 emulator
+frames**. Half would be five tows to break even and the corvette is an ornament
+again.
+
+#### A wreck keeps ENEMY, and that is what makes four things free
+
+Flags are `ACTIVE + ENEMY + DISABLED`. `wave_health` sums ACTIVE-and-not-ENEMY,
+so a captured hull cannot inflate the fleet's health and **scale the next wave
+up**; `mis_clear_enemies` sweeps wrecks at setup; `fleet_save` never carries
+one.
+
+**`ENT_F_DISABLED` went into `mis_count_enemies`' mask — the `ENT_F_WAVE`
+precedent exactly**, one more bit in an `and` that was already there. Without
+it a CLEAR mission becomes uncompletable the moment the fleet cripples the last
+hostile: `mis_complete` never sets, `J` is never offered, and "loitering costs
+you" becomes "you are trapped". That trap has now been avoided twice by the
+same one-bit trick.
+
+The other exclusions each live in the routine that would get them wrong:
+`cbt_target_flying` replaces `ent_is_active` at all three of combat's call
+sites, so a wreck reads as wreckage, `cbt_fire_if_able` re-acquires and
+**spends the attack order**, and the fleet still comes home.
+**`cbt_retarget_one` was found in the emulator rather than reasoned about** —
+the round-robin was handing wrecks fresh targets three frames after they were
+made.
+
+`eco_run_harvesters` became `eco_run_workers` and dispatches on `ENT_ORDER`, so
+this is not a seventh 48-slot walk. The tow order **spends itself** when there
+is nothing left to fetch, or a corvette under an unsatisfiable order is steered
+by nobody and `fleet_save` carries it into the next mission — the same bug the
+attack order had, arriving by a new road.
+
+#### It cost 0.23% of the frame, and nearly cost 1.5%
+
+`cbt_update` 260,753 → 261,553 T, `eco_update` 10,353 → 10,753: **~1,200 T of a
+530,000 T frame**.
+
+> **32 of the 48 slots are empty, and the early `bit 0` exit is what makes them
+> cheap.** The wreck test went into `cbt_find_enemy` first as one tidy masked
+> compare with the empty test folded in — 16 T on the common path, in the
+> innermost non-blit loop in the game. With no enemy alive every ship searches
+> the whole table every frame and `cbt_update` is already **half the frame**;
+> it cost 8,000 T a frame and took the rate to 4.85. Folded into the *side*
+> compare instead, where a wreck carries a bit `cbt_side` does not, it is free.
+
+#### `test_frame_rate_does_not_regress` had 200 T-states of headroom, not a floor
+
+It failed, and the documented tick-boundary story was not good enough on its
+own, so it was bisected against a pristine worktree build of HEAD:
+
+| added to `demo_update` | measured |
+|---|---|
+| 65 T | 5.0 |
+| 130 T | 5.0 |
+| 260 T | 4.8 |
+| 520 T | 4.8 |
+
+**Twenty-six instructions of `djnz` doing nothing is inside the margin and
+fifty is outside it** — so the 5.0 floor was not measuring the frame rate, it
+was measuring which side of a 50 Hz tick one particular fleet layout landed on,
+and ANY addition to the frame loop failed it. Widening the window does not
+help. The floor is 4.75, one whole game frame of slack in a 400-frame window,
+which is the quantum; a real 2.5% regression still trips it.
+
+#### The menu's fifteenth row, and where the space came from
+
+`TOW WRECKS  T` went in beside `HARVEST` and **failed the build**, which is the
+layout asserts doing their job for the second time. Fixed in Y rather than in
+step — `MENU_TITLE_Y` 12→6, `MENU_TOP` 24→18, `HELP_TITLE_Y` 8→4,
+`HELP_BODY_Y` 26→18 — because the glyphs are eight tall, so a `MENU_STEP` of
+nine is a one-pixel gutter, and there was empty screen above the titles to
+spend instead.
+
+**Nothing went on the context bar.** The playing line is 40 bytes against the
+assert's 42 and `T TOW` needs six; the bar names the *modal* keys whose meaning
+changes, and `H`, `A`, `G`, `F`, `R` and `I` are not on it either.
+
 ### The squadron breakdown
 
 `I` puts the selected squadron on the screen: one row per class it actually
@@ -3098,11 +3191,7 @@ over 400.
   words of position each; a fourth byte for the class would make the Vekhar
   field bombers and frigates, and that is the next thing worth doing to the
   campaign.
-- **Two classes have their numbers but not their ROLE.** §8 gives the Salvage
-  Corvette "ρυμουλκεί εχθρικά ναυάγια στο Mothership" and the Scout "μεγάλη
-  εμβέλεια αισθητήρων". Both are buildable, both cost what §8 says, both have
-  art — and both behave like every other ship. Towing needs something to set
-  `ENT_F_DISABLED` (the flag exists and nothing writes it), a tow order, and a
-  reward for delivering one; the Scout needs the sensor view to be
-  range-limited before a longer range can mean anything. Neither is engineering
-  the memory arrangement blocks; they are simply not written yet.
+- **The Scout has its number but not its ROLE.** §8 gives it "μεγάλη εμβέλεια
+  αισθητήρων" and it behaves like every other ship, because the sensor view is
+  not range-limited — there is nothing for a longer range to extend. The
+  Salvage Corvette's role IS in now; see "The Salvage Corvette" below.

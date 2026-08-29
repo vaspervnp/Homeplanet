@@ -24,9 +24,20 @@
 ;  stopped, so it has no business in the low 16K.
 ; ----------------------------------------------------------------------------
 
-MENU_COUNT          equ 14
-MENU_TITLE_Y        equ 12
-MENU_TOP            equ 24
+;  Fifteen rows, and the last two of those were paid for in Y rather than in
+;  step. "Adding an order to the menu is adding a row" is true about the
+;  DISPATCH and was never true about the layout: at fourteen rows the list
+;  already ended eight scanlines short of HUD_TOP, and the fifteenth would have
+;  been drawn across "RU 0080 ?HELP" and stayed there, because the HUD does not
+;  clear its strip -- it draws labels onto it. The asserts in src/main.asm are
+;  what stop that shipping, and they did their job: TOW WRECKS failed the build
+;  until the title and the list moved six lines up. Shrinking MENU_STEP was the
+;  other way and was not taken -- the glyphs are eight tall, so a step of nine
+;  is a one-pixel gutter, and there is empty screen above the title to spend
+;  instead.
+MENU_COUNT          equ 15
+MENU_TITLE_Y        equ 6
+MENU_TOP            equ 18
 MENU_STEP           equ 10
 MENU_MARK_X         equ 22              ; x is in BYTES
 MENU_TEXT_X         equ 24

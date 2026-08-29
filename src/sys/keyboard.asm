@@ -108,6 +108,10 @@ KEY_J               equ 5*8 + 5
 KEY_M               equ 4*8 + 6
 KEY_N               equ 5*8 + 6
 KEY_O               equ 4*8 + 2         ; split by class; line 4 is 0 9 O I L K M ,
+;  Tow: the Salvage Corvettes go and fetch the wrecks. Row 6 is 6 5 R T G F B V,
+;  and T was the only unclaimed letter in the game with the right initial --
+;  H already means "the harvesters go to work" and this is its sibling.
+KEY_T               equ 6*8 + 3
 KEY_X               equ 7*8 + 7
 KEY_Z               equ 8*8 + 7
 

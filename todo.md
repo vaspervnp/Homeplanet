@@ -47,6 +47,16 @@ thing that says so.
 
 ---
 
+## 0a. The harvester has the salvage bug's twin, and it is two lines
+
+`eco_harvester_step` does `call eco_nearest_patch : ret nc` when every patch is
+mined out, and `phase4_fly` skips `ENT_ORDER_HARVEST` — so a harvester on an
+exhausted map is steered by NOBODY, stops dead, and `fleet_save` carries those
+coordinates into the next mission. Exactly the shape of the attack order that
+never spent itself, and exactly the shape the tow order was written to avoid.
+The fix is the same: spend the order. It was left out of the salvage change on
+purpose, so it would not be inside those measurements.
+
 ## 1a. A jump EFFECT: a line that wipes the ships away and back
 
 Asked for after the Salvage Corvette and to be done after it. A vertical line

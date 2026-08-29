@@ -20,13 +20,15 @@ sys.path.insert(0, __file__.rsplit("/", 2)[0])
 from tests import harness as h
 import cpc
 
-MENU_COUNT = 14
+MENU_COUNT = 15
 #  Row order, mirrored from src/game/menutext.asm. SPLIT BY CLASS went in at 6,
 #  beside the other thing that reshapes the fleet, and moved everything below it
 #  down one. SQUADRON INFO went in at 12, next to CONTROLS -- the two entries
 #  that tell you something rather than order somebody -- so only CONTROLS moved.
-ROW_ATTACK, ROW_BY_CLASS, ROW_SENSORS, ROW_MOVE = 0, 6, 7, 8
-ROW_PAN, ROW_CENTRE, ROW_INFO, ROW_CONTROLS = 10, 11, 12, 13
+#  TOW WRECKS went in at 4, beside HARVEST because it is the same order for the
+#  other work ship, and moved everything below IT down one again.
+ROW_ATTACK, ROW_TOW, ROW_BY_CLASS, ROW_SENSORS, ROW_MOVE = 0, 4, 7, 8, 9
+ROW_PAN, ROW_CENTRE, ROW_INFO, ROW_CONTROLS = 11, 12, 13, 14
 
 ENT_SIZE = 20
 ENT_FLAGS, ENT_ORDER = 11, 13
