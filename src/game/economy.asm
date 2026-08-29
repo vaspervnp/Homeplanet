@@ -15,6 +15,23 @@
 ;  Patches are fixed points with a stock that runs down. When one is empty the
 ;  harvesters that were using it look for another; when they are all empty the
 ;  economy stops, which is the pressure the mission design wants.
+;
+;  THE QUEUE
+;  ---------
+;  Section 5.5 asks the HUD strip for "Πόροι (RU) και ουρά κατασκευής" -- the
+;  resources AND the build queue -- and for a long time there was no queue: the
+;  yard took one order and refused every other. So a player who had just mined
+;  a field dry had to sit and watch a countdown before they could spend the
+;  next 40 RU, which is the opposite of what an economy is for.
+;
+;  It is a FIFO of ECO_QUEUE_MAX orders, mixed classes, and the head of it IS
+;  the slipway: eco_build_class and eco_build_timer keep meaning exactly what
+;  they meant, and the array behind them holds the ones still waiting. That is
+;  why the array is one short of the maximum -- ten orders outstanding is the
+;  slipway plus nine in the line. Keeping the head where it was rather than at
+;  index 0 of the array is what stops this being two copies of "what is being
+;  built": the HUD, ctx_build_state and half a dozen tests all read
+;  eco_build_class and none of them had to learn a new name.
 ; ----------------------------------------------------------------------------
 
 ECO_PATCH_COUNT         equ 4
@@ -24,6 +41,21 @@ ECO_HARVEST_RANGE   equ 24              ; camera-scale, as combat's range is
 ECO_LOAD_MAX        equ 60              ; RU a harvester carries
 ECO_LOAD_RATE       equ 3               ; RU mined per frame in contact
 ECO_START_RU        equ 120
+
+;  Orders the yard will hold at once, the one on the slipway included.
+ECO_QUEUE_MAX       equ 10
+ECO_QUEUE_WAIT      equ ECO_QUEUE_MAX - 1   ; ...so nine of them are waiting
+
+;  The ceiling on RU, and it is the READOUT's rather than the arithmetic's.
+;  eco_ru is a word and always has been, but phase4_hud draws it with
+;  txt_draw_num4, which subtracts powers of ten into four digits: hand it
+;  16600 and the thousands column comes out as '@'. The patches carry several
+;  times what they used to (see game/campaign.asm), so a whole campaign's
+;  mining now adds up past 65535 if none of it is ever spent -- which would
+;  wrap the word as well as break the field. Saturating at what the strip can
+;  say keeps the number on screen equal to the number in memory, which is the
+;  only property worth having here.
+ECO_RU_MAX          equ 9999
 
 ;  eco_build_order, eco_class_cost and eco_class_frames are in
 ;  game/classdata.asm, in bank 4 with the rest of the per-class tables. They
@@ -48,6 +80,7 @@ eco_init:
     ld (eco_build_open),a
     ld (eco_build_timer),a
     ld (eco_build_pick),a
+    ld (eco_queue_len),a                ; ...and nothing waiting behind it
     ld a,#FF
     ld (eco_build_class),a              ; nothing under construction
     ret
@@ -194,9 +227,20 @@ eco_harvester_step:
     ld c,(hl)
     ld (hl),0                           ; hold emptied
 
+    ;  The only place RU is ever earned, so the only place the ceiling has to
+    ;  be applied. The add cannot itself overflow -- HL is at most ECO_RU_MAX
+    ;  and BC at most ECO_LOAD_MAX -- so a plain 16-bit compare is enough.
     ld b,0
     ld hl,(eco_ru)
     add hl,bc
+    ld de,ECO_RU_MAX
+    push hl
+    or a
+    sbc hl,de
+    pop hl
+    jr c,@eco_ru_store
+    ex de,hl                            ; at or over the ceiling: sit on it
+@eco_ru_store:
     ld (eco_ru),hl
     ret
 
@@ -268,11 +312,18 @@ eco_nearest_patch:
 ; ----------------------------------------------------------------------------
 ;  eco_run_yard -- advance whatever the Mothership is building
 ;  Uses: everything
+;
+;  A finished ship leaves the slipway empty and the NEXT frame takes the next
+;  order off the queue, rather than this one doing both. One game frame of
+;  slack at 5 fps is a fifth of a second nobody can see, and it keeps
+;  eco_start_build with exactly one caller inside the frame loop -- the
+;  alternative is two places that know how to put a hull on the slipway, which
+;  is the shape of every "two systems writing the same thing" bug in this file.
 ; ----------------------------------------------------------------------------
 eco_run_yard:
     ld a,(eco_build_class)
     cp CLASS_COUNT
-    ret nc                              ; nothing on the slipway
+    jr nc,eco_queue_pop                 ; the slipway is free: take the next one
 
     ld hl,eco_build_timer
     ld a,(hl)
@@ -285,6 +336,52 @@ eco_run_yard:
     call eco_spawn_built
     ld a,#FF
     ld (eco_build_class),a
+    ret
+
+
+; ----------------------------------------------------------------------------
+;  eco_queue_pop -- the head of the waiting line goes on the empty slipway
+;  Uses: everything
+; ----------------------------------------------------------------------------
+eco_queue_pop:
+    ld a,(eco_queue_len)
+    or a
+    ret z                               ; nothing waiting
+
+    dec a
+    ld (eco_queue_len),a
+    ld a,(eco_queue_buf)                ; the oldest order, and it goes first
+    call eco_start_build
+
+    ;  Shuffle the rest down. Nine bytes at worst, once a ship, against a head
+    ;  index that every reader of the queue would then have to know about.
+    ld a,(eco_queue_len)
+    or a
+    ret z
+    ld c,a
+    ld b,0
+    ld hl,eco_queue_buf + 1
+    ld de,eco_queue_buf
+    ldir
+    ret
+
+
+; ----------------------------------------------------------------------------
+;  eco_start_build -- class A goes on the slipway, with its own build time
+;  In : A = the class
+;  Uses: everything
+;
+;  eco_class_frames is in bank 4, which is legal here for the reason
+;  game/shipclass.asm gives: both callers run with the window at rest.
+; ----------------------------------------------------------------------------
+eco_start_build:
+    ld (eco_build_class),a
+    ld l,a
+    ld h,0
+    ld de,eco_class_frames
+    add hl,de
+    ld a,(hl)
+    ld (eco_build_timer),a
     ret
 
 
@@ -349,21 +446,40 @@ eco_spawn_built:
 
 
 ; ----------------------------------------------------------------------------
-;  eco_queue -- try to start building the currently picked class
+;  eco_queue -- put the currently picked class on the yard's list
 ;  Out: CF set if it was ordered
 ;  Uses: everything
+;
+;  THE RU IS TAKEN HERE, at order time, and that is a decision rather than the
+;  easiest thing to write. The player pays for what they queue: the affordable
+;  test and the debit are one act at one moment, which is exactly what
+;  ctx_build_state re-derives to decide whether to say ENTER BUY. Charging at
+;  the head of the queue instead would let ten orders be placed for nothing and
+;  then fail one at a time, minutes later, with the player looking somewhere
+;  else -- and every one of those failures would need a state the yard does not
+;  have ("stalled, waiting for money"), a word on the bar for it, and a rule
+;  about whether a stalled order blocks the ones behind it. A queue is a plan
+;  that has been paid for.
+;
+;  The refusals are checked in the order the bar says them: no room first, then
+;  the cost. Keep the two in step -- see ctx_build_state.
 ; ----------------------------------------------------------------------------
 eco_queue:
-    ld a,(eco_build_class)
-    cp CLASS_COUNT
-    jr c,@eco_busy                      ; one at a time
-
     ;  Checked here as well as in eco_pick_step, because the pick is a byte in
     ;  RAM and the panel is not the only thing that can move it -- the orders
     ;  menu injects keys, and a class that is off the list one mission is on
     ;  it the next.
     call eco_pick_allowed
-    jr nc,@eco_busy
+    jr nc,@eco_refused
+
+    ;  Is there room? The slipway counts as one of the ECO_QUEUE_MAX.
+    ld a,(eco_build_class)
+    cp CLASS_COUNT
+    jr nc,@eco_have_room                ; the slipway is empty, so there is
+    ld a,(eco_queue_len)
+    cp ECO_QUEUE_WAIT
+    jr nc,@eco_refused                  ; ten outstanding already
+@eco_have_room:
 
     ld a,(eco_build_pick)
     ld l,a
@@ -378,27 +494,39 @@ eco_queue:
     add hl,de
     ld a,(hl)
     or a
-    jr z,@eco_busy                      ; not a buildable class
+    jr z,@eco_refused                   ; not a buildable class
 
     ld c,a
     ld b,0
     ld hl,(eco_ru)
     or a
     sbc hl,bc
-    jr c,@eco_busy                      ; cannot afford it
+    jr c,@eco_refused                   ; cannot afford it
     ld (eco_ru),hl
 
+    ;  Paid for. Straight onto the slipway if it is free, otherwise onto the
+    ;  end of the line.
+    ld a,(eco_build_class)
+    cp CLASS_COUNT
     ld a,(eco_pick_class)
-    ld (eco_build_class),a
-    ld l,a
-    ld h,0
-    ld de,eco_class_frames
+    jr nc,@eco_to_slipway
+
+    ld hl,eco_queue_len
+    ld e,(hl)
+    ld d,0
+    inc (hl)
+    ld hl,eco_queue_buf
     add hl,de
-    ld a,(hl)
-    ld (eco_build_timer),a
+    ld (hl),a
     scf
     ret
-@eco_busy:
+
+@eco_to_slipway:
+    call eco_start_build
+    scf
+    ret
+
+@eco_refused:
     or a
     ret
 
@@ -523,6 +651,20 @@ eco_build_open:     defb 0              ; the panel is showing
 eco_build_pick:     defb 0              ; which class the panel is offering
 eco_build_class:    defb #FF            ; what is on the slipway
 eco_build_timer:    defb 0
+
+;  The orders WAITING behind the slipway, oldest first. The one being built is
+;  eco_build_class and is not in here, so a full yard is eco_build_class set
+;  and eco_queue_len == ECO_QUEUE_WAIT.
+;
+;  None of this is touched by mis_setup, so the queue -- like the half-built
+;  hull on the slipway, which has always behaved this way -- SURVIVES A JUMP.
+;  It has to: the RU was taken when the order was placed, so throwing the queue
+;  away at the jump would silently destroy the player's money, and refunding it
+;  is a second rule that would have to be kept in step with the first. Section
+;  10's fleet carries between missions with its losses; the yard is part of
+;  that fleet.
+eco_queue_len:      defb 0
+eco_queue_buf:      defs ECO_QUEUE_WAIT, 0
 
 ;  Where the fields are and how much is left in them. Written only by
 ;  mis_setup, out of the mission descriptor in bank 4.

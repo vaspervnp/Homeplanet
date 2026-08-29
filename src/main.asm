@@ -176,10 +176,18 @@ code_end:
 ;  game from the one it was authored as -- and nothing at run time would say so.
     assert WAVE_FIRST_FRAMES > MIS_SURVIVE_TICKS, "the first wave lands before a SURVIVE objective can be met"
 
-;  The spacing is WAVE_GAP_MIN + 3.5 * a byte and the player was promised one
-;  to four minutes; at the measured 5.0 game frames a second that is 300..1200.
-    assert WAVE_GAP_MIN >= 300, "the shortest gap between waves is under a minute"
-    assert WAVE_GAP_MIN + 3 * 255 + 127 <= 1200 + 32, "the longest gap between waves is over four minutes"
+;  The spacing is WAVE_GAP_MIN + 1.125 * a byte. It used to be 300 + 3.5r --
+;  one to four minutes -- and the design owner asked for waves three times as
+;  often, so both ends are a third of what they were: 100..386 game frames,
+;  twenty seconds to a little over a minute at the measured 5.0 fps.
+;
+;  The lower bound is the one worth guarding. A gap shorter than the time it
+;  takes to kill a wave is not "more often", it is a queue that never empties
+;  and grows without limit -- and the entity table would fill, which reads as
+;  the frame rate collapsing rather than as a difficulty setting. A wave takes
+;  100 to 200 game frames to resolve, so 100 is the floor and not a margin.
+    assert WAVE_GAP_MIN >= 100, "the shortest gap between waves is under twenty seconds"
+    assert WAVE_GAP_MIN + 255 + 31 <= 400, "the longest gap between waves is over 400 game frames"
 
 ;  A wave ship's hull is WAVE_HULL_MIN + (a byte AND WAVE_HULL_SPAN), and it is
 ;  written into one byte. Overflow would wrap a tough ship into a paper one.
@@ -204,6 +212,18 @@ code_end:
     assert HUD_HP_X + HUD_HP_CHARS * TXT_CHAR_W_BYTES <= HUD_SAY_X, "the hull figure runs into INCOMING"
     assert HUD_SAY_X + (wave_say_text_end - wave_say_text - 1) * TXT_CHAR_W_BYTES <= SCR_BYTES_PER_LINE, "INCOMING runs off the screen"
     assert HUD_HP_ALARM < 100, "the hull alarm threshold is not a percentage"
+
+;  Row B, for the same reason. The yard grew a fifth character when the build
+;  queue landed -- the marker, the three-letter tag and the depth -- and the
+;  only thing between it and "M n JUMP" is this line. phase4_yard_text is
+;  measured rather than counted so that widening the field again cannot pass.
+    assert HUD_YARD_X + (phase4_hud_text - phase4_yard_text - 1) * TXT_CHAR_W_BYTES <= HUD_MIS_X, "the yard readout runs into the mission number"
+
+;  ...and the queue's depth is drawn as ONE digit, which is only enough while
+;  the waiting line cannot reach ten. The slipway holds the tenth order, so it
+;  cannot -- but this is the line that says so.
+    assert ECO_QUEUE_WAIT < 10, "the queue is too deep to show in one character"
+    assert ECO_QUEUE_MAX == ECO_QUEUE_WAIT + 1, "the slipway is not counted as one of the queue's orders"
 
 ; ----------------------------------------------------------------------------
 ;  The low 16K is the whole world below the bank window. If we ever spill past
@@ -534,8 +554,8 @@ bank7_end:
     assert CTX_RU_X + (ctx_text_pick - ctx_text_ru - 1) * TXT_CHAR_W_BYTES <= CTX_KEYS_X, "the RU label would run into the keys"
     assert CTX_KEYS_X + (ctx_text_pick_end - ctx_text_pick - 2) * TXT_CHAR_W_BYTES <= CTX_STAT_X, "the key hint would run into the status"
     assert CTX_STAT_X + (ctx_text_poor - ctx_text_buy - 1) * TXT_CHAR_W_BYTES <= SCR_BYTES_PER_LINE, "ENTER BUY runs off the screen"
-    assert CTX_STAT_X + (ctx_text_busy - ctx_text_poor - 1) * TXT_CHAR_W_BYTES <= SCR_BYTES_PER_LINE, "NEED MORE RU runs off the screen"
-    assert CTX_STAT_X + (ctx_text_end - ctx_text_busy - 1) * TXT_CHAR_W_BYTES <= SCR_BYTES_PER_LINE, "YARD BUSY runs off the screen"
+    assert CTX_STAT_X + (ctx_text_full - ctx_text_poor - 1) * TXT_CHAR_W_BYTES <= SCR_BYTES_PER_LINE, "NEED MORE RU runs off the screen"
+    assert CTX_STAT_X + (ctx_text_end - ctx_text_full - 1) * TXT_CHAR_W_BYTES <= SCR_BYTES_PER_LINE, "QUEUE FULL runs off the screen"
 
 ;  A SUM, and it only catches gross overrun -- one name eighteen characters
 ;  long and three short ones would slip through. There is no way to ask RASM

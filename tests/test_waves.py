@@ -1,6 +1,6 @@
 """Attack waves, and the fleet-hull readout that shares their arithmetic.
 
-Stay in a mission more than three minutes and the Vekhar start arriving, in
+Stay in a mission more than two minutes and the Vekhar start arriving, in
 waves of random size at random spacing, and they never stop. The point is that
 `J` should be a decision rather than a formality -- section 10's campaign is
 about a fleet that only ever shrinks, and nothing used to make staying cost
@@ -51,9 +51,9 @@ CHAR_H, CHAR_W_BYTES = 8, 2
 
 #  Mirrored from src/game/waves.asm. Anything here that drifts from the source
 #  is a test that has stopped describing the game.
-WAVE_FIRST_FRAMES = 900
-WAVE_GAP_MIN = 300
-WAVE_GAP_MAX = 300 + 3 * 255 + 127
+WAVE_FIRST_FRAMES = 600
+WAVE_GAP_MIN = 100
+WAVE_GAP_MAX = 100 + 255 + 31
 WAVE_MAX = 8
 WAVE_HULL_MIN, WAVE_HULL_MAX = 120, 247
 SYS_RAND_SEED = 0x7C4D
@@ -245,11 +245,11 @@ class TestTheGenerator(WaveFixture):
 
 
 class TestTheClock(WaveFixture):
-    """Three minutes, then one to four between waves -- in game frames, because
-    that is what mis_timer counts and the game runs at 5 fps, not the 12.5 it
-    targets."""
+    """Two minutes, then twenty seconds to a little over a minute between
+    waves -- in game frames, because that is what mis_timer counts and the game
+    runs at 5 fps, not the 12.5 it targets."""
 
-    def test_nothing_arrives_before_the_three_minutes(self):
+    def test_nothing_arrives_before_the_two_minutes(self):
         """The whole design is that the FIRST stretch of a mission is quiet.
         A wave one frame early is a wave in the middle of the picket fight."""
         self.set_timer(WAVE_FIRST_FRAMES - 20)
@@ -263,7 +263,7 @@ class TestTheClock(WaveFixture):
         self.assertEqual(self.byte("WAVE_COUNT"), 1)
         self.assertGreater(len(self.riders()), 0)
 
-    def test_the_gap_to_the_next_one_is_one_to_four_minutes(self):
+    def test_the_gap_to_the_next_one_stays_inside_its_range(self):
         """Random spacing is the point -- a fixed gap is a rhythm the player
         holds station through -- but it has to stay inside the range the design
         asked for at both ends."""
@@ -278,9 +278,9 @@ class TestTheClock(WaveFixture):
                            f"the spacing is not random: {gaps}")
 
     def test_the_clock_starts_again_on_a_jump(self):
-        """Three minutes is per MISSION. mis_setup zeroes mis_timer and calls
+        """Two minutes is per MISSION. mis_setup zeroes mis_timer and calls
         wave_init, so a player who loitered through six waves in mission 3
-        arrives in mission 4 with a fresh three minutes rather than an
+        arrives in mission 4 with a fresh two minutes rather than an
         immediate wave."""
         self.force_wave()
         self.assertEqual(self.byte("WAVE_COUNT"), 1)

@@ -104,7 +104,7 @@ CTX_PAUSE_TAIL_X    equ 16
 ;  bar forty times for one change of meaning.
 CTX_BUY_OK          equ 0
 CTX_BUY_POOR        equ 1
-CTX_BUY_BUSY        equ 2
+CTX_BUY_FULL        equ 2               ; ECO_QUEUE_MAX orders outstanding
 
 
 ; ----------------------------------------------------------------------------
@@ -303,7 +303,7 @@ ctx_draw_build:
     cp CTX_BUY_POOR
     ld hl,ctx_text_poor
     jr z,@ctx_build_say
-    ld hl,ctx_text_busy
+    ld hl,ctx_text_full
 @ctx_build_say:
     ld b,CTX_STAT_X
     ld c,CTX_Y
@@ -376,8 +376,11 @@ ctx_build_state:
 
     ld a,(eco_build_class)
     cp CLASS_COUNT
-    jr nc,@ctx_yard_free
-    ld a,CTX_BUY_BUSY                   ; one on the slipway at a time
+    jr nc,@ctx_yard_free                ; slipway empty: there is always room
+    ld a,(eco_queue_len)
+    cp ECO_QUEUE_WAIT
+    jr c,@ctx_yard_free
+    ld a,CTX_BUY_FULL                   ; ECO_QUEUE_MAX orders outstanding
     ret
 @ctx_yard_free:
     ld hl,(eco_ru)
@@ -539,8 +542,12 @@ ctx_text_buy:
     defb "ENTER BUY",0
 ctx_text_poor:
     defb "NEED MORE RU",0
-ctx_text_busy:
-    defb "YARD BUSY",0
+;  It used to say YARD BUSY, which was true of a yard that took one order at a
+;  time and is a lie about one that takes ten: BUSY invites the player to wait,
+;  and what they should do is press ENTER again. FULL says the one thing that
+;  is still refused.
+ctx_text_full:
+    defb "QUEUE FULL",0
 ctx_text_end:
 
 

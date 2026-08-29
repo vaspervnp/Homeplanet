@@ -66,11 +66,37 @@ home" in CLAUDE.md.
 
 WHAT IT DOES NOT MEASURE
 ------------------------
-The clock. Three minutes is 900 game frames, there are three waves a mission
-and eight missions a campaign, and that is more emulated time than anyone will
-wait for. So the run writes wave_next to bring each arrival forward: it moves
-WHEN a wave lands and touches nothing about what lands or how big it is.
-tests/test_waves.TestTheClock is what checks the clock itself.
+The clock, in its default mode. WAVE_FIRST_FRAMES is 600 game frames, there
+are three waves a mission and eight missions a campaign, and waiting all of it
+out is more emulated time than anyone will sit through. So the run writes
+wave_next to bring each arrival forward: it moves WHEN a wave lands and touches
+nothing about what lands or how big it is. tests/test_waves.TestTheClock is
+what checks the clock itself.
+
+AND THAT MAKES THE DEFAULT MODE BLIND TO THE SPACING, WHICH --overlap FIXES
+---------------------------------------------------------------------------
+The default forces a wave, fights it until nothing of it is flying, waits for
+the fleet to come home, and only then forces the next. So it measures three
+SEPARATE fights however far apart the game would really have put them -- which
+was honest while WAVE_GAP_MIN was 300 game frames, longer than any fight, and
+stopped being honest the moment the spacing was cut to a third of that.
+
+    python3 tools/waverate.py 4 --overlap
+
+runs the same trials on the GAME's clock: the first wave is still brought
+forward, and after that wave_next is left exactly where wave_send put it, so
+wave two lands whenever the game says it does -- on top of wave one if that is
+what 100 + 1.125r comes to.
+
+READ IT AS A FLOOR, NOT AS A DELTA. There is no comparable figure for the old
+spacing, and there cannot be one from this tool: at 300 + 3.5r a wave was up to
+1192 game frames behind the last, so three of them on the real clock is three
+or four times the emulated time OVERLAP_WAVE_FRAMES allows and the trial would
+simply be truncated. The default mode is the before-and-after; this mode is the
+one that answers "does the 70% still hold when they arrive on top of each
+other", which is a question the default cannot ask at all. The wave count
+actually reached is printed in the `waves` column, so a truncated trial is
+visible rather than silently counted as a win.
 """
 import os
 import struct
@@ -93,6 +119,11 @@ OBJECTIVE_FRAMES = 3000
 #  Long enough for a squadron six thousand units out to fly home: phase4_fly
 #  steps PHASE4_STEP = 150 units a game frame.
 REGROUP_FRAMES = 600
+
+#  --overlap only. Emulator frames to allow per wave: the game's own spacing is
+#  100..386 GAME frames, so three waves is at most 1158 of them and about ten
+#  emulator frames go to each. 4500 leaves room for the last fight on top.
+OVERLAP_WAVE_FRAMES = 4500
 
 #  What a trial photographs and puts back. The entity table is the fleet; the
 #  other four are the things derived from it that nothing would recompute on
@@ -226,13 +257,50 @@ def loiter(c, s, E):
     return (not failed) and bool(complete), sizes
 
 
-def trial(c, s, E, verbose, mission, label, damage):
+def loiter_overlap(c, s, E):
+    """The same loiter on the GAME's clock, so waves may land on each other.
+
+    Only the first arrival is brought forward; after that wave_next is left
+    exactly where wave_send put it. So the second and third waves come when
+    WAVE_GAP_MIN + 1.125r says they do, which at today's spacing is well inside
+    the time it takes to kill the one already on the screen.
+
+    Nothing is waited for and nothing is regrouped: the fleet is told to attack
+    once and then simply left in the mission for as long as three waves would
+    take, which is what a player who has decided to mine a field dry is doing.
+    The budget is generous on purpose -- the point of the run is what the fleet
+    looks like at the end of it, not how quickly it got there.
+    """
+    h.force_wave(c, s)
+    c.run_frames(30)
+    press(c, "a")
+
+    budget = WAVES_PER_MISSION * OVERLAP_WAVE_FRAMES
+    spent = 0
+    while spent < budget:
+        c.run_frames(60)
+        spent += 60
+        if c.read_ram(s["MIS_FAILED"], 1)[0]:
+            break
+        if c.read_ram(s["WAVE_COUNT"], 1)[0] >= WAVES_PER_MISSION:
+            #  All three have arrived; the trial is over when the last of them
+            #  is dead or has killed us.
+            if fleet(c, E)[2] == 0:
+                break
+
+    sizes = [c.read_ram(s["WAVE_COUNT"], 1)[0]]
+    failed = c.read_ram(s["MIS_FAILED"], 1)[0]
+    complete = c.read_ram(s["MIS_COMPLETE"], 1)[0]
+    return (not failed) and bool(complete), sizes
+
+
+def trial(c, s, E, verbose, mission, label, damage, overlap=False):
     """One loiter, with the fleet put back exactly as it was afterwards."""
     snap = photograph(c, s, E)
     if damage:
         cripple(c, s, E)
     before = fleet(c, E)
-    won, sizes = loiter(c, s, E)
+    won, sizes = (loiter_overlap if overlap else loiter)(c, s, E)
     after = fleet(c, E)
     if verbose:
         print(f"    mis {mission + 1} {label:<6} in {before[0]:>2} ships"
@@ -244,7 +312,7 @@ def trial(c, s, E, verbose, mission, label, damage):
     return won
 
 
-def campaign(seed, verbose):
+def campaign(seed, verbose, overlap=False):
     """One playthrough. Returns [(mission, label, won)] -- two trials a mission."""
     s = h.symbols()
     E = s["ENTITIES"]
@@ -265,7 +333,8 @@ def campaign(seed, verbose):
 
             for label, damage in (("whole", False), ("halved", True)):
                 out.append((mission + 1, label,
-                            trial(c, s, E, verbose, mission, label, damage)))
+                            trial(c, s, E, verbose, mission, label, damage,
+                                  overlap)))
             if mission < MISSIONS - 1:
                 h.jump_mission(c)
     finally:
@@ -274,8 +343,10 @@ def campaign(seed, verbose):
 
 
 def main():
-    runs = int(sys.argv[1]) if len(sys.argv) > 1 else 8
+    args = [a for a in sys.argv[1:] if not a.startswith("-")]
+    runs = int(args[0]) if args else 8
     verbose = "-q" not in sys.argv
+    overlap = "--overlap" in sys.argv
 
     #  Seeds spread across the word. sys_rand's first draw is the high byte, so
     #  seeds that agree up there start alike.
@@ -285,8 +356,9 @@ def main():
 
     for n, seed in enumerate(seeds):
         if verbose:
-            print(f"campaign {n + 1}/{runs}, seed #{seed:04X}")
-        for mission, label, won in campaign(seed, verbose):
+            print(f"campaign {n + 1}/{runs}, seed #{seed:04X}"
+                  f"{'  (overlapping waves)' if overlap else ''}")
+        for mission, label, won in campaign(seed, verbose, overlap):
             tally[(mission, label)][0] += 1
             tally[(mission, label)][1] += int(won)
 

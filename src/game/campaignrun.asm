@@ -139,7 +139,7 @@ mis_setup:
     ld (mis_timer),hl
 
     ;  The attack-wave clock runs off mis_timer, which has just gone back to
-    ;  zero, so the three minutes are per MISSION by construction. wave_init is
+    ;  zero, so the two minutes are per MISSION by construction. wave_init is
     ;  in the low 16K with the rest of the frame loop's simulation.
     call wave_init
 

@@ -784,7 +784,8 @@ Design document section 13 lists ten phases.
   are on the list**, at §8's prices, with the Destroyer gated to mission 5.
   Every mission fields two to four patches and they are DRAWN, in the tactical
   view and in the sensor view, in the two inks described under "Markers".
-  What is NOT in: a build *queue* — the yard takes one order at a time.
+  **The yard takes a QUEUE of ten now**, mixed classes, FIFO — see "The build
+queue" below.
 - **Phase 6 — done.** Both fleets fire, hulls take damage, ships die and leave
   explosions, and the AY plays a tone for a shot and noise for a kill.
   Targeting is round-robin — one entity re-targets per frame — so no frame
@@ -1221,7 +1222,7 @@ seconds — the economy is meant to be a choice, not a free action.
 
 ### Attack waves, and the price of staying
 
-Stay in a mission more than three minutes and the Vekhar start arriving, in
+Stay in a mission more than **two** minutes and the Vekhar start arriving, in
 waves of random size at random spacing, and they never stop. `src/game/waves.asm`,
 in the **low 16K** with the rest of the frame loop's simulation.
 
@@ -1347,6 +1348,68 @@ displaced. It is **fixed** — see "An attack order has to be spent" under "A
 fleet has to be able to concentrate" — and `waverate.py` no longer presses `G`
 to work around it, because a measuring stick that works around a bug measures
 the workaround.
+
+#### The build queue, and three times the pressure
+
+Four numbers moved on the owner's instruction, and one of them changed how the
+waves have to be MEASURED.
+
+| | before | after |
+|---|---|---|
+| orders outstanding | 1 | **10**, mixed classes |
+| resource stock a patch | 900 / 400 | **×6** |
+| first wave | 900 frames (3 min) | **600** (2 min) |
+| spacing | `300 + 3.5r`, mean 746 | **`100 + 1.125r`, mean 243** |
+
+The spacing is a factor of **3.07**, and `1.125` is three shifts and an add
+against `3.5`'s two adds, a shift and an add — no dearer than the thing it
+replaced, which is why `3.5` was chosen over a multiply in the first place.
+
+**The head of the queue IS the slipway.** `eco_build_class` and
+`eco_build_timer` keep their exact meaning and `eco_queue_buf` holds the nine
+waiting, so the HUD, `ctx_build_state` and a dozen tests did not have to learn
+a second name for "what is being built". One digit of depth is enough **by
+construction**: the slipway holds the tenth, so the line can never reach ten,
+and `src/main.asm` asserts it.
+
+**RU is spent at order time**, because the affordability test and the debit are
+one act at one moment — which is exactly what `ctx_build_state` re-derives.
+Pay-at-the-head would let ten orders be placed for nothing and fail one at a
+time, minutes later, needing a "stalled, waiting for money" state the yard does
+not have and a rule about whether a stalled order blocks the ones behind it.
+**The queue survives a jump**, as the half-built hull always has.
+
+**`ECO_RU_MAX` is 9999 and was not asked for.** Six times the resources means a
+campaign's mining sums past 65535 — and it breaks the readout long before that,
+because `txt_draw_num4` draws 16600's thousands column as `@`. Forty
+Destroyers' worth, so it does not bind on a player who builds.
+
+#### The measuring stick could not see the change, and that is the lesson
+
+`tools/waverate.py` came back **45/48 = 94%** against the 70% floor. It is a
+true number and it is **not a measurement of what changed**.
+
+The default protocol *forces* each wave, fights it until nothing of it is
+flying, waits for the fleet to fly home, and only then forces the next — so it
+measures three separate fights however far apart the game would really have put
+them. That was honest while the gap was 300-1192 frames and a wave takes 20-40
+seconds to resolve: one was always dead before the next arrived. **At 100-386
+it is not.** The 98% → 94% is the fleet arriving at each loiter in a slightly
+different state, not the spacing.
+
+`--overlap` leaves `wave_next` where `wave_send` put it, so waves land on each
+other: **48/48 = 100%**, and it costs **35% of the fleet's hull** against the
+default protocol's ~17%. That is what "three times as often" should mean. Read
+it as a floor rather than as a delta — there is no comparable before, because
+three waves on the old clock is several times the emulated time the budget
+allows.
+
+**`tools/balance.py` moved and the control says not to believe it.** Missions
+1-6 came out better; adding 520 T-states of `djnz` to `demo_update` and nothing
+else puts every one of them back to the baseline figure for figure. Positive
+control, so the swing is a `demo_wait_frame` tick boundary. It is provable
+independently too: the script never spends RU, never queues anything, and its
+longest mission is 96 game frames against a 600-frame first wave.
 
 #### The clock, converted honestly
 

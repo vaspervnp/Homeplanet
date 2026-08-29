@@ -137,7 +137,8 @@ for n in range(3):
 press(",", down=22, up=28, note=", -- back down one")
 record(90)
 press(cpc.KEY_ENTER, note="ENTER -- order it")
-record(120, "the yard is busy now, and the bar says so")
+record(120, "it is on the slipway; the bar still says ENTER BUY, because the "
+            "yard queues ten")
 print(f"  RU after ordering: {word('ECO_RU')}", flush=True)
 press("b", note="B -- close the panel")
 record(60)

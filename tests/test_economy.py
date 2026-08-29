@@ -20,7 +20,11 @@ ENT_SIZE = 20
 ENT_CLASS, ENT_FLAGS, ENT_SQUAD, ENT_ORDER, ENT_LOAD = 9, 11, 12, 13, 15
 F_ACTIVE, F_ENEMY = 1, 2
 CLASS_INTERCEPTOR, CLASS_MOTHERSHIP, CLASS_HARVESTER = 0, 1, 2
+CLASS_SCOUT, CLASS_BOMBER = 3, 4
 CLASS_BUILDABLE = 7
+#  src/game/economy.asm: ten orders outstanding, the one on the slipway being
+#  one of them, so the waiting line holds nine.
+QUEUE_MAX, QUEUE_WAIT = 10, 9
 ORDER_HARVEST = 4
 PATCH_COUNT, PATCH_SIZE = 4, 8
 COST = {CLASS_INTERCEPTOR: 35, CLASS_HARVESTER: 40}
@@ -145,13 +149,25 @@ class TestBuildPanel(EconomyFixture):
         self.assertEqual(self.byte("ECO_BUILD_CLASS"), CLASS_HARVESTER)
         self.assertEqual(self.ru(), before - COST[CLASS_HARVESTER])
 
-    def test_only_one_ship_is_on_the_slipway_at_a_time(self):
+    def test_a_second_order_goes_behind_the_first_rather_than_being_refused(self):
+        """The yard used to take one order and refuse every other, which meant
+        a player who had just mined a field dry had to sit and watch a
+        countdown before they could spend it. Section 5.5 asked for a queue."""
+        self.c.write_ram(self.sym["ECO_RU"], (500).to_bytes(2, "little"))
         self.hold("b")
         self.set_pick(CLASS_INTERCEPTOR)
         self.hold(cpc.KEY_ENTER, frames=25)
+        self.assertEqual(self.byte("ECO_BUILD_CLASS"), CLASS_INTERCEPTOR)
+        self.assertEqual(self.byte("ECO_QUEUE_LEN"), 0, "the first order queued twice")
+
         after_first = self.ru()
         self.hold(cpc.KEY_ENTER, frames=25)
-        self.assertEqual(self.ru(), after_first, "a second order was taken and paid for")
+        self.assertEqual(self.byte("ECO_QUEUE_LEN"), 1,
+                         "the second order was refused")
+        self.assertEqual(self.ru(), after_first - COST[CLASS_INTERCEPTOR],
+                         "the second order was taken and not paid for")
+        self.assertEqual(self.byte("ECO_BUILD_CLASS"), CLASS_INTERCEPTOR,
+                         "the second order pushed the first off the slipway")
 
     def test_a_ship_you_cannot_afford_is_refused(self):
         self.c.write_ram(self.sym["ECO_RU"], (10).to_bytes(2, "little"))
@@ -182,6 +198,306 @@ class TestConstruction(EconomyFixture):
         self.build(CLASS_INTERCEPTOR)
         self.assertGreaterEqual(self.byte("ECO_BUILD_CLASS"), 3,
                                 "the yard is still holding a finished ship")
+
+
+class TestTheBuildQueue(EconomyFixture):
+    """Ten orders, mixed classes, first in first out.
+
+    EVERY TEST HERE FOLLOWS INDIVIDUAL ORDERS, and that is deliberate rather
+    than thorough. A queue that reverses itself, that loses the middle entry,
+    or that builds the class the player picked LAST for every slot in the line
+    has exactly the right depth at every moment -- so a test that reads
+    ECO_QUEUE_LEN and stops is a test that passes against all three. It is the
+    same blind spot as the squadron tests that counted ships while they went
+    to the wrong squadrons, and the combat tests that counted kills while the
+    fleet was stranded where the last one died.
+
+    So: four DIFFERENT classes go in, and what comes out is checked by class,
+    in order, one at a time.
+    """
+
+    #  Cheap, distinct, and cheap enough that four fit in one purse. The
+    #  Mothership is not on the list and the Destroyer is not offered before
+    #  mission 5, which leaves five to choose four from.
+    LINE = [CLASS_SCOUT, CLASS_INTERCEPTOR, CLASS_HARVESTER, CLASS_BOMBER]
+
+    def order(self, ship_class):
+        """One ENTER on one class, with the panel already open."""
+        self.set_pick(ship_class)
+        self.hold(cpc.KEY_ENTER, frames=25)
+
+    def active(self):
+        return {s for s in range(48) if self.ent(s, ENT_FLAGS) & F_ACTIVE}
+
+    def line(self):
+        """The whole order book: the slipway first, then what is waiting.
+
+        eco_build_class IS the head of the queue rather than a copy of it,
+        which is why there is no second name for "what is being built".
+        """
+        head = self.byte("ECO_BUILD_CLASS")
+        waiting = list(self.c.read_ram(self.sym["ECO_QUEUE_BUF"], QUEUE_WAIT))
+        return ([] if head >= 8 else [head]) + waiting[:self.byte("ECO_QUEUE_LEN")]
+
+    def launch_the_head(self, before):
+        """Poke the countdown to zero and report the class that came out.
+
+        The timer is poked rather than waited out for the reason
+        test_shipclass gives: a Bomber is 60 GAME frames on the slipway, which
+        at the rate this really runs is most of a minute of emulated time, and
+        the countdown is not what is under test.
+        """
+        for _ in range(30):
+            if self.byte("ECO_BUILD_CLASS") < 8:
+                break
+            self.c.run_frames(10)
+        else:
+            self.fail("nothing ever reached the slipway")
+        self.c.write_ram(self.sym["ECO_BUILD_TIMER"], bytes([0]))
+        for _ in range(30):
+            self.c.run_frames(10)
+            new = self.active() - before
+            if new:
+                self.assertEqual(len(new), 1, f"{len(new)} ships appeared at once")
+                #  Let the next order reach the slipway before returning. A
+                #  finished ship leaves it empty and the NEXT frame pops the
+                #  queue, so a caller that read ECO_QUEUE_LEN the instant the
+                #  hull appeared would sometimes catch the old depth and
+                #  sometimes the new one -- which is a flaky test rather than
+                #  a bug in the yard.
+                self.c.run_frames(20)
+                return self.ent(new.pop(), ENT_CLASS)
+        self.fail("the ship on the slipway never came out")
+
+    def test_the_ships_come_out_in_the_order_they_were_ordered(self):
+        """The one property a FIFO has. Four distinct classes, so a queue that
+        kept the right DEPTH while shuffling its contents fails here."""
+        self.c.write_ram(self.sym["ECO_RU"], (900).to_bytes(2, "little"))
+        self.hold("b")
+        for ship_class in self.LINE:
+            self.order(ship_class)
+        self.assertEqual(self.line(), self.LINE, "four orders did not go in")
+        self.hold("b")                              # close the panel
+
+        came_out = []
+        for _ in self.LINE:
+            before = self.active()
+            came_out.append(self.launch_the_head(before))
+        self.assertEqual(came_out, self.LINE,
+                         "the queue is not first in, first out")
+
+    def test_the_line_shortens_by_one_for_every_ship_that_leaves(self):
+        """The count is not the property under test above, but it still has to
+        agree with it -- a queue that pops without shortening builds its head
+        for ever."""
+        self.c.write_ram(self.sym["ECO_RU"], (900).to_bytes(2, "little"))
+        self.hold("b")
+        for ship_class in self.LINE:
+            self.order(ship_class)
+        self.hold("b")
+
+        seen = [self.byte("ECO_QUEUE_LEN")]
+        for _ in self.LINE:
+            self.launch_the_head(self.active())
+            seen.append(self.byte("ECO_QUEUE_LEN"))
+        self.assertEqual(seen, [3, 2, 1, 0, 0], f"the depth went {seen}")
+
+    def test_ten_orders_are_taken_and_the_eleventh_is_refused(self):
+        """The slipway is one of the ten, so the waiting line is nine."""
+        self.c.write_ram(self.sym["ECO_RU"], (900).to_bytes(2, "little"))
+        self.hold("b")
+        self.set_pick(CLASS_SCOUT)
+        cost = 25
+
+        for n in range(10):
+            before = self.ru()
+            self.hold(cpc.KEY_ENTER, frames=25)
+            self.assertEqual(self.ru(), before - cost,
+                             f"order {n + 1} of ten was refused")
+        self.assertEqual(self.byte("ECO_QUEUE_LEN"), 9)
+
+        before = self.ru()
+        self.hold(cpc.KEY_ENTER, frames=25)
+        self.assertEqual(self.byte("ECO_QUEUE_LEN"), 9,
+                         "an eleventh order went into a ten-deep queue")
+        self.assertEqual(self.ru(), before,
+                         "the refused eleventh order was charged for")
+
+    def test_a_refused_order_is_not_charged_for_and_a_full_queue_still_builds(self):
+        """The refusal must not leave the yard stuck: what is already in the
+        line goes on being built."""
+        self.c.write_ram(self.sym["ECO_RU"], (900).to_bytes(2, "little"))
+        self.hold("b")
+        self.set_pick(CLASS_SCOUT)
+        for _ in range(12):                          # two more than it will take
+            self.hold(cpc.KEY_ENTER, frames=25)
+        self.hold("b")
+
+        before = self.active()
+        self.assertEqual(self.launch_the_head(before), CLASS_SCOUT)
+        self.assertEqual(self.byte("ECO_QUEUE_LEN"), 8,
+                         "the queue did not move on after being refused")
+
+    def test_the_queue_carries_through_a_jump(self):
+        """The RU was taken when the order was placed, so a queue thrown away
+        at the jump would silently destroy the player's money. mis_setup does
+        not touch it -- exactly as it has never touched the half-built hull on
+        the slipway."""
+        self.c.write_ram(self.sym["ECO_RU"], (900).to_bytes(2, "little"))
+        self.hold("b")
+        for ship_class in self.LINE:
+            self.order(ship_class)
+        self.hold("b")
+        #  Hold the countdown well clear of the jump. A Scout is 30 game
+        #  frames on the slipway and dismissing a briefing is about that many,
+        #  so without this the test would race the yard rather than the jump.
+        self.c.write_ram(self.sym["ECO_BUILD_TIMER"], bytes([255]))
+
+        self.c.run_frames(120)
+        self.assertEqual(self.byte("MIS_COMPLETE"), 1, "mission 1 never completed")
+        self.assertEqual(self.line(), self.LINE, "the order book moved before the jump")
+        h.jump_mission(self.c)
+        self.assertEqual(self.byte("MIS_INDEX"), 1, "the jump did not happen")
+
+        self.assertEqual(self.line(), self.LINE,
+                         "the order book did not survive the jump")
+        came_out = []
+        for _ in self.LINE:
+            came_out.append(self.launch_the_head(self.active()))
+        self.assertEqual(came_out, self.LINE,
+                         "the queue did not survive the jump intact")
+
+
+class TestTheQueueOnTheScreen(EconomyFixture):
+    """Section 5.5 asks the strip for "Πόροι (RU) και ουρά κατασκευής".
+
+    Only the RU half was ever there. A player cannot manage a queue they
+    cannot see, and this is the pixels rather than the variable -- the depth
+    could be perfectly correct in memory and drawn nowhere, or drawn over the
+    mission number, and ECO_QUEUE_LEN would say nothing about either.
+    """
+
+    YARD_X, YARD_W = 44, 12             # the field, in screen bytes
+    MIS_X, MIS_W = 56, 24               # "M 1 JUMP", which it must not reach
+    ROW_Y, ROW_H = 188, 8
+
+    def field(self, x, w):
+        self.c.write_ram(self.sym["PHASE4_HUD_DIRTY"], bytes([2]))
+        self.c.run_frames(60)
+        ram = self.c.read_ram(h.front_buffer(self.c), 0x4000)
+        return bytes(ram[h.screen_offset(y, bx)]
+                     for y in range(self.ROW_Y, self.ROW_Y + self.ROW_H)
+                     for bx in range(x, x + w))
+
+    def deepen_to(self, depth):
+        """Press ENTER until `depth` orders are waiting behind the slipway.
+
+        Built up in one machine rather than one per depth: a queue only ever
+        gets deeper, so the depths can be visited in order.
+        """
+        self.c.write_ram(self.sym["ECO_RU"], (900).to_bytes(2, "little"))
+        for _ in range(2 * QUEUE_MAX):              # bounded: a hang is a fail
+            if (self.byte("ECO_QUEUE_LEN") >= depth
+                    and self.byte("ECO_BUILD_CLASS") <= 7):
+                break
+            self.hold(cpc.KEY_ENTER, frames=25)
+            #  Nothing may LEAVE the slipway while the field is being read, or
+            #  the depth on screen is a different depth from the one asked for.
+            self.c.write_ram(self.sym["ECO_BUILD_TIMER"], bytes([255]))
+        self.assertEqual(self.byte("ECO_QUEUE_LEN"), depth)
+
+    def test_the_depth_is_drawn_and_every_depth_looks_different(self):
+        self.hold("b")
+        self.set_pick(CLASS_SCOUT)
+        seen = {}
+        for depth in (0, 1, 3, 9):
+            self.deepen_to(depth)
+            pixels = self.field(self.YARD_X, self.YARD_W)
+            self.assertNotIn(pixels, seen,
+                             f"a queue of {depth} is drawn exactly like "
+                             f"a queue of {seen.get(pixels)}")
+            seen[pixels] = depth
+
+    def test_it_does_not_reach_the_mission_number(self):
+        """The field grew a fifth character. txt_draw clips at the screen edge
+        and not at a field, so an overrun would quietly eat 'M 1 JUMP' and
+        nothing at run time would say so. src/main.asm asserts the geometry;
+        this asserts the pixels."""
+        self.c.run_frames(200)
+        self.assertEqual(self.byte("MIS_COMPLETE"), 1,
+                         "mission 1 is not complete, so JUMP would come and go")
+        empty = self.field(self.MIS_X, self.MIS_W)
+
+        self.hold("b")
+        self.set_pick(CLASS_SCOUT)
+        self.deepen_to(9)
+        self.hold("b")
+        self.assertEqual(self.byte("MIS_COMPLETE"), 1)
+        self.assertEqual(self.field(self.MIS_X, self.MIS_W), empty,
+                         "the yard readout wrote into the mission field")
+
+
+class TestTheResourcesAMissionCarries(EconomyFixture):
+    """Five to ten times what they used to be, at the design owner's request.
+
+    Stated as what the map has to be ABLE to pay for rather than as the
+    numbers in campaign.asm, because the numbers are the thing under test and
+    a test that repeats them is a copy rather than a check.
+    """
+
+    #  src/game/classdata.asm: the Destroyer, and ECO_QUEUE_MAX of them.
+    DEAREST, QUEUE_MAX = 250, 10
+
+    def test_a_rich_mission_can_pay_for_a_full_queue_of_the_dearest_class(self):
+        """That is the point of the change: with 3200 RU in the ground a rich
+        map could not fill one queue with anything above the bottom of the
+        price list, so what to build was decided by what was affordable."""
+        self.assertEqual(self.byte("MIS_INDEX"), 0, "mission 1 is the rich one")
+        self.assertGreaterEqual(sum(self.stock()), self.DEAREST * self.QUEUE_MAX,
+                                "a rich mission cannot fill the build queue")
+
+    def test_no_patch_is_anywhere_near_wrapping_its_word(self):
+        """The stock is a word and the mining clamp keeps it off the bottom;
+        this is the other end, and it is the one the multiplier moved."""
+        for n, stock in enumerate(self.stock()):
+            self.assertLess(stock, 0x8000, f"patch {n} is within a doubling of 65535")
+
+
+class TestTheRuCeiling(EconomyFixture):
+    """eco_ru saturates at what the four-digit readout can say.
+
+    Six times the resources means a whole campaign's mining adds up past
+    65535 if none of it is ever spent, which would wrap the word -- and it
+    passes 9999 long before that, at which point txt_draw_num4 draws the
+    thousands column as '@' because it subtracts 1000 sixteen times. The
+    number on the strip and the number in memory have to be the same number.
+    """
+
+    RU_MAX = 9999
+
+    def cash_in(self, start, load):
+        """Put a full harvester on the Mothership and let it be paid out."""
+        self.c.write_ram(self.sym["ECO_RU"], int(start).to_bytes(2, "little"))
+        moth = self.byte("MOTH_SLOT")
+        base = self.sym["ENTITIES"]
+        here = self.c.read_ram(base + moth * ENT_SIZE, 6)
+
+        slot = next(s for s in range(48)
+                    if (self.ent(s, ENT_FLAGS) & F_ACTIVE) and s != moth)
+        self.c.write_ram(base + slot * ENT_SIZE, here)          # on top of it
+        self.c.write_ram(base + slot * ENT_SIZE + ENT_CLASS, bytes([CLASS_HARVESTER]))
+        self.c.write_ram(base + slot * ENT_SIZE + ENT_ORDER, bytes([ORDER_HARVEST]))
+        self.c.write_ram(base + slot * ENT_SIZE + ENT_LOAD, bytes([LOAD_MAX]))
+        self.c.run_frames(60)
+        return self.ru()
+
+    def test_a_delivery_that_would_go_over_stops_at_the_ceiling(self):
+        self.assertEqual(self.cash_in(self.RU_MAX - 10, LOAD_MAX), self.RU_MAX)
+
+    def test_a_delivery_that_would_not_is_paid_in_full(self):
+        """The control: without it the test above passes against a yard that
+        pays nothing at all."""
+        self.assertEqual(self.cash_in(1000, LOAD_MAX), 1000 + LOAD_MAX)
 
 
 class TestTheReadout(EconomyFixture):
@@ -320,13 +636,18 @@ class TestHarvesting(EconomyFixture):
         """
         #  Start the nearest patch nearly empty so it is drained during the test.
         self.c.write_ram(self.sym["ECO_PATCHES"] + 6, (4).to_bytes(2, "little"))
+        #  ...and take the ceiling from the mission rather than writing a
+        #  number down. The stocks are six times what they were and this test
+        #  quietly became "is a patch under 900", which the first one no longer
+        #  is. A stock can only fall, so what it started at IS the bound.
+        ceiling = max(self.stock())
         self.build(CLASS_HARVESTER)
         self.hold("h")
 
         for _ in range(12):
             self.c.run_frames(150)
             for i, st in enumerate(self.stock()):
-                self.assertLessEqual(st, 900, f"patch {i} wrapped round to {st}")
+                self.assertLessEqual(st, ceiling, f"patch {i} wrapped round to {st}")
 
     def test_harvesters_leave_the_formation(self):
         """Otherwise phase4_fly pulls them back as fast as the economy pushes.

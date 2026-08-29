@@ -3,7 +3,7 @@
 ; ============================================================================
 ;  Two things that look like two features and are one:
 ;
-;      *  after three minutes in a mission the Vekhar start arriving, in waves
+;      *  after two minutes in a mission the Vekhar start arriving, in waves
 ;         of random size at random spacing, and they never stop;
 ;      *  the fleet's hull, as a percentage, at the top of the HUD strip.
 ;
@@ -59,7 +59,7 @@
 ;  mechanism: the reason to jump is that staying is now expensive.
 ;
 ;  The clock is mis_timer, which mis_setup zeroes, so it resets on every jump
-;  by construction -- the three minutes are per mission, not per campaign. And
+;  by construction -- the two minutes are per mission, not per campaign. And
 ;  because demo_update skips mis_update while order_paused is set, SPACE stops
 ;  the clock along with the battle, which is what a tactical pause is for.
 ; ----------------------------------------------------------------------------
@@ -69,22 +69,36 @@
 ;
 ;  The design targets 12.5 fps and the game measures 5.0 (see the frame budget
 ;  in CLAUDE.md), so a wall-clock figure has to be converted at the rate the
-;  machine actually runs at, not the one it aims at. Three minutes is 180
-;  seconds at 5.0 game frames a second = 900. One minute is 300 and four is
-;  1200, and the spacing below is drawn from that range.
+;  machine actually runs at, not the one it aims at. Two minutes is 120
+;  seconds at 5.0 game frames a second = 600, and twenty seconds is 100.
 ;
 ;  It is honest to a few per cent and no better: the frame rate falls as the
-;  entity count rises, so three minutes with a wave already on screen is nearer
-;  three and a half. Making it exact would mean a second counter on
+;  entity count rises, so two minutes with a wave already on screen is nearer
+;  two and a half. Making it exact would mean a second counter on
 ;  sys_tick_50hz, and mis_timer is already a word that already resets in
 ;  exactly the right place.
+;
+;  BOTH OF THESE WERE THREE TIMES LARGER and were cut on the design owner's
+;  instruction: the first wave at two minutes rather than three, and the ones
+;  after it three times as often. What that buys is that the loiter is no
+;  longer a sequence of separate fights -- the old spacing was 60 to 238
+;  seconds and a wave takes 20 to 40 to resolve, so one was always dead before
+;  the next arrived. See the note on wave_next below.
 ; ----------------------------------------------------------------------------
-WAVE_FIRST_FRAMES   equ 900             ; 3 minutes at the measured 5.0 fps
-WAVE_GAP_MIN        equ 300             ; ...and 1 to about 4 minutes after that
+WAVE_FIRST_FRAMES   equ 600             ; 2 minutes at the measured 5.0 fps
+WAVE_GAP_MIN        equ 100             ; ...and 20 to about 77 seconds after
 
-;  The spacing is WAVE_GAP_MIN + 3.5 * a random byte, which reaches 1192 --
-;  just under four minutes. Three and a half is two adds and a shift; 900/256
-;  exactly would be a multiply for a quarter of a frame's difference.
+;  The spacing is WAVE_GAP_MIN + 1.125 * a random byte, which reaches 386. It
+;  was WAVE_GAP_MIN 300 + 3.5r, reaching 1192, and both ends are a third of
+;  what they were: 300 -> 100 and 1192 -> 397, which 386 is within three per
+;  cent of. The MEAN is the number that matters for "three times as often" and
+;  it goes 746 -> 243, a factor of 3.07.
+;
+;  1.125 is three shifts and an add, against 3.5's two adds, a shift and an
+;  add -- so the replacement is no dearer than the thing it replaces, which is
+;  the whole reason 3.5 was picked over a multiply in the first place. A plain
+;  r would have been cheaper still and gives a mean of 227, a factor of 3.3,
+;  which is further from the three that was asked for than an `srl` is worth.
 
 ;  How many ships one wave may ever field, whatever the arithmetic says. The
 ;  entity table is 48 slots and the later missions already field twelve
@@ -114,7 +128,7 @@ WAVE_READ_EVERY     equ 4
 
 
 ; ----------------------------------------------------------------------------
-;  wave_init -- a fresh mission: the clock back to three minutes, no waves sent
+;  wave_init -- a fresh mission: the clock back to two minutes, no waves sent
 ;  Uses: everything
 ;
 ;  Called from mis_setup, which is the one path every mission arrives through
@@ -357,18 +371,26 @@ wave_pct_of:
 ;  Uses: everything
 ; ----------------------------------------------------------------------------
 wave_send:
-    ;  When the next one comes. WAVE_GAP_MIN + 3.5 * a random byte: one minute
-    ;  to a little under four, drawn afresh every time, so the player cannot
-    ;  learn the rhythm and hold station until just before the next one.
+    ;  When the next one comes. WAVE_GAP_MIN + 1.125 * a random byte: twenty
+    ;  seconds to a little over a minute, drawn afresh every time, so the
+    ;  player cannot learn the rhythm and hold station until just before the
+    ;  next one.
+    ;
+    ;  At this spacing a wave can land while the last one is still flying, and
+    ;  that is the substance of the change rather than a side effect: the old
+    ;  gap was longer than any fight, so three waves were three separate
+    ;  fights. tools/waverate.py's default protocol forces each wave and waits
+    ;  for the fleet to come home, so it measures the old shape whatever this
+    ;  number says -- its --overlap mode is the one that sees this.
     call sys_rand
     ld l,a
     ld h,0
     ld d,h
     ld e,l                              ; DE = r
-    add hl,hl
-    add hl,de                           ; 3r
-    srl e                               ; DE = r >> 1, D being zero
-    add hl,de                           ; 3.5r
+    srl e
+    srl e
+    srl e                               ; DE = r >> 3, D being zero
+    add hl,de                           ; 1.125r
     ld de,WAVE_GAP_MIN
     add hl,de
     ld de,(mis_timer)

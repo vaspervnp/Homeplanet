@@ -164,24 +164,39 @@ enemies_wall:
 ;
 ;  The two layouts are the only difference that matters: a rich mission can
 ;  pay for a capital ship out of what is on the map, a thin one cannot.
+;
+;  EVERY STOCK IS SIX TIMES WHAT IT WAS, and that is the yard's arithmetic
+;  rather than the map's. A rich mission used to carry 3200 RU in the ground,
+;  which is twelve Interceptors or thirteen Harvesters -- so the build panel
+;  offered seven classes and the map could only ever pay for the bottom of the
+;  list. Six times is inside the five-to-ten the design owner asked for and it
+;  is what makes a ten-deep queue of mixed classes a thing a player can
+;  actually fill: 19200 RU on a rich map is seventy-six Destroyers' worth, so
+;  what to build stops being decided by what is affordable.
+;
+;  The stock is a WORD and every figure here is far inside one; the mining
+;  clamp in eco_harvester_step is what keeps it from going below zero and
+;  wrapping to 65534, and it is unchanged. What six times DOES reach is the
+;  other end -- see ECO_RU_MAX in game/economy.asm, which is the four-digit
+;  readout's ceiling and not the word's.
 ; ----------------------------------------------------------------------------
 patches_rich:
     defw  -6500,   250, -1500
-    defw 900
+    defw 5400
     defw   6500,  -250,  1500
-    defw 900
+    defw 5400
     defw  -1500,   500,  6500
-    defw 700
+    defw 4200
     defw   2500,  -500, -6000
-    defw 700
+    defw 4200
 
 patches_thin:
     defw   5000,  -500, -4500
-    defw 400
+    defw 2400
     defw  -5000,   500,  4500
-    defw 300
+    defw 1800
     defw    750,   250, -5500
-    defw 250
+    defw 1500
 
 
 ; ----------------------------------------------------------------------------

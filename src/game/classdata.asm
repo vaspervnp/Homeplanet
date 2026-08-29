@@ -132,8 +132,10 @@ eco_class_cost:
 ;  Frames of construction, indexed by class. Section 8 gives no build times, so
 ;  they come from the price: a Destroyer at 250 RU that appeared as fast as a
 ;  25 RU Scout would make the cost the only thing that mattered, and the yard
-;  takes one order at a time -- so time on the slipway is the second half of
-;  what a ship costs.
+;  builds one at a time -- so time on the slipway is the second half of what a
+;  ship costs. That is still true now that ten orders can be WAITING: the queue
+;  is a line, not a second slipway, so a Destroyer at the head of it holds up
+;  everything behind it for 200 game frames.
 eco_class_frames:
     defb  40                            ; interceptor
     defb   0                            ; mothership

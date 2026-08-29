@@ -300,8 +300,11 @@ class TestBuildingThroughTheUI(ClassFixture):
         return int.from_bytes(self.c.read_ram(self.sym["ECO_RU"], 2), "little")
 
     def test_every_buildable_class_can_be_ordered_and_costs_what_it_says(self):
-        """One boot per class, because a yard that is already busy refuses --
-        which is the behaviour, not a way to test seven of them at once."""
+        """One boot per class, so that each one is measured going straight onto
+        an empty slipway. The yard queues ten orders now, so seven in a row
+        would work -- but then six of the seven would be testing the QUEUE and
+        not "does the panel charge section 8's price for this class", and the
+        Destroyer alone needs its own machine anyway for the mission gate."""
         for cls, cost in sorted(SECTION_8_COST.items(), key=lambda kv: kv[1]):
             with self.subTest(ship=NAME[cls]):
                 self.boot()

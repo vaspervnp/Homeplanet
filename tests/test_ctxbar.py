@@ -249,9 +249,11 @@ class TestTheBuildPanel(BarFixture):
         self.assertEqual(self.byte("ECO_BUILD_CLASS"), 0xFF,
                          "the yard took an order the bar said it would refuse")
 
-    def test_it_says_when_the_yard_is_already_busy(self):
-        """One ship on the slipway at a time, which is eco_queue's FIRST
-        refusal and the one a player hits by pressing ENTER twice."""
+    def test_a_busy_yard_no_longer_refuses_and_the_bar_no_longer_says_it_does(self):
+        """It used to say YARD BUSY the moment one ship was on the slipway,
+        which was eco_queue's first refusal. The yard queues ten orders now,
+        so a second ENTER is taken -- and a bar still saying BUSY would be
+        telling the player not to press the key that works."""
         self.c.write_ram(self.sym["ECO_RU"], struct.pack("<H", 500))
         self.open_panel()
         self.assertIn("ENTER BUY", self.strip_text())
@@ -259,7 +261,36 @@ class TestTheBuildPanel(BarFixture):
         self.assertNotEqual(self.byte("ECO_BUILD_CLASS"), 0xFF,
                             "the order was not taken, so this proves nothing")
         text = self.strip_text()
-        self.assertIn("YARD BUSY", text, f"the bar reads {text!r}")
+        self.assertIn("ENTER BUY", text, f"the bar reads {text!r}")
+        self.assertNotIn("QUEUE FULL", text)
+
+    def test_it_says_when_the_queue_is_full(self):
+        """Ten orders outstanding is the only thing left that a rich player
+        can be refused for, so it is the one the bar has to name."""
+        self.c.write_ram(self.sym["ECO_RU"], struct.pack("<H", 900))
+        self.open_panel()
+        for _ in range(14):                          # the slipway and nine more
+            if self.byte("ECO_QUEUE_LEN") == 9:
+                break
+            self.hold(cpc.KEY_ENTER, frames=25)
+            #  Ten presses take longer than a Scout takes to build, so without
+            #  this the yard launches one while the queue is being filled and
+            #  the line is one short of full for reasons that have nothing to
+            #  do with the refusal under test.
+            self.c.write_ram(self.sym["ECO_BUILD_TIMER"], bytes([255]))
+        self.assertEqual(self.byte("ECO_QUEUE_LEN"), 9,
+                         "the queue did not fill, so this proves nothing")
+        text = self.strip_text()
+        self.assertIn("QUEUE FULL", text, f"the bar reads {text!r}")
+        self.assertNotIn("ENTER BUY", text)
+
+        #  ...and it is telling the truth: the eleventh really is refused.
+        before = int.from_bytes(self.c.read_ram(self.sym["ECO_RU"], 2), "little")
+        self.hold(cpc.KEY_ENTER, frames=25)
+        self.assertEqual(self.byte("ECO_QUEUE_LEN"), 9)
+        self.assertEqual(int.from_bytes(self.c.read_ram(self.sym["ECO_RU"], 2),
+                                        "little"), before,
+                         "the yard charged for an order the bar said it would refuse")
 
     def test_the_bar_and_eco_queue_never_disagree(self):
         """ctx_build_state re-derives eco_queue's three refusals rather than

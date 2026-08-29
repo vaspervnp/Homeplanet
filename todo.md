@@ -47,6 +47,17 @@ thing that says so.
 
 ---
 
+## 1b. A queued ship joins the squadron selected when it FINISHES
+
+Not when it was ordered. That was already true of the single slipway; the
+queue widens the window from one build time to ten, so it is worth fixing now.
+It costs a second byte per queue entry.
+
+Also worth knowing: **neither RU nor the yard is in the disc save.**
+`demo_init` calls `eco_init`, so a loaded game starts at 120 RU with an empty
+queue. Pre-existing and unchanged, and more visible now a queue can be ten
+deep.
+
 ## 2. Music on the TITLE SCREEN, on `M`
 
 **It is written and it does not fit.** `src/sys/music.asm` is complete and is

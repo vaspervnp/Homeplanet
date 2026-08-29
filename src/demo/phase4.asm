@@ -2000,13 +2000,33 @@ phase4_hud:
     ld de,phase4_yard_text + 1
     ld bc,3
     ldir
+
+    ;  ...and how many orders are waiting behind it. Section 5.5 asks this
+    ;  strip for "Πόροι (RU) και ουρά κατασκευής" and only the first half of
+    ;  that was ever here; a player cannot manage a queue they cannot see.
+    ;
+    ;  One character, because that is what the row has to spare between the
+    ;  tag and M n JUMP -- and one is enough BY CONSTRUCTION rather than by
+    ;  luck: the count is of orders WAITING, the slipway holds the tenth, so
+    ;  it can never exceed ECO_QUEUE_WAIT = 9. A blank rather than a '0' when
+    ;  the line is empty, so a yard building one ship reads exactly as it read
+    ;  before there was a queue at all.
+    ld a,(eco_queue_len)
+    or a
+    ld a,' '
+    jr z,@p4_yard_depth
+    ld a,(eco_queue_len)
+    add a,'0'
+@p4_yard_depth:
+    ld (phase4_yard_text + 4),a
+
     ld hl,phase4_yard_text
     ld b,HUD_YARD_X
     ld c,HUD_ROW_B_Y
     jp txt_draw
 
 @p4_yard_blank:
-    ld hl,phase4_hud_blank + 1          ; four spaces: nothing on the slipway
+    ld hl,phase4_hud_blank              ; five spaces: nothing on the slipway
     ld b,HUD_YARD_X
     ld c,HUD_ROW_B_Y
     jp txt_draw
@@ -2053,10 +2073,7 @@ phase4_hud_changed:
     ld hl,phase4_hud_shadow_yard
     cp (hl)
     jr nz,@p4_hud_diff
-    ld a,(eco_build_open)
-    add a,a
-    ld hl,eco_build_pick
-    add a,(hl)
+    call phase4_yard_key
     ld hl,phase4_hud_shadow_pick
     cp (hl)
     jr nz,@p4_hud_diff
@@ -2079,10 +2096,7 @@ phase4_hud_changed:
     ld (phase4_hud_shadow_ru),hl
     ld a,(eco_build_class)
     ld (phase4_hud_shadow_yard),a
-    ld a,(eco_build_open)
-    add a,a
-    ld hl,eco_build_pick
-    add a,(hl)
+    call phase4_yard_key
     ld (phase4_hud_shadow_pick),a
     ld a,(mis_index)
     add a,a
@@ -2091,6 +2105,34 @@ phase4_hud_changed:
     ld (phase4_hud_shadow_mis),a
     ld a,2
     ld (phase4_hud_dirty),a
+    ret
+
+
+; ----------------------------------------------------------------------------
+;  phase4_yard_key -- everything about the yard that the strip DRAWS, in a byte
+;  Out: A
+;  Uses: AF, HL
+;
+;  The panel's marker, the class it is offering and how many orders are waiting
+;  all land in one row of five characters, so one shadow byte can watch all
+;  three. The depth goes in the high nibble because it can reach nine and the
+;  other two together cannot reach sixteen; four RRCAs on a value below ten is
+;  a nibble swap and costs four bytes.
+;
+;  The build TIMER is deliberately still not in here, for the reason
+;  phase4_hud_changed gives: it moves every frame and nobody reads it.
+; ----------------------------------------------------------------------------
+phase4_yard_key:
+    ld a,(eco_queue_len)
+    rrca
+    rrca
+    rrca
+    rrca                                ; << 4
+    ld hl,eco_build_open
+    add a,(hl)
+    add a,(hl)                          ; the panel's marker: '>' or nothing
+    ld hl,eco_build_pick
+    add a,(hl)
     ret
 
 
@@ -2266,7 +2308,7 @@ phase4_hud_ru_label: defb "RU ",0
 phase4_hud_help:     defb "?HELP",0
 phase4_hud_mis_label: defb "M",0
 phase4_hud_jump:     defb "JUMP",0
-phase4_yard_text:    defb " XXX",0
+phase4_yard_text:    defb " XXX ",0      ; marker, tag, and the queue's depth
 phase4_hud_text:    defb " 0:",0        ; the marker and digit are patched in
 
 ;  ONE run of spaces, read from three lengths in. A five-character blank, a
