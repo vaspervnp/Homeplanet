@@ -2715,6 +2715,66 @@ therefore `MENU_COUNT` rows long rather than `HELP_ROWS`. They were checked by
 putting the old numbers back and watching the build stop; an assert nobody has
 seen fail is a comment.
 
+### The jump wipe
+
+`J` erases the fleet with a white bar that marches across the playfield, and
+the next mission reveals it the same way. `src/game/jumpfx.asm`, bank 4.
+
+**Left to right both times, the reveal repeating the vanish rather than
+mirroring it** — a mirror reads as "you came back", and §10's campaign only
+goes one way. **Ink 1**: ink 3 is the alarm ink and a jump is not an alarm,
+ink 2 is scenery and the line is not part of the world. **Playfield only**
+(`CTX_BAR_H`..`HUD_TOP`) — the strips are instruments, not the view.
+
+The vanish runs inside `mis_jump` *before* a byte of state moves, so what it
+erases is the mission being left and `mis_jump` stays atomic, which a dozen
+tests and both measuring tools depend on. 0.86 s. The reveal rides
+`demo_update` and takes 1.9 s, because it is uncovering a world that does not
+exist until the frame loop draws it — no arrangement of masks fixes that.
+
+Costs **76 T-states** on an ordinary playing frame: a flag test and a call that
+returns on a compare.
+
+#### The reveal masks the DIRTY RECTANGLES, not the screen
+
+The obvious full-width fill is most of the screen every frame at ~35 T a byte,
+and it **halved the frame rate of the thing it was animating** — 5.0 → 3.5.
+But the screen ahead of the line is already black except where this frame
+drew, and that list is the one `phase4_erase` already keeps. Masking the
+rectangles instead is affordable, and it cuts a ship in half at the line for
+free.
+
+#### Three things that only screenshots and a control could have found
+
+- **The vanish painted the buffer on show and visibly came apart.** Two fills
+  over 158 rows take longer than a 50 Hz frame, so the display caught it
+  half-erased as often as whole. It double-buffers itself now. No test would
+  have seen this.
+- **A screenshot of a sweep LIES.** The emulator composes its framebuffer as
+  the beam scans, so a mid-frame grab shows the top of one step and the bottom
+  of the one before — which reads exactly like tearing and is not. Read screen
+  RAM, or park at `scr_wait_vsync` first.
+- **`scr_fill_rect` does NOT honour `spr_clip_top`/`spr_clip_bottom`**, though
+  `gfx_vline` does. It takes an explicit y and height and writes them. The
+  effect stays inside the strips because `JFX_TOP`/`JFX_HEIGHT` are asserted,
+  not because anything clips it.
+
+#### A transition must not cost game time
+
+The reveal was written as a non-freezing overlay first, arguing that the player
+should not lose two seconds of input. **That is a balance change, not a
+cosmetic one**: seven jumps times two seconds of unattended battle. Measured
+with the freeze removed and nothing else altered, `tools/balance.py` loses two
+ships in mission 4 where it loses none. Both halves stop the world.
+
+`balance.py` ends at mission 6 on this build against 7 on the one before, and
+**the control came back byte-for-byte identical to HEAD**, so this is not the
+tick-boundary story: `dismiss_briefing` waits the sweep out, so the one to
+three game frames that used to run while the harness pressed ENTER no longer
+run. Missions 1-3 are identical, mission 4 comes out with MORE hull, and it
+lands on the 6/7 coin toss this file already documents.
+`tools/waverate.py 4` is **44/48 = 92%** against the 70% floor, from 45/48.
+
 ### The Salvage Corvette
 
 `T` sends the selected squadron's corvettes to fetch **wrecks**. §8's

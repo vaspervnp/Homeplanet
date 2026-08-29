@@ -57,7 +57,12 @@ never spent itself, and exactly the shape the tow order was written to avoid.
 The fix is the same: spend the order. It was left out of the salvage change on
 purpose, so it would not be inside those measurements.
 
-## 1a. A jump EFFECT: a line that wipes the ships away and back
+## 1a. A jump EFFECT — DONE
+
+*(See "The jump wipe" in CLAUDE.md. The entry below is kept for the
+reasoning, and note it was wrong about scr_fill_rect honouring the clips.)*
+
+## 1a-orig. A jump EFFECT: a line that wipes the ships away and back
 
 Asked for after the Salvage Corvette and to be done after it. A vertical line
 appears at one side of the ships and travels to the other, **erasing them as it

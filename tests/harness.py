@@ -195,12 +195,39 @@ def dismiss_briefing(c: cpc.CPC) -> None:
     wait_for_briefing(c)
     for _ in range(6):
         if not c.read_ram(sym["MIS_BRIEFING"], 1)[0]:
+            #  ...and out through the wipe, if this briefing was a jump's.
+            wait_for_jump_wipe(c)
             return
         c.key_down(cpc.KEY_ENTER)
         c.run_frames(25)
         c.key_up(cpc.KEY_ENTER)
         c.run_frames(20)
     raise RuntimeError("could not get past the mission briefing")
+
+
+def wait_for_jump_wipe(c: cpc.CPC, frames: int = 300) -> bool:
+    """Let the jump's reveal finish before handing the machine back.
+
+    Dismissing a briefing that a JUMP put up starts the second half of the
+    wipe: a line crosses the playfield and the mission appears behind it, over
+    about eight game frames, and everything ahead of the line is black while it
+    does. The game is running underneath -- the reveal is an overlay and does
+    not stop the world -- so only a test that reads PIXELS can tell, and one
+    did: test_enemies_draw_in_the_enemy_colour placed a picket, ran forty
+    frames and found one pen-3 pixel, because the line had not reached them
+    yet.
+
+    Same shape as wait_for_briefing one level up, and bounded for the same
+    reason: most briefings are not a jump's and never start a sweep at all.
+    """
+    sym = symbols()
+    if "JFX_MODE" not in sym:
+        return False
+    for _ in range(frames // 5):
+        if not c.read_ram(sym["JFX_MODE"], 1)[0]:
+            return True
+        c.run_frames(5)
+    return False
 
 
 def boot_quick(frames: int = 40, briefing: bool = False,

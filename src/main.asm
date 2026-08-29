@@ -325,6 +325,12 @@ bank4_start:
     include "game/ordercmd.asm"
     include "game/squadcmd.asm"
     include "game/campaignrun.asm"
+;  The jump wipe. Its vanish runs from mis_jump with the world stopped and its
+;  reveal from the tail of demo_update, after ctx_bar -- so it is the fourth
+;  thing in here reached from inside the frame loop, and legal for the same
+;  reason: nothing pages bank 4 out at that point. After campaignrun.asm
+;  because that is what calls it.
+    include "game/jumpfx.asm"
 ;  The Salvage Corvette's job. Two of its three routines run from inside the
 ;  frame loop -- slv_make_wreck out of cbt_update and slv_tow_step out of
 ;  eco_update -- which makes it the third thing here reached from there, after
@@ -595,6 +601,32 @@ bank7_end:
 ;  that costs 25 bytes to buy an exact check on a table that changes once a
 ;  year. Keep every name inside CTX_NAME_CHARS by hand.
     assert class_name_end - class_name <= CLASS_COUNT * (CTX_NAME_CHARS + 1), "the class names do not fit the context bar's name field"
+
+; ----------------------------------------------------------------------------
+;  The jump wipe.
+;
+;  It fills a band of the screen by hand, so nothing at run time would notice
+;  if that band stopped being the playfield: a sweep one line too high scrubs a
+;  row out of the context bar, and the bar is only repainted when its WORDS
+;  change, so the damage would stay there for the rest of the mission. The same
+;  trap spr_clip_top was threaded through mark_store to close.
+; ----------------------------------------------------------------------------
+    assert JFX_TOP == CTX_BAR_H, "the jump wipe starts inside the context bar"
+    assert JFX_TOP + JFX_HEIGHT == HUD_TOP, "the jump wipe runs into the HUD strip"
+    assert JFX_WIDTH == SCR_BYTES_PER_LINE, "the jump wipe is not the width of the screen"
+
+;  Both sweeps step by a fixed number of bytes and stop when they have passed
+;  the far edge, so a step that does not divide the width either leaves a strip
+;  of the old mission on the screen (the vanish) or blackens past byte 79 into
+;  the next scanline (the fill is clamped by width, so this is the one that
+;  merely looks wrong rather than corrupting).
+    assert (JFX_WIDTH % JFX_VANISH_STEP) == 0, "the vanish's step does not divide the screen"
+    assert (JFX_WIDTH % JFX_REVEAL_STEP) == 0, "the reveal's step does not divide the screen"
+
+;  The line is a whole byte of one pen, which is only a line at all because
+;  Mode 1 packs four pixels into it. Ink 1 is the fleet's own -- see the header
+;  of game/jumpfx.asm for why not 2 or 3.
+    assert JFX_INK == SOLID_INK_1, "the jump wipe's line is no longer drawn in ink 1"
 
 ; ----------------------------------------------------------------------------
 ;  The two full-screen lists, DOWNWARDS

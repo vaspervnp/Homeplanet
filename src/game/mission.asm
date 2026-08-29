@@ -77,6 +77,15 @@ fleet_count:        defb 0
 
 mis_briefing:       defb 0
 mis_wipe:           defb 0
+
+;  The jump wipe -- game/jumpfx.asm, whose CODE is in bank 4 with the rest of
+;  what only runs while the game is stopped. These three are here for the same
+;  reason mis_index and mis_briefing are: a variable in the bank has to be read
+;  through the CPU with the window at rest, and a sweep is exactly the moment a
+;  test wants to sample the machine several times a second.
+jfx_mode:           defb 0              ; JFX_NONE / JFX_OUT / JFX_IN
+jfx_col:            defb 0              ; where the line is, in bytes 0..80
+jfx_armed:          defb 0              ; a jump happened; reveal on the way out
 mis_text_ptr:       defw 0
 mis_text_y:         defb 0
 mis_text_left:      defb 0

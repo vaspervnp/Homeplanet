@@ -69,7 +69,13 @@ mis_brief_key:
     ld (mis_wipe),a
     ld a,2
     ld (phase4_hud_dirty),a
-    ret
+
+    ;  ...and the mission appears from behind the same line that took the last
+    ;  one away -- but only if a jump is what put this briefing up. That test
+    ;  is jfx_reveal_open's, because the note is left by the vanish; this
+    ;  routine is the one place every briefing in the game is dismissed and it
+    ;  has never had to know which door it came in by.
+    jp jfx_reveal_open
 
 
 ; ----------------------------------------------------------------------------
@@ -403,6 +409,16 @@ mis_jump:
     inc a
     cp MIS_COUNT
     jr nc,@mis_no_jump                  ; the campaign is over
+
+    ;  The wipe goes FIRST, before a single byte of state has moved, so what
+    ;  the line sweeps away is the mission the player is leaving. It runs to
+    ;  completion here rather than across the next few frames -- see the header
+    ;  of game/jumpfx.asm -- which is what keeps this routine atomic: `J` still
+    ;  means "mis_index has moved by the time you can look".
+    ;
+    ;  It also covers the disc write below, which spins the drive up for about
+    ;  a third of a second with nothing to show for it.
+    call jfx_vanish
 
     call fleet_save                     ; what survives starts the next one
     ld a,(mis_index)

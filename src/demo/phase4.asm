@@ -274,8 +274,35 @@ demo_update:
     jp @p4_frame_counted                ; JP: the whole playing path is between
 
 @p4_playing:
+    ;  A jump wipe owns the frame: draw the mission, mask it, run nothing.
+    ;  The alternative -- an overlay with the battle live behind it -- was
+    ;  written first and it is wrong for a reason that has nothing to do with
+    ;  how it looks: the reveal is about two seconds long and happens seven
+    ;  times a campaign, so a fleet that fights through it is a fleet that has
+    ;  fought fourteen seconds the player never saw. Measured: with the freeze
+    ;  taken out and nothing else changed, tools/balance.py loses TWO ships in
+    ;  mission 4 where it loses none, and arrives at mission 5 with 2730 hull
+    ;  against 3024. Two combat tests that assert "nobody has fired yet" also
+    ;  opened their mission with six shots gone. A transition must not cost
+    ;  game time.
+    ld a,(jfx_mode)
+    or a
+    jr nz,@p4_frozen
+
     call phase4_commands
     call order_update
+
+    ;  A jump taken this frame has already swept the screen away and put the
+    ;  next mission's briefing up, so there is nothing here to draw. Without
+    ;  this the rest of the frame lays the NEW mission out over the wipe, the
+    ;  flip shows it, and the briefing covers it again one frame later -- two
+    ;  hundred milliseconds of the place the player has not arrived at yet.
+    ;
+    ;  That flash was there before the wipe was; it was simply nobody's
+    ;  business what the screen held at that instant. Four bytes.
+    ld a,(mis_briefing)
+    or a
+    jr nz,@p4_static_done
 
     ;  SPACE freezes the battle but not the orders (Homeplanet.md section 9):
     ;  the player can still re-plan while everything holds station.
@@ -341,6 +368,11 @@ demo_update:
 ;  to have the last word on it.
 @p4_frame_done:
     call ctx_bar
+    ;  ...and the jump wipe on top of everything, because it is the one thing
+    ;  on the screen that is allowed to hide the rest of it. About fifty
+    ;  T-states -- a load, a compare and a RET, through a CALL -- on every
+    ;  frame that is not a transition; see game/jumpfx.asm.
+    call jfx_update
 @p4_frame_counted:
     ld hl,demo_frames
     inc (hl)
@@ -2346,7 +2378,11 @@ phase4_gcount:      defs ENT_MAX, 0
 ;  The last two are TWO rectangles each: a height bar and the marker on top of
 ;  it, recorded through the same mark_bar / mark_cross the rest of them use.
 ;  One combined rectangle would have been a third way of doing it.
-PHASE4_RECT_SLOTS        equ ENT_MAX + EXPL_MAX + GRID_POINTS + MARK_PATCHES + 4
+;  ...and the fifth is the jump wipe's line, which records one so that the
+;  ordinary erase rubs it out when it moves. phase4_add_rect does not check
+;  this bound -- it appends and increments -- so a slot that is not here is
+;  four bytes written past the end of the array.
+PHASE4_RECT_SLOTS        equ ENT_MAX + EXPL_MAX + GRID_POINTS + MARK_PATCHES + 5
 phase4_rects_a:     defs PHASE4_RECT_SLOTS * 4, 0
 phase4_rects_b:     defs PHASE4_RECT_SLOTS * 4, 0
 
