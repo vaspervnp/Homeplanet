@@ -542,3 +542,98 @@ never appear.
   around.
 - The Mothership is still found after `fleet_restore` with the fleet at its
   ceiling.
+
+---
+
+# 6. A scoring system
+
+**Asked for:** a score.
+
+## The one decision that decides all the others
+
+**Score what SURVIVES, not what you destroyed.**
+
+§1 of the design document is a convoy carrying sixty thousand sleepers away from
+a lost world; §10 is a fleet that only ever shrinks. A game whose whole
+identity is that loss is permanent should not hand out points for kills — it
+should count what you managed to bring through.
+
+That is not a stylistic preference, it is the only version that does not fight
+the rest of the game:
+
+- **A kill score rewards loitering**, and the attack waves exist specifically to
+  make loitering cost something. `tools/waverate.py` exists to prove the loiter
+  is survivable but expensive. Points for kills tells the player to stay and
+  farm the very waves that were built to move them on.
+- **Salvage already pays for kills**, in RU, at the hull's own class cost. A
+  kill score would be a second reward for the same act, compounding a loop that
+  is already the most profitable thing in the game.
+
+So: the score goes **up** for arriving with a fleet, and there is no way to
+grind it.
+
+## What it is made of, and all of it already exists
+
+| component | where it already is |
+|---|---|
+| missions reached | `mis_index` |
+| fleet hull remaining | `wave_hull` — summed `ENT_HULL`, computed every fourth frame |
+| what that hull is worth | `eco_class_cost`, the yard's own prices, so a Destroyer counts for what it cost |
+| RU banked | `eco_ru` — unspent resources are husbanded ones |
+| the Mothership | **not a component.** Losing it ends the campaign, so it is a gate, not a term |
+
+Nothing here needs a new tally walked per frame. `wave_health` already walks
+the entity table once every fourth frame and has both hull and class in hand.
+
+## The constraint that will decide the shape: four digits
+
+`txt_draw_num4` draws HL in four digits by subtracting powers of ten. There is
+no five-digit printer, and `ECO_RU_MAX` is 9999 for exactly this reason — six
+times the resources made a campaign's mining sum past what the readout could
+draw, and 16600 came out with `@` in the thousands column.
+
+So either **the score fits 9999**, or somebody writes a wider printer. A score
+that fits four digits is also a score a player can hold in their head, which is
+an argument for it rather than against.
+
+**And there is no general divide in this game.** `wave_pct_of` is the only one —
+eight steps of a restoring divide and a multiply — and it exists because the
+denominator is whatever fleet the player has. A scoring formula built out of
+multiplications and shifts costs nothing; one with a division per class costs a
+real slice of a frame. Design it as adds and shifts.
+
+## Where it goes
+
+- **Per mission, on the briefing.** That screen already appears between
+  missions, already stops the world, and already has room. "What this one cost
+  you" is exactly the reading a player wants at that moment.
+- **At the end of the campaign**, which today does not exist as a screen —
+  `mis_failed` is the Mothership being lost and there is no arrival screen for
+  the other outcome. §4 of this file proposes a planet behind the last mission;
+  a final score belongs on the same screen.
+
+## Persistence, and the thing to decide first
+
+A high score has to survive the power going off, which means the disc, which
+means `FLEET.DAT` — two raw sectors on track 39, written by our own FDC code,
+with padding to spare and a magic and a range check on the way in.
+
+**But a high score is not campaign state**, and putting it in the save means it
+dies with a save that is overwritten by a new game. Decide before writing which
+of these is wanted:
+
+- **The score of the run in progress**, which belongs in the save beside the
+  fleet;
+- **a best-ever score**, which has to outlive any single campaign and therefore
+  wants its own field that a new game does not clear.
+
+They are different features and the second is the one people mean by
+"high score".
+
+## What no test can tell you
+
+Whether the number is *satisfying*. A score that only moves at the end of a
+mission gives a player nothing to play against moment to moment; one that
+ticks constantly becomes wallpaper. That is a judgement to make by watching
+somebody play, and this project has a recorder — `tools/record.py` — for
+exactly that kind of question.
