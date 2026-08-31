@@ -415,8 +415,12 @@ eco_start_build:
 ;  Uses: everything
 ; ----------------------------------------------------------------------------
 eco_spawn_built:
-    call ent_find_free
-    ret nc                              ; the table is full; the RU is spent
+    ;  Ours. It should never fail now -- eco_queue counts the room before it
+    ;  takes the money, so the slot this launch needs was reserved by
+    ;  arithmetic at the moment the order was placed. Something the player did
+    ;  not pay for can still fill it (nothing does today), so the guard stays.
+    call ent_find_free_ours
+    ret nc                              ; no room in the fleet; the RU is spent
 
     ld (eco_new_slot),a
     call ent_addr
@@ -486,8 +490,9 @@ eco_spawn_built:
 ;  about whether a stalled order blocks the ones behind it. A queue is a plan
 ;  that has been paid for.
 ;
-;  The refusals are checked in the order the bar says them: no room first, then
-;  the cost. Keep the two in step -- see ctx_build_state.
+;  The refusals are checked in the order the bar says them: room in the yard,
+;  then room in the FLEET, then the cost. Keep the two in step -- see
+;  ctx_build_state.
 ; ----------------------------------------------------------------------------
 eco_queue:
     ;  Checked here as well as in eco_pick_step, because the pick is a byte in
@@ -505,6 +510,30 @@ eco_queue:
     cp ECO_QUEUE_WAIT
     jr nc,@eco_refused                  ; ten outstanding already
 @eco_have_room:
+
+    ;  ...and is there room in the FLEET for the ship it would become? The
+    ;  entity table is partitioned now (game/entity.asm), so the fleet has a
+    ;  ceiling of its own and a player who builds will reach it.
+    ;
+    ;  The test is against the WHOLE outstanding line and not just this one
+    ;  order, and that is the substance of it: the RU is taken here, at order
+    ;  time, so ten orders against one free slot would be nine ships bought and
+    ;  never built -- which is the same silent failure this partition exists to
+    ;  end, moved one step along. Everything on the slipway or in the queue is
+    ;  a slot already spoken for.
+    call ent_room_ours
+    ld c,a                              ; how many the fleet can still hold
+    ld a,(eco_build_class)
+    cp CLASS_COUNT
+    ld a,(eco_queue_len)
+    jr nc,@eco_want                     ; the slipway is empty
+    inc a                               ; ...the half-built hull wants one too
+@eco_want:
+    inc a                               ; ...and so would this order
+    ld b,a
+    ld a,c
+    cp b
+    jr c,@eco_refused                   ; every free slot is already spoken for
 
     ld a,(eco_build_pick)
     ld l,a

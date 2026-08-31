@@ -2916,6 +2916,55 @@ run. Missions 1-3 are identical, mission 4 comes out with MORE hull, and it
 lands on the 6/7 coin toss this file already documents.
 `tools/waverate.py 4` is **44/48 = 92%** against the 70% floor, from 45/48.
 
+### The fleet and the enemy have separate ceilings
+
+`ENT_MAX` is still 48, but the array is **partitioned by index**: slots
+`0..ENT_PLAYER_MAX-1` are ours, the rest theirs. `ent_find_free` is gone and
+deliberately leaves nothing by that name — it is `ent_find_free_ours` and
+`ent_find_free_theirs`, two entry points falling into one ranged loop, so a
+spawn has to say which side it is. The same reasoning as `class_tier_addr`
+making you take the bank with the address.
+
+**It exists because the waves stopped silently.** `ent_find_free` returned the
+first free slot from zero, so a player who built hard filled the low slots and
+`wave_send` found nowhere to put a wave. The mechanism that makes `J` a
+decision rather than a formality **switched itself off for the player who had
+done best**, and nothing reported it. Not a crash — a thing that stops
+happening, which is the shape of most of this file.
+
+28 and 20. The 28 is asserted as `PHASE4_SHIPS + 1 + ECO_QUEUE_MAX` plus two
+rather than as a number; the 20 is the campaign's largest picket (mission 7's
+twelve) plus one whole `WAVE_MAX` wave, and `WAVE_MAX <= ENT_ENEMY_MAX` is
+asserted.
+
+> **Two pieces of arithmetic that were wrong when this was designed, both in
+> `improvements.md` §5.** Wrecks are **not** additive — `slv_make_wreck` sets
+> DISABLED on the hostile that just died and takes no new slot — and the
+> twelve-ship picket is mission **7**'s, not mission 8's. So the requirement is
+> 12 + 8 = 20 and the region fits it exactly; the "something has to give"
+> premise the design worried about never existed.
+
+**`FLEET FULL` on the context bar**, beside `QUEUE FULL` and re-derived in
+`ctx_build_state` in `eco_queue`'s own order. Without it the yard takes RU for
+a ship that will never appear. And the refusal **counts free slots** rather
+than asking "is there one" — RU is taken at order time, so the weaker test
+would let ten orders be placed against one slot: nine ships bought and never
+built, which is this same bug moved one step along.
+
+**`fleet_disc_load`'s range check moved to `ENT_PLAYER_MAX + 1`.** A count
+bigger than that could only come off a disc written by a pre-partition build,
+and would lay the fleet across the hostile region where `mis_clear_enemies`
+will not touch it and `mis_setup` spawns on top of it.
+
+#### The tests were checked against a build without the partition
+
+Six of them fail there — including "the yard took a number of orders the fleet
+has no room for" and "hostiles in the fleet's region". That is the check worth
+copying: **`test_a_full_fleet_does_not_stop_the_waves` passes on the OLD build
+too**, because the old fleet was allowed to grow past 28, so on its own it
+proves the right thing about the wrong fleet. It takes
+`TestTheFleetStopsAtItsOwnCeiling` beside it to mean anything.
+
 ### The Salvage Corvette
 
 `T` sends the selected squadron's corvettes to fetch **wrecks**. §8's

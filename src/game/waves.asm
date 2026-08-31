@@ -456,7 +456,13 @@ wave_send:
     ld (wave_bearing),a
 
 @wave_ship:
-    call ent_find_free
+    ;  THEIRS, and this is the whole point of the partition. It used to be the
+    ;  first free slot from zero, so a player who had built a fleet up to the
+    ;  table's edge stopped receiving waves altogether -- the pressure that
+    ;  makes `J` a decision switched itself off, silently, for the player who
+    ;  had done best. The hostile region cannot be taken by the fleet now, so
+    ;  the only thing that can turn a wave away is other hostiles.
+    call ent_find_free_theirs
     jr nc,@wave_full_table              ; no slots: the fleet got lucky
     call ent_addr
     ld (wave_ent),hl

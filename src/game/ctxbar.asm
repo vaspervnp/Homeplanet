@@ -102,9 +102,14 @@ CTX_PAUSE_TAIL_X    equ 16
 ;  so the shadow notices the moment the answer flips -- and NOT the RU figure
 ;  itself, which moves every time a harvester comes home and would repaint the
 ;  bar forty times for one change of meaning.
+;
+;  Four values and two bits, which is what ctx_sub has room for beside a pick
+;  of 0..CLASS_BUILDABLE-1. A fifth answer needs a third bit and the shift in
+;  ctx_classify to match.
 CTX_BUY_OK          equ 0
 CTX_BUY_POOR        equ 1
 CTX_BUY_FULL        equ 2               ; ECO_QUEUE_MAX orders outstanding
+CTX_BUY_FLEET       equ 3               ; the fleet's own slots are all spoken for
 
 
 ; ----------------------------------------------------------------------------
@@ -303,7 +308,10 @@ ctx_draw_build:
     cp CTX_BUY_POOR
     ld hl,ctx_text_poor
     jr z,@ctx_build_say
+    cp CTX_BUY_FULL
     ld hl,ctx_text_full
+    jr z,@ctx_build_say
+    ld hl,ctx_text_fleet
 @ctx_build_say:
     ld b,CTX_STAT_X
     ld c,CTX_Y
@@ -347,15 +355,19 @@ str_index:
 
 ; ----------------------------------------------------------------------------
 ;  ctx_build_state -- what the yard would say to an ENTER right now
-;  Out: A = CTX_BUY_OK / CTX_BUY_POOR / CTX_BUY_BUSY
+;  Out: A = CTX_BUY_OK / CTX_BUY_POOR / CTX_BUY_FULL / CTX_BUY_FLEET
 ;       (ctx_class) = the class on offer, (ctx_cost) = what it costs
 ;  Uses: everything
 ;
-;  These are eco_queue's own three refusals, in eco_queue's own order. They
-;  are re-derived rather than read out of a flag because eco_queue does not
-;  leave one -- and a second copy of the decision that only ran when the
-;  player pressed ENTER would be a bar that says BUY to a yard that says no.
-;  If eco_queue grows a fourth condition it grows here too.
+;  These are eco_queue's own refusals, in eco_queue's own order. They are
+;  re-derived rather than read out of a flag because eco_queue does not leave
+;  one -- and a second copy of the decision that only ran when the player
+;  pressed ENTER would be a bar that says BUY to a yard that says no. If
+;  eco_queue grows another condition it grows here too.
+;
+;  It walks the fleet's twenty-eight slots now, which is about 1,500 T-states
+;  -- but only on the frames the build panel is OPEN, since ctx_classify does
+;  not come this way otherwise. Nothing in the ordinary frame pays for it.
 ; ----------------------------------------------------------------------------
 ctx_build_state:
     ld a,(eco_build_pick)
@@ -371,8 +383,6 @@ ctx_build_state:
     add hl,de
     ld a,(hl)
     ld (ctx_cost),a
-    ld c,a
-    ld b,0
 
     ld a,(eco_build_class)
     cp CLASS_COUNT
@@ -382,7 +392,31 @@ ctx_build_state:
     jr c,@ctx_yard_free
     ld a,CTX_BUY_FULL                   ; ECO_QUEUE_MAX orders outstanding
     ret
+
+;  Room in the FLEET, which is eco_queue's second refusal and is measured the
+;  same way: against everything outstanding, because every one of those is a
+;  slot that has been paid for and not yet filled.
 @ctx_yard_free:
+    call ent_room_ours
+    ld c,a
+    ld a,(eco_build_class)
+    cp CLASS_COUNT
+    ld a,(eco_queue_len)
+    jr nc,@ctx_want
+    inc a
+@ctx_want:
+    inc a
+    ld b,a
+    ld a,c
+    cp b
+    ld a,CTX_BUY_FLEET
+    ret c
+
+;  The cost is reloaded rather than carried down here in BC from the top,
+;  because ent_room_ours clobbers both halves of it.
+    ld a,(ctx_cost)
+    ld c,a
+    ld b,0
     ld hl,(eco_ru)
     or a
     sbc hl,bc
@@ -548,6 +582,12 @@ ctx_text_poor:
 ;  is still refused.
 ctx_text_full:
     defb "QUEUE FULL",0
+;  The other ceiling, and the reason it needs a word of its own: QUEUE FULL is
+;  "wait, then press ENTER again" and this one is "there is nowhere for another
+;  ship to be". Saying the first about the second would have the player waiting
+;  for a slipway that is already empty. game/entity.asm has the partition.
+ctx_text_fleet:
+    defb "FLEET FULL",0
 ctx_text_end:
 
 

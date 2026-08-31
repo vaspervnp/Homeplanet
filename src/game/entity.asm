@@ -12,6 +12,34 @@
 ENT_MAX             equ 48
 ENT_SIZE            equ 20
 
+;  THE TABLE IS PARTITIONED BY INDEX, and it is one array still.
+;
+;      slots 0 .. ENT_PLAYER_MAX-1        the fleet, and the Mothership
+;      slots ENT_PLAYER_MAX .. ENT_MAX-1  hostiles, waves, wrecks
+;
+;  It used to be one pool for everything, allocated from zero, and that is a
+;  bug with a very quiet symptom: a player who builds hard fills the low slots,
+;  wave_send then cannot find anywhere to put a wave, and THE WAVES SILENTLY
+;  STOP. The one mechanism that makes `J` a decision rather than a formality
+;  switches itself off for the player who has done best at the game, and
+;  nothing reports it.
+;
+;  The numbers are a decision about who gets the FRAME, not about who gets
+;  memory -- 24 entities measure at 5.8-6.5 fps against a 12.5 target, so the
+;  table has held more than can be drawn for a long time. Twenty-eight is the
+;  starting sixteen plus the ten a full build queue can deliver, plus two; and
+;  twenty is mission 7's picket of twelve with one whole WAVE_MAX wave still
+;  able to land on top of it. A wreck is NOT a third thing to make room for:
+;  slv_make_wreck converts the hostile in place and takes no new slot.
+;
+;  A picket that did not fit would be silent in exactly the way this change
+;  exists to stop, so it is held from the other end: mis_setup runs after
+;  mis_clear_enemies, so the whole hostile region is free when a mission is
+;  laid out, and tests/test_campaign.TestEveryPicketFits reads the enemy count
+;  out of every row of mission_table and checks it against ENT_ENEMY_MAX.
+ENT_PLAYER_MAX      equ 28
+ENT_ENEMY_MAX       equ ENT_MAX - ENT_PLAYER_MAX
+
 ENT_X               equ 0               ; world position, 16-bit signed
 ENT_Y               equ 2
 ENT_Z               equ 4
@@ -151,16 +179,34 @@ ent_is_active:
 
 
 ; ----------------------------------------------------------------------------
-;  ent_find_free -- the first slot not in use
-;  Out: CF set and A = the slot, or CF clear if the table is full
+;  ent_find_free_ours / ent_find_free_theirs -- the first free slot of a REGION
+;  Out: CF set and A = the slot (and (ent_index) = it too), or CF clear if that
+;       region is full
 ;  Uses: everything
+;
+;  Two entry points over a range rather than two tables: every walking loop in
+;  the game already steps the whole array looking at ENT_FLAGS, so phase4_fly,
+;  phase4_project, cbt_update, wave_health and squad_refresh need to know
+;  nothing about the partition at all.
+;
+;  There is deliberately no `ent_find_free` left for anybody to call. A spawn
+;  has a side, always, and a routine that did not have to say which is a
+;  routine that would go back to allocating the fleet's slots to hostiles the
+;  first time somebody added a spawner -- the same reasoning that gives
+;  game/shipclass.asm no separate spr_select_bank.
 ; ----------------------------------------------------------------------------
-ent_find_free:
+ent_find_free_ours:
     xor a
+    ld c,ENT_PLAYER_MAX
+    jr ent_find_free_range
+ent_find_free_theirs:
+    ld a,ENT_PLAYER_MAX
+    ld c,ENT_MAX
+ent_find_free_range:
     ld (ent_index),a
 @ent_free_try:
     ld a,(ent_index)
-    call ent_addr
+    call ent_addr                       ; AF, DE, HL -- C survives it
     ld de,ENT_FLAGS
     add hl,de
     bit 0,(hl)
@@ -172,9 +218,42 @@ ent_find_free:
     ld hl,ent_index
     inc (hl)
     ld a,(hl)
-    cp ENT_MAX
+    cp c
     jr c,@ent_free_try
     or a
+    ret
+
+
+; ----------------------------------------------------------------------------
+;  ent_room_ours -- how many of the fleet's slots are free
+;  Out: A = 0..ENT_PLAYER_MAX
+;  Uses: everything
+;
+;  Walks the ENT_FLAGS byte and steps by ENT_SIZE, the way wave_health does,
+;  rather than calling ent_addr twenty-eight times -- an empty slot costs a
+;  load and a shift.
+;
+;  Two callers, and they have to agree: eco_queue refuses an order the fleet
+;  has no room for, and ctx_build_state re-derives the same answer to put
+;  FLEET FULL on the context bar. Counting rather than "is there one free"
+;  is the point -- the yard takes the RU when the order is PLACED, so a queue
+;  of ten against one free slot would be nine ships paid for and never built,
+;  which is the bug being fixed moved one step along.
+; ----------------------------------------------------------------------------
+ent_room_ours:
+    ld hl,entities + ENT_FLAGS
+    ld de,ENT_SIZE
+    ld b,ENT_PLAYER_MAX
+    ld c,0
+@ent_room_one:
+    ld a,(hl)
+    rra                                 ; ENT_F_ACTIVE is bit 0
+    jr c,@ent_room_next
+    inc c
+@ent_room_next:
+    add hl,de
+    djnz @ent_room_one
+    ld a,c
     ret
 
 

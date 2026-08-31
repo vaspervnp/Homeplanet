@@ -268,6 +268,33 @@ code_end:
     assert ECO_QUEUE_MAX == ECO_QUEUE_WAIT + 1, "the slipway is not counted as one of the queue's orders"
 
 ; ----------------------------------------------------------------------------
+;  The entity table's two regions (game/entity.asm).
+;
+;  Nothing at run time would report either of these going wrong. A player
+;  region too small for the fleet it is handed silently drops ships at setup;
+;  a hostile region too small for a wave silently stops the waves, which is
+;  the very bug the partition exists to end.
+; ----------------------------------------------------------------------------
+    assert ENT_PLAYER_MAX + ENT_ENEMY_MAX == ENT_MAX, "the two entity regions do not add up to the table"
+    assert ENT_PLAYER_MAX > 0, "the fleet has no slots"
+    assert ENT_ENEMY_MAX > 0, "the enemy has no slots"
+
+;  The starting fleet and its Mothership are written straight into slots
+;  0..PHASE4_SHIPS by phase4_spawn_fleet, without asking for a free one.
+    assert PHASE4_SHIPS + 1 <= ENT_PLAYER_MAX, "the starting fleet does not fit the player's region"
+
+;  ...and a player who fills the yard from the first frame of mission 1 must
+;  not be refused by a ceiling they cannot see the reason for. This is the
+;  number that says twenty-eight rather than "some slots for growth".
+    assert PHASE4_SHIPS + 1 + ECO_QUEUE_MAX <= ENT_PLAYER_MAX, "a full build queue on the starting fleet would not fit"
+
+;  One whole wave has to be able to land, or the pressure the waves exist to
+;  apply is capped by arithmetic rather than by the fight. The picket it lands
+;  ON is checked from the mission table itself, in tests/test_campaign.py --
+;  RASM cannot take the largest of eight rows of data.
+    assert WAVE_MAX <= ENT_ENEMY_MAX, "a full attack wave does not fit the hostile region"
+
+; ----------------------------------------------------------------------------
 ;  The low 16K is the whole world below the bank window. If we ever spill past
 ;  #4000 the next thing we would overwrite is paged sprite data, and the
 ;  symptom would be baffling. Fail the build instead -- and leave room for the
@@ -640,7 +667,8 @@ ENDIF
     assert CTX_KEYS_X + (ctx_text_pick_end - ctx_text_pick - 2) * TXT_CHAR_W_BYTES <= CTX_STAT_X, "the key hint would run into the status"
     assert CTX_STAT_X + (ctx_text_poor - ctx_text_buy - 1) * TXT_CHAR_W_BYTES <= SCR_BYTES_PER_LINE, "ENTER BUY runs off the screen"
     assert CTX_STAT_X + (ctx_text_full - ctx_text_poor - 1) * TXT_CHAR_W_BYTES <= SCR_BYTES_PER_LINE, "NEED MORE RU runs off the screen"
-    assert CTX_STAT_X + (ctx_text_end - ctx_text_full - 1) * TXT_CHAR_W_BYTES <= SCR_BYTES_PER_LINE, "QUEUE FULL runs off the screen"
+    assert CTX_STAT_X + (ctx_text_fleet - ctx_text_full - 1) * TXT_CHAR_W_BYTES <= SCR_BYTES_PER_LINE, "QUEUE FULL runs off the screen"
+    assert CTX_STAT_X + (ctx_text_end - ctx_text_fleet - 1) * TXT_CHAR_W_BYTES <= SCR_BYTES_PER_LINE, "FLEET FULL runs off the screen"
 
 ;  A SUM, and it only catches gross overrun -- one name eighteen characters
 ;  long and three short ones would slip through. There is no way to ask RASM

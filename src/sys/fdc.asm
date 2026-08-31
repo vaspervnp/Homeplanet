@@ -582,7 +582,13 @@ fleet_disc_load:
     ld a,(hl)
     or a
     jr z,@fleet_no_save                 ; a fleet of nobody is not a save
-    cp ENT_MAX + 1
+    ;  ENT_PLAYER_MAX and not ENT_MAX: fleet_restore packs the survivors into
+    ;  slots 0..n-1, and slots from ENT_PLAYER_MAX up are the enemy's. A count
+    ;  past the partition can only come off a disc written by a build that did
+    ;  not have one, and it would lay the fleet across the hostile region --
+    ;  where mis_clear_enemies does not touch it and mis_setup spawns on top of
+    ;  it. Read as "no save", which is what every other failed check here does.
+    cp ENT_PLAYER_MAX + 1
     jr nc,@fleet_no_save
     ld (fleet_count),a
 

@@ -123,6 +123,38 @@ class TestCampaignShape(CampaignFixture):
                            f"the campaign does not escalate: {counts}")
 
 
+class TestEveryPicketFits(CampaignFixture):
+    """The entity table is partitioned now (game/entity.asm) and hostiles get
+    ENT_ENEMY_MAX slots of it. mis_setup places what fits and stops, so a row
+    asking for more than that would field fewer enemies than the mission was
+    authored around and say nothing whatever about it.
+
+    RASM cannot take the largest of eight rows of data, so the guard is here
+    rather than in src/main.asm -- read out of the mission table itself, in
+    the machine, so a row edited in campaign.asm is checked by the thing that
+    will actually read it.
+    """
+
+    def test_no_mission_asks_for_more_hostiles_than_there_is_room_for(self):
+        room = self.sym["ENT_ENEMY_MAX"]
+        for i in range(MIS_COUNT):
+            count = self.descriptor(i)[12]
+            self.assertLessEqual(
+                count, room,
+                f"mission {i + 1} fields {count} hostiles and only {room} fit")
+
+    def test_the_largest_picket_leaves_room_for_a_whole_attack_wave(self):
+        """Twenty is twelve plus eight, and that is the arithmetic the number
+        was chosen by rather than a coincidence -- so state it. A wreck is not
+        a third thing to make room for: slv_make_wreck converts the hostile in
+        place and takes no new slot."""
+        biggest = max(self.descriptor(i)[12] for i in range(MIS_COUNT))
+        self.assertEqual(biggest, 12, "the campaign's largest picket has changed")
+        self.assertLessEqual(biggest + self.sym["WAVE_MAX"],
+                             self.sym["ENT_ENEMY_MAX"],
+                             "a full wave cannot land on the largest picket")
+
+
 class TestObjectives(CampaignFixture):
 
     def test_an_arrival_mission_completes_on_its_own(self):

@@ -47,7 +47,38 @@ thing that says so.
 
 ---
 
-## 0. The AY frequency constant is an octave out
+## 0. `dismiss_briefing` can return before the reveal starts
+
+`mis_brief_key` clears the briefing a frame before the jump's reveal begins, so
+`wait_for_jump_wipe`'s first poll sees `jfx_mode == 0` and returns. The reveal
+then stops the world for ~857 emulator frames and **any command sent into it is
+lost** — a scripted walk through the campaign advances on alternate missions
+only, which looks exactly like a jump being refused.
+
+Left alone deliberately: `wait_for_jump_wipe`'s own docstring records that
+`tools/balance.py` comes out with a different campaign when that poll interval
+changes, so fixing it invalidates every measurement taken around it. Do it on
+its own, with the control run.
+
+## 0aa. The jump reveal is not the same SPEED as the vanish
+
+Asked for and attempted and reverted. The vanish holds each column for
+`JFX_VANISH_DWELL` **vertical blanks** (23); the reveal holds it for
+`JFX_REVEAL_DWELL` **game frames**. Setting the reveal to 2 overshot — it
+finished before its own sound, and two tests caught it.
+
+**The mistake was assuming a game frame is ten vertical blanks** because the
+game measures 5 fps. It is not constant: the frame rate falls with the entity
+count, and the start of a reveal is a nearly empty screen, so its frames are
+much faster than 5 fps. The reveal's pace IS the frame rate's; the vanish's is
+not.
+
+So the value has to be **measured, not calculated** — and it drags the arrival
+sound with it, because `snd_fx_jump_in` has to be the same length as the
+picture. Note the assert in `src/main.asm` that stops the vanish being
+shortened below its own sound; the same care is owed the other half.
+
+## 0b. The AY frequency constant is an octave out
 
 `tools/genmusic.py` has `AY_CLOCK = 125000` and computes `period = 125000 / f`.
 The CPC clocks the AY at 1 MHz and a full tone cycle is 16 × period, so the

@@ -170,8 +170,13 @@ mis_setup:
     or a
     jr z,@mis_no_enemies
 @mis_enemy:
-    call ent_find_free
-    jr nc,@mis_no_enemies               ; table full: place what fits
+    ;  Theirs, and it cannot fail in practice: mis_clear_enemies has just
+    ;  freed the whole hostile region, and no row of mission_table asks for
+    ;  more than ENT_ENEMY_MAX. The branch stays because "place what fits" is
+    ;  a better answer than walking off the end of the table if one ever does,
+    ;  and tests/test_campaign.TestEveryPicketFits is what says one never will.
+    call ent_find_free_theirs
+    jr nc,@mis_no_enemies               ; no room: place what fits
 
     call ent_addr
     push hl

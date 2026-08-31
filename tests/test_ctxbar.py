@@ -29,6 +29,10 @@ LAST_CHAR = 90
 CHAR_H = 8
 CHAR_W_BYTES = 2
 
+ENT_SIZE = 20
+ENT_CLASS, ENT_HULL, ENT_FLAGS, ENT_SQUAD, ENT_TARGET = 9, 10, 11, 12, 14
+F_ACTIVE = 1
+
 
 class BarFixture(unittest.TestCase):
     """One machine per test: nearly every one of these presses a mode key,
@@ -312,6 +316,79 @@ class TestTheBuildPanel(BarFixture):
         #  test is only proving that one branch exists.
         self.assertTrue(any(yes for _, yes in seen), "the bar never said BUY")
         self.assertTrue(any(not yes for _, yes in seen), "the bar never refused")
+
+    # -- the fleet's own ceiling --------------------------------------------
+    #  The entity table is partitioned (game/entity.asm), so the fleet has a
+    #  limit of its own and a player who builds will reach it. Before that,
+    #  eco_queue simply failed to find a slot with nothing said -- so the yard
+    #  took the RU for a ship that was never going to appear.
+    def fill_the_fleet(self, free=0):
+        """Leave `free` slots of the PLAYER region empty and fill the rest."""
+        limit = self.sym["ENT_PLAYER_MAX"] - free
+        for slot in range(limit):
+            base = self.sym["ENTITIES"] + slot * ENT_SIZE
+            if self.c.read_ram(base + ENT_FLAGS, 1)[0] & F_ACTIVE:
+                continue
+            self.c.write_ram(base, struct.pack("<hhh", 0, 0, 0))
+            self.c.write_ram(base + ENT_CLASS, bytes([0]))      # an interceptor
+            self.c.write_ram(base + ENT_HULL, bytes([255]))
+            self.c.write_ram(base + ENT_SQUAD, bytes([1]))
+            self.c.write_ram(base + ENT_TARGET, bytes([0xFF]))
+            self.c.write_ram(base + ENT_FLAGS, bytes([F_ACTIVE]))
+        self.c.run_frames(30)
+
+    def test_it_says_when_the_FLEET_is_full(self):
+        """The other ceiling, and it needs its own word: QUEUE FULL is "wait,
+        then press ENTER again" and this one is "there is nowhere for another
+        ship to be". Saying the first about the second would leave the player
+        waiting for a slipway that is already empty."""
+        self.c.write_ram(self.sym["ECO_RU"], struct.pack("<H", 900))
+        self.fill_the_fleet()
+        self.open_panel()
+
+        text = self.strip_text()
+        self.assertIn("FLEET FULL", text, f"the bar reads {text!r}")
+        self.assertNotIn("ENTER BUY", text)
+        self.assertNotIn("QUEUE FULL", text)
+        self.assertEqual(self.byte("ECO_QUEUE_LEN"), 0,
+                         "the queue was full too, so the two words are not being told apart")
+
+        #  ...and it is telling the truth: the order really is refused, and
+        #  refused BEFORE the money moves.
+        before = int.from_bytes(self.c.read_ram(self.sym["ECO_RU"], 2), "little")
+        self.hold(cpc.KEY_ENTER, frames=25)
+        self.assertEqual(self.byte("ECO_BUILD_CLASS"), 0xFF,
+                         "the yard took an order the bar said it would refuse")
+        self.assertEqual(int.from_bytes(self.c.read_ram(self.sym["ECO_RU"], 2),
+                                        "little"), before,
+                         "the yard charged for a ship the fleet has no room for")
+
+    def test_the_bar_and_eco_queue_never_disagree_about_the_fleet_either(self):
+        """The same walk as above, up the FLEET's ceiling rather than up the
+        price ladder. The refusal is against everything OUTSTANDING and not
+        just this one order -- the RU is taken at order time, so a queue of
+        ten against one free slot would be nine ships bought and never built.
+        """
+        self.c.write_ram(self.sym["ECO_RU"], struct.pack("<H", 900))
+        self.open_panel()
+        seen = set()
+        for free in (3, 2, 1, 0):
+            self.fill_the_fleet(free=free)
+            says_yes = "ENTER BUY" in self.strip_text()
+            before = int.from_bytes(self.c.read_ram(self.sym["ECO_RU"], 2), "little")
+            self.hold(cpc.KEY_ENTER, frames=25)
+            took = int.from_bytes(self.c.read_ram(self.sym["ECO_RU"], 2),
+                                  "little") != before
+            #  Nothing must LAUNCH while this walk is going on: a ship off the
+            #  slipway takes one of the slots the next rung is counting.
+            self.c.write_ram(self.sym["ECO_BUILD_TIMER"], bytes([255]))
+            self.assertEqual(says_yes, took,
+                             f"with {free} of the fleet's slots free the bar said "
+                             f"{'BUY' if says_yes else 'no'} and the yard "
+                             f"{'took' if took else 'refused'} the order")
+            seen.add(says_yes)
+        self.assertEqual(seen, {True, False},
+                         "one of the two answers never came up: half a test")
 
 
 PEN_WHITE, PEN_BLUE, PEN_RED = 1, 2, 3
