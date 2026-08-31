@@ -1,8 +1,18 @@
-"""The jump wipe: a line that sweeps the ships away, and back.
+"""The jump wipe: one short bar per ship takes it away, and gives it back.
 
 "Θέλω εφέ για το jump των πλοίων. Θα εμφανίζεται μια γραμμή στην μια πλευρά
 τους που θα μετακινείται μέχρι την άλλη, σβήνοντάς τα. Στην επόμενη πίστα θα
 συμβαίνει το ανάποδο για να εμφανιστούν."
+
+...and then: "θέλω η γραμμή του jump να μην είναι μία για όλα. Να είναι μία ανά
+σκάφος. μικρή και να ξεκινάει πριν το σκάφος και να τελειώνει μετά το σκάφος."
+
+THE GEOMETRY IS READ OUT OF THE MACHINE, NOT MIRRORED HERE. class_geom, the
+JFX_* equates and phase4_vis all come off the build, so a test that says "the
+bar is inside its own ship's run" is comparing the screen against the same
+three numbers the Z80 used. The one thing mirrored is the arithmetic --
+(sx - halfwidth) >> 2, floor -- which is phase4_blit_body's placement, and if
+that ever drifts these tests are what says so.
 
 EVERY TEST HERE READS BOTH SCREEN BUFFERS, and that is the point of the file
 rather than a habit. The display page-flips, so an effect painted into one
@@ -30,11 +40,17 @@ from tests import harness as h
 
 import cpc
 
-#  Mirrored from src/game/jumpfx.asm and src/demo/phase4.asm.
+#  Mirrored from src/demo/phase4.asm; everything else comes off the build.
 JFX_NONE, JFX_OUT, JFX_IN = 0, 1, 2
 CTX_BAR_H, HUD_TOP = 10, 168
 SOLID_INK_1 = 0xF0
 WIDTH = 80
+
+#  A bar is the sprite's height with JFX_VMARGIN proud at each end, so the
+#  shortest one there is -- tier A -- is six lines and six margins. Anything
+#  this tall and solid in one byte column is a bar and not a ship: the sprites
+#  are shaded, so a column of theirs is broken up by pen 2.
+BAR_MIN_RUN = 10
 
 
 class WipeFixture(unittest.TestCase):
@@ -59,18 +75,64 @@ class WipeFixture(unittest.TestCase):
     def briefing(self):
         return self.c.read_ram(self.sym["MIS_BRIEFING"], 1)[0]
 
+    # -- the geometry, off the machine ---------------------------------------
+    def runs(self):
+        """Every drawn ship's (x0, reach, left, width, top, height, band).
+
+        phase4_vis is the list phase4_project builds and phase4_draw draws
+        from; phase4_gcount is 0 for the entries phase4_group consolidated
+        away, which are drawn by nothing and get no bar. class_geom is the
+        blitter's own placement table.
+        """
+        s = self.sym
+        margin = s["JFX_MARGIN"]
+        vmargin = s["JFX_VMARGIN"]
+        n = self.c.read_ram(s["PHASE4_VISIBLE"], 1)[0]
+        vis = self.c.read_ram(s["PHASE4_VIS"], n * 6)
+        gcount = self.c.read_ram(s["PHASE4_GCOUNT"], n)
+        geom = self.c.read_ram(s["CLASS_GEOM"], 18)
+        out = []
+        for i in range(n):
+            if not gcount[i]:
+                continue
+            e = vis[i * 6:i * 6 + 6]
+            sx = e[0] | (e[1] << 8)
+            row = geom[(e[5] & 3) * 6:]
+            w, sprite_h, halfw, halfh = row[0], row[1], row[2], row[3]
+            left = (sx - halfw) >> 2            # arithmetic, as `sra h : rr l`
+            top = e[2] - halfh
+            out.append({
+                "x0": left - margin,
+                "reach": w + 2 * margin,
+                "left": left, "w": w,
+                "top": top, "h": sprite_h,
+                "band_top": top - vmargin, "band_h": sprite_h + 2 * vmargin,
+            })
+        return out
+
     # -- the screen ----------------------------------------------------------
     def buffer(self, base):
         return self.c.read_ram(base, 0x4000)
 
-    @staticmethod
-    def line_at(ram):
-        """Which byte columns are a full-height run of ink 1, i.e. the line.
+    def front(self):
+        return self.buffer(h.front_buffer(self.c))
 
-        The whole playfield and nothing less: a partial column is a fill caught
-        halfway, which happens in the buffer being drawn into and never in the
-        one on show.
-        """
+    @staticmethod
+    def bar_columns(ram, ink=SOLID_INK_1):
+        """Byte columns holding a run of BAR_MIN_RUN solid rows: the bars."""
+        found = []
+        for x in range(WIDTH):
+            run = 0
+            for y in range(CTX_BAR_H, HUD_TOP):
+                run = run + 1 if ram[h.screen_offset(y, x)] == ink else 0
+                if run >= BAR_MIN_RUN:
+                    found.append(x)
+                    break
+        return found
+
+    @staticmethod
+    def full_height_columns(ram):
+        """Columns lit from the context bar to the HUD -- the OLD effect."""
         return [x for x in range(WIDTH)
                 if all(ram[h.screen_offset(y, x)] == SOLID_INK_1
                        for y in range(CTX_BAR_H, HUD_TOP))]
@@ -82,8 +144,13 @@ class WipeFixture(unittest.TestCase):
                        for y in range(CTX_BAR_H, HUD_TOP))}
 
     @staticmethod
+    def lit_count(ram):
+        return sum(1 for y in range(CTX_BAR_H, HUD_TOP) for x in range(WIDTH)
+                   if ram[h.screen_offset(y, x)])
+
+    @staticmethod
     def strip_lit(ram):
-        """Lit bytes in the two strips the sweep must never reach."""
+        """Lit bytes in the two strips the effect must never reach."""
         bar = sum(1 for y in range(0, CTX_BAR_H) for x in range(WIDTH)
                   if ram[h.screen_offset(y, x)])
         hud = sum(1 for y in range(HUD_TOP, 200) for x in range(WIDTH)
@@ -92,48 +159,68 @@ class WipeFixture(unittest.TestCase):
 
     @staticmethod
     def bar_bytes(ram):
-        """Every byte of the context bar's strip, to compare against itself.
-
-        Bytes rather than a count, because the interesting failure is a row of
-        it being scrubbed out and the bar is only repainted when its WORDS
-        change -- so a hole in it is permanent and a count could hide one
-        behind an unrelated repaint.
-        """
+        """Every byte of the context bar's strip, to compare against itself."""
         return bytes(ram[h.screen_offset(y, x)]
                      for y in range(0, CTX_BAR_H) for x in range(WIDTH))
 
-    def front(self):
-        return self.buffer(h.front_buffer(self.c))
-
     # -- driving -------------------------------------------------------------
+    def offsets_that_explain(self, cols, runs):
+        """How far along their runs every bar on screen would have to be.
+
+        All the bars share one counter, so at any instant they stand at the
+        SAME offset into their own ship's run -- which is the whole difference
+        between this effect and the one it replaced, and is exactly what a set
+        of columns can be asked about without having to decide which column
+        belongs to which ship.
+        """
+        return {k for k in range(self.sym["JFX_TRAVEL"] + 1)
+                if all(any(r["x0"] + k == x and k < r["reach"] for r in runs)
+                       for x in cols)}
+
     def sample_sweep(self, want, limit=400):
         """Follow a sweep, one emulator frame at a time.
 
-        Returns a list of (col, front_base, line_columns, lit_columns) and a
-        dict of {buffer base: the line positions that buffer was seen holding}.
-        Reading the buffer on SHOW is what makes "the line is one unbroken
-        column" a safe assertion -- the back buffer is mid-fill about half the
-        time, by construction.
+        Returns [(col, front base, bar columns, lit columns, lit bytes)], the
+        RUNS as they stood while it happened, and {buffer base: how often it
+        was seen carrying bars}. Reading the buffer on SHOW is what makes "a
+        bar is one unbroken column" safe -- the back buffer is mid-fill about
+        half the time, by construction.
+
+        THE RUNS ARE READ INSIDE THE SWEEP AND NOT BEFORE IT. Both halves stop
+        the world, so phase4_vis holds still for exactly as long as the sweep
+        lasts and not one frame longer -- read it before pressing `J` and the
+        fleet flies several pixels between the reading and the sweep, which is
+        enough to put a bar outside the run the test computed for it.
         """
-        seen = []
-        per_buffer: dict[int, list[int]] = {h.SCREEN_A: [], h.SCREEN_B: []}
+        seen, runs = [], None
+        per_buffer = {h.SCREEN_A: 0, h.SCREEN_B: 0}
         for _ in range(limit):
             if self.mode() != want:
                 if seen:
                     break
             else:
+                if runs is None:
+                    runs = self.runs()
                 base = h.front_buffer(self.c)
                 ram = self.buffer(base)
-                line = self.line_at(ram)
-                seen.append((self.col(), base, line, self.lit_columns(ram)))
-                if len(line) == 1:
-                    per_buffer[base].append(line[0])
+                bars = self.bar_columns(ram)
+                seen.append((self.col(), base, bars,
+                             self.lit_columns(ram), self.lit_count(ram)))
+                if bars:
+                    per_buffer[base] += 1
             self.c.run_frames(1)
-        return seen, per_buffer
+        return seen, runs or [], per_buffer
 
 
 class TestTheVanish(WipeFixture):
-    """`J`: the line crosses the mission and the mission is not there after it."""
+    """`J`: a bar crosses each ship and the ship is not there after it."""
+
+    def setUp(self):
+        super().setUp()
+        #  Let the fleet fly out of the clump it spawns in. Every ship starts
+        #  on squadron 1's station, so at boot fifteen of them share three byte
+        #  columns and "one bar per ship" is not a thing the screen can show.
+        self.c.run_frames(400)
 
     def press_jump(self):
         #  Mission 1's objective is ARRIVE, so it is complete from the first
@@ -141,79 +228,147 @@ class TestTheVanish(WipeFixture):
         self.assertEqual(self.c.read_ram(self.sym["MIS_COMPLETE"], 1)[0], 1)
         self.c.key_down("j")
 
-    def test_the_line_crosses_the_playfield_left_to_right(self):
+    def test_one_bar_per_ship_and_none_of_them_crosses_the_screen(self):
+        """The change itself: not one line for the fleet, but one each.
+
+        The old effect drew a single column lit from the context bar to the
+        HUD. Nothing here may ever do that -- a bar is its own ship's height
+        and a few lines -- and there have to be several of them at once.
+
+        Several rather than one per ship: at the default zoom a formation is
+        tight enough that two ships three byte columns apart put their bars in
+        adjoining columns, and the screen cannot tell those from one wide one.
+        """
         self.press_jump()
-        seen, _ = self.sample_sweep(JFX_OUT)
+        seen, runs, _ = self.sample_sweep(JFX_OUT)
         self.c.key_up("j")
 
-        self.assertGreater(len(seen), 8, "the sweep was over before it was seen")
-        positions = [line[0] for _, _, line, _ in seen if len(line) == 1]
-        self.assertGreater(len(positions), 5,
-                           f"no full-height line on show during the sweep: {seen[:3]}")
-        self.assertEqual(positions, sorted(positions),
-                         f"the line does not travel one way: {positions}")
-        self.assertLess(min(positions), 12, "the line does not start at the left")
-        self.assertGreater(max(positions), WIDTH - 12,
-                           "the line never reaches the right-hand side")
+        self.assertGreater(len(runs), 4, "no fleet on the screen to sweep")
+        self.assertGreater(len(seen), 5, "the sweep was over before it was seen")
+        most = max(len(bars) for _, _, bars, _, _ in seen)
+        self.assertGreater(most, 2,
+                           f"never more than {most} bar(s) on screen at once")
+        for _, base, _, _, _ in seen:
+            full = self.full_height_columns(self.buffer(base))
+            self.assertFalse(full, f"column(s) {full} run the whole playfield: "
+                                   "that is one bar for the whole fleet")
+
+    def test_every_bar_is_inside_its_own_ships_run(self):
+        """...and they all stand at the same point of it, and only advance.
+
+        The runs are stable throughout: mis_jump stops the world before it
+        sweeps, so phase4_vis is the frame that was last drawn and does not
+        move under the test.
+        """
+        self.press_jump()
+        seen, runs, _ = self.sample_sweep(JFX_OUT)
+        self.c.key_up("j")
+
+        offsets = []
+        for col, _, bars, _, _ in seen:
+            if not bars:
+                continue
+            ks = self.offsets_that_explain(bars, runs)
+            self.assertTrue(ks, f"at col {col} the bars are at {bars}, and no "
+                                f"one offset into a ship's run explains them: "
+                                f"runs start at {sorted(r['x0'] for r in runs)}")
+            offsets.append(max(ks))
+        self.assertGreater(len(offsets), 4)
+        self.assertEqual(offsets, sorted(offsets),
+                         f"the bars do not travel one way: {offsets}")
+
+    def test_a_bar_starts_before_its_ship_and_ends_after_it(self):
+        """The owner's words. Read off the run the machine's own numbers give.
+
+        It is a statement about JFX_MARGIN rather than about the screen, so it
+        is checked against the geometry: a run begins MARGIN columns before the
+        sprite's left edge and ends MARGIN past its right one. The screen half
+        of it is the test above -- the bars are seen at offset 0, which is
+        before the ship, and at offsets past the sprite's width.
+        """
+        margin = self.sym["JFX_MARGIN"]
+        for r in self.runs():
+            self.assertEqual(r["x0"], r["left"] - margin)
+            self.assertEqual(r["x0"] + r["reach"], r["left"] + r["w"] + margin)
+            self.assertGreater(margin, 0, "there is no run-up at all")
 
     def test_it_erases_what_it_passes(self):
-        """The whole content of the effect: nothing survives behind the line."""
+        """The content of the effect: a ship goes as its own bar crosses it.
+
+        Behind the bar -- the columns of a ship the bar has already been
+        through -- nothing of that ship may be left.
+        """
         self.press_jump()
-        seen, _ = self.sample_sweep(JFX_OUT)
+        seen, runs, _ = self.sample_sweep(JFX_OUT)
         self.c.key_up("j")
 
         checked = 0
-        for _, _, line, lit in seen:
-            if len(line) != 1:
+        for col, base, bars, _, _ in seen:
+            if not bars:
                 continue
-            behind = {x for x in lit if x < line[0]}
-            self.assertFalse(behind,
-                             f"the line is at {line[0]} and columns {sorted(behind)} "
-                             "are still lit behind it")
-            checked += 1
-        self.assertGreater(checked, 5)
+            ks = self.offsets_that_explain(bars, runs)
+            if not ks:
+                continue
+            k = max(ks)
+            ram = self.buffer(base)
+            for r in runs:
+                for x in range(max(0, r["x0"]), min(WIDTH, r["x0"] + k)):
+                    lit = [y for y in range(max(CTX_BAR_H, r["band_top"]),
+                                            min(HUD_TOP, r["band_top"] + r["band_h"]))
+                           if ram[h.screen_offset(y, x)]]
+                    self.assertFalse(
+                        lit, f"the bar of the ship at {r['left']} is {k} columns "
+                             f"along its run and column {x} behind it is still lit")
+                    checked += 1
+        self.assertGreater(checked, 20)
 
-    def test_the_line_is_ink_1(self):
+    def test_the_bars_are_ink_1(self):
         """Section 2's ink for the fleet itself. Not 3, which is the alarm ink.
 
-        Read WHILE the sweep is running, and off the screen: every other test
-        here finds the line by looking for a column of SOLID_INK_1, so this is
-        the one that says what that byte means. #F0 is pen 1, #0F is pen 2 and
-        #FF is pen 3, and the three are the same pixels in different planes.
+        Read WHILE the sweep is running and off the screen: every other test
+        here finds a bar by looking for a run of SOLID_INK_1, so this is the
+        one that says what that byte means. #F0 is pen 1, #0F is pen 2 and #FF
+        is pen 3, and the three are the same pixels in different planes.
         """
         self.press_jump()
-        inks = set()
+        found = {1: 0, 2: 0, 3: 0}
         for _ in range(200):
             if self.mode() != JFX_OUT:
-                if inks:
+                if sum(found.values()):
                     break
             else:
-                ram = self.buffer(h.front_buffer(self.c))
-                for x in self.line_at(ram):
-                    inks |= {ram[h.screen_offset(y, x)]
-                             for y in range(CTX_BAR_H, HUD_TOP)}
+                ram = self.front()
+                for pen, ink in ((1, 0xF0), (2, 0x0F), (3, 0xFF)):
+                    found[pen] += len(self.bar_columns(ram, ink))
             self.c.run_frames(1)
         self.c.key_up("j")
-        self.assertEqual(inks, {SOLID_INK_1},
-                         f"the line is not drawn in ink 1: {sorted(inks)}")
+        self.assertGreater(found[1], 0, "no ink 1 bars were ever on the screen")
+        self.assertEqual((found[2], found[3]), (0, 0),
+                         f"bars were drawn in another ink: {found}")
 
     def test_both_buffers_carry_the_sweep(self):
         """The page-flip guard, and the reason this file exists.
 
         The vanish runs inside ONE game frame, so the frame loop's own flip
         never happens during it: if it painted only the buffer on show, the
-        flip at the end of that frame would put the mission the player just
+        flip at the end of that frame would put the fleet the player just
         watched being erased straight back on the screen.
         """
         self.press_jump()
-        _, per_buffer = self.sample_sweep(JFX_OUT)
+        _, _, per_buffer = self.sample_sweep(JFX_OUT)
         self.c.key_up("j")
-        for base, seen in per_buffer.items():
-            self.assertGreater(len(seen), 2,
-                               f"buffer #{base:04X} never carried the line: "
-                               f"{ {k: v for k, v in per_buffer.items()} }")
+        for base, n in per_buffer.items():
+            self.assertGreater(n, 1, f"buffer #{base:04X} never carried a bar: "
+                                     f"{per_buffer}")
 
     def test_it_leaves_both_buffers_black(self):
+        """The bars own the ships; the two dark passes own everything else.
+
+        The reference plane, the resource fields and the Mothership indicator
+        get no bar -- they are the place and not the fleet -- so the vanish
+        ends with one pass of black over the playfield per buffer. This is the
+        only thing that says those passes happen at all.
+        """
         self.press_jump()
         self.sample_sweep(JFX_OUT)
         self.c.key_up("j")
@@ -229,10 +384,10 @@ class TestTheVanish(WipeFixture):
     def test_it_stays_out_of_the_two_strips(self):
         """The HUD and the context bar are the instruments, not the view.
 
-        They are also repainted only when what they say changes, so a sweep one
-        line too far would scrub a row out of the bar and nothing would ever put
-        it back -- the same trap spr_clip_top was threaded through mark_store
-        to close.
+        They are also repainted only when what they say changes, so a bar one
+        line too tall would scrub a row out of the bar and nothing would ever
+        put it back. scr_fill_rect honours no clip of its own -- jfx_band is
+        the only thing standing between the bars and the strips.
         """
         #  Settle first: the bar and the HUD are painted into a buffer only
         #  when what they say changes, so a baseline taken at boot can be a
@@ -246,9 +401,9 @@ class TestTheVanish(WipeFixture):
                                f"buffer #{base:04X} has no context bar to protect")
 
         self.press_jump()
-        seen, _ = self.sample_sweep(JFX_OUT)
+        seen, _, _ = self.sample_sweep(JFX_OUT)
         self.c.key_up("j")
-        self.assertGreater(len(seen), 8)
+        self.assertGreater(len(seen), 5)
         #  Nothing else is running -- the sweep stops the world -- so both
         #  strips have to come out of it byte for byte.
         for base in (h.SCREEN_A, h.SCREEN_B):
@@ -263,9 +418,7 @@ class TestTheVanish(WipeFixture):
 
         mis_jump lays the next mission out and opens its briefing, and the rest
         of that same frame used to go on and DRAW it -- so the flip showed the
-        new mission for a frame before the briefing covered it again. Harmless
-        while nobody cared what was on the screen at that instant; it undoes
-        the whole sweep now.
+        new mission for a frame before the briefing covered it again.
 
         The briefing is told apart from the tactical view by the CONTEXT BAR:
         static_wipe clears from line 0, so a buffer that still has the bar in
@@ -293,7 +446,7 @@ class TestTheVanish(WipeFixture):
 
 
 class TestTheReveal(WipeFixture):
-    """The mission comes out from behind the same line, the same way round."""
+    """Each ship comes out from behind its own bar, the same way round."""
 
     def setUp(self):
         #  Get past mission 1's own briefing -- which does NOT reveal, because
@@ -324,67 +477,135 @@ class TestTheReveal(WipeFixture):
             self.c.run_frames(1)
         self.fail("dismissing a jump's briefing did not start the reveal")
 
-    def test_the_line_crosses_the_playfield_left_to_right(self):
+    def test_the_mission_comes_out_from_behind_the_bars(self):
+        """Several bars at once, none of them crossing the playfield, and more
+        of the mission on the screen at the end than at the beginning."""
         self.dismiss()
-        seen, _ = self.sample_sweep(JFX_IN)
-        positions = [line[0] for _, _, line, _ in seen if len(line) == 1]
-        self.assertGreater(len(positions), 4,
-                           "no full-height line on show during the reveal")
-        self.assertEqual(positions, sorted(positions),
-                         f"the line does not travel one way: {positions}")
-        self.assertLess(min(positions), 12)
-        self.assertGreater(max(positions), WIDTH - 20)
+        seen, _, _ = self.sample_sweep(JFX_IN)
+        self.assertGreater(len(seen), 5, "the reveal was over before it was seen")
 
-    def test_nothing_shows_ahead_of_it(self):
-        """The mission is drawn in full every frame; the line is what hides it."""
+        most = max(len(bars) for _, _, bars, _, _ in seen)
+        self.assertGreater(most, 2, f"never more than {most} bar(s) at once")
+        for _, base, _, _, _ in seen:
+            full = self.full_height_columns(self.buffer(base))
+            self.assertFalse(full, f"column(s) {full} run the whole playfield")
+
+        #  Only the frames that HAVE bars: the first sample of all is the
+        #  briefing, still standing in the buffer the wipe has not reached.
+        lit = [n for _, _, bars, _, n in seen if bars]
+        self.assertGreater(len(lit), 2)
+        self.assertGreater(lit[-1], lit[0],
+                           f"nothing came out from behind the bars: {lit}")
+
+    def test_a_ship_is_hidden_until_its_own_bar_has_gone_by(self):
+        """Ahead of a ship's bar, that ship is not on the screen.
+
+        The frame loop draws the whole mission every frame; the masking is what
+        hides it. Per ship this time, so "ahead of the line" is ahead of ITS
+        line -- a ship whose bar has passed is showing while its neighbour four
+        columns further right is not.
+        """
         self.dismiss()
-        seen, _ = self.sample_sweep(JFX_IN)
-        checked = 0
-        for _, _, line, lit in seen:
-            if len(line) != 1:
+        seen, runs, _ = self.sample_sweep(JFX_IN)
+
+        #  THE MARKERS ARE NOT SHIPS AND GET NO BAR. The reference plane, the
+        #  resource fields and the Mothership indicator are the PLACE rather
+        #  than the fleet, so they arrive with the first drawn frame and are
+        #  never masked -- and the Y=0 lattice sits at PROJ_CENTRE_Y, which is
+        #  the middle of the band of half the fleet. The frame where the bars
+        #  are at offset 0 has every ship hidden by construction, so whatever
+        #  is lit THERE is the place, and it is what this has to ignore.
+        scenery, checked = None, 0
+        for col, base, bars, _, _ in seen:
+            if not bars:
                 continue
-            ahead = {x for x in lit if x > line[0]}
-            self.assertFalse(ahead,
-                             f"the line is at {line[0]} and columns {sorted(ahead)} "
-                             "are already showing ahead of it")
-            checked += 1
-        self.assertGreater(checked, 4)
+            ks = self.offsets_that_explain(bars, runs)
+            if not ks:
+                continue
+            k = min(ks)
+            ram = self.buffer(base)
+            if k == 0 and scenery is None:
+                scenery = {(x, y)
+                           for y in range(CTX_BAR_H, HUD_TOP)
+                           for x in range(WIDTH)
+                           if ram[h.screen_offset(y, x)]}
+                continue
+            if scenery is None:
+                continue
+            for r in runs:
+                start = max(0, r["x0"] + max(k, self.sym["JFX_MARGIN"]) + 1)
+                for x in range(start, min(WIDTH, r["x0"] + r["reach"])):
+                    lit = [y for y in range(max(CTX_BAR_H, r["band_top"]),
+                                            min(HUD_TOP, r["band_top"] + r["band_h"]))
+                           if ram[h.screen_offset(y, x)]
+                           and (x, y) not in scenery]
+                    self.assertFalse(
+                        lit, f"at col {col} the bars are {k} along their runs and "
+                             f"column {x} of the ship at {r['left']} is already "
+                             "showing ahead of its own bar")
+                    checked += 1
+        self.assertIsNotNone(scenery, "the bars were never seen at the start of a run")
+        self.assertGreater(checked, 10)
 
-    def test_the_mission_comes_out_behind_it(self):
-        """...and it is a REVEAL rather than a line crossing an empty screen."""
+    def test_the_bars_leave_no_trail(self):
+        """Nothing white survives the reveal that is not a ship.
+
+        This is the bug the change had and no arithmetic would have found. A
+        bar stands JFX_VMARGIN lines proud of its ship, and what rubs a bar out
+        in the columns it has already passed is the SPRITE's dirty rectangle --
+        which is the sprite and not the band. So every ship in the fleet was
+        left with a little white block above it and one below, for the rest of
+        the mission, and only a picture showed it.
+
+        The world is stopped first, so both buffers are drawn from the same
+        positions and "inside a sprite" is a fair question to ask of either.
+        """
         self.dismiss()
-        seen, _ = self.sample_sweep(JFX_IN)
-        behind = [len({x for x in lit if x < line[0]})
-                  for _, _, line, lit in seen if len(line) == 1]
-        self.assertTrue(behind)
-        self.assertGreater(max(behind), 3,
-                           "the line swept an empty screen and the mission "
-                           f"appeared all at once at the end: {behind}")
-        self.assertEqual(behind, sorted(behind),
-                         f"the mission un-appeared behind the line: {behind}")
+        #  Wait for it to START before waiting for it to stop. ENTER is not
+        #  consumed until the next GAME frame, so the mode is still NONE for
+        #  several emulator frames after dismiss() returns -- read it once and
+        #  the wait is over before the sweep has begun.
+        for _ in range(120):
+            if self.mode() == JFX_IN:
+                break
+            self.c.run_frames(1)
+        else:
+            self.fail("the reveal never started")
+        for _ in range(400):
+            if self.mode() == JFX_NONE:
+                break
+            self.c.run_frames(1)
+        else:
+            self.fail("the reveal never finished")
+
+        self.c.key_down(cpc.KEY_SPACE)
+        self.c.run_frames(25)
+        self.c.key_up(cpc.KEY_SPACE)
+        self.c.run_frames(60)
+        self.assertEqual(self.c.read_ram(self.sym["ORDER_PAUSED"], 1)[0], 1)
+
+        runs = self.runs()
+        self.assertTrue(runs, "no ships arrived to check")
+        boxes = [(max(0, r["left"]), min(WIDTH, r["left"] + r["w"]),
+                  max(CTX_BAR_H, r["top"]), min(HUD_TOP, r["top"] + r["h"]))
+                 for r in runs]
+        for base in (h.SCREEN_A, h.SCREEN_B):
+            ram = self.buffer(base)
+            stray = [(x, y)
+                     for y in range(CTX_BAR_H, HUD_TOP) for x in range(WIDTH)
+                     if ram[h.screen_offset(y, x)] == SOLID_INK_1
+                     and not any(x0 <= x < x1 and y0 <= y < y1
+                                 for x0, x1, y0, y1 in boxes)]
+            self.assertFalse(
+                stray, f"buffer #{base:04X} holds solid white at {stray[:8]}, "
+                       "outside every sprite: the bars left a trail")
 
     def test_both_buffers_carry_the_sweep(self):
         self.dismiss()
-        _, per_buffer = self.sample_sweep(JFX_IN)
-        for base, seen in per_buffer.items():
-            self.assertGreater(len(seen), 1,
-                               f"buffer #{base:04X} never carried the line: "
-                               f"{ {k: v for k, v in per_buffer.items()} }")
-
-    def test_the_line_leaves_no_trail(self):
-        """It moves by being erased, and the eraser is the ordinary dirty list.
-
-        The line records a rectangle of its own precisely so that the next pass
-        through that buffer rubs it out. Miss that and every step it takes
-        stays on the screen for the rest of the mission.
-        """
-        self.dismiss()
-        self.sample_sweep(JFX_IN)
-        self.c.run_frames(60)
-        self.assertEqual(self.mode(), JFX_NONE)
-        for base in (h.SCREEN_A, h.SCREEN_B):
-            self.assertEqual(self.line_at(self.buffer(base)), [],
-                             f"buffer #{base:04X} still holds a full-height line")
+        _, _, per_buffer = self.sample_sweep(JFX_IN)
+        for base, n in per_buffer.items():
+            self.assertGreater(n, 0, f"buffer #{base:04X} never carried a bar: "
+                                     f"{per_buffer}")
 
     def test_it_stays_out_of_the_two_strips(self):
         """The bar by its BYTES; the HUD only by still being there.
@@ -397,14 +618,9 @@ class TestTheReveal(WipeFixture):
         """
         self.dismiss()
 
-        #  Wait for the bar rather than counting frames. It is repainted once
-        #  per buffer when the context changes, and the two frames that happens
-        #  on are the mis_wipe frames -- the two slowest the game runs, a fifth
-        #  of a second each -- so a fixed thirty emulator frames lands before
-        #  the second buffer has ever had one.
-        #  ...and wait for the two to AGREE, not merely to be non-empty: the
-        #  bar is drawn a word at a time, so "has more than a hundred lit
-        #  bytes" catches it halfway and the baseline is then a half-drawn bar.
+        #  Wait for the bar rather than counting frames, and wait for the two
+        #  buffers to AGREE: it is drawn a word at a time, so "has more than a
+        #  hundred lit bytes" catches it halfway.
         for _ in range(200):
             a, b = (self.bar_bytes(self.buffer(x))
                     for x in (h.SCREEN_A, h.SCREEN_B))
@@ -416,7 +632,7 @@ class TestTheReveal(WipeFixture):
         before = {base: self.bar_bytes(self.buffer(base))
                   for base in (h.SCREEN_A, h.SCREEN_B)}
 
-        seen, _ = self.sample_sweep(JFX_IN)
+        seen, _, _ = self.sample_sweep(JFX_IN)
         self.assertTrue(seen, "the reveal was over before it was watched")
         for base in (h.SCREEN_A, h.SCREEN_B):
             ram = self.buffer(base)
@@ -430,7 +646,7 @@ class TestOnlyAJumpSweeps(WipeFixture):
     """The reveal is the second half of a jump, so it belongs to jumps.
 
     Mission 1 is reached from the title screen and a restored campaign from the
-    disc, and neither has had a line take anything away for this one to give
+    disc, and neither has had anything take a fleet away for this one to give
     back. It is also what keeps the effect out of every other test in the
     project -- every boot_quick dismisses the opening briefing, so arming this
     on every briefing gave all five hundred of them two seconds of half-masked
@@ -458,8 +674,8 @@ class TestTheJumpIsStillOneAct(WipeFixture):
 
     A dozen tests and both measuring tools press `J` and read mis_index
     immediately afterwards. Driving the sweep from the frame loop instead would
-    have meant a jump that is half done for a second and a half, and a
-    "pending" state for every one of them to learn about.
+    have meant a jump that is half done for a second, and a "pending" state for
+    every one of them to learn about.
     """
 
     def test_pressing_j_still_moves_the_mission_on(self):

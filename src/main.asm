@@ -662,18 +662,26 @@ ENDIF
     assert JFX_TOP + JFX_HEIGHT == HUD_TOP, "the jump wipe runs into the HUD strip"
     assert JFX_WIDTH == SCR_BYTES_PER_LINE, "the jump wipe is not the width of the screen"
 
-;  Both sweeps step by a fixed number of bytes and stop when they have passed
-;  the far edge, so a step that does not divide the width either leaves a strip
-;  of the old mission on the screen (the vanish) or blackens past byte 79 into
-;  the next scanline (the fill is clamped by width, so this is the one that
-;  merely looks wrong rather than corrupting).
-    assert (JFX_WIDTH % JFX_VANISH_STEP) == 0, "the vanish's step does not divide the screen"
-    assert (JFX_WIDTH % JFX_REVEAL_STEP) == 0, "the reveal's step does not divide the screen"
+;  A bar's run is its own ship's width plus a margin at each end, so the
+;  longest run in the game is the widest sprite there is. Every class shares
+;  class_geom, so that is tier C's width -- and if the art ever gets wider than
+;  JFX_SPRITE_W_MAX says, the capitals stop being fully swept and a column or
+;  two of them survives the bars. (The final black pass hides it during a jump;
+;  the REVEAL has no such pass, and would show a stripe of a ship it had not
+;  uncovered yet.)
+    assert JFX_SPRITE_W_MAX == interceptor_c_w_bytes, "the widest sprite is not the width the jump wipe's bars run across"
+    assert interceptor_c_w_bytes >= interceptor_b_w_bytes, "tier C is no longer the widest tier"
+    assert interceptor_b_w_bytes >= interceptor_a_w_bytes, "tier B is no longer wider than tier A"
 
-;  The line is a whole byte of one pen, which is only a line at all because
-;  Mode 1 packs four pixels into it. Ink 1 is the fleet's own -- see the header
-;  of game/jumpfx.asm for why not 2 or 3.
-    assert JFX_INK == SOLID_INK_1, "the jump wipe's line is no longer drawn in ink 1"
+;  ...and both halves have to make enough passes for the last of them to be
+;  past the end of the longest run, or the bars stop somewhere over the ships.
+    assert (JFX_VANISH_PASSES - 1) * JFX_VANISH_STEP >= JFX_TRAVEL, "the vanish stops before its bars have crossed"
+    assert (JFX_REVEAL_PASSES - 2) * JFX_REVEAL_STEP >= JFX_TRAVEL, "the reveal's last two passes are not past the end of the run"
+
+;  A bar is a whole byte of one pen, which is only a bar at all because Mode 1
+;  packs four pixels into it. Ink 1 is the fleet's own -- see the header of
+;  game/jumpfx.asm for why not 2 or 3.
+    assert JFX_INK == SOLID_INK_1, "the jump wipe's bars are no longer drawn in ink 1"
 
 ; ----------------------------------------------------------------------------
 ;  The two full-screen lists, DOWNWARDS

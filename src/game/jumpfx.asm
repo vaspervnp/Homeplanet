@@ -1,32 +1,103 @@
 ; ============================================================================
-;  game/jumpfx.asm -- the jump: a line sweeps the ships away, and back
+;  game/jumpfx.asm -- the jump: a bar per ship takes it away, and gives it back
 ; ============================================================================
 ;  "Θέλω εφέ για το jump των πλοίων. Θα εμφανίζεται μια γραμμή στην μια πλευρά
 ;  τους που θα μετακινείται μέχρι την άλλη, σβήνοντάς τα. Στην επόμενη πίστα θα
 ;  συμβαίνει το ανάποδο για να εμφανιστούν."
 ;
-;  A vertical line appears at the left of the playfield and travels to the
-;  right, erasing everything as it passes. Arriving in the next mission, the
-;  same line travels the same way and the mission appears behind it.
+;  ...and then, once it had been seen: "θέλω η γραμμή του jump να μην είναι μία
+;  για όλα. Να είναι μία ανά σκάφος. μικρή και να ξεκινάει πριν το σκάφος και
+;  να τελειώνει μετά το σκάφος. Το ίδιο και στην είσοδο από το jump."
 ;
-;  A MOVING MASK, NOT A COPY
-;  -------------------------
-;  The obvious reveal is to draw the new mission into the back buffer and copy
-;  it across column by column from behind the line. This does not do that. A
-;  column of a CPC screen is 158 unrelated addresses -- the rows are
-;  interleaved eight ways -- so a copy goes through scr_line_addr per row
-;  whatever it is copying, and it buys nothing here: the frame loop is ALREADY
-;  drawing the whole mission every frame. What is wanted is not a picture, it
-;  is a way of hiding part of one.
+;  So there is no longer one bar crossing the playfield. Every ship on the
+;  screen gets its OWN short bar, which starts a few pixels to its left, walks
+;  across it, and stops a few pixels past its right-hand side. All of them move
+;  together, so the vanish is as long as one ship is wide rather than as long as
+;  the screen: 0.68 s against 0.86, measured, and a fifth of that is the two
+;  dark passes at the end. Arriving in the next mission the same bars make the
+;  same walk and the ships come out from behind them, in 1.76 s against 1.9 --
+;  and the reveal barely moved, because it is bounded by the GAME FRAME RATE
+;  and not by the distance the bars travel. See JFX_REVEAL_STEP.
+;
+;  WHAT THE TRAVEL IS, WHICH IS THE WHOLE OF THE GEOMETRY
+;  -----------------------------------------------------
+;  A ship's sprite is class_geom's (width, height) for its size tier, placed by
+;  phase4_blit_body at (sx - halfwidth, sy - halfheight). Every one of those
+;  numbers is already in phase4_vis, the list phase4_project builds and
+;  phase4_draw draws from, so nothing here re-projects anything: it reads the
+;  frame that was last drawn.
+;
+;      x0     = the sprite's left byte column, minus JFX_MARGIN
+;      reach  = the sprite's width in bytes, plus JFX_MARGIN at each end
+;      band   = the sprite's rows, JFX_VMARGIN proud at top and bottom
+;
+;  jfx_col is how far along that run every bar is, in BYTE COLUMNS, and it is
+;  ONE counter for the whole fleet. It is not one number per ship because it
+;  does not have to be: the bar's position is x0 + col and x0 is a property of
+;  the ship, so a shared step gives every bar the same speed and every ship its
+;  own start and finish. A tier A ship is three bytes wide and a tier C one is
+;  seven, so the small ships are done first and the capitals last, for free.
+;
+;  A BAR IS ONE BYTE WIDE and four pixels, exactly as the full-height line was.
+;  It stands JFX_VMARGIN lines proud of the sprite at each end so that it reads
+;  as a bar rather than as a fatter pixel: at tier A the sprite is six lines
+;  tall and the bar is twelve.
+;
+;  WHAT EACH HALF BLACKENS
+;  -----------------------
+;      vanishing -- the whole band from x0 up to the bar, every step, not just
+;                   the column just taken. The buffer being painted is the one
+;                   that was on show a step ago, so it is still carrying its own
+;                   bar and a ship that has only been half rubbed out; repainting
+;                   the trail costs one fill either way because scr_fill_rect's
+;                   per-row overhead dwarfs the bytes. One fill and a bar.
+;      appearing -- everything in the band EXCEPT the part of the sprite the bar
+;                   has already passed, which is precisely the part that is
+;                   meant to be showing. That is four fills, and it is four
+;                   rather than two because of the paragraph below.
+;
+;  Proportional to the ships on the screen rather than to the screen, which is
+;  the point: a full-width fill every frame cost four 50 Hz ticks and took 5.0
+;  fps to 3.5 on a sweep that can only step once a frame.
+;
+;  THE BAND AND THE SPRITE'S OWN ROWS ARE NOT THE SAME THING, AND THE REVEAL
+;  HAS TO KNOW THE DIFFERENCE
+;  ------------------------------------------------------------------------
+;  A bar stands JFX_VMARGIN lines proud of its ship at each end. Nothing in the
+;  reveal erases a bar directly -- the masking does it, by painting the band
+;  black around wherever the bar has got to -- except in one place: the columns
+;  the bar has ALREADY passed, which are the revealed part of the ship and must
+;  not be painted at all. There, the eraser is phase4_erase and the ordinary
+;  dirty rectangle, and a sprite's rectangle is the SPRITE, not the band.
+;
+;  So the two or three lines of the bar standing proud of the ship were left on
+;  the screen, one little white block above and one below every ship in the
+;  fleet, and nothing ever took them off again. It is exactly the trap
+;  mark_store was fixed for -- drawing outside the rectangle you recorded --
+;  arriving from the other side.
+;
+;  The reveal therefore blacks the rows ABOVE and BELOW the sprite across the
+;  whole run, every step, and only the sprite's own rows are left to the
+;  ordinary erase. Those two strips are JFX_VMARGIN lines each, so they cost
+;  less than the band did.
+;
+;  WHAT IS NOT A SHIP
+;  ------------------
+;  The reference plane, the resource fields and the Mothership indicator have
+;  no bar, because the owner asked for one per SHIP and because they are the
+;  PLACE rather than the fleet -- section 4.1's grid is where the battle is,
+;  and a place does not jump. So the vanish ends with two passes of black over
+;  the playfield, one per buffer, which takes the scenery and guarantees that
+;  both buffers are empty before the briefing lands on them; and the reveal
+;  simply lets the grid arrive with the first drawn frame.
 ;
 ;  THE TWO HALVES ARE DRIVEN DIFFERENTLY, AND THAT IS THE FIRST REAL DECISION
 ;  -------------------------------------------------------------------------
 ;  The vanish has nothing left to draw: the picture it is erasing is already on
 ;  the screen and no more of it is coming. So it runs as its own loop with its
-;  own VSYNC and its own page flip, at 25 steps a second, and crosses in about
-;  four fifths of a second. That also keeps mis_jump ATOMIC, which is worth
-;  more than it looks: a dozen tests and both measuring tools press `J` and
-;  read mis_index straight afterwards.
+;  own VSYNC and its own page flip. That also keeps mis_jump ATOMIC, which is
+;  worth more than it looks: a dozen tests and both measuring tools press `J`
+;  and read mis_index straight afterwards.
 ;
 ;  The reveal cannot. It is uncovering a world that does not exist until the
 ;  frame loop draws it, so it steps once a GAME frame -- five a second -- and
@@ -35,125 +106,143 @@
 ;  only place that picture exists is the frame loop's own output.
 ;
 ;  Nobody sees the two together -- the briefing screen sits between them -- so
-;  the asymmetry costs nothing on screen and it saves the campaign from having
-;  to carry a half-finished jump across frames.
+;  the asymmetry costs nothing on screen.
 ;
-;  WHAT EACH HALF ACTUALLY BLACKENS, WHICH IS THE SECOND DECISION
-;  -------------------------------------------------------------
-;      vanishing -- the strip the line has just crossed, and nothing else.
-;                   Nothing is redrawing behind it, so black stays black and
-;                   each step pays only for the columns it has just taken.
-;      appearing -- the DIRTY RECTANGLES this frame drew ahead of the line.
-;                   The screen out there is already black; the only thing on it
-;                   is what the frame loop has just put there, and the list of
-;                   where it put it is the one phase4_erase uses. Blacking the
-;                   whole area instead is the obvious version and it cost four
-;                   50 Hz ticks a frame -- 5.0 fps down to 3.5 -- on a sweep
-;                   that can only step once a frame. See jfx_update.
+;  NOTHING RECORDS A DIRTY RECTANGLE ANY MORE, and that is a consequence of the
+;  bars being small rather than a saving. The full-height line had to record
+;  one so the ordinary erase would rub it out when it moved; a bar is rubbed
+;  out by the masking, everywhere except the sprite's own rows, and there the
+;  sprite's own rectangle does it. One rect per ship would also have been one
+;  rect per ship: PHASE4_RECT_SLOTS has five spare, not forty-eight.
+;
+;  The one place the masking cannot reach on its own is the far end of the run,
+;  where the last bar a buffer drew is past everything the next step masks. So
+;  the reveal makes two more passes after the last bar has gone by -- one per
+;  buffer -- with col past every ship's reach, which mask the whole band and
+;  draw nothing.
 ;
 ;  WHAT IT DOES NOT TOUCH
 ;  ----------------------
-;  The playfield only, CTX_BAR_H..HUD_TOP. The context bar and the HUD are the
-;  instruments and not the view; they are also repainted from dirty flags
-;  rather than every frame, so including them would mean setting those flags
-;  and paying for two full strip repaints in the middle of a transition. The
-;  band is exactly the one a ship may be drawn in, which is what makes "erasing
-;  them as it passes" true rather than approximately true.
+;  The playfield only, CTX_BAR_H..HUD_TOP. jfx_band clips every band to it, and
+;  it has to: scr_fill_rect honours no clip of its own, unlike gfx_vline. The
+;  context bar and the HUD are the instruments and not the view; they are also
+;  repainted from dirty flags rather than every frame, so a row scrubbed out of
+;  either would stay scrubbed out.
 ;
 ;  Ink 1, section 2's ink for the fleet itself and for anything the game says
 ;  in its own voice. Ink 3 is the alarm ink and a jump is not an alarm; ink 2
-;  is scenery, and the line is not part of the world -- it is the fleet's own
-;  drive going off. White on black is also the strongest edge there is, which
-;  is what makes a wipe read as a wipe.
+;  is scenery, and the bars are not part of the world -- they are the fleet's
+;  own drive going off.
 ;
 ;  LEFT TO RIGHT BOTH TIMES, and the reveal repeats the vanish rather than
 ;  mirroring it. A mirrored sweep reads as an undo -- the curtain coming back
 ;  the way it went -- and section 10's campaign only goes one way: what is lost
-;  is lost and the fleet never returns to a system it has left. The same line
-;  passing the same way says the fleet went through rather than back.
+;  is lost and the fleet never returns to a system it has left.
 ;
 ;  BOTH HALVES STOP THE WORLD, and the reveal has to. The vanish gets it for
 ;  free -- it runs inside mis_jump, and there is nothing left to run. The
 ;  reveal was an overlay first, with the battle live behind it, and that is a
-;  BALANCE change rather than a visual one: it is about two seconds long and
-;  the campaign has seven jumps in it, so a fleet would fight fourteen seconds
-;  the player never saw. tools/balance.py would have printed a different
-;  campaign for a change that draws rectangles, and two combat tests that
-;  assert "nobody has fired yet" opened their mission with six shots gone.
-;  demo_update skips its whole simulation while jfx_mode is set, exactly as it
-;  does for order_paused.
+;  BALANCE change rather than a visual one: seven jumps times two seconds of
+;  unattended battle, and tools/balance.py loses two ships in mission 4 where
+;  it loses none. demo_update skips its whole simulation while jfx_mode is set,
+;  exactly as it does for order_paused.
 ;
 ;  Bank 4, by the rule in game/shipclass.asm: the vanish runs from a keypress
 ;  with the world stopped, and jfx_update runs at the very end of a frame,
-;  after ctx_bar, where nothing has paged bank 4 out. jfx_mode, jfx_col and
-;  jfx_armed are in the low 16K with the rest of the campaign's state, in
-;  game/mission.asm, so tests can read them without waiting for the window to
-;  come back to rest.
+;  after ctx_bar, where nothing has paged bank 4 out. Everything it reads --
+;  phase4_vis, phase4_gcount, class_geom, scr_fill_rect -- is in the low 16K
+;  and is read with the window at rest. jfx_mode, jfx_col and jfx_armed are in
+;  the low 16K with the rest of the campaign's state, in game/mission.asm, so
+;  tests can read them without waiting for the window to come back.
 ; ----------------------------------------------------------------------------
 
-;  Which way the line is going. NOT called JFX_VANISH and JFX_REVEAL: RASM is
+;  Which way the bars are going. NOT called JFX_VANISH and JFX_REVEAL: RASM is
 ;  case-insensitive, so either would be the same symbol as the routine below it
 ;  and the build stops with "there is already an alias with the same name".
 JFX_NONE            equ 0
 JFX_OUT             equ 1               ; sweeping the old mission away
 JFX_IN              equ 2               ; uncovering the new one
 
-;  The band the sweep owns: exactly the playfield.
+;  The band the effect owns: exactly the playfield.
 JFX_TOP             equ CTX_BAR_H
 JFX_HEIGHT          equ HUD_TOP - CTX_BAR_H
 JFX_WIDTH           equ SCR_BYTES_PER_LINE
 
-;  How far the line moves in one step, in BYTES of the 80 across the screen.
-;  Both have to divide 80 or the last step runs off the end of the line, and
-;  src/main.asm asserts it.
+;  How far before and after its ship a bar starts and stops. Three bytes is
+;  twelve pixels, which is a run-up long enough to be seen as one at tier A --
+;  where the ship itself is only two byte columns of drawn sprite -- without
+;  making the run so long that the bars of a formation overlap each other.
+JFX_MARGIN          equ 3
+
+;  ...and how far proud of the sprite the bar stands, in lines. Three, so a
+;  tier A ship's six-line sprite gets a twelve-line bar: a bar shorter than
+;  that reads as a brighter pixel rather than as an edge. It also covers the
+;  two or three lines a ship moves between frames, which matters because one of
+;  the two buffers is always a frame older than the list this works from.
+JFX_VMARGIN         equ 3
+
+;  The widest sprite there is, so the longest run any bar has to make. Every
+;  class shares class_geom, so tier C's width is the answer for all eight;
+;  src/main.asm asserts this against the generated art.
+JFX_SPRITE_W_MAX    equ 7
+JFX_TRAVEL          equ JFX_SPRITE_W_MAX + 2 * JFX_MARGIN
+
+;  How far the bars move in one step, in byte columns.
 ;
-;  THE VANISH steps once per VSYNC it can catch, and it catches every second
-;  one: a step is two fills over 158 rows, and the per-row half of that -- a
-;  scr_line_addr and the address arithmetic, ~130 T-states a row -- is most of
-;  the ~22 milliseconds it takes, which is just over a 50 Hz tick. So it runs
-;  at 25 steps a second whatever the step is, and four bytes is what makes
-;  twenty of them cross the screen in four fifths of a second. Two bytes is
-;  visibly smoother and takes twice as long; sixteen pixels at 25 Hz already
-;  reads as one moving edge rather than as a row of lines.
+;  THE VANISH steps once per VSYNC it can catch, and with a fleet on the screen
+;  it catches every second or third one: a step is a fill and a bar over a
+;  couple of dozen rows PER SHIP, which is cheaper than the old full-height
+;  line but there are sixteen of them. Two bytes is eight pixels, half what the
+;  full-width line used to move and about seven steps across the longest run,
+;  which is a fifth of a second of bar and reads as motion rather than as a
+;  blink. One byte was tried and is smoother and takes twice as long, and the
+;  run is far too short to spend that on.
 ;
-;  THE REVEAL steps once a GAME frame, and the game runs at about five of
-;  those a second. There is no cheaper coin to pay in -- it is uncovering what
-;  the frame loop draws, so it cannot go faster than the frame loop -- and ten
-;  bytes is eight steps and about a second and three quarters.
-JFX_VANISH_STEP     equ 4
-JFX_REVEAL_STEP     equ 10
+;  THE REVEAL steps once a GAME frame, and there is no cheaper coin to pay in:
+;  it is uncovering what the frame loop draws, so it cannot go faster than the
+;  frame loop, which is five a second. THAT and not the distance is what the
+;  arrival costs -- five columns a step is three steps of bar plus the two
+;  cleanup passes, and it still takes about a second and three quarters, most
+;  of which is the two mis_wipe frames and the passes that draw nothing.
+JFX_VANISH_STEP     equ 2
+JFX_REVEAL_STEP     equ 5
+
+;  Passes each half makes, rounded UP so the last one is past the end of the
+;  longest run whether or not the step divides it.
+;
+;  The vanish adds one more, and then two of black over the whole playfield --
+;  one per buffer -- to take the scenery the bars do not own. The reveal adds
+;  TWO passes with col past every ship, which draw no bar and mask the whole
+;  band: each buffer's last bar has to be masked by that buffer's NEXT pass,
+;  and the buffers alternate, so one extra pass would clean up only one of
+;  them. It is the far end of the run that needs it -- a bar the sprite's own
+;  rectangle does not cover.
+JFX_VANISH_PASSES   equ (JFX_TRAVEL + JFX_VANISH_STEP - 1) / JFX_VANISH_STEP + 1
+JFX_REVEAL_PASSES   equ (JFX_TRAVEL + JFX_REVEAL_STEP - 1) / JFX_REVEAL_STEP + 2
 
 JFX_INK             equ SOLID_INK_1
 
 
 ; ----------------------------------------------------------------------------
-;  jfx_vanish -- sweep the mission away, before anything else happens
+;  jfx_vanish -- take the fleet away, before anything else happens
 ;
 ;  Called from mis_jump once it has decided the jump goes ahead and BEFORE it
-;  touches anything, so what the line erases is the mission the player is
+;  touches anything, so what the bars erase is the mission the player is
 ;  leaving rather than a half-built next one.
 ;
 ;  IT DOES ITS OWN DOUBLE BUFFERING, and that is not gold plating -- the first
-;  version painted straight into the buffer on show and the line came apart on
-;  the screen. It has to be rubbed out and put down again four bytes over, and
-;  the two fills take longer than a 50 Hz frame, so the display caught the line
-;  half-erased about as often as it caught it whole: a shimmering broken bar
-;  rather than a moving one. Screenshots of the sweep are what showed it, and
-;  no test would have.
+;  version of the full-height line painted straight into the buffer on show and
+;  came apart on the screen, because two fills over 158 rows take longer than a
+;  50 Hz frame and the display caught it half-erased about as often as whole.
+;  The bars are far cheaper than that and might well survive it, but the buffer
+;  on show is also the one the frame loop's own flip is about to take away, so
+;  painting it would be painting the wrong one.
 ;
-;  So each step paints the BACK buffer, waits for the vertical blank and flips,
-;  exactly as the frame loop does. Which means the back buffer is two steps
-;  behind rather than one -- it is the one that was on screen a step ago -- so
-;  the black has to cover TWO steps' worth of columns, including the line that
-;  buffer is still holding. That is the only difference between this and the
-;  obvious version, and it is cheaper: 2*STEP + 1 columns a step against the
-;  4 * (STEP + 1) that painting both buffers by hand cost.
-;
-;  The two extra passes at the end are the price of being two behind: when the
-;  line has run off the right-hand edge, one buffer is still holding the last
-;  two steps' worth of the mission, and the screen has to be black in BOTH
-;  before the briefing lands on it -- the frame loop's own flip is still to
-;  come at the end of this frame.
+;  Each step therefore paints the BACK buffer, waits for the vertical blank and
+;  flips, exactly as the frame loop does -- which means the buffer being
+;  painted is the one that was on show a step ago, and is the whole reason
+;  jfx_bars repaints a bar's entire trail rather than the column it has just
+;  taken.
 ;  Uses: everything
 ; ----------------------------------------------------------------------------
 jfx_vanish:
@@ -165,48 +254,43 @@ jfx_vanish:
     ld (jfx_armed),a
     xor a
     ld (jfx_col),a
-    ld a,JFX_WIDTH / JFX_VANISH_STEP + 2
+    ld (jfx_bar_off),a
+    ld a,JFX_VANISH_PASSES
     ld (jfx_left),a
 
 @jfx_sweep:
-    ;  Black over the two steps' worth of columns behind the line -- which is
-    ;  everything this buffer has not caught up on, and includes the line it
-    ;  put down two steps ago. Clamped at the left-hand edge, where the sweep
-    ;  has not yet come far enough to have two steps behind it.
-    ld a,(jfx_col)
-    ld d,a                               ; ...so all of it, from column 0
-    sub JFX_VANISH_STEP * 2
-    jr c,@jfx_from_edge
-    ld b,a
-    ld d,JFX_VANISH_STEP * 2
-    jr @jfx_black
-@jfx_from_edge:
-    ld b,0
-@jfx_black:
-    xor a
-    call jfx_bar_one
-
-    ;  ...and the line at the leading edge, until it has left the screen.
-    ld a,(jfx_col)
-    cp JFX_WIDTH
-    jr nc,@jfx_no_line
-    call jfx_line_args
-    call jfx_bar_one
-@jfx_no_line:
-
+    call jfx_ships
     call scr_wait_vsync
     call scr_flip
 
     ld hl,jfx_col
     ld a,(hl)
-    cp JFX_WIDTH
-    jr nc,@jfx_at_edge                   ; parked, for the two catch-up passes
     add a,JFX_VANISH_STEP
     ld (hl),a
-@jfx_at_edge:
     ld hl,jfx_left
     dec (hl)
     jr nz,@jfx_sweep
+
+    ;  The bars only ever owned the ships. The reference plane, the resource
+    ;  fields and the Mothership indicator are still standing where the frame
+    ;  loop left them, in both buffers -- so the view goes out behind the
+    ;  fleet, one pass per buffer, and the screen is black before the briefing
+    ;  lands on it. The frame loop's own flip is still to come at the end of
+    ;  this frame, which is why it has to be BOTH.
+    ld a,2
+    ld (jfx_left),a
+@jfx_dark:
+    xor a
+    ld b,a
+    ld c,JFX_TOP
+    ld d,JFX_WIDTH
+    ld e,JFX_HEIGHT
+    call scr_fill_rect
+    call scr_wait_vsync
+    call scr_flip
+    ld hl,jfx_left
+    dec (hl)
+    jr nz,@jfx_dark
 
     xor a
     ld (jfx_mode),a
@@ -219,17 +303,15 @@ jfx_vanish:
 ;  Called from mis_brief_key, which does not know how its briefing was opened
 ;  -- so jfx_vanish leaves the note. THE REVEAL IS THE SECOND HALF OF A JUMP
 ;  and belongs to jumps: mission 1 is reached from the title screen and a
-;  restored campaign is reached from the disc, and neither of those has had a
-;  line sweep anything away for this one to give back.
+;  restored campaign is reached from the disc, and neither of those has had
+;  anything take a fleet away for this one to give back.
 ;
 ;  It was armed on every briefing first, on the argument that an arrival is an
 ;  arrival. That is defensible on screen and it was wrong underneath: every
 ;  boot_quick in the suite dismisses the opening briefing, so every test in the
 ;  project started life with two seconds of half-masked playfield, and seven
 ;  that read pixels failed -- the resource patches, the Mothership indicator,
-;  the enemy recolour. None of them was about jumps. An effect that only the
-;  jump can trigger is also an effect only the jump's own tests have to know
-;  about.
+;  the enemy recolour. None of them was about jumps.
 ;  Uses: AF
 ; ----------------------------------------------------------------------------
 jfx_reveal_open:
@@ -238,10 +320,12 @@ jfx_reveal_open:
     ret z
     xor a
     ld (jfx_armed),a
+    ld (jfx_col),a
+    ld (jfx_bar_off),a
     ld a,JFX_IN
     ld (jfx_mode),a
-    xor a
-    ld (jfx_col),a
+    ld a,JFX_REVEAL_PASSES
+    ld (jfx_left),a
     ret
 
 
@@ -256,24 +340,10 @@ jfx_reveal_open:
 ;  loop redraws the whole playfield of whichever buffer it is holding, every
 ;  frame, so the mask has to go down after every draw and never has to survive
 ;  one. The flip then shows whichever buffer was drawn last, so what is on
-;  screen is always this frame's step, and the other buffer sits one step
-;  behind waiting to be redrawn from scratch.
+;  screen is always this frame's step.
 ;
-;  AND IT MASKS THE DIRTY RECTANGLES, NOT THE SCREEN. The obvious mask is one
-;  black fill from the line to the right-hand edge, which is what this did
-;  first and what it cost: at the opening step that is all 12,640 bytes of the
-;  playfield, scr_fill_rect runs at about 35 T-states a byte with the gate
-;  array taking its share, and the game frame went from 10 ticks to 14 --
-;  measured, 5.0 fps to 3.5, on a sweep that can only step once a frame. The
-;  whole sweep took 3.1 seconds.
-;
-;  But the screen ahead of the line is ALREADY black, every frame, except
-;  exactly where this frame drew something -- and the list of places this frame
-;  drew something is the one phase4_erase uses to clean the screen up. So the
-;  mask is a second erase pass over that list, clipped to the far side of the
-;  line: proportional to the ships on the screen instead of to the screen, and
-;  it cuts a ship in half at the line for free, which a rectangle list gets
-;  right and a "skip the whole sprite" test would not.
+;  About fifty T-states on a frame that is not a transition -- a load, a
+;  compare and a RET.
 ;  Uses: everything
 ; ----------------------------------------------------------------------------
 jfx_update:
@@ -281,144 +351,473 @@ jfx_update:
     cp JFX_IN
     ret nz                               ; idle, or the vanish's own loop
 
-    ld a,(jfx_col)
-    cp JFX_WIDTH
-    jr nc,@jfx_revealed
-
-    ;  Take back everything this frame drew ahead of the line.
-    call jfx_mask_rects
-
-    ;  NOTHING ELSE WHILE THE SCREEN IS STILL BEING CLEARED. mis_wipe is two
+    ;  NOTHING MOVES WHILE THE SCREEN IS STILL BEING CLEARED. mis_wipe is two
     ;  frames of clearing sixteen thousand bytes and they are the two slowest
     ;  the game ever runs -- a fifth of a second each -- and they are the two
     ;  this sweep starts on, because the briefing schedules both on its way
-    ;  out. Stepping through them spent a quarter of the sweep on them; drawing
-    ;  the line on them left it standing still on screen for a second, which
-    ;  looks like the game has hung rather than like a pause.
-    ;
-    ;  So those two frames are the black gap they always were, and the line
-    ;  arrives on the first frame that has something to uncover. The MASK still
-    ;  has to run on them -- each of them draws the whole mission after its
-    ;  wipe, and letting that through shows the player exactly the thing the
-    ;  line is supposed to be uncovering.
+    ;  out. Bars standing still on them for half a second look like the game
+    ;  has hung rather than like a pause. The MASK still has to run: each of
+    ;  those frames draws the whole mission after its wipe, and letting that
+    ;  through shows the player exactly the thing the bars are there to hide.
     ld a,(mis_wipe)
     or a
-    ret nz
+    jr z,@jfx_step
+    ld a,1
+    ld (jfx_bar_off),a
+    jp jfx_ships
 
-    ;  The line goes down AFTER the masking, or the mask would erase it: it
-    ;  stands exactly on the boundary. It gets a dirty rectangle of its own,
-    ;  which is the whole of how it is rubbed out when it moves -- the next
-    ;  pass through this buffer erases it along with everything else.
-    call jfx_line_args
-    call jfx_bar_one
-    ld a,(jfx_col)
-    ld (jfx_line_rect),a
-    ld hl,jfx_line_rect
-    call phase4_add_rect
+@jfx_step:
+    xor a
+    ld (jfx_bar_off),a
+    call jfx_ships
 
     ld hl,jfx_col
     ld a,(hl)
     add a,JFX_REVEAL_STEP
     ld (hl),a
-    ret
-
-;  One more frame with nothing masked at all, so the last step is a step and
-;  not a jump: the frame before this one still had JFX_REVEAL_STEP columns
-;  under black, and this is the one that lets them through.
-@jfx_revealed:
+    ld hl,jfx_left
+    dec (hl)
+    ret nz
     xor a
     ld (jfx_mode),a
     ret
 
 
 ; ----------------------------------------------------------------------------
-;  jfx_mask_rects -- black out this frame's drawing, from the line rightwards
+;  jfx_ships -- one step, for every ship that is actually on the screen
 ;  Uses: everything
 ;
-;  phase4_erase's loop with a horizontal clip in it. Reading the list rather
-;  than the screen is what makes the reveal cost about what an ordinary frame
-;  costs; see the header of jfx_update. It only ever READS the list -- the
-;  count and the append pointer belong to the frame -- so the rectangles it
-;  blacks out are erased again in the ordinary way next time this buffer comes
-;  round, and nothing has to be un-recorded.
-;
-;  Every rectangle here is inside the playfield already: spr_blit clips to
-;  spr_clip_top/bottom and mark_store clamps, so there is no vertical case to
-;  handle and the two strips cannot be reached from in here.
+;  phase4_vis in order, skipping the entries phase4_group consolidated away:
+;  those drew no sprite at all, so a bar over one would be a bar with nothing
+;  behind it. That is the same list, in the same order, that phase4_draw walks.
 ; ----------------------------------------------------------------------------
-jfx_mask_rects:
-    ld a,(phase4_rect_count)
+jfx_ships:
+    ld a,(phase4_visible)
     or a
     ret z
-    ld b,a
-    ld hl,(phase4_rects)
-
-@jfx_rect:
-    push bc
-    ld a,(hl)                            ; x, in bytes
-    inc hl
-    ld c,(hl)                            ; y
-    inc hl
-    ld d,(hl)                            ; width, in bytes
-    inc hl
-    ld e,(hl)                            ; height, in lines
-    inc hl
-    push hl
-
-    ld b,a
-    ld a,(jfx_col)
-    sub b
-    jr c,@jfx_rect_fill                  ; starts past the line: all of it goes
-
-    ;  A = how many byte columns of it are BEHIND the line and stay on screen.
-    cp d
-    jr nc,@jfx_rect_next                 ; all of it: the line has gone by
-    neg
-    add a,d                              ; ...so this much is still ahead
-    ld d,a
-    ld a,(jfx_col)
-    ld b,a
-
-@jfx_rect_fill:
+    ld (jfx_n),a
     xor a
-    call scr_fill_rect
+    ld (jfx_i),a
 
-@jfx_rect_next:
-    pop hl
-    pop bc
-    djnz @jfx_rect
+@jfx_ship:
+    ld a,(jfx_i)
+    ld l,a
+    ld h,0
+    ld de,phase4_gcount
+    add hl,de
+    ld a,(hl)
+    or a
+    jr z,@jfx_ship_next                  ; consolidated: nothing was drawn
+
+    ld a,(jfx_i)
+    call phase4_vis_addr
+    call jfx_band
+    call c,jfx_bars
+
+@jfx_ship_next:
+    ld hl,jfx_i
+    inc (hl)
+    ld hl,jfx_n
+    dec (hl)
+    jr nz,@jfx_ship
     ret
 
 
 ; ----------------------------------------------------------------------------
-;  jfx_line_args -- where the line goes, for whichever fill is about to run
-;  Out: B = jfx_col, D = 1, A = the ink
-;  Uses: AF, B, D
+;  jfx_band -- the strip one ship's bar runs along, clipped to the playfield
+;  In : HL -> a phase4_vis entry
+;  Out: CF set   -> (jfx_bx0) the run-up column, SIGNED; (jfx_reach) how far
+;                   the bar has to go; (jfx_by), (jfx_bh) the rows the BAND
+;                   covers; (jfx_cy), (jfx_ch) the rows the SPRITE covers
+;       CF clear -> none of the band is in the playfield
+;  Uses: everything
+;
+;  This is phase4_blit_body's placement arithmetic and nothing else: the same
+;  class_geom row, the same "sx minus half the width", the same arithmetic
+;  shift so that a ship hanging off the left-hand edge stays negative. If the
+;  two ever disagree the bar walks somewhere the ship is not.
+;
+;  The sprite's own rows come out of it as well as the band's, because they are
+;  the rows the ordinary dirty-rectangle erase covers and the band's are not.
+;  See the header of this file. A sprite clipped away entirely still leaves a
+;  band -- the bar is taller than it -- and then the core is nothing, pinned to
+;  the top of the band so that "the rows below the sprite" is the whole of it.
 ; ----------------------------------------------------------------------------
-jfx_line_args:
-    ld a,(jfx_col)
+jfx_band:
+    ld e,(hl)
+    inc hl
+    ld d,(hl)                            ; DE = sx, 0..319
+    inc hl
+    ld a,(hl)
+    ld (jfx_sy),a
+    inc hl
+    inc hl
+    inc hl
+    ld a,(hl)
+    and 3                                ; the tier is the low two bits
+
+    ;  class_geom + tier * CLASS_GEOM_SIZE. It is in the low 16K, and has to
+    ;  be: it is read from inside the blitter with a foreign bank up.
+    ld l,a
+    ld h,0
+    ld c,l
+    ld b,h
+    add hl,hl                            ; * 2
+    add hl,bc                            ; * 3
+    add hl,hl                            ; * 6
+    ld bc,class_geom
+    add hl,bc                            ; DE, the sx, is untouched
+
+    ld a,(hl)                            ; sprite width, bytes
+    add a,JFX_MARGIN * 2
+    ld (jfx_reach),a
+    inc hl
+    ld a,(hl)                            ; sprite height, lines
+    ld (jfx_spr_h),a
+    inc hl
+    ld c,(hl)                            ; half width, PIXELS
+    inc hl
+    ld a,(hl)                            ; half height, lines
+    ld (jfx_half_h),a
+
+    ;  x0 = ((sx - halfwidth) >> 2) - JFX_MARGIN, and the shift is arithmetic
+    ;  because the left-hand edge of a ship half off the screen is negative.
+    ld a,e
+    sub c
+    ld l,a
+    ld a,d
+    sbc a,0
+    ld h,a
+    sra h
+    rr l
+    sra h
+    rr l
+    ld a,l
+    sub JFX_MARGIN
+    ld (jfx_bx0),a
+
+    ;  The band: the sprite's rows with JFX_VMARGIN proud at each end.
+    ld a,(jfx_half_h)
+    add a,JFX_VMARGIN
+    call jfx_band_top
+    ld a,(jfx_spr_h)
+    add a,JFX_VMARGIN * 2
+    call jfx_clip_rows
+    ret nc                               ; none of it is in the playfield
+    ld a,d
+    ld (jfx_by),a
+    ld a,e
+    ld (jfx_bh),a
+
+    ;  ...and the sprite's own rows inside it.
+    ld a,(jfx_half_h)
+    call jfx_band_top
+    ld a,(jfx_spr_h)
+    call jfx_clip_rows
+    jr c,@jfx_band_core
+    ld a,(jfx_by)
+    ld (jfx_cy),a
+    xor a
+    ld (jfx_ch),a
+    scf
+    ret
+@jfx_band_core:
+    ld a,d
+    ld (jfx_cy),a
+    ld a,e
+    ld (jfx_ch),a
+    scf
+    ret
+
+
+;  HL = sy - A, signed, in sixteen bits.
+;
+;  SIXTEEN, and that is not belt and braces: sy reaches 199, so "sy minus
+;  eleven" cannot be tested as a signed byte -- 199 has bit 7 set and so does
+;  -11, and a ship at the bottom of the screen would read as one above the top.
+jfx_band_top:
     ld b,a
+    ld a,(jfx_sy)
+    ld l,a
+    ld h,0
+    sub b
+    ld l,a
+    ld a,h
+    sbc a,0
+    ld h,a
+    ret
+
+
+; ----------------------------------------------------------------------------
+;  jfx_clip_rows -- cut a range of rows down to the playfield
+;  In : HL = the first row, SIGNED; A = how many
+;  Out: CF set -> D = the first row, E = how many; CF clear -> none of it
+;  Uses: AF, BC, DE, HL
+; ----------------------------------------------------------------------------
+jfx_clip_rows:
+    ld c,a
+    ld de,JFX_TOP
+    or a
+    sbc hl,de
+    jr nc,@jfx_rows_inside
+
+    ;  Above the playfield: lose that many rows off the top. L is the low byte
+    ;  of a small negative number, so adding it subtracts, and the carry says
+    ;  whether anything is left.
+    ld a,c
+    add a,l
+    jr nc,@jfx_rows_none
+    jr z,@jfx_rows_none
+    ld e,a
+    ld d,JFX_TOP
+    jr @jfx_rows_bottom
+
+@jfx_rows_inside:
+    ld de,JFX_HEIGHT
+    or a
+    sbc hl,de
+    jr nc,@jfx_rows_none                 ; starts at or below the HUD
+    add hl,de
+    ld a,l
+    add a,JFX_TOP
+    ld d,a
+    ld e,c
+
+@jfx_rows_bottom:
+    ld a,d
+    add a,e
+    cp JFX_TOP + JFX_HEIGHT + 1
+    jr c,@jfx_rows_ok
+    ld a,JFX_TOP + JFX_HEIGHT
+    sub d
+    ld e,a
+@jfx_rows_ok:
+    scf
+    ret
+
+@jfx_rows_none:
+    or a
+    ret
+
+
+; ----------------------------------------------------------------------------
+;  jfx_bars -- one ship's share of one step
+;  In : (jfx_bx0), (jfx_reach), (jfx_by), (jfx_bh) from jfx_band
+;  Uses: everything
+;
+;  The bar goes down LAST in both halves, because both of them black out a run
+;  that the bar is standing in the middle of.
+; ----------------------------------------------------------------------------
+jfx_bars:
+    ld a,(jfx_mode)
+    cp JFX_IN
+    jr z,@jfx_in
+
+    ;  --- the vanish -------------------------------------------------------
+    ;  The whole band, as far as the bar has come -- all of it, and not merely
+    ;  the column taken since last time: the buffer being painted is the one
+    ;  that was on show a step ago, so it is carrying a bar of its own two
+    ;  columns back and a ship rubbed out only as far as the step before that.
+    call jfx_rows_band
+    ld a,(jfx_col)
+    ld hl,jfx_reach
+    cp (hl)
+    jr c,@jfx_out_partway
+    ld a,(hl)                            ; past the end: the whole run
+@jfx_out_partway:
+    ld d,a
+    ld a,(jfx_bx0)
+    ld e,a
+    xor a
+    call jfx_fill
+    jp jfx_the_bar
+
+    ;  --- the reveal -------------------------------------------------------
+@jfx_in:
+    ;  The rows the sprite does not occupy, across the whole run. They are
+    ;  never anything but black, and they are the one place a bar can be left
+    ;  standing that nothing else would take out: what erases a bar in the
+    ;  columns the bar has already passed is the SPRITE's dirty rectangle, and
+    ;  a bar is taller than its sprite. See the header of this file.
+    ld a,(jfx_by)
+    ld (jfx_fy),a
+    ld a,(jfx_cy)
+    ld hl,jfx_by
+    sub (hl)
+    ld (jfx_fh),a                        ; ...above the sprite
+    call jfx_mask_run
+
+    ld a,(jfx_cy)
+    ld hl,jfx_ch
+    add a,(hl)
+    ld (jfx_fy),a
+    ld c,a
+    ld a,(jfx_by)
+    ld hl,jfx_bh
+    add a,(hl)
+    sub c
+    ld (jfx_fh),a                        ; ...and below it
+    call jfx_mask_run
+
+    ;  Across the sprite's own rows: the run-up, which never has a ship in it
+    ;  and is where a bar in the near margin is taken out...
+    call jfx_rows_core
+    ld d,JFX_MARGIN
+    ld a,(jfx_bx0)
+    ld e,a
+    xor a
+    call jfx_fill
+
+    ;  ...and everything the bar has not reached, which is the rest of the ship
+    ;  plus the run-out past it. Clamped at MARGIN + width, so that once the bar
+    ;  is out beyond the ship this is the far margin and the ship is whole.
+    ld a,(jfx_reach)
+    ld c,a
+    sub JFX_MARGIN                       ; A = MARGIN + the sprite's width
+    ld b,a
+    ld a,(jfx_col)
+    cp b
+    jr c,@jfx_in_ahead
+    ld a,b
+@jfx_in_ahead:
+    ld b,a                               ; B = min(col, MARGIN + width)
+    ld a,c
+    sub b                                ; ...which is never the whole reach
+    ld d,a
+    ld a,(jfx_bx0)
+    add a,b
+    ld e,a
+    xor a
+    call jfx_fill
+
+    call jfx_rows_band
+
+;  The bar itself, at x0 + col, until it has run off the far end of its own
+;  ship. jfx_bar_off is the two mis_wipe frames, where the sweep is held.
+jfx_the_bar:
+    ld a,(jfx_bar_off)
+    or a
+    ret nz
+    ld a,(jfx_col)
+    ld hl,jfx_reach
+    cp (hl)
+    ret nc
+    ld hl,jfx_bx0
+    add a,(hl)                           ; x0 is signed; the wrap is the answer
+    ld e,a
     ld d,1
     ld a,JFX_INK
+    jp jfx_fill
+
+
+;  Black across the whole of this ship's run, in whatever rows are set.
+jfx_mask_run:
+    ld a,(jfx_reach)
+    ld d,a
+    ld a,(jfx_bx0)
+    ld e,a
+    xor a
+    jp jfx_fill
+
+;  Which rows the next fills cover: the bar's, or the sprite's.
+jfx_rows_band:
+    ld a,(jfx_by)
+    ld (jfx_fy),a
+    ld a,(jfx_bh)
+    ld (jfx_fh),a
+    ret
+
+jfx_rows_core:
+    ld a,(jfx_cy)
+    ld (jfx_fy),a
+    ld a,(jfx_ch)
+    ld (jfx_fh),a
     ret
 
 
-;  In : B = x, D = width, A = fill.  scr_fill_rect returns at once if D is 0,
-;  which is what makes "black behind a line standing at column 0" free.
+; ----------------------------------------------------------------------------
+;  jfx_fill -- one fill across the rows in (jfx_fy)/(jfx_fh), clipped
+;  In : E = x in bytes, SIGNED; D = width in bytes; A = the fill byte
+;  Uses: everything
 ;
-;  C and E are not parameters: this effect owns the playfield and nothing else,
-;  and the whole point of it is that it cannot reach the two strips.
-jfx_bar_one:
-    ld c,JFX_TOP
-    ld e,JFX_HEIGHT
-    jp scr_fill_rect
+;  scr_fill_rect takes an explicit x and width and writes them: it honours no
+;  clip of its own, unlike gfx_vline. A negative x would be read as a column in
+;  the two hundreds and a width running past byte 79 spills into the scanline
+;  eight rows down, because a Mode 1 line is eighty bytes and the rows are
+;  interleaved. Both ends have to be cut here.
+; ----------------------------------------------------------------------------
+jfx_fill:
+    ld (jfx_ink_byte),a
+    ld a,d
+    or a
+    ret z
+    bit 7,e
+    jr z,@jfx_fill_right
+
+    ;  It starts off the left-hand edge: lose that much of the width. The carry
+    ;  out of the add is the sign of the true sum.
+    ld a,e
+    add a,d
+    ret nc
+    or a
+    ret z
+    ld d,a
+    ld e,0
+
+@jfx_fill_right:
+    ld a,e
+    cp JFX_WIDTH
+    ret nc                               ; off the right-hand edge entirely
+    add a,d
+    cp JFX_WIDTH + 1
+    jr c,@jfx_fill_go
+    ld a,JFX_WIDTH
+    sub e
+    ld d,a
+
+@jfx_fill_go:
+    ld b,e
+    ld a,(jfx_fy)
+    ld c,a
+    ld a,(jfx_fh)
+    ld e,a
+    ld a,(jfx_ink_byte)
+    jp scr_fill_rect                     ; ...which returns at once on E = 0
 
 
-;  How many passes of the vanish are left, including the two catch-up ones.
-jfx_left:
-    defb 0
+; ============================================================================
+;  Scratch. All of it belongs to one step of one ship, except jfx_left and
+;  jfx_bar_off which belong to the sweep; jfx_mode, jfx_col and jfx_armed are
+;  in game/mission.asm, in the low 16K, so tests can read them with read_ram.
+; ============================================================================
 
-;  The line's own dirty rectangle -- x, y, width, height, in phase4_add_rect's
-;  order. Only the x moves, so it is a patched byte rather than four stores.
-jfx_line_rect:
-    defb 0, JFX_TOP, 1, JFX_HEIGHT
+;  How many passes of the current half are left.
+jfx_left:           defb 0
+
+;  Set on the frames the sweep is held, when the bars must not be drawn.
+jfx_bar_off:        defb 0
+
+;  The walk over phase4_vis.
+jfx_i:              defb 0
+jfx_n:              defb 0
+
+;  This ship's band: where its bar starts (signed) and how far it goes...
+jfx_bx0:            defb 0
+jfx_reach:          defb 0
+
+;  ...the rows the BAR covers, and the rows the SPRITE covers, both clipped to
+;  the playfield. They are not the same and the reveal turns on the difference.
+jfx_by:             defb 0
+jfx_bh:             defb 0
+jfx_cy:             defb 0
+jfx_ch:             defb 0
+
+;  ...and which of the two the next fill is using.
+jfx_fy:             defb 0
+jfx_fh:             defb 0
+
+jfx_sy:             defb 0
+jfx_spr_h:          defb 0
+jfx_half_h:         defb 0
+
+jfx_ink_byte:       defb 0

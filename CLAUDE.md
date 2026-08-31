@@ -2786,8 +2786,27 @@ tests that counted and the combat tests that counted kills.
 
 ### The jump wipe
 
-`J` erases the fleet with a white bar that marches across the playfield, and
-the next mission reveals it the same way. `src/game/jumpfx.asm`, bank 4.
+`J` erases the fleet with **one small bar per ship** — each starting a little
+before its own ship and ending a little after it — and the next mission reveals
+it the same way. `src/game/jumpfx.asm`, bank 4.
+
+The geometry comes from `class_geom`, the blitter's own placement table, so a
+bar cannot walk somewhere its ship is not, and the entries `phase4_group`
+consolidated away are skipped because they draw no sprite. **One counter for
+the whole fleet**: position is `x0 + col`, so every bar moves at one speed and a
+tier A ship finishes four steps before a tier C one for free. Vanish 0.68 s,
+reveal 1.76 s — the reveal is bounded by the frame rate, not by the distance.
+
+**The scenery gets no bar.** The Y=0 lattice, the resource fields and the
+Mothership marker are the place, not the fleet, so the vanish ends with two
+full-playfield black passes, one per buffer.
+
+> **It reads as a fleet dissolving rather than as noise, and that was a real
+> question.** Twenty small bars moving at once could easily have been static.
+> What saves it is that they all move the same way at the same speed at the
+> same moment. At the default zoom a tight formation merges neighbouring bars
+> into two or three-column blocks — five or six moving edges instead of sixteen
+> — which is a loss of detail and not of the gesture.
 
 **Left to right both times, the reveal repeating the vanish rather than
 mirroring it** — a mirror reads as "you came back", and §10's campaign only
@@ -2812,6 +2831,21 @@ But the screen ahead of the line is already black except where this frame
 drew, and that list is the one `phase4_erase` already keeps. Masking the
 rectangles instead is affordable, and it cuts a ship in half at the line for
 free.
+
+#### The reveal left a trail on every ship, and only looking found it
+
+A bar stands three lines proud of its ship. What rubs a bar out in the columns
+it has already passed is **the sprite's dirty rectangle** — the sprite, not the
+band — so every ship in the fleet was left with a small white block above it
+and one below, permanently. Two more fills a step, and
+`TestTheReveal.test_the_bars_leave_no_trail` fails with exactly that signature
+when they are removed.
+
+**`scr_fill_rect` clips NOTHING — not vertically and not horizontally.** The
+full-width version never had a negative x or a width past byte 79. The
+per-ship one has both routinely: `x0` reaches -6 and `x0 + reach` reaches 92,
+and a width running past 79 spills into the scanline eight rows down.
+`jfx_fill` cuts both ends.
 
 #### Three things that only screenshots and a control could have found
 

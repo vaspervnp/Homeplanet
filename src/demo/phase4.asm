@@ -2378,9 +2378,12 @@ phase4_gcount:      defs ENT_MAX, 0
 ;  The last two are TWO rectangles each: a height bar and the marker on top of
 ;  it, recorded through the same mark_bar / mark_cross the rest of them use.
 ;  One combined rectangle would have been a third way of doing it.
-;  ...and the fifth is the jump wipe's line, which records one so that the
-;  ordinary erase rubs it out when it moves. phase4_add_rect does not check
-;  this bound -- it appends and increments -- so a slot that is not here is
+;  ...and the fifth WAS the jump wipe's line, which recorded one so that the
+;  ordinary erase would rub it out when it moved. The wipe is one short bar per
+;  ship now and records nothing: a bar is rubbed out by the masking pass that
+;  drew it, which repaints its ship's whole band from both ends every step. The
+;  slot is slack and is left here deliberately -- phase4_add_rect does not
+;  check this bound, it appends and increments, so a slot that is not here is
 ;  four bytes written past the end of the array.
 PHASE4_RECT_SLOTS        equ ENT_MAX + EXPL_MAX + GRID_POINTS + MARK_PATCHES + 5
 phase4_rects_a:     defs PHASE4_RECT_SLOTS * 4, 0
