@@ -220,3 +220,140 @@ answers what was asked.
 - The trail bug is still there to fall into: a bar standing proud of its sprite
   is rubbed out by the *sprite's* dirty rectangle, not the band's, so the rows
   above and below still need blacking across the whole run.
+
+---
+
+# 3. `T` on the title screen: a tutorial stage
+
+**Asked for:** a `T` option on the menu that enters a unique stage where the
+player learns each command.
+
+## Two things to settle before anything else
+
+**`T` already means TOW.** It orders the selected squadron's Salvage Corvettes
+to fetch wrecks. There is no clash — the tutorial's `T` is on the **title
+screen**, where the only live keys are `SPACE` and (once the music lands) `M`,
+and the tow order only exists once a mission is running. But it is one letter
+with two meanings, and this project has been here before: `,` and `.` step the
+target with the build panel shut and the price list with it open, and the
+**context bar exists because that was invisible**. Whatever the title screen
+says about `SPACE` it must now also say about `T`.
+
+**The tutorial must not be a mission.** If it touches `mis_index`, the entity
+table's persistence, or `FLEET.DAT`, then playing it destroys a campaign in
+progress — and it is reached from the title screen, which is exactly where
+somebody with a saved game arrives. It needs its own mode: set up, played,
+torn down, and `demo_init`'s restore left alone. **This is the single most
+likely way to get it wrong.**
+
+## The mechanic that makes a tutorial teach rather than lecture
+
+**Every step is gated on the player DOING the thing, not on pressing a key to
+continue.** One line of instruction, and it does not advance until the game can
+see the command was issued. That is the whole design; the rest is content.
+
+It also means each step needs a *condition*, not a keypress — "the yaw has
+changed by 32", "`squad_sel` is not what it was", "`eco_ru` went up", "no
+hostile is left". A small enumeration checked once a frame, dispatched from a
+table, the same shape `menu_entries` and `mission_table` already have: **a step
+is a row, and adding one is adding a row.**
+
+## The scenario
+
+Five acts, in dependency order — you cannot command what you cannot see, and
+you cannot fight before you can move.
+
+### Act 1 — Looking (no enemies, nothing can go wrong)
+
+| step | teaches | gate |
+|---|---|---|
+| 1 | cursor keys orbit the camera | yaw moved a quarter turn |
+| 2 | `Z`/`X` (or `+`/`-`) zoom, twelve steps | the step changed in both directions |
+| 3 | `P` pans, `0` centres on the Mothership | panned away, then `0` |
+| 4 | `S` is the sensor view | toggled and back |
+
+### Act 2 — The fleet
+
+Four interceptors and the Mothership. Few enough that a formation reads.
+
+| step | teaches | gate |
+|---|---|---|
+| 5 | `1`-`9` select a squadron | the selection changed |
+| 6 | `I` says what it is made of | opened and closed |
+| 7 | `ENTER` opens the move disc, arrows drive it, `ENTER` confirms | an order issued **and the ships arrive** |
+| 8 | `F` cycles the formation | cycled once |
+| 9 | `d` divides, `c` combines | two squadrons existed, then one |
+| 10 | `R` stations on the Mothership | issued |
+
+### Act 3 — The economy
+
+A resource patch appears within reach, and a harvester is in the fleet.
+
+| step | teaches | gate |
+|---|---|---|
+| 11 | `H` sends harvesters to work | `eco_ru` rose |
+| 12 | `B`, then `,`/`.`, then `ENTER` | something is on the slipway |
+
+### Act 4 — The fight
+
+**One** hostile interceptor arrives, alone and no tougher than ours.
+
+| step | teaches | gate |
+|---|---|---|
+| 13 | `,`/`.` step the target | the target changed |
+| 14 | `A` attacks, and spends itself | the hostile is gone |
+| 15 | `SPACE` is the tactical pause | toggled |
+
+`SPACE` is taught **here** and not in Act 1 on purpose: a pause means nothing
+until there is something to pause.
+
+### Act 5 — Leaving
+
+| step | teaches | gate |
+|---|---|---|
+| 16 | `J` jumps when the objective is met | pressed |
+
+`J` returns to the **title screen**, not to mission 1 — the tutorial is not the
+first rung of the campaign and must not become it.
+
+## Where the text goes, and it is the hard part
+
+Sixteen instructions of about forty characters is ~700 bytes of bank 4 (5170
+free — fine). **Where they are drawn is the problem, not what they cost.**
+
+- **The context bar is already saying what the keys do**, on one line, in the
+  ink scheme that means "this is something you press". A tutorial line and the
+  bar in the same place would fight; a tutorial line *instead of* the bar loses
+  the very thing that teaches the keys.
+- **The HUD's third row** (`HUD_ROW_C_Y`, the hull percentage and `INCOMING`)
+  is a candidate — §5.5 asked for a "γραμμή μηνυμάτων" there and it carries one
+  message today. A tutorial is exactly a message line. It is 80 characters
+  wide and free while the tutorial is running, since the fleet is at full hull
+  and nothing is incoming.
+- **Its own line, in the playfield**, under the bar. Costs playfield and needs
+  its own dirty handling.
+
+**Recommendation: the HUD's third row.** It exists, it is the message line the
+design already asked for, it does not fight the context bar, and the two
+together then read as "what you press" above and "what to do" below.
+
+## How to test it, given this project's blind spot
+
+**A test that only checks the tutorial advanced is worthless** — it passes when
+the step advanced for the wrong reason, which is the failure mode a gated
+tutorial has. Every gate wants two tests:
+
+- do the **wrong** thing and assert it does **not** advance;
+- do the right thing and assert it does.
+
+Plus one that matters more than any of them: **start a campaign, save, play the
+tutorial, and check the campaign is untouched** — `mis_index`, the fleet and
+`FLEET.DAT` all as they were. That is the bug this feature is most likely to
+ship with.
+
+## What it does not need
+
+Not a scripted camera, not cutscenes, not text that scrolls. The game already
+stops the world for a full-screen page and already has a message row; a
+tutorial that is one line and a condition per step needs no new machinery, and
+that is what makes it affordable at all.
