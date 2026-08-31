@@ -703,5 +703,216 @@ class TestTheJumpIsStillOneAct(WipeFixture):
         self.assertTrue(lit_before, "there was nothing on the screen to keep")
 
 
+#  --------------------------------------------------------------------------
+#  The sound of it
+#  --------------------------------------------------------------------------
+#  tests/test_sound.py drives snd_jump_out and snd_jump_in from a stub and
+#  states everything about their shape -- the channel, the two sweeps, the
+#  levels, the lengths -- exactly, one tick at a time. What it cannot say is
+#  that either one is ever REACHED by pressing `J`, which is what this is for.
+#
+#  READING THE PSG COSTS A WHOLE MACHINE. The stub takes the CPU away from the
+#  game and the game does not come back: putting the PC where it was is not
+#  enough, and test_music.py records the same finding at more length. So each
+#  test here is one reading at one moment, and the fixture's per-test boot is
+#  what pays for it.
+
+R_PERIOD_C, R_PERIOD_C_HI, R_MIXER, R_AMP_C = 4, 5, 7, 10
+MIX_TONE_C, MIX_NOISE_C = 1 << 2, 1 << 5
+
+
+def _w(a):
+    return [a & 0xFF, a >> 8]
+
+
+def read_psg(c, sym):
+    """Registers 0..13 back out of the AY, the way test_sound.py does it.
+
+    Scratch comes from CODE_END rather than a fixed address, for the reason
+    test_sound.py gives: src/gen is `align 256`, so an address that is free
+    today is inside a lookup table after the next thing anyone adds.
+    """
+    buf = sym["CODE_END"] + 0x10
+    stub = sym["CODE_END"] + 0xA0
+    code = [0xF3] + [0x21] + _w(buf) + [0x16, 0x00] + [0x0E, 0x00]
+    body = []
+    body += [0x06, 0xF7, 0x3E, 0x82, 0xED, 0x79]    # PPI: port A = output
+    body += [0x06, 0xF4, 0x7A, 0xED, 0x79]          # register number out
+    body += [0x06, 0xF6, 0x3E, 0xC0, 0xED, 0x79]    # PSG_SELECT: latch it
+    body += [0xAF, 0xED, 0x79]                      # PSG_INACTIVE
+    body += [0x06, 0xF7, 0x3E, 0x92, 0xED, 0x79]    # PPI: port A = INPUT
+    body += [0x06, 0xF6, 0x3E, 0x40, 0xED, 0x79]    # PSG_READ
+    body += [0x06, 0xF4, 0xED, 0x78]                # in a,(#F4xx)
+    body += [0x77, 0x23]                            # ld (hl),a : inc hl
+    body += [0x06, 0xF6, 0xAF, 0xED, 0x79]          # PSG_INACTIVE
+    body += [0x06, 0xF7, 0x3E, 0x82, 0xED, 0x79]    # PPI: port A = output
+    body += [0x14, 0x7A, 0xFE, 0x0E]                # inc d : ld a,d : cp 14
+    body += [0x38, (-(len(body) + 2)) & 0xFF]       # jr c,-> next register
+    c.write_ram(stub, bytes(code + body + [0x18, 0xFE]))
+    c.set_pc(stub)
+    c.run_frames(4)
+    return list(c.read_ram(buf, 14))
+
+
+class TestTheJumpIsHeard(WipeFixture):
+    """`J` makes a sound, the arrival makes its mirror, and nothing else does.
+
+    Every assertion is on the AY's own registers and every expectation is
+    derived from the descriptor bytes in the build -- not from numbers copied
+    into this file, which would only say that Python can read a constant twice.
+    """
+
+    def descriptor(self, name):
+        """(timer, pri, vol, dvol, period, dstep) out of the low 16K.
+
+        dstep is SIGNED -- it is what makes the two halves opposite -- so it is
+        widened here rather than left as the sixteen bits it is stored in.
+        """
+        b = self.c.read_ram(self.sym[name], 8)
+        dstep = b[6] | (b[7] << 8)
+        if dstep >= 0x8000:
+            dstep -= 0x10000
+        return (b[0], b[1], b[2], b[3], b[4] | (b[5] << 8), dstep)
+
+    def sweep_bounds(self, name):
+        """(period at tick 0, period the descriptor's own arithmetic ends at).
+
+        Bounding a reading BETWEEN these two is what makes it an observation of
+        the sweep rather than of any old number: a period outside them cannot
+        have come from this descriptor, and in particular a sweep run backwards
+        far enough to WRAP through zero lands nowhere near them. That case is
+        not hypothetical -- it is what a reversed dstep does, and a test that
+        only asked "is the period bigger than it started" was happy with it.
+        """
+        timer, _, _, _, start, dstep = self.descriptor(name)
+        return start, start + timer * dstep
+
+    def tone_c(self, why):
+        """(period, amplitude) on channel C, having checked it is a live tone."""
+        r = read_psg(self.c, self.sym)
+        self.assertGreater(r[R_AMP_C], 0, f"{why}: channel C is silent")
+        self.assertEqual(r[R_MIXER] & MIX_TONE_C, 0,
+                         f"{why}: tone C is muted, mixer #{r[R_MIXER]:02X}")
+        self.assertEqual(
+            r[R_MIXER] & MIX_NOISE_C, MIX_NOISE_C,
+            f"{why}: the noise generator is open on C, so this is an "
+            f"explosion and not a drive -- mixer #{r[R_MIXER]:02X}")
+        return r[R_PERIOD_C] | (r[R_PERIOD_C_HI] << 8), r[R_AMP_C]
+
+    def press_jump(self):
+        self.assertEqual(self.c.read_ram(self.sym["MIS_COMPLETE"], 1)[0], 1,
+                         "mission 1's ARRIVE objective is not met")
+        self.c.key_down("j")
+        for _ in range(60):
+            if self.mode() == JFX_OUT:
+                return
+            self.c.run_frames(1)
+        self.fail("`J` never started the vanish")
+
+    #  --- the control, and it comes first ------------------------------------
+
+    def test_an_ordinary_frame_makes_no_sound_on_channel_c(self):
+        """Without this the three tests below prove nothing.
+
+        Channel C is idle for the whole of a mission -- the guns are on A and
+        B -- so anything found on it during a jump is the jump. If something
+        else ever starts using C, this is the test that says so, and the three
+        below become readings of whatever that is.
+        """
+        self.c.run_frames(200)
+        r = read_psg(self.c, self.sym)
+        self.assertEqual(r[R_AMP_C], 0,
+                         f"channel C is already sounding at amplitude "
+                         f"{r[R_AMP_C]} with no jump anywhere near")
+        self.assertEqual(r[R_MIXER] & MIX_TONE_C, MIX_TONE_C,
+                         f"tone C is open in an ordinary frame: "
+                         f"mixer #{r[R_MIXER]:02X}")
+
+    #  --- the departure ------------------------------------------------------
+
+    def test_pressing_j_is_heard_at_the_bottom_of_its_sweep(self):
+        """One reading, early in the vanish, and it has to be the low end.
+
+        The out starts at the descriptor's own period and climbs from there, so
+        a reading three ticks in must still be within a few steps of where it
+        began. That is a much sharper statement than "something is playing":
+        it fails if the sweep runs the wrong way, if the wrong descriptor was
+        copied, or if the arrival's sound was started by mistake.
+        """
+        start, end = self.sweep_bounds("SND_FX_JUMP_OUT")
+        self.assertLess(end, start, "the out descriptor does not sweep upward")
+        self.press_jump()
+        self.c.run_frames(3)
+        period, amp = self.tone_c("three ticks into the vanish")
+        self.assertTrue(
+            end <= period < start,
+            f"the period is {period}, outside the {end}..{start} the out's own "
+            f"descriptor can reach -- this is not that sweep")
+        self.assertGreater(
+            period, start * 2 // 3,
+            f"the period is already {period} against a start of {start} -- "
+            f"this reading is not the beginning of the out sweep")
+        self.assertGreater(amp, 8, f"the out starts quiet, at {amp}/15")
+
+    def test_the_departure_has_climbed_by_the_end_of_the_vanish(self):
+        """The same sound, read near the end, and the pitch has to be up.
+
+        Period DOWN is pitch UP. Read against the descriptor's start, so this
+        is the sweep's DIRECTION on the real path and not a number copied here.
+        """
+        start, end = self.sweep_bounds("SND_FX_JUMP_OUT")
+        ticks = self.descriptor("SND_FX_JUMP_OUT")[0]
+        self.press_jump()
+        self.c.run_frames(ticks - 6)
+        period, _ = self.tone_c(f"{ticks - 6} ticks into the vanish")
+        self.assertTrue(
+            end <= period < start,
+            f"the period is {period}, outside the {end}..{start} this "
+            f"descriptor can reach")
+        self.assertLess(
+            period, start // 3,
+            f"the out is at period {period} near the end of a sweep that "
+            f"began at {start} -- it has not climbed anything like an octave")
+
+    #  --- the arrival --------------------------------------------------------
+
+    def test_the_arrival_is_heard_falling_back_down(self):
+        """The mirror, on the real path: jump, dismiss the briefing, listen.
+
+        The in starts high and falls, so a reading well into the reveal must be
+        at a period ABOVE where the descriptor put it -- the opposite direction
+        to the test above, which is the whole of the pair.
+        """
+        start, end = self.sweep_bounds("SND_FX_JUMP_IN")
+        self.assertGreater(end, start,
+                           "the in descriptor does not sweep downward")
+
+        #  A jump, and out through the briefing by hand: harness.jump_mission
+        #  waits the whole reveal out, which is exactly the thing to be inside.
+        self.c.key_down("j")
+        self.c.run_frames(25)
+        self.c.key_up("j")
+        self.assertTrue(h.wait_for_briefing(self.c), "no briefing after `J`")
+        self.c.key_down(cpc.KEY_ENTER)
+        self.c.run_frames(25)
+        self.c.key_up(cpc.KEY_ENTER)
+        self.assertEqual(self.mode(), JFX_IN,
+                         "dismissing the jump's briefing started no reveal")
+
+        period, amp = self.tone_c("well into the reveal")
+        self.assertTrue(
+            start < period <= end,
+            f"the period is {period}, outside the {start}..{end} the in's own "
+            f"descriptor can reach -- it is the out's sound, or a sweep that "
+            f"ran the wrong way and wrapped through zero")
+        self.assertGreater(
+            period, start * 3,
+            f"the in is at period {period} against a start of {start}, so it "
+            f"has barely fallen in pitch at all")
+        self.assertGreater(amp, 4,
+                           f"the arrival is nearly inaudible at {amp}/15 while "
+                           f"the reveal is still running")
+
+
 if __name__ == "__main__":
     unittest.main()

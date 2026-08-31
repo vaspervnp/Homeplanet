@@ -47,6 +47,30 @@ thing that says so.
 
 ---
 
+## 0. The AY frequency constant is an octave out
+
+`tools/genmusic.py` has `AY_CLOCK = 125000` and computes `period = 125000 / f`.
+The CPC clocks the AY at 1 MHz and a full tone cycle is 16 × period, so the
+relation is **`f = 62500 / p`** — confirmed against the emulator's own
+implementation and standard for the machine. The generator therefore asks for
+**twice** the period it needs, and **MUSIC1, MUSIC2 and MUSIC3 all sound an
+octave below what was composed.**
+
+Nobody has noticed, which is itself informative: the two transcriptions are
+ambient and the composed one has no reference to be flat against.
+
+**It is one constant, and it moves every note in all three tunes at once.**
+That is why it has not been changed: whether they are better an octave up is a
+decision for an ear. Note the bass would move from A1 (55 Hz) to A2 — the
+current A1 is close to the bottom of what the AY's 12-bit period can express
+and near the bottom of what the CPC's speaker reproduces at all, so up is
+probably right.
+
+`src/sys/sound.asm` carries the correct figure in the comment beside
+`snd_fx_jump_out` and the wrong one beside `snd_fx_fire`; the effects were
+tuned by ear against the wrong number, so they are right as they sound and
+their comments are what is misleading.
+
 ## 0a. The harvester has the salvage bug's twin, and it is two lines
 
 `eco_harvester_step` does `call eco_nearest_patch : ret nc` when every patch is

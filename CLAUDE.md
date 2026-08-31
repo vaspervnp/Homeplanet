@@ -1696,6 +1696,44 @@ Three things worth knowing:
 > pieces are about a third rests by frame count; they are ambient, not
 > chiptunes. It samples twenty-four times across ten seconds now.
 
+### The jump has a sound at each end
+
+`snd_fx_jump_out` and `snd_fx_jump_in`, on **channel C** — the voice the file
+header already reserves for alerts and for the menu and jump screens, and the
+one nothing else in the game has ever used, so a shot cannot cut the jump and
+the jump cannot mute a death.
+
+Measured off the chip's own registers: **out** is 30 ticks, 95 Hz → 1488 Hz,
+four octaves up, with the level reaching zero on its last tick; **in** is 88
+ticks, 1276 Hz → 105 Hz, the same span the other way over 2.6× the time.
+
+> **`dvol` is only ever SUBTRACTED — there is no attack.** A level can only
+> fall, so "it swells as the fleet arrives" is not expressible and the mirror
+> is carried by the pitch alone. Worth knowing before designing a sound around
+> a shape the envelope engine does not have.
+
+**Thirty ticks and not thirty-four, and the difference is a measurement.** The
+vanish is 35 ticks on missions 1 and 2, 38 on mission 3 and 41 on mission 4 —
+and 42 with nothing to draw at all, so its length is dominated by its fixed
+per-pass cost rather than by the fleet. `fdc.asm` runs `DI` for the whole disc
+write, which begins **one emulator frame** after the vanish ends; a 34-tick
+sound would have had one tick of margin against the shortest case and would
+have frozen mid-envelope. Thirty has five, and the decay reaches silence
+before the stall regardless.
+
+**It costs nothing on the tick.** `snd_update` walks all three voice blocks
+every tick whether they are live or not, so an effect on C is free: 4,433
+T-states before and after, identically.
+
+> **The frequency constant in this project is an OCTAVE OUT, and it has not
+> been corrected.** `sound.asm`'s older comment and `tools/genmusic.py` both say
+> tone period p is `125000/p` Hz. The CPC clocks the AY at 1 MHz and a full
+> tone cycle is 16 × period, so it is **`62500/p`** — which is what the
+> emulator implements and what a real machine does. Every note in MUSIC1, 2 and
+> 3 therefore sounds an octave below what was written. Correcting the constant
+> moves all of them at once, so it is a decision for an ear rather than for
+> arithmetic; see `todo.md`.
+
 ### Sound and the keyboard share port A
 
 The PSG is reached through PPI port A, and so is `key_scan`. Port A is a

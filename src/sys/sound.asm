@@ -341,6 +341,8 @@ snd_psg_out:
 ;  snd_fire -- a weapon discharge (channel A)
 ;  snd_explosion -- a ship dying (channel B, noise)
 ;  snd_hit -- a hull taking damage but surviving (channel B, noise)
+;  snd_jump_out -- the fleet leaving a system (channel C, tone)
+;  snd_jump_in -- the fleet arriving in the next one (channel C, tone)
 ;
 ;  In : -
 ;  Out: the effect owns its channel, unless something louder already does
@@ -349,6 +351,16 @@ snd_psg_out:
 ;  Call these from the MAIN LOOP, not from the interrupt: like key_scan they
 ;  end with an unconditional EI. See snd_start.
 ; ----------------------------------------------------------------------------
+snd_jump_out:
+    ld hl,snd_fx_jump_out
+    ld de,snd_voice_c
+    jr snd_start
+
+snd_jump_in:
+    ld hl,snd_fx_jump_in
+    ld de,snd_voice_c
+    jr snd_start
+
 snd_fire:
     ld hl,snd_fx_fire
     ld de,snd_voice_a
@@ -443,10 +455,73 @@ snd_fx_hit:
     defb 6, SND_PRI_HIT, #E0, 40
     defw #0800, #0100
 
+; ----------------------------------------------------------------------------
+;  The jump: one sound going out and one coming in, and they are a PAIR
+; ----------------------------------------------------------------------------
+;  "One sound for the jump out and one for the jump in." They are the same
+;  gesture run in opposite directions -- one sweep across the same span of
+;  pitch, up as the fleet dissolves and down as it settles into the next system
+;  -- so what a player hears is "left" and "arrived" rather than two unrelated
+;  noises. Under a level that only ever falls, because the envelope engine
+;  subtracts and has no attack; the direction that is genuinely reversible is
+;  the PITCH, and that is what carries the mirror.
+;
+;      out   period 680 -> 20     pitch RISING,  30 ticks = 0.60 s
+;      in    period  42 -> 651    pitch FALLING, 88 ticks = 1.76 s
+;
+;  Those are the endpoints of the accumulator; what is AUDIBLE is a little
+;  narrower at both ends, and is read off the chip in the last paragraph here.
+;  The in stops one step short of 658 because snd_step does not sweep on the
+;  tick the timer expires on -- it returns idle instead.
+;
+;  CHANNEL C, and the choice is already made at the top of this file: section
+;  12 gives C "alerts, and music on the menu / JUMP / mission-end screens".
+;  It is a tone channel, which is right -- a jump is a drive spooling and not
+;  an explosion -- and it is the one channel nothing else in the game has ever
+;  used, so the jump can neither be cut short by a laser shot on A nor mute a
+;  death on B. Noise underneath the sweep was considered and left alone: it
+;  would have to go on B, which is where the deaths are, and it is a second
+;  descriptor and a second snd_start for a thing the owner asked for as one
+;  sound.
+;
+;  PRIORITY 4, above all three battle effects. Nothing else uses channel C, so
+;  today this is only ever compared against the other half of a jump -- but the
+;  number is the honest statement of the rule, and the day C is given the
+;  alerts the file header promises, a jump will still win. Both halves share it,
+;  so `cp b : jr nc` ("at least", not "greater") lets one retrigger the other.
+;
+;  WHY THE OUT IS 30 TICKS AND NOT 34. mis_jump runs jfx_vanish to completion
+;  and only THEN writes the fleet to the disc -- and fdc_fleet_io holds DI for
+;  the whole transfer, measured at 24 emulator frames, during which snd_update
+;  does not run and a sound in progress would freeze mid-envelope and resume.
+;  The vanish measures 35 ticks with nothing on the screen at all and 41 with a
+;  full fleet, so a 30-tick sound is over before the vanish is, with five ticks
+;  of margin against the shortest one there is. The decay reaches zero on the
+;  last tick either way, which is the second net: a frozen channel at amplitude
+;  0 is silence.
+;
+;  Tone period p is 62500/p Hz -- the AY is clocked at 1 MHz and divides by 16.
+;  (The comment above snd_fx_fire says 125000/p, and so does tools/genmusic.py;
+;  that is an octave out. Not touched here, because correcting it would move
+;  every note in the music by an octave and that is a decision for an ear.)
+;
+;  The out is audible over ticks 1..29 -- 95 Hz to 1488 Hz, four octaves -- and
+;  the in over 1..79, 1276 Hz back down to 105 Hz. Neither period ever wraps:
+;  680 - 30*22 = 20 and 42 + 88*7 = 658, both well inside the 12 bits the
+;  registers have.
+snd_fx_jump_out:
+    defb 30, SND_PRI_JUMP, #FF, 8
+    defw 680, -22
+
+snd_fx_jump_in:
+    defb 88, SND_PRI_JUMP, #FF, 3
+    defw 42, 7
+
 ;  Priorities. Only ever compared with each other, and only within a channel.
 SND_PRI_HIT         equ 1
 SND_PRI_FIRE        equ 2
 SND_PRI_EXPLOSION   equ 3
+SND_PRI_JUMP        equ 4
 
 ;  Mixer AND masks, indexed by channel number: each clears the one bit that
 ;  lets its channel through. Channel B's is the NOISE bit, not the tone bit --

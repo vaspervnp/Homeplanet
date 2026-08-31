@@ -246,6 +246,13 @@ JFX_INK             equ SOLID_INK_1
 ;  Uses: everything
 ; ----------------------------------------------------------------------------
 jfx_vanish:
+    ;  ...and the sound of it, which is 30 ticks against this sweep's 35 to 41.
+    ;  It starts here rather than anywhere else in mis_jump because the sound
+    ;  belongs to the BARS: they begin together and it is over before the loop
+    ;  below is, which is what keeps it clear of the disc write's DI. See the
+    ;  jump descriptors in sys/sound.asm.
+    call snd_jump_out
+
     ld a,JFX_OUT
     ld (jfx_mode),a
     ;  ...and the note for the other half. The briefing this jump is about to
@@ -312,12 +319,22 @@ jfx_vanish:
 ;  project started life with two seconds of half-masked playfield, and seven
 ;  that read pixels failed -- the resource patches, the Mothership indicator,
 ;  the enemy recolour. None of them was about jumps.
-;  Uses: AF
+;
+;  Uses: AF, BC, DE, HL -- snd_jump_in is an LDIR of a descriptor over a voice
+;  block. It was AF alone before that, and the only caller is mis_brief_key,
+;  which is "Uses: everything" and reaches here with a JP rather than a CALL.
 ; ----------------------------------------------------------------------------
 jfx_reveal_open:
     ld a,(jfx_armed)
     or a
     ret z
+
+    ;  The other half of the pair, and the SAME note arms both -- so the
+    ;  arrival sound belongs to a jump's briefing and to no other one. Nothing
+    ;  behind this half touches the disc; it rides demo_update with interrupts
+    ;  on for the whole 88 ticks, which is why it is the long one.
+    call snd_jump_in
+
     xor a
     ld (jfx_armed),a
     ld (jfx_col),a

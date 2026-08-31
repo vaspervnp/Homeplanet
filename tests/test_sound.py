@@ -63,6 +63,15 @@ ALL_MUTED = 0x3F
 FIRE_TICKS = 8
 EXPLOSION_TICKS = 24
 HIT_TICKS = 6
+JUMP_OUT_TICKS = 30
+JUMP_IN_TICKS = 88
+
+#  The vanish measures 35 ticks with nothing on the screen and 41 with a full
+#  fleet -- and mis_jump runs it to completion BEFORE fleet_disc_save, which
+#  holds DI for the whole transfer. The out sound has to be over inside the
+#  shortest vanish there is, or its tail freezes mid-envelope across the disc
+#  write. This is that bound, and it is the reason the out is 30 and not 34.
+SHORTEST_VANISH_TICKS = 35
 
 KEY_ROWS = 10
 
@@ -160,6 +169,12 @@ class SoundFixture(unittest.TestCase):
     def hit(self):
         self.call("SND_HIT")
 
+    def jump_out(self):
+        self.call("SND_JUMP_OUT")
+
+    def jump_in(self):
+        self.call("SND_JUMP_IN")
+
     def tick(self, n: int = 1):
         """Run snd_update n times, the way the interrupt would."""
         assert 1 <= n <= 255
@@ -216,6 +231,26 @@ class SoundFixture(unittest.TestCase):
         self.assertEqual(
             r[R_MIXER], ALL_MUTED,
             f"{why}: mixer is #{r[R_MIXER]:02X}, expected #{ALL_MUTED:02X}")
+
+    def sweep_c(self, ticks: int) -> list[tuple[int, int]]:
+        """(tone period, amplitude) off channel C, once per tick, for `ticks`.
+
+        The whole sound, sampled at the rate it is played at, out of the chip's
+        own registers. Every assertion about a jump is made against one of
+        these lists rather than against the descriptor bytes: a descriptor is a
+        statement of intent and this is what the AY was actually told.
+        """
+        out = []
+        for _ in range(ticks):
+            self.tick()
+            r = self.psg()
+            out.append((r[R_PERIOD_C] | (r[R_PERIOD_C_HI] << 8), r[R_AMP_C]))
+        return out
+
+    @staticmethod
+    def audible(sweep):
+        """The part of a sweep with the amplitude off zero, as (period, amp)."""
+        return [s for s in sweep if s[1] > 0]
 
     def ticks_until_silent(self, limit: int = 80) -> int:
         """How many further ticks before every channel is off. None if never."""
@@ -440,6 +475,239 @@ class TestHit(SoundFixture):
         self.assertNotEqual(
             (hit[R_NOISE], hit[R_AMP_B]), (boom[R_NOISE], boom[R_AMP_B]),
             "a hit and a death are the same sound")
+
+
+class TestTheJump(SoundFixture):
+    """One sound going out and one coming in -- and they are a PAIR.
+
+    "One sound for the jump out and one for the jump in." So the assertions
+    that matter here are not "an effect was started" -- that survives the wrong
+    channel, the wrong pitch, a sweep running backwards and outright silence.
+    Every one of them is made against the PERIODS AND AMPLITUDES OVER TIME,
+    read back out of the AY a tick at a time, and the sharpest is the last one
+    in the class: the two sounds have to traverse the same span of pitch in
+    opposite directions, or they are two unrelated noises rather than a
+    departure and an arrival.
+    """
+
+    #  --- the channel, which is a decision and not an accident ---------------
+
+    def test_both_halves_are_a_tone_on_channel_c(self):
+        """Section 12's own assignment: C is "the menu / JUMP / mission-end".
+
+        A tone and not noise, because a jump is a drive spooling up and not an
+        explosion -- and channel C specifically, because it is the one voice
+        nothing else in the game has ever used, so the jump can neither be cut
+        off by a shot on A nor mute a death on B.
+        """
+        for start, name in ((self.jump_out, "out"), (self.jump_in, "in")):
+            with self.subTest(half=name):
+                self.silence()
+                start()
+                self.tick()
+                r = self.psg()
+                self.assertGreater(r[R_AMP_C], 0,
+                                   f"the jump {name} is silent on channel C")
+                self.assertEqual(r[R_MIXER] & MIX_TONE_C, 0,
+                                 f"tone C is muted: mixer #{r[R_MIXER]:02X}")
+                self.assertEqual(
+                    r[R_MIXER] & MIX_NOISE_C, MIX_NOISE_C,
+                    f"the jump opened the noise generator on C, so it is an "
+                    f"explosion and not a drive: mixer #{r[R_MIXER]:02X}")
+                self.assertNotEqual(
+                    (r[R_PERIOD_C], r[R_PERIOD_C_HI]), (0, 0),
+                    f"the jump {name} has no pitch")
+
+    def test_neither_half_disturbs_the_battle(self):
+        """A and B belong to the guns. The jump must not go near them."""
+        for start, name in ((self.jump_out, "out"), (self.jump_in, "in")):
+            with self.subTest(half=name):
+                self.silence()
+                start()
+                self.tick(3)
+                a, b, _ = self.amps()
+                self.assertEqual((a, b), (0, 0),
+                                 f"the jump {name} made a noise on A or B")
+                m = self.mixer()
+                self.assertEqual(m & MIX_TONE_A, MIX_TONE_A)
+                self.assertEqual(m & MIX_NOISE_B, MIX_NOISE_B)
+
+    def test_a_battle_cannot_take_the_channel_from_a_jump(self):
+        """Not by priority -- by living somewhere else entirely.
+
+        Priorities are only ever compared WITHIN a channel, so SND_PRI_JUMP
+        outranking the three battle effects is a statement about a future in
+        which C also carries the alerts section 12 promises it. What actually
+        protects the jump today is that nothing else uses C at all, and that is
+        what this checks: a full battle over the top of a jump leaves it
+        playing, and sweeping.
+        """
+        self.jump_out()
+        self.tick(2)
+        before = self.psg()
+        for _ in range(4):
+            self.fire()
+            self.explosion()
+            self.hit()
+            self.tick(2)
+        after = self.psg()
+        self.assertGreater(after[R_AMP_C], 0,
+                           "a battle silenced the jump on channel C")
+        p0 = before[R_PERIOD_C] | (before[R_PERIOD_C_HI] << 8)
+        p1 = after[R_PERIOD_C] | (after[R_PERIOD_C_HI] << 8)
+        self.assertNotEqual(p1, p0,
+                            f"the jump's sweep froze while the guns ran: "
+                            f"period {p0} both times")
+
+    #  --- the gesture --------------------------------------------------------
+
+    def test_the_out_sweeps_up_while_it_thins_away(self):
+        """The fleet dissolving: the pitch climbs as the level falls off it.
+
+        Period DOWN is pitch UP -- the AY divides by it -- so a test that only
+        watched the number go one way would be happy with the sound running
+        backwards. Both directions are stated, and both are read off the chip.
+        """
+        self.jump_out()
+        sweep = self.sweep_c(JUMP_OUT_TICKS)
+        aud = self.audible(sweep)
+        self.assertGreater(len(aud), 20,
+                           f"only {len(aud)} ticks of the out are audible")
+
+        periods = [p for p, _ in aud]
+        self.assertEqual(periods, sorted(periods, reverse=True),
+                         f"the out's period is not monotonically falling, so "
+                         f"the pitch does not climb: {periods}")
+        self.assertGreater(periods[0], periods[-1] * 4,
+                           f"the out barely moves: {periods[0]} -> "
+                           f"{periods[-1]}, under two octaves")
+
+        amps = [a for _, a in sweep]
+        self.assertEqual(amps, sorted(amps, reverse=True),
+                         f"the out's level does not only fall: {amps}")
+        self.assertEqual(amps[-1], 0, f"it does not fade out: {amps}")
+
+    def test_the_in_sweeps_down_and_settles(self):
+        """The mirror: something falling into place."""
+        self.jump_in()
+        sweep = self.sweep_c(JUMP_IN_TICKS)
+        aud = self.audible(sweep)
+        self.assertGreater(len(aud), 60,
+                           f"only {len(aud)} ticks of the in are audible")
+
+        periods = [p for p, _ in aud]
+        self.assertEqual(periods, sorted(periods),
+                         f"the in's period is not monotonically rising, so the "
+                         f"pitch does not fall: {periods}")
+        self.assertGreater(periods[-1], periods[0] * 4,
+                           f"the in barely moves: {periods[0]} -> "
+                           f"{periods[-1]}")
+
+        amps = [a for _, a in sweep]
+        self.assertEqual(amps, sorted(amps, reverse=True),
+                         f"the in's level does not only fall: {amps}")
+        self.assertEqual(amps[-1], 0, f"it does not fade out: {amps}")
+
+    def test_they_are_one_gesture_run_both_ways(self):
+        """The whole point of the pair, stated as an assertion on the chip.
+
+        A player has to hear "left" and "arrived" rather than two unrelated
+        noises, and what makes that true is that both halves cross the SAME
+        span of pitch. So: the out ends where the in begins and the in ends
+        where the out began, to within a tick of sweep at each end -- and they
+        go opposite ways, which the two tests above have already established
+        separately and this one states about the pair.
+        """
+        self.silence()
+        self.jump_out()
+        out = self.audible(self.sweep_c(JUMP_OUT_TICKS))
+        self.silence()
+        self.jump_in()
+        into = self.audible(self.sweep_c(JUMP_IN_TICKS))
+
+        out_lo, out_hi = out[0][0], out[-1][0]          # period: low pitch first
+        in_hi, in_lo = into[0][0], into[-1][0]          # ...and high pitch first
+
+        def close(a, b, why):
+            #  A fifth: wide enough that neither descriptor has to be tuned to
+            #  the other, narrow enough that a different sweep fails it.
+            self.assertLess(
+                max(a, b) / min(a, b), 1.5,
+                f"{why}: periods {a} and {b} are more than a fifth apart, so "
+                f"the two halves are not the same gesture")
+
+        close(out_hi, in_hi, "the out ends and the in begins")
+        close(out_lo, in_lo, "the out begins and the in ends")
+
+        self.assertGreater(out_lo, out_hi, "the out does not rise in pitch")
+        self.assertGreater(in_lo, in_hi, "the in does not fall in pitch")
+
+    #  --- the lengths, and the disc write ------------------------------------
+
+    def test_the_out_ends_inside_the_shortest_vanish_there_is(self):
+        """The one timing trap in this feature, and it is not on the screen.
+
+        mis_jump calls jfx_vanish, which runs to completion, and only then
+        fleet_disc_save -- which holds DI across the whole transfer, measured
+        at 24 emulator frames. snd_update does not run inside that, so a sound
+        still going would freeze mid-envelope and resume half a second later.
+        The vanish is 35 ticks with nothing on the screen at all, so the out
+        has to be over before then. It is 30, and its level reaches zero on the
+        last of those -- so even the frozen case would be frozen at silence.
+        """
+        self.jump_out()
+        n = self.ticks_until_silent(limit=SHORTEST_VANISH_TICKS + 20)
+        self.assertIsNotNone(
+            n, "channel C never went quiet after the jump out")
+        self.assertLessEqual(
+            n, SHORTEST_VANISH_TICKS,
+            f"the jump out runs {n} ticks and the shortest vanish is "
+            f"{SHORTEST_VANISH_TICKS} -- its tail lands in the disc write's DI")
+        self.assertLessEqual(n, JUMP_OUT_TICKS + 1,
+                             f"the jump out ran {n} ticks, budget "
+                             f"{JUMP_OUT_TICKS}")
+
+    def test_the_arrival_is_the_long_one(self):
+        """Vanish 0.7 s, reveal 1.76 s. The sounds are the same shape."""
+        self.jump_out()
+        short = self.ticks_until_silent(limit=JUMP_IN_TICKS * 2)
+        self.silence()
+        self.jump_in()
+        long = self.ticks_until_silent(limit=JUMP_IN_TICKS * 2)
+        self.assertIsNotNone(long, "the arrival never stopped")
+        self.assertGreater(long, short * 2,
+                           f"the arrival ({long} ticks) is not the long half "
+                           f"against the departure ({short})")
+        self.assertLessEqual(long, JUMP_IN_TICKS + 1,
+                             f"the arrival ran {long} ticks, budget "
+                             f"{JUMP_IN_TICKS}")
+
+    def test_neither_half_is_left_droning(self):
+        for start, name in ((self.jump_out, "out"), (self.jump_in, "in")):
+            with self.subTest(half=name):
+                self.silence()
+                start()
+                self.tick(JUMP_IN_TICKS + 2)
+                self.assert_silent(f"when the jump {name} ended")
+                self.tick(40)
+                self.assert_silent(f"40 ticks after the jump {name} ended")
+
+    def test_arriving_takes_the_channel_from_a_departure(self):
+        """Same priority, so "at least" lets one retrigger the other.
+
+        Nothing in the game overlaps them -- the briefing sits between the two
+        halves -- but a shared priority that REFUSED would leave the arrival
+        silent the first time anything did, and that is a failure mode with no
+        symptom other than a missing sound.
+        """
+        self.jump_out()
+        self.tick(JUMP_OUT_TICKS - 4)
+        faded = self.amps()[2]
+        self.jump_in()
+        self.tick()
+        self.assertGreater(self.amps()[2], faded,
+                           "the arrival did not take channel C from a "
+                           "departure that was still fading")
 
 
 class TestChannelArbitration(SoundFixture):
@@ -907,10 +1175,33 @@ class TestLayout(unittest.TestCase):
         self.assertEqual(self.sym["SND_VOICE_C"], a + 2 * size)
 
     def test_everything_lives_below_the_bank_window(self):
-        """snd_update runs every frame, so none of it may be paged out."""
+        """snd_update runs every frame, so none of it may be paged out.
+
+        The two jump descriptors are in the low 16K with the other three rather
+        than in bank 4, which had the room. They are 16 bytes; keeping all five
+        under one comment block is worth that, and both call sites are bank-4
+        code -- so a descriptor IN bank 4 would be an LDIR whose source is the
+        window, which works only for as long as nobody moves the call.
+        """
         for name in ("SND_INIT", "SND_UPDATE", "SND_FIRE", "SND_EXPLOSION",
-                     "SND_HIT", "SND_VOICE_A", "SND_MIXER", "SND_MIX_MASK"):
+                     "SND_HIT", "SND_JUMP_OUT", "SND_JUMP_IN",
+                     "SND_FX_JUMP_OUT", "SND_FX_JUMP_IN",
+                     "SND_VOICE_A", "SND_MIXER", "SND_MIX_MASK"):
             self.assertLess(self.sym[name], 0x4000, name)
+
+    def test_a_jump_outranks_every_battle_effect(self):
+        """A rare, deliberate, world-stopping event against a laser shot.
+
+        It cannot be observed today -- priorities are only compared within a
+        channel and the jump has C to itself -- which is exactly why it is
+        stated here rather than left to a runtime test that would pass whatever
+        the number was. Section 12 promises C the alerts as well, and on the
+        day they arrive this is the line that decides who wins.
+        """
+        jump = self.sym["SND_PRI_JUMP"]
+        for name in ("SND_PRI_HIT", "SND_PRI_FIRE", "SND_PRI_EXPLOSION"):
+            self.assertGreater(jump, self.sym[name],
+                               f"a jump does not outrank {name}")
 
     def test_the_mixer_masks_only_ever_clear_bits(self):
         """Each channel unmutes itself and nothing else, bit 6 included."""
