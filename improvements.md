@@ -160,3 +160,63 @@ says otherwise.
 What is NOT measured by anything today: whether delaying the Frigate to mission
 4 makes missions 1-3 harder. Nothing scripted buys one, so only a human can
 answer it.
+
+---
+
+# 2. The jump bar should be one pixel wide, always
+
+**Asked for:** the bar that erases and reveals each ship on a jump should be
+**1 pixel** wide, in and out, at every zoom.
+
+It is 4 pixels today — `JFX_WIDTH` is a whole byte, because Mode 1 packs four
+pixels into one and the bar is drawn with byte fills.
+
+## The primitive already exists and is exactly right
+
+`gfx_vline` in `src/gfx/line.asm` is *"a one-pixel-wide vertical line"*, takes
+`HL` = x in 0..319 rather than a byte column, and **clips against the tactical
+viewport itself** — so unlike `scr_fill_rect` it cannot spill into the context
+bar or the HUD. Every marker, the move disc and the sensor view already draw
+through it.
+
+So drawing the bar is a solved problem. The awkward part is the other half.
+
+## The real difficulty: the bar becomes finer than the thing that erases it
+
+The effect is a **moving mask**, and the mask is `scr_fill_rect`, which works
+in whole bytes. So today the bar and the black edge behind it move together
+because both are byte-granular. Make the bar one pixel and they no longer
+agree: the black can only ever end on a 4-pixel boundary, and the bar can sit
+anywhere.
+
+Three ways out, in order of preference:
+
+1. **Keep the STEP byte-granular; only the bar gets thinner.** The bar sits at
+   the leading edge of the black, `x = col * 4`, and is one pixel instead of
+   four. Nothing else changes, the mask and the bar still agree exactly, and
+   the motion is the same 8-pixel-a-step it is now. **This is almost certainly
+   what was wanted** — the complaint is that the line is fat, not that it moves
+   coarsely.
+2. **Step in pixels and round the mask down**, so the black always ends at or
+   just behind the bar. Smoother motion, at the cost of the mask lagging the
+   bar by up to 3 pixels — which shows as a sliver of un-erased ship sitting
+   in front of the line. Whether that reads as a flaw or as a leading edge is
+   a question for a picture, not for a paragraph.
+3. Read-modify-write the mask at pixel granularity. Correct, and far more
+   expensive per step than either of the above in a routine that already
+   repaints its whole trail every step.
+
+**Take (1) unless a frame of (2) looks better.** It is the smallest change that
+answers what was asked.
+
+## What to check when it is done
+
+- **Both buffers.** The vanish paints the buffer that was on show a step ago,
+  so a bar drawn into one only is on screen every other frame — a flicker on
+  the machine and nothing at all in a front-buffer test.
+- **Look at it.** One pixel of ink 1 on black at 320×200 is thin. It may read
+  as a scratch rather than as an edge, and it may disappear entirely against
+  the blue lattice. That is exactly the kind of thing no test reports.
+- The trail bug is still there to fall into: a bar standing proud of its sprite
+  is rubbed out by the *sprite's* dirty rectangle, not the band's, so the rows
+  above and below still need blacking across the whole run.
