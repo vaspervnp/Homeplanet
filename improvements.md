@@ -637,3 +637,91 @@ mission gives a player nothing to play against moment to moment; one that
 ticks constantly becomes wallpaper. That is a judgement to make by watching
 somebody play, and this project has a recorder — `tools/record.py` — for
 exactly that kind of question.
+
+---
+
+# 7. Double the fleet's capacity
+
+**Asked for:** twice the fleet capacity — `ENT_PLAYER_MAX` from 28 to 56, and
+`ENT_MAX` from 48 to 76.
+
+**This one fights three measured limits, and one of them is a hard break rather
+than a cost.** None of that means don't; it means know the bill before signing.
+
+## It breaks the save, and that is arithmetic not opinion
+
+`FLEET.DAT` is **two raw sectors, `FLEET_BLOCK_SIZE` 1024 bytes**, with a
+four-byte header in front of the fleet in the same block so a save is two
+writes from one address rather than a gather.
+
+```
+28 ships x ENT_SIZE 20 + 4  =   564   fits 1024
+56 ships x 20         + 4  =  1124   DOES NOT
+```
+
+So doubling the fleet **needs a third sector**, or a narrower per-ship record
+in the save than the 20 bytes it holds in RAM. Both are real work and the
+second is the better one — most of `ENT_SIZE` is per-frame state (target,
+timer, order, dest) that a restored fleet does not need and `mis_setup` would
+overwrite anyway. A save record of position, yaw, class, hull, squad and load
+is nine or ten bytes, which fits 56 ships in one sector with room to spare and
+would be worth doing even at 28.
+
+## The memory: the entity table has to leave the low 16K
+
+`entities` is `ENT_MAX * 20` — 960 bytes today, **1520 at 76**. The low 16K has
+about 512 free and must keep ~450 for the test scratch, so the extra 560 bytes
+are not there.
+
+They do not have to be: **the blitter never reads the entity table.** It reads
+`phase4_vis`, so `entities` is not touched between `class_tier_addr` and
+`class_blit_done` and could sit in bank 4, which has ~5100 free.
+
+**The cost is not bytes, it is test call sites.** CLAUDE.md's own rule —
+*"Code moves for free; data costs a hundred test call sites"* — and this is
+precisely that: dozens of tests read `ENTITIES` with `read_ram` and would all
+need `read_bank4`. It is mechanical and it is a day.
+
+`phase4_vis` is 6 bytes an entity and **must stay in the low 16K** — the
+blitter does read that one. 76 entities is 456 bytes against 288, so +168 in
+the tightest 16K there is.
+
+## The frame rate is the ceiling, and it does not move
+
+Measured, from CLAUDE.md's own budget table: **24 entities cost ~530,000
+T-states and run at 5.8-6.5 fps against a 12.5 target.** Going from 21 to 31
+costs a third of a frame. Most of the cost is linear in the entity count and
+the z-sort is O(n²).
+
+So a *fleet* of 56 in the air at once is not a slower game, it is a different
+one — somewhere near 2 fps. **The table already holds more than the frame can
+draw**, which is why raising `ENT_MAX` was called raising the wrong ceiling.
+
+Two things make it less bleak than that, and both are real:
+
+- **`phase4_group` consolidates at wide zoom.** Sixteen entities become two
+  blits at the widest steps and the frame rate goes *up*, from 4.75 to 6.25.
+  A large fleet is affordable **while the player is zoomed out**, which is how
+  a large battle is actually watched.
+- **The optimisations CLAUDE.md names are unspent**: caching each entry's depth
+  beside its index cuts the sort comparison from ~140 T to ~40, and a
+  high-water mark stops `phase4_fly` and `phase4_project` walking empty slots.
+  Neither has been done.
+
+## `FORM_SLOTS` is 16 and nothing says so
+
+A squadron with more than sixteen ships **shares formation slots** — two ships
+at the same point. It works, it is invisible, and it becomes the normal case
+the moment a fleet can be 56. Doubling the fleet without touching this means
+doubling the number of ships flying inside each other.
+
+## What I would do instead, and why it is not evasion
+
+**Narrow the save record first.** It is the one piece of this that is pure gain:
+it is needed for any increase at all, it halves the save's size at the current
+28, and it removes a limit nobody has hit yet rather than one everybody will.
+
+Then raise `ENT_PLAYER_MAX` **as far as the frame rate allows and no further**,
+measured with `tools/balance.py` and by watching the frame counter — not to 56
+because 56 is twice 28. The honest number is somewhere in the thirties, and it
+is a measurement rather than a design decision.
