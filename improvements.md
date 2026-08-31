@@ -725,3 +725,94 @@ Then raise `ENT_PLAYER_MAX` **as far as the frame rate allows and no further**,
 measured with `tools/balance.py` and by watching the frame counter — not to 56
 because 56 is twice 28. The honest number is somewhere in the thirties, and it
 is a measurement rather than a design decision.
+
+---
+
+# 8. `J` starts a countdown from ten, and `ESC` cancels it
+
+**Asked for:** pressing `J` begins a countdown from 10. `ESC` cancels it. If it
+reaches 0, the jump happens.
+
+## The decision the whole feature turns on: does the world keep running?
+
+**It must.** If the countdown freezes the battle the way the briefing and the
+jump wipe do, then **nothing can happen during it that would make anyone press
+ESC** — and a cancel nobody would ever use is decoration. The ten seconds only
+mean something if they are ten seconds of live battle.
+
+That makes this a real mechanic rather than a delay: pressing `J` is
+**announcing that you are leaving**, and then surviving the announcement. It
+fits §1's fiction exactly — a jump drive spools, and a fleet spooling one is a
+fleet not manoeuvring.
+
+And it is why `ESC` is the right key rather than `J` again: you cancel because
+something arrived, and `ESC` already means "get me out of this mode" for the
+move disc and the build panel.
+
+## It costs game time, and that is measurable
+
+Ten seconds of unattended battle per jump, seven jumps in the campaign as it
+stands. CLAUDE.md records the precedent precisely: a **non-freezing jump reveal
+of two seconds cost `tools/balance.py` two ships in mission 4 where it loses
+none**. Ten seconds, eight times, is a bigger change than that.
+
+So this is a **balance change wearing a UI change's clothes** and must be
+measured, not reasoned about:
+
+- `tools/balance.py` before and after, with the control (520 T of `djnz` in
+  `demo_update`, changing nothing else) — CLAUDE.md's figure is stale, so
+  measure HEAD yourself;
+- `tools/waverate.py`, because `mis_timer` keeps advancing and the countdown is
+  ten more seconds in which a wave can arrive. The floor is 70%.
+
+Whether that cost is *wanted* is the owner's call, not a defect. Announcing
+your departure and paying for it is a fair mechanic. But nobody should discover
+the price by accident.
+
+## Where `ESC` sits, and it is not free
+
+`ESC` is already overloaded and the order is deliberate. `phase4_commands`
+opens the orders menu on `ESC` **only when `disc_active` and `eco_build_open`
+are both clear**, because while either is up `order_update` reads it as
+"cancel". `ctx_classify` re-derives the same order so the bar names the key the
+player is most likely to press.
+
+A countdown is a **fourth** mode in that chain and has to be inserted in the
+right place — above the menu, beside the disc and the panel. Get the order
+wrong and pressing `ESC` to abort a jump opens the orders menu instead, which
+is the exact class of bug the context bar was built to make visible.
+
+## The player has to SEE it, and the bar is where
+
+A countdown the player cannot read is a ten-second pause followed by a
+surprise. The context bar is the right place and already has the vocabulary:
+
+- **`PAUSED` is the precedent** — a state, not a key, drawn in ink 3, §2's
+  attention colour. `JUMPING 7  ESC CANCEL` is the same shape.
+- It repaints only when the words change, and **the number changes every
+  second**, so this is the first thing on the bar that repaints on a timer.
+  Nine repaints over the countdown is nothing, but `ctx_changed` compares
+  against a shadow and the seconds counter has to be part of what it compares
+  or the bar will show `10` for ten seconds.
+
+The HUD's `JUMP` label in ink 3 says the jump is *available*; the bar would say
+it is *happening*. Those are different statements and both are wanted.
+
+## The counter itself
+
+Ten seconds at the measured 5 fps is **50 game frames**, which is one byte, and
+`mis_timer` already proves the pattern — a counter stepped once per
+`mis_update` and reset in exactly one place. Count game frames and divide by
+five for the display, or hold a seconds byte and a frames-within-the-second
+byte; the second is cheaper than a divide and this game has only one divide for
+a reason.
+
+**`order_paused` must stop it**, the way it already stops `mis_timer`. A
+tactical pause that let the countdown run would be a pause that jumps you out
+of the mission.
+
+## What it does not need
+
+No new screen, no new sound necessarily — though `snd_fx_jump_out` currently
+fires when the wipe starts, and a countdown gives it somewhere better to begin.
+A tick per second would be the obvious addition and is a separate decision.
