@@ -589,14 +589,24 @@ class TestTheSalvage(DerelictFixture):
                              f"the frigate was unlocked at step {step}, with the "
                              f"hull still adrift at {self.pos(derelict)}")
 
+            just_picked = False
             if self.ent(corvette, ENT_TOW) == derelict and picked_up is None:
                 picked_up = step
+                just_picked = True
+
             if picked_up is None:
                 closest = min(closest, self.apart(self.pos(corvette), where))
-            else:
+            elif not just_picked:
                 #  slv_drag copies six bytes: the hull goes where the tug goes.
                 self.assertEqual(self.pos(derelict), self.pos(corvette),
                                  "the hull stopped following the corvette")
+            #  NOT on the sample the tow first appears in. slv_tow_step's
+            #  @slv_outbound writes ENT_TOW and RETURNS -- slv_drag does not run
+            #  until the next frame -- so there is exactly one frame in which
+            #  the tow is set and the hull has not moved yet. A ten-frame sample
+            #  landing in it made this test fail depending on where the frame
+            #  boundary fell: it fails on a pristine build too, given 2,600
+            #  T-states of djnz in demo_update and nothing else changed.
         else:
             self.fail(f"the derelict was never delivered "
                       f"(corvette at {self.pos(corvette)}, "
@@ -610,8 +620,18 @@ class TestTheSalvage(DerelictFixture):
         #  world units -- plus however far the corvette travels between two
         #  samples. A quarter would sit inside that slop and fail on the
         #  arithmetic rather than on the corvette.
-        self.assertLess(closest, start // 2,
-                        f"the corvette closed only to {closest} of {start}")
+        #  ...and only when there WAS a distance to close. `closest` is
+        #  updated on the samples before the pickup, so a corvette that takes
+        #  hold on the very first one leaves it at its starting value -- which
+        #  is not a corvette that failed to move, it is one that was already
+        #  inside the tow's reach. Whether that happens is decided by the frame
+        #  rate: a nearly empty board runs at the full 12.5 fps rather than the
+        #  5 this fixture's comments assume, so ten emulator frames can be one
+        #  game frame or two. Asserting unconditionally made the test depend on
+        #  which.
+        if picked_up > 0:
+            self.assertLess(closest, start // 2,
+                            f"the corvette closed only to {closest} of {start}")
 
         moth = self.pos(self.byte("MOTH_SLOT"))
         self.assertLess(self.apart(self.pos(corvette), moth), 3000,

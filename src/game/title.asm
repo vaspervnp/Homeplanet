@@ -21,6 +21,19 @@ TITLE_CREDIT_Y      equ 186
 TITLE_PROMPT_Y      equ 160
 TITLE_BLINK_BIT     equ %00000100   ; ~4 game frames on, ~4 off
 
+;  ...and the second way in. `T` ALREADY MEANS TOW once a mission is running --
+;  it sends the selected squadron's Salvage Corvettes after wrecks -- and there
+;  is no clash, because SPACE and T are the only live keys on this screen and
+;  the tow order does not exist until there is a mission. But it is one letter
+;  with two meanings, and this project has been here before: `,` and `.` step
+;  the target with the build panel shut and the price list with it open, and
+;  THE CONTEXT BAR EXISTS BECAUSE THAT WAS INVISIBLE. So whatever this screen
+;  says about SPACE it says about T, in the same words, one line below.
+;
+;  It does NOT blink. The blink belongs to the primary call to action, and a
+;  second blinking line reads as two things competing rather than as "and also".
+TITLE_TUT_Y         equ 172
+
 ;  The ships, as (x, y) in the flight below the title.
 TITLE_SHIP_Y        equ 104
 
@@ -44,6 +57,14 @@ title_open:
 ;  Uses: everything
 ; ----------------------------------------------------------------------------
 title_key:
+    ;  `T` first, and it does not come back: tut_enter clears title_shown and
+    ;  builds the tutorial's own world. demo_update goes on to call title_draw
+    ;  once more in this same frame, exactly as it does after SPACE, and the two
+    ;  frames of mis_wipe tut_enter schedules are what pay for that.
+    ld a,KEY_T
+    call key_hit
+    jp c,tut_enter
+
     ld a,KEY_SPACE
     call key_hit
     ret nc
@@ -95,6 +116,13 @@ title_draw:
     ld c,TITLE_PROMPT_Y
     call txt_draw
 @title_no_prompt:
+
+    ;  ...and the tutorial, steady. See TITLE_TUT_Y for why it is here at all
+    ;  and why it does not blink.
+    ld hl,title_tut
+    ld b,TITLE_TUT_X
+    ld c,TITLE_TUT_Y
+    call txt_draw
 
     ld hl,title_credit
     ld b,TITLE_CREDIT_X

@@ -142,7 +142,26 @@ demo_init:
     ;  bank-4 stand-ins back and the game carries on looking like it did
     ;  before there were eight classes.
     call lib_init
+    ;  ...and fall through.
 
+
+; ----------------------------------------------------------------------------
+;  demo_reset -- everything demo_init does except reading the sprite libraries
+;
+;  Split out for the TUTORIAL, and the split IS that feature's safety argument.
+;  `T` on the title screen builds a stage of its own over the top of the
+;  campaign's state, and leaving it comes here -- which spawns a fresh fleet,
+;  READS FLEET.DAT BACK OFF THE DISC and lays the mission out again, exactly as
+;  a cold boot does. So the campaign that comes back is DERIVED rather than
+;  remembered, and the only way the tutorial could damage one is by writing the
+;  disc. It never does; see game/tutorial.asm.
+;
+;  lib_init stays above the line because it is the one thing here that is
+;  expensive: it spins the drive up and reads LIB_SECTORS into each of three
+;  banks, which is a second and a half, and the libraries do not change.
+;  Uses: everything
+; ----------------------------------------------------------------------------
+demo_reset:
     xor a
     ld (phase4_drawn_a),a
     ld (phase4_drawn_b),a
@@ -195,6 +214,14 @@ demo_update:
     ;  them to key_hit -- which is why a keypress shorter than a game frame is
     ;  no longer lost.
     call key_consume
+
+    ;  The tutorial's gate check, and it is HERE rather than on the playing
+    ;  path for one specific reason: step 6 is gated on the squadron breakdown
+    ;  having been opened AND closed, and while info_shown is set this routine
+    ;  returns four branches below without ever reaching the game. A gate called
+    ;  from down there would never see the page at all. About thirty T-states
+    ;  when the tutorial is not running -- a load, an OR and a RET.
+    call tut_update
 
     ;  The title screen comes before everything, including the first mission's
     ;  briefing -- which mis_init has already opened behind it.
@@ -312,12 +339,24 @@ demo_update:
     call phase4_fly
     call cbt_update
     call eco_update
+
+    ;  THE TUTORIAL IS NOT A MISSION. No objective to meet, no clock, and no
+    ;  attack waves: mis_update would read whichever row of mission_table the
+    ;  campaign is on and count the tutorial's own hostile towards its CLEAR,
+    ;  and wave_update would start sending Vekhar at a player who is still being
+    ;  told what the arrow keys do. The gates run from the top of this routine
+    ;  instead. See game/tutorial.asm.
+    ld a,(tut_active)
+    or a
+    jr nz,@p4_no_mission
+
     call mis_update
     ;  The attack-wave clock, on mis_timer's own tick and immediately after it
     ;  -- including in the sensor view below, which runs the battle at triple
     ;  speed but still advances the mission once. Three minutes is three
     ;  minutes whichever view the player is in.
     call wave_update
+@p4_no_mission:
     ;  Sensors run the battle at triple speed (section 9): the view exists for
     ;  the long transits, and there is nothing to look at while they happen.
     ld a,(view_sensors)

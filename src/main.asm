@@ -99,6 +99,11 @@ game_main:
 ;  while the game is stopped. It is after waves.asm because it calls
 ;  wave_pct_of, and after phase4 for HUD_HP_ALARM and the pens.
     include "game/squadinfo.asm"
+;  The tutorial's equates and the dozen bytes of it the frame loop and the
+;  tests read. Its CODE is in bank 4 -- see game/tutorialrun.asm -- and the
+;  split is game/order.asm's: data down here so read_ram works, code up there
+;  because it runs on a keypress and at the two ends of a frame.
+    include "game/tutorial.asm"
 
 ; ----------------------------------------------------------------------------
 ;  Generated lookup tables. Must come last: they are page-aligned and would
@@ -380,6 +385,13 @@ bank4_start:
 ;  game/ctxbar.asm and gfx/markproj.asm. It is still bank code by the narrow
 ;  rule in game/shipclass.asm: nothing pages bank 4 out during the simulation.
     include "game/salvage.asm"
+;  The tutorial. Bank code by the narrow rule: tut_enter runs from a keypress
+;  on the title screen, tut_update from the very top of demo_update and
+;  tut_draw from its very end, and none of the three can be reached from
+;  between class_tier_addr and class_blit_done. After campaignrun.asm and
+;  ctxbar.asm because it calls mis_make_enemy, mis_count_enemies and
+;  str_index, and after ordercmd.asm for order_dest_addr.
+    include "game/tutorialrun.asm"
 ;  The cached half of the marker pass. It runs only when the camera hash has
 ;  changed and always with the window at rest, so it is bank-4 code by the
 ;  same rule as everything above it -- but it is the ONLY thing here that runs
@@ -784,6 +796,52 @@ ENDIF
 ;  above: the longest name has to clear the count column, and RASM cannot be
 ;  asked for the longest of eight strings.
     assert INFO_NAME_X + ((class_name_end - class_name) / CLASS_COUNT) * TXT_CHAR_W_BYTES <= INFO_COUNT_X, "the class names would run into the squadron page's count"
+
+; ----------------------------------------------------------------------------
+;  The tutorial (game/tutorial.asm, game/tutorialrun.asm).
+;
+;  Row C of the HUD strip is forty characters and the tutorial takes all of it.
+;  Nothing at run time would catch a line that runs long: txt_draw clips at the
+;  SCREEN edge and not at a field, so an over-length instruction is silently
+;  written across the step counter beside it.
+; ----------------------------------------------------------------------------
+    assert (tut_table_end - tut_table) / TUT_STEP_SIZE == TUT_STEPS, "the tutorial's step table is not TUT_STEPS rows"
+
+;  The counter says "/16" in so many bytes, so the number of steps is on the
+;  screen as a literal and has to agree with the table. There is no arithmetic
+;  that turns TUT_STEPS into two characters at assembly time.
+    assert TUT_STEPS == 16, "the tutorial no longer has sixteen steps, and the /16 on the screen says it does"
+
+;  ...and there has to be a line for every one of them. A SUM, with the same
+;  limitation as the class-name check above -- one long line and three short
+;  ones would slip through -- so the exact per-line check is a test:
+;  tests/test_tutorial.TestTheWords.
+    assert tut_text_end - tut_text <= TUT_STEPS * (TUT_TEXT_CHARS + 1), "the tutorial's lines do not fit row C"
+    assert tut_text_end - tut_text >= TUT_STEPS * 2, "there are fewer tutorial lines than steps"
+
+;  The row's three fields, each against the start of the next one.
+    assert TUT_TEXT_X + TUT_TEXT_CHARS * TXT_CHAR_W_BYTES <= TUT_NUM_X, "a tutorial line would run into the step counter"
+    assert TUT_NUM_X + 2 * TXT_CHAR_W_BYTES <= TUT_OF_X, "the step number would run into the /16"
+    assert TUT_OF_X + (tut_text - tut_of_text - 1) * TXT_CHAR_W_BYTES <= SCR_BYTES_PER_LINE, "the tutorial's step counter runs off the screen"
+
+;  tut_attacking reaches ENT_ORDER from the flags byte with two INCs, because
+;  BC is the loop counter and cannot hold an offset. Separate the two fields and
+;  it reads ENT_SQUAD instead, which is a plausible number and would make the
+;  fight step fire the moment a ship joined squadron 2.
+    assert ENT_ORDER == ENT_FLAGS + 2, "tut_attacking reaches ENT_ORDER with two INCs"
+
+;  The tutorial's own hostile is placed by index into the HOSTILE region, and
+;  its slot has to be free for the whole stage: nothing else spawns one, and
+;  the tutorial's fleet is six ships and a Mothership.
+    assert (tut_fleet_end - tut_fleet) / 2 == TUT_SHIPS, "the tutorial's fleet table is not TUT_SHIPS ships"
+    assert TUT_SHIPS + 1 <= ENT_PLAYER_MAX, "the tutorial's fleet does not fit the player's region"
+
+;  The second line on the title screen, against the credit line below it and
+;  against the blinking prompt above it. Both are drawn by txt_draw, which
+;  clips at the screen edge and nowhere else.
+    assert TITLE_PROMPT_Y + TXT_CHAR_H <= TITLE_TUT_Y, "the tutorial prompt runs into PRESS SPACE TO START"
+    assert TITLE_TUT_Y + TXT_CHAR_H <= TITLE_CREDIT_Y, "the tutorial prompt runs into the credit line"
+    assert TITLE_TUT_X + (title_tut_end - title_tut - 1) * TXT_CHAR_W_BYTES <= SCR_BYTES_PER_LINE, "the tutorial prompt runs off the screen"
 
 ;  The formation names are indexed by WALKING terminators, so a list shorter
 ;  than FORM_COUNT does not draw the wrong word -- it walks off the end of the

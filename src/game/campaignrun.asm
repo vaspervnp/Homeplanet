@@ -485,6 +485,16 @@ mis_count_enemies:
 ;  Uses: everything
 ; ----------------------------------------------------------------------------
 mis_jump:
+    ;  THE TUTORIAL'S `J` NEVER GETS PAST THIS LINE, and the check is here
+    ;  rather than in order_update because there are two doors into this
+    ;  routine: the key itself, and the orders menu, which INJECTS that key.
+    ;  Everything below writes the campaign -- fleet_save, mis_index,
+    ;  fleet_disc_save, mis_setup -- so a tutorial that reached it would
+    ;  destroy a game in progress from the title screen. See game/tutorial.asm.
+    ld a,(tut_active)
+    or a
+    jp nz,tut_jump
+
     ld a,(mis_complete)
     or a
     jr z,@mis_no_jump

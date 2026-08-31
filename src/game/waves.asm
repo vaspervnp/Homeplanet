@@ -616,6 +616,16 @@ wave_offset:
 ;  Uses: everything
 ; ----------------------------------------------------------------------------
 wave_draw:
+    ;  The tutorial owns this row outright while it is running, and wave_dirty
+    ;  goes with it -- one dirty flag for row C whoever is drawing there, which
+    ;  is what makes the coupling with phase4_hud and mis_wipe free. The row is
+    ;  eighty BYTES, which is forty characters, and HULL nnn% and INCOMING
+    ;  already take the first twenty of them; there is no sharing it with a line
+    ;  of instruction. See game/tutorialrun.asm.
+    ld a,(tut_active)
+    or a
+    jp nz,tut_draw
+
     call wave_changed
     ld hl,wave_dirty
     ld a,(hl)

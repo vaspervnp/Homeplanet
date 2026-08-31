@@ -23,6 +23,16 @@ title_prompt:
 
 TITLE_PROMPT_X      equ 20
 
+;  18 characters at 2 bytes is 36, so 22 bytes of margin each side. It names
+;  the key the same way the line above it does -- "PRESS SPACE TO START" and
+;  "T FOR THE TUTORIAL" are the same sentence about two keys, and the whole
+;  point is that one is not more discoverable than the other.
+title_tut:
+    defb "T FOR THE TUTORIAL",0
+title_tut_end:
+
+TITLE_TUT_X         equ 22
+
 
 ;  --- the flight: x in BYTES (word, signed -- spr_x is a byte column, not a
 ;      pixel), y, sprite, width in bytes, height ------------------------------

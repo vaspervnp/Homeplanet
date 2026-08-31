@@ -3126,6 +3126,61 @@ spend instead.
 assert's 42 and `T TOW` needs six; the bar names the *modal* keys whose meaning
 changes, and `H`, `A`, `G`, `F`, `R` and `I` are not on it either.
 
+### The tutorial, on `T` from the title screen
+
+Sixteen steps in five acts, in dependency order — you cannot command what you
+cannot see, and you cannot fight before you can move. **Every step is gated on
+the player DOING the thing**, not on a key to continue, so a step is a
+*condition* rather than a prompt and `tut_table` is sixteen rows of (gate,
+entry act). Adding one is adding a row.
+
+**It is not a mission, and the proof is the exit path.** `tut_exit` restores no
+snapshot: it calls `demo_reset`, which does everything `demo_init` does bar
+`lib_init` and **re-reads `FLEET.DAT` off the disc**. The campaign is *derived*
+rather than remembered, so the only way the tutorial could damage one is by
+writing the disc — and it never does. Reading the campaign back afterwards IS
+reading the disc, which is what makes the safety test cheap and real.
+
+`mis_jump` is intercepted at its first instruction while `tut_active` is set,
+which covers both doors — the `J` key and the orders menu, which *injects*
+`KEY_J`. **No jump wipe on the way out**: `jfx_vanish` is seven seconds and
+sets `jfx_armed`, which would arm a seventeen-second reveal on the next
+briefing dismissed — mission 1's, which `demo_reset` is about to open.
+
+`mis_update` and `wave_update` are skipped, or `mis_update` reads whichever
+`mission_table` row the *campaign* is on and counts the tutorial's hostile
+towards its objective.
+
+#### Seven things the design got wrong, and two of them stalled the player
+
+- **Step 5 could not be satisfied.** §3 gave the tutorial one squadron and
+  gated the step on "the selection changed" — but `squad_select` **refuses a
+  squadron with no ships**, so no number key did anything until `d` was taught
+  four steps later. The stage fields two squadrons from the first frame.
+- **Step 14 was a stall.** "The hostile is gone" plus a scan for the attack
+  order can never fire once the hostile is dead: `order_update` sets
+  `ENT_ORDER_ATTACK` and `cbt_update` spends it **inside the same frame**, both
+  after `tut_update` has run, and four interceptors kill it in about three
+  seconds. The gate watches `key_hit(KEY_A)` too.
+- **HUD row C is 40 characters, not 80** (`TXT_CHAR_W_BYTES` is 2) **and it is
+  not free** — `wave_draw` writes `HULL nnn%` there unconditionally. The
+  tutorial takes the row rather than sharing it.
+- Step 7's "and the ships arrive" is three minutes at `PHASE4_STEP` if the
+  player drives the disc to `DISC_LIMIT`. The gate is that the *station moved*,
+  which is what "an order issued" means and still tells ENTER from ESC.
+- **The bank-4 estimate was out by 2×** — 1,529 bytes, not ~700, because the
+  gates and the setup are code and not text. `DISC.BIN` headroom is **1,234**
+  now, not the 4,598 this file quoted.
+- The stage opens at **pitch 24**: at pitch 0 the planar world collapses to a
+  horizontal line, which is a poor thing to say "the arrow keys turn the view"
+  over.
+
+> **`tut_table` is not called `tut_steps`, and that is RASM being
+> case-insensitive again** — it collided with the `TUT_STEPS` equate, exactly as
+> this file warns. And `TUT_STEPS`/`TUT_SHIPS` are literals with asserts rather
+> than `(end - start)/n`, because RASM cannot resolve an equate derived from two
+> bank-4 labels at symbol-export time.
+
 ### The squadron breakdown
 
 `I` puts the selected squadron on the screen: one row per class it actually
