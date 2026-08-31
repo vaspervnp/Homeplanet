@@ -153,13 +153,22 @@ def dismiss_title(c: cpc.CPC) -> None:
     raise RuntimeError("could not get past the title screen")
 
 
-def wait_for_briefing(c: cpc.CPC, frames: int = 80) -> bool:
+def wait_for_briefing(c: cpc.CPC, frames: int = 600) -> bool:
     """Give a briefing that is on its way a chance to appear.
 
-    A jump is not instant. mis_jump increments mis_index, writes the fleet to
-    the DISC -- a kilobyte, with the drive spinning up, so about a third of a
-    second -- and only then opens the briefing. For that whole stretch
-    mis_index already says the new mission and mis_briefing still says zero.
+    A jump is not instant, and it is now a long way from it. mis_jump runs the
+    VANISH to completion first -- 359 emulator frames measured since the wipe
+    was slowed by ten, and never fewer than 324 whatever is on the screen -- then
+    increments mis_index, writes the fleet to the DISC (a kilobyte, with the
+    drive spinning up, so about a third of a second), and only then opens the
+    briefing. For that whole stretch mis_index already says the new mission and
+    mis_briefing still says zero.
+
+    THE DEFAULT IS SIZED ON THE VANISH and has to be. It was 80 frames, which
+    was generous against the old 35-frame sweep and is less than a quarter of
+    the new one -- so every test that jumped would have found no briefing,
+    fallen through to pressing ENTER at a screen that was not up yet, and
+    reported something that had nothing to do with what it was testing.
 
     dismiss_briefing used to read the flag once and return when it was clear,
     so a test that pressed J and looked immediately found no briefing, decided
@@ -205,20 +214,34 @@ def dismiss_briefing(c: cpc.CPC) -> None:
     raise RuntimeError("could not get past the mission briefing")
 
 
-def wait_for_jump_wipe(c: cpc.CPC, frames: int = 300) -> bool:
+def wait_for_jump_wipe(c: cpc.CPC, frames: int = 1400) -> bool:
     """Let the jump's reveal finish before handing the machine back.
 
     Dismissing a briefing that a JUMP put up starts the second half of the
-    wipe: a line crosses the playfield and the mission appears behind it, over
-    about eight game frames, and everything ahead of the line is black while it
-    does. The game is running underneath -- the reveal is an overlay and does
-    not stop the world -- so only a test that reads PIXELS can tell, and one
-    did: test_enemies_draw_in_the_enemy_colour placed a picket, ran forty
-    frames and found one pen-3 pixel, because the line had not reached them
-    yet.
+    wipe: a bar crosses each ship and the mission appears behind it, and
+    everything ahead of a bar is black while it does. The world is stopped
+    under it, so a test that ran frames here would be watching a still
+    picture -- and one that read PIXELS would read a masked one, which is what
+    test_enemies_draw_in_the_enemy_colour did: it placed a picket, ran forty
+    frames and found one pen-3 pixel, because the bars had not reached them.
+
+    THE REVEAL IS SEVENTEEN SECONDS NOW, not one and three quarters -- 857
+    emulator frames measured -- so the BOUND is 1400 rather than 300. That is
+    the single largest thing the slowdown costs the suite: about forty tests
+    jump, and each of them now waits out roughly 1200 frames of transition it
+    is not interested in.
+
+    THE STEP STAYS AT FIVE, and that is worth a line because coarsening it to
+    ten is the obvious economy and it is not free. It decides how many LIVE
+    frames run before the machine is handed back, and tools/balance.py comes
+    out with a different campaign at 5 and at 10 -- the same size of swing as
+    the whole ten-times-slower wipe produces. Two hundred and eighty read_ram
+    calls a jump is nothing; a measuring tool that moves when the harness's
+    poll interval moves is not.
 
     Same shape as wait_for_briefing one level up, and bounded for the same
-    reason: most briefings are not a jump's and never start a sweep at all.
+    reason: most briefings are not a jump's and never start a sweep at all --
+    which is why the bound is not simply raised until nothing can hit it.
     """
     sym = symbols()
     if "JFX_MODE" not in sym:

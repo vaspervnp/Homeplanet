@@ -13,11 +13,16 @@
 ;  screen gets its OWN short bar, which starts a few pixels to its left, walks
 ;  across it, and stops a few pixels past its right-hand side. All of them move
 ;  together, so the vanish is as long as one ship is wide rather than as long as
-;  the screen: 0.68 s against 0.86, measured, and a fifth of that is the two
-;  dark passes at the end. Arriving in the next mission the same bars make the
-;  same walk and the ships come out from behind them, in 1.76 s against 1.9 --
-;  and the reveal barely moved, because it is bounded by the GAME FRAME RATE
-;  and not by the distance the bars travel. See JFX_REVEAL_STEP.
+;  the screen. Arriving in the next mission the same bars make the same walk and
+;  the ships come out from behind them.
+;
+;  ...and then, once THAT had been seen: "Θέλω η ταχύτητα του jump in και του
+;  jump out να είναι 10 φορές πιο αργή. Και ο ήχος να είναι αντίστοιχα τόσος."
+;  So the vanish is 7.2 seconds where it was 0.70 and the reveal 17.1 where it
+;  was 1.76, and the two sounds are the same lengths -- which took a prescaler
+;  in sys/sound.asm, because a voice's timer is one byte and 300 and 880 do not
+;  fit in it. Where the time actually goes is JFX_VANISH_DWELL, and the note
+;  there is the one to read before changing any of this.
 ;
 ;  WHAT THE TRAVEL IS, WHICH IS THE WHOLE OF THE GEOMETRY
 ;  -----------------------------------------------------
@@ -100,10 +105,12 @@
 ;  and read mis_index straight afterwards.
 ;
 ;  The reveal cannot. It is uncovering a world that does not exist until the
-;  frame loop draws it, so it steps once a GAME frame -- five a second -- and
-;  its step is correspondingly coarser. There is no arrangement of masks that
-;  makes it smoother: a receding mask has to put back what it covered, and the
-;  only place that picture exists is the frame loop's own output.
+;  frame loop draws it, so it can step no oftener than a GAME frame -- five a
+;  second. There is no arrangement of masks that makes it smoother: a receding
+;  mask has to put back what it covered, and the only place that picture exists
+;  is the frame loop's own output. That ceiling is why the two halves need
+;  different dwells for the same slowdown: the vanish is counting vertical
+;  blanks and the reveal is counting frames ten times as long.
 ;
 ;  Nobody sees the two together -- the briefing screen sits between them -- so
 ;  the asymmetry costs nothing on screen.
@@ -187,25 +194,54 @@ JFX_VMARGIN         equ 3
 JFX_SPRITE_W_MAX    equ 7
 JFX_TRAVEL          equ JFX_SPRITE_W_MAX + 2 * JFX_MARGIN
 
-;  How far the bars move in one step, in byte columns.
+;  How far the bars move in one step, in byte columns -- ONE, both halves, the
+;  finest step the screen has.
 ;
-;  THE VANISH steps once per VSYNC it can catch, and with a fleet on the screen
-;  it catches every second or third one: a step is a fill and a bar over a
-;  couple of dozen rows PER SHIP, which is cheaper than the old full-height
-;  line but there are sixteen of them. Two bytes is eight pixels, half what the
-;  full-width line used to move and about seven steps across the longest run,
-;  which is a fifth of a second of bar and reads as motion rather than as a
-;  blink. One byte was tried and is smoother and takes twice as long, and the
-;  run is far too short to spend that on.
+;  TEN TIMES SLOWER, AND WHERE THAT HAD TO COME FROM. "Θέλω η ταχύτητα του jump
+;  in και του jump out να είναι 10 φορές πιο αργή." A bar is a whole BYTE and
+;  the run is JFX_TRAVEL of them, so the whole journey has fourteen places a
+;  bar can stand and no arrangement of arithmetic gives it more: four pixels is
+;  the quantum of a Mode 1 fill. Ten times the duration over a fixed number of
+;  places is therefore ten times the DWELL at each of them, and that is what
+;  the two constants below are. Dropping the step from 2 and 5 to 1 is what
+;  buys back the only resolution there was to buy: fourteen positions rather
+;  than seven and three.
 ;
-;  THE REVEAL steps once a GAME frame, and there is no cheaper coin to pay in:
-;  it is uncovering what the frame loop draws, so it cannot go faster than the
-;  frame loop, which is five a second. THAT and not the distance is what the
-;  arrival costs -- five columns a step is three steps of bar plus the two
-;  cleanup passes, and it still takes about a second and three quarters, most
-;  of which is the two mis_wipe frames and the passes that draw nothing.
-JFX_VANISH_STEP     equ 2
-JFX_REVEAL_STEP     equ 5
+;  It is worth being plain about what that means on the screen. The vanish is
+;  now fourteen positions over about seven seconds, so a bar stands still for
+;  half a second and then moves four pixels; the reveal is fifteen over
+;  seventeen and a half, so a second and a bit. It reads as a series of steps
+;  rather than as a sweep, and the only cure would be a bar that moves at PIXEL
+;  resolution -- which needs an OR-masked partial-byte write, because the fill
+;  ahead of the bar would otherwise erase the part of the ship inside the
+;  bar's own byte, and scr_fill_rect only ever writes whole bytes.
+;
+;  THE VANISH holds each position for JFX_VANISH_DWELL vertical blanks. It
+;  draws on the first of them and waits out the rest, rather than repainting:
+;  the picture is identical either way and a repaint is a fill and a bar per
+;  ship for nothing.
+;
+;  THE REVEAL holds each position for JFX_REVEAL_DWELL GAME frames, and it has
+;  to redraw on every one of them -- the frame loop repaints the whole mission
+;  underneath it every frame, so the mask that hides the part not yet uncovered
+;  has to go back down each time. Only the COLUMN is held.
+JFX_VANISH_STEP     equ 1
+JFX_REVEAL_STEP     equ 1
+
+;  ...and how long a position is held for. BOTH ARE MEASUREMENTS rather than
+;  round numbers, and they had to be: the vanish counts vertical blanks and the
+;  reveal counts game frames, which are about nine blanks each and not a fixed
+;  number of them, and the reveal also spends two frames on mis_wipe that no
+;  dwell covers. 23 and 6 measure 359 ticks and 856 against the 35 and 88 they
+;  replace -- 10.3 and 9.7 times, on mission 1.
+;
+;  The vanish's floor is what the disc write depends on and it is arithmetic,
+;  not a measurement -- every pass costs JFX_VANISH_DWELL whole vertical
+;  blanks whatever is on the screen, so the sweep cannot be shorter than
+;  JFX_VANISH_PASSES * JFX_VANISH_DWELL + 2 = 324 ticks. snd_fx_jump_out is
+;  300 and silent from 279; see its own note in sys/sound.asm.
+JFX_VANISH_DWELL    equ 23
+JFX_REVEAL_DWELL    equ 6
 
 ;  Passes each half makes, rounded UP so the last one is past the end of the
 ;  longest run whether or not the step divides it.
@@ -246,11 +282,11 @@ JFX_INK             equ SOLID_INK_1
 ;  Uses: everything
 ; ----------------------------------------------------------------------------
 jfx_vanish:
-    ;  ...and the sound of it, which is 30 ticks against this sweep's 35 to 41.
-    ;  It starts here rather than anywhere else in mis_jump because the sound
-    ;  belongs to the BARS: they begin together and it is over before the loop
-    ;  below is, which is what keeps it clear of the disc write's DI. See the
-    ;  jump descriptors in sys/sound.asm.
+    ;  ...and the sound of it, which is 300 ticks against this sweep's floor of
+    ;  324. It starts here rather than anywhere else in mis_jump because the
+    ;  sound belongs to the BARS: they begin together and it is over before the
+    ;  loop below is, which is what keeps it clear of the disc write's DI. See
+    ;  the jump descriptors in sys/sound.asm.
     call snd_jump_out
 
     ld a,JFX_OUT
@@ -269,6 +305,17 @@ jfx_vanish:
     call jfx_ships
     call scr_wait_vsync
     call scr_flip
+
+    ;  ...and then hold this column for the rest of its dwell. The counter is
+    ;  in memory rather than in B because scr_wait_vsync uses BC, and a djnz
+    ;  round it would have to push and pop it every blank.
+    ld a,JFX_VANISH_DWELL - 1
+    ld (jfx_dwell),a
+@jfx_hold:
+    call scr_wait_vsync
+    ld hl,jfx_dwell
+    dec (hl)
+    jr nz,@jfx_hold
 
     ld hl,jfx_col
     ld a,(hl)
@@ -343,6 +390,8 @@ jfx_reveal_open:
     ld (jfx_mode),a
     ld a,JFX_REVEAL_PASSES
     ld (jfx_left),a
+    ld a,JFX_REVEAL_DWELL
+    ld (jfx_dwell),a
     ret
 
 
@@ -387,6 +436,16 @@ jfx_update:
     xor a
     ld (jfx_bar_off),a
     call jfx_ships
+
+    ;  The COLUMN moves every JFX_REVEAL_DWELL game frames; the mask above runs
+    ;  on every one of them, and has to -- the frame loop has just redrawn the
+    ;  whole mission underneath it, which is precisely what the bars are here
+    ;  to hide.
+    ld hl,jfx_dwell
+    dec (hl)
+    ret nz
+    ld a,JFX_REVEAL_DWELL
+    ld (hl),a
 
     ld hl,jfx_col
     ld a,(hl)
@@ -810,6 +869,10 @@ jfx_fill:
 
 ;  How many passes of the current half are left.
 jfx_left:           defb 0
+
+;  How much longer the bars stand where they are: vertical blanks in the
+;  vanish, game frames in the reveal. See JFX_VANISH_DWELL.
+jfx_dwell:          defb 0
 
 ;  Set on the frames the sweep is held, when the bars must not be drawn.
 jfx_bar_off:        defb 0

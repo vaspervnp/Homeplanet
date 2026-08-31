@@ -61,6 +61,10 @@ SYS_RAND_SEED = 0x7C4D
 #  About ten emulator frames to a game frame at the rate this actually runs.
 TICKS_PER_GAME_FRAME = 10
 
+#  src/game/waves.asm: the fleet's hull is read on one game frame in four, so
+#  nothing that pokes a hull sees the readout move for up to that long.
+WAVE_READ_EVERY = 4
+
 
 class WaveFixture(unittest.TestCase):
     """One machine per test. Nearly all of these spawn hostiles or damage the
@@ -658,11 +662,22 @@ class TestTheReadout(WaveFixture):
         """The divide is the only one in the game -- eight steps of a restoring
         divide and a quarter-square multiply -- so it is worth walking rather
         than sampling. Off-by-one at either end of the sweep would put a
-        healthy fleet at 99% or a dying one at 1%."""
+        healthy fleet at 99% or a dying one at 1%.
+
+        THE WAIT IS A WHOLE READING PERIOD AND USED TO BE LESS THAN ONE.
+        wave_health runs on one game frame in WAVE_READ_EVERY, which is four,
+        and a game frame is about ten emulator frames -- so a poke can be up to
+        43 emulator frames away from being noticed, measured, and this waited
+        40. It passed on the phase happening to suit: the sibling test above
+        already used 80 for the same reason, and this row of the same file did
+        not. Nothing in the game moved when it started failing -- the readout
+        catches up in the same 41 to 43 frames, and demo_frames matches
+        frame-for-frame, on the build that passes and the one that does not.
+        """
         for hull in (255, 200, 128, 64, 32, 8, 1):
             for slot in self.friendly():
                 self.poke_ent(slot, ENT_HULL, hull)
-            self.c.run_frames(40)
+            self.c.run_frames(2 * WAVE_READ_EVERY * TICKS_PER_GAME_FRAME)
             self.assertEqual(self.byte("WAVE_PCT"), self.expected_percent(),
                              f"at a fleet-wide hull of {hull}")
 

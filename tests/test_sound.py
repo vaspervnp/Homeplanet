@@ -60,18 +60,25 @@ ALL_MUTED = 0x3F
 
 #  Lengths from the descriptors in src/sys/sound.asm, as ticks. The tests use
 #  them as the bound a sound must stop inside, never as the answer they expect.
+#
+#  A DESCRIPTOR'S TIMER IS IN STEPS AND NOT IN TICKS since the prescaler went
+#  in, so a length in ticks is timer * slow. The two jumps are the only things
+#  that use it: 100 steps of 3 ticks and 220 of 4, for the ten-times-slower
+#  wipe they have to sit under.
 FIRE_TICKS = 8
 EXPLOSION_TICKS = 24
 HIT_TICKS = 6
-JUMP_OUT_TICKS = 30
-JUMP_IN_TICKS = 88
+JUMP_OUT_TICKS = 300
+JUMP_IN_TICKS = 880
 
-#  The vanish measures 35 ticks with nothing on the screen and 41 with a full
-#  fleet -- and mis_jump runs it to completion BEFORE fleet_disc_save, which
-#  holds DI for the whole transfer. The out sound has to be over inside the
-#  shortest vanish there is, or its tail freezes mid-envelope across the disc
-#  write. This is that bound, and it is the reason the out is 30 and not 34.
-SHORTEST_VANISH_TICKS = 35
+#  The vanish's shortest possible length is arithmetic now rather than a
+#  measurement, which is the one thing the slowdown made easier: every one of
+#  JFX_VANISH_PASSES passes waits out JFX_VANISH_DWELL whole vertical blanks
+#  whatever is on the screen, and then there are two dark passes. 14 * 23 + 2.
+#  mis_jump runs the vanish to completion BEFORE fleet_disc_save, which holds
+#  DI for the whole transfer, so the out sound has to be over inside that or
+#  its tail freezes mid-envelope across the disc write.
+SHORTEST_VANISH_TICKS = 324
 
 KEY_ROWS = 10
 
@@ -176,7 +183,19 @@ class SoundFixture(unittest.TestCase):
         self.call("SND_JUMP_IN")
 
     def tick(self, n: int = 1):
-        """Run snd_update n times, the way the interrupt would."""
+        """Run snd_update n times, the way the interrupt would.
+
+        The stub counts in B, so a run longer than 255 is several stubs. That
+        is not a detail any more: the jump in is 880 ticks, and a caller that
+        had to know about the 255 would be doing this arithmetic at half a
+        dozen call sites.
+        """
+        assert n >= 1
+        while n:
+            self._tick_block(min(n, 255))
+            n -= min(n, 255)
+
+    def _tick_block(self, n: int):
         assert 1 <= n <= 255
         addr = self.sym["SND_UPDATE"]
         body = [0xC5, 0xCD] + _w(addr) + [0xC1]
@@ -232,30 +251,48 @@ class SoundFixture(unittest.TestCase):
             r[R_MIXER], ALL_MUTED,
             f"{why}: mixer is #{r[R_MIXER]:02X}, expected #{ALL_MUTED:02X}")
 
-    def sweep_c(self, ticks: int) -> list[tuple[int, int]]:
-        """(tone period, amplitude) off channel C, once per tick, for `ticks`.
+    def sweep_c(self, ticks: int, every: int = 1) -> list[tuple[int, int]]:
+        """(tone period, amplitude) off channel C, once every `every` ticks.
 
-        The whole sound, sampled at the rate it is played at, out of the chip's
-        own registers. Every assertion about a jump is made against one of
-        these lists rather than against the descriptor bytes: a descriptor is a
+        The whole sound, sampled at the rate it MOVES at, out of the chip's own
+        registers. Every assertion about a jump is made against one of these
+        lists rather than against the descriptor bytes: a descriptor is a
         statement of intent and this is what the AY was actually told.
+
+        `every` is the voice's own prescaler, so a sample is one STEP of the
+        sound and the list is the sequence of values it actually took. It is
+        not only economy -- though it is that as well: reading fourteen PSG
+        registers a tick through a stub for 880 ticks is a minute of wall
+        clock, and the 878 samples in between the 220 steps are copies of their
+        neighbours by construction.
         """
         out = []
-        for _ in range(ticks):
-            self.tick()
+        for _ in range(ticks // every):
+            self.tick(every)
             r = self.psg()
             out.append((r[R_PERIOD_C] | (r[R_PERIOD_C_HI] << 8), r[R_AMP_C]))
         return out
+
+    def slow_of(self, name: str) -> int:
+        """A descriptor's prescaler, off the build rather than copied here."""
+        return self.c.read_ram(self.sym[name] + self.sym["SND_V_SLOW"], 1)[0]
 
     @staticmethod
     def audible(sweep):
         """The part of a sweep with the amplitude off zero, as (period, amp)."""
         return [s for s in sweep if s[1] > 0]
 
-    def ticks_until_silent(self, limit: int = 80) -> int:
-        """How many further ticks before every channel is off. None if never."""
-        for n in range(1, limit + 1):
-            self.tick()
+    def ticks_until_silent(self, limit: int = 80, every: int = 1) -> int:
+        """How many further ticks before every channel is off. None if never.
+
+        `every` is the granularity of the answer, and a caller that passes the
+        voice's prescaler gets an answer that is exact to within one step --
+        which is all the resolution the sound has. The jump halves are 300 and
+        880 ticks, so asking this a tick at a time would be twelve hundred PSG
+        reads through a stub to learn something a sixth of that says.
+        """
+        for n in range(every, limit + 1, every):
+            self.tick(every)
             r = self.psg()
             if (r[R_AMP_A], r[R_AMP_B], r[R_AMP_C]) == (0, 0, 0) \
                     and r[R_MIXER] == ALL_MUTED:
@@ -568,11 +605,12 @@ class TestTheJump(SoundFixture):
         watched the number go one way would be happy with the sound running
         backwards. Both directions are stated, and both are read off the chip.
         """
+        slow = self.slow_of("SND_FX_JUMP_OUT")
         self.jump_out()
-        sweep = self.sweep_c(JUMP_OUT_TICKS)
+        sweep = self.sweep_c(JUMP_OUT_TICKS, every=slow)
         aud = self.audible(sweep)
         self.assertGreater(len(aud), 20,
-                           f"only {len(aud)} ticks of the out are audible")
+                           f"only {len(aud)} steps of the out are audible")
 
         periods = [p for p, _ in aud]
         self.assertEqual(periods, sorted(periods, reverse=True),
@@ -589,11 +627,12 @@ class TestTheJump(SoundFixture):
 
     def test_the_in_sweeps_down_and_settles(self):
         """The mirror: something falling into place."""
+        slow = self.slow_of("SND_FX_JUMP_IN")
         self.jump_in()
-        sweep = self.sweep_c(JUMP_IN_TICKS)
+        sweep = self.sweep_c(JUMP_IN_TICKS, every=slow)
         aud = self.audible(sweep)
         self.assertGreater(len(aud), 60,
-                           f"only {len(aud)} ticks of the in are audible")
+                           f"only {len(aud)} steps of the in are audible")
 
         periods = [p for p, _ in aud]
         self.assertEqual(periods, sorted(periods),
@@ -620,10 +659,12 @@ class TestTheJump(SoundFixture):
         """
         self.silence()
         self.jump_out()
-        out = self.audible(self.sweep_c(JUMP_OUT_TICKS))
+        out = self.audible(self.sweep_c(JUMP_OUT_TICKS,
+                                        every=self.slow_of("SND_FX_JUMP_OUT")))
         self.silence()
         self.jump_in()
-        into = self.audible(self.sweep_c(JUMP_IN_TICKS))
+        into = self.audible(self.sweep_c(JUMP_IN_TICKS,
+                                         every=self.slow_of("SND_FX_JUMP_IN")))
 
         out_lo, out_hi = out[0][0], out[-1][0]          # period: low pitch first
         in_hi, in_lo = into[0][0], into[-1][0]          # ...and high pitch first
@@ -651,43 +692,58 @@ class TestTheJump(SoundFixture):
         fleet_disc_save -- which holds DI across the whole transfer, measured
         at 24 emulator frames. snd_update does not run inside that, so a sound
         still going would freeze mid-envelope and resume half a second later.
-        The vanish is 35 ticks with nothing on the screen at all, so the out
-        has to be over before then. It is 30, and its level reaches zero on the
-        last of those -- so even the frozen case would be frozen at silence.
+
+        The vanish is ten times longer than it was and so is the sound, so the
+        trap is exactly where it was: 300 ticks against a vanish that cannot be
+        shorter than 324 whatever is on the screen. The level reaches zero
+        before the timer does either way, which is the second net -- a frozen
+        channel at amplitude 0 is silence.
         """
+        slow = self.slow_of("SND_FX_JUMP_OUT")
         self.jump_out()
-        n = self.ticks_until_silent(limit=SHORTEST_VANISH_TICKS + 20)
+        n = self.ticks_until_silent(limit=SHORTEST_VANISH_TICKS + 60,
+                                    every=slow)
         self.assertIsNotNone(
             n, "channel C never went quiet after the jump out")
         self.assertLessEqual(
             n, SHORTEST_VANISH_TICKS,
             f"the jump out runs {n} ticks and the shortest vanish is "
             f"{SHORTEST_VANISH_TICKS} -- its tail lands in the disc write's DI")
-        self.assertLessEqual(n, JUMP_OUT_TICKS + 1,
+        self.assertLessEqual(n, JUMP_OUT_TICKS + slow,
                              f"the jump out ran {n} ticks, budget "
                              f"{JUMP_OUT_TICKS}")
 
     def test_the_arrival_is_the_long_one(self):
-        """Vanish 0.7 s, reveal 1.76 s. The sounds are the same shape."""
+        """Vanish 7.2 s, reveal 17.1 s. The sounds are the same shape."""
+        out_slow = self.slow_of("SND_FX_JUMP_OUT")
+        in_slow = self.slow_of("SND_FX_JUMP_IN")
         self.jump_out()
-        short = self.ticks_until_silent(limit=JUMP_IN_TICKS * 2)
+        short = self.ticks_until_silent(limit=JUMP_IN_TICKS, every=out_slow)
         self.silence()
         self.jump_in()
-        long = self.ticks_until_silent(limit=JUMP_IN_TICKS * 2)
+        long = self.ticks_until_silent(limit=JUMP_IN_TICKS + 40, every=in_slow)
         self.assertIsNotNone(long, "the arrival never stopped")
         self.assertGreater(long, short * 2,
                            f"the arrival ({long} ticks) is not the long half "
                            f"against the departure ({short})")
-        self.assertLessEqual(long, JUMP_IN_TICKS + 1,
+        self.assertLessEqual(long, JUMP_IN_TICKS + in_slow,
                              f"the arrival ran {long} ticks, budget "
                              f"{JUMP_IN_TICKS}")
 
     def test_neither_half_is_left_droning(self):
+        """...and the timer, not the decay, is what stops it.
+
+        The prescaler made this one sharper rather than weaker: a sound now
+        outlives its own silence by design -- the out is quiet from tick 279
+        and its timer does not expire until 300 -- so "is it silent" and "has
+        it let the channel go" are genuinely different questions. The second
+        tick() here is what asks the second one.
+        """
         for start, name in ((self.jump_out, "out"), (self.jump_in, "in")):
             with self.subTest(half=name):
                 self.silence()
                 start()
-                self.tick(JUMP_IN_TICKS + 2)
+                self.tick(JUMP_IN_TICKS + 8)
                 self.assert_silent(f"when the jump {name} ended")
                 self.tick(40)
                 self.assert_silent(f"40 ticks after the jump {name} ended")
@@ -701,13 +757,124 @@ class TestTheJump(SoundFixture):
         symptom other than a missing sound.
         """
         self.jump_out()
-        self.tick(JUMP_OUT_TICKS - 4)
+        #  HALFWAY, not four ticks off the end. The out is now silent for its
+        #  last twenty-odd ticks by design, and "louder than silence" is not
+        #  the question -- the question is whether it takes a channel that is
+        #  still sounding.
+        self.tick(JUMP_OUT_TICKS // 2)
         faded = self.amps()[2]
+        self.assertGreater(faded, 0, "the out is already silent halfway "
+                                     "through: nothing to take the channel from")
         self.jump_in()
         self.tick()
         self.assertGreater(self.amps()[2], faded,
                            "the arrival did not take channel C from a "
                            "departure that was still fading")
+
+
+class TestThePrescaler(SoundFixture):
+    """A voice steps every `slow` ticks, and that is what buys a long sound.
+
+    The timer is one byte and it is the only thing that ends a sound, so before
+    this the engine could not play anything longer than 255 ticks -- 5.1
+    seconds. The jump wants 300 going out and 880 coming back. Every assertion
+    here is read off the CHIP while the player runs, because the interesting
+    claim is not "there is a byte at +8" but "the AY was told the same thing
+    three ticks running and then a different thing".
+    """
+
+    def period_c(self):
+        r = self.psg()
+        return r[R_PERIOD_C] | (r[R_PERIOD_C_HI] << 8)
+
+    def test_a_slowed_voice_holds_its_pitch_between_steps(self):
+        """The mechanism itself: `slow` ticks of one value, then a new one.
+
+        Read against the descriptor's own `slow` rather than against 4, so it
+        follows the sound if the constant is retuned -- and it fails if the
+        prescaler is bypassed altogether, because then every tick moves.
+        """
+        slow = self.slow_of("SND_FX_JUMP_IN")
+        self.assertGreater(slow, 1, "the in is not prescaled at all, so this "
+                                    "test cannot observe anything")
+        self.silence()
+        self.jump_in()
+
+        self.tick()                             # the first tick IS a step
+        first = self.period_c()
+        for i in range(1, slow):
+            self.tick()
+            self.assertEqual(
+                self.period_c(), first,
+                f"the period moved on tick {i + 1} of a voice that steps "
+                f"every {slow}: the prescaler is not holding it")
+        self.tick()
+        self.assertNotEqual(self.period_c(), first,
+                            f"the period did not move on tick {slow + 1}, so "
+                            f"the voice never steps at all")
+
+    def test_the_level_is_held_too_and_not_only_the_pitch(self):
+        """Both halves of the envelope are behind the same counter.
+
+        A prescaler on the sweep alone would leave `dvol` running at 50 Hz,
+        and the decay would then reach silence a quarter of the way through
+        the sound it belongs to -- which is a bug with no symptom other than a
+        transition that plays in silence for thirteen seconds.
+        """
+        slow = self.slow_of("SND_FX_JUMP_IN")
+        self.silence()
+        self.jump_in()
+        self.tick()
+        first = self.amps()[2]
+        self.assertGreater(first, 0)
+        for i in range(1, slow):
+            self.tick()
+            self.assertEqual(self.amps()[2], first,
+                             f"the level moved on tick {i + 1} of {slow}")
+
+    def test_it_is_what_makes_a_sound_longer_than_a_byte_of_ticks(self):
+        """255 is the wall this exists to get over, and both jumps are past it.
+
+        The claim is about the CHIP and not about the descriptor: the in is
+        still sounding well after the longest sound a one-tick-per-step engine
+        could possibly play, whatever it put in its timer.
+        """
+        self.silence()
+        self.jump_in()
+        self.tick(255)
+        self.assertGreater(
+            self.amps()[2], 0,
+            "channel C is silent after 255 ticks, which is every tick a "
+            "one-byte timer can count -- the prescaler is not working")
+        self.assertGreater(JUMP_IN_TICKS, 255)
+
+    def test_the_battle_effects_are_not_prescaled(self):
+        """slow 1 everywhere else, so nothing else changed shape.
+
+        These three are 6, 8 and 24 ticks and want every one of them; the
+        prescaler is a jump feature that the other descriptors pay one byte
+        for. A stray `slow` of 2 on the fire would double every laser shot and
+        nothing else in the suite would notice.
+        """
+        for name in ("SND_FX_FIRE", "SND_FX_EXPLOSION", "SND_FX_HIT"):
+            with self.subTest(effect=name):
+                self.assertEqual(self.slow_of(name), 1,
+                                 f"{name} is prescaled")
+
+    def test_every_descriptor_starts_its_countdown_at_one(self):
+        """+9 is 1 in every descriptor, and 0 would be read as 256.
+
+        snd_step decrements slowc and steps when it hits zero, so a descriptor
+        that shipped a 0 there would hold the sound silent-and-still for five
+        seconds before its first step -- and the timer, which only counts
+        steps, would then run for 256 times as long as it says.
+        """
+        for name in ("SND_FX_FIRE", "SND_FX_EXPLOSION", "SND_FX_HIT",
+                     "SND_FX_JUMP_OUT", "SND_FX_JUMP_IN"):
+            with self.subTest(effect=name):
+                at = self.sym[name] + self.sym["SND_V_SLOWC"]
+                self.assertEqual(self.c.read_ram(at, 1)[0], 1,
+                                 f"{name} does not step on its first tick")
 
 
 class TestChannelArbitration(SoundFixture):
@@ -1108,8 +1275,20 @@ class TestCost(SoundFixture):
         steps. The voices are poked directly with long timers and no decay so
         that every one of the 250 iterations takes the live path -- calling
         snd_fire would only give eight.
+
+        THE POKE HAS TO BE A WHOLE VOICE BLOCK, and getting that wrong is a
+        measurement that silently goes DOWN. When the prescaler took the block
+        from eight bytes to ten this still packed eight, so +9 was left at
+        whatever snd_init had zeroed it to -- and snd_step reads a zero
+        countdown as 256, so all three voices took the cheap held path for the
+        whole run and the tick came out 4113 T against the 4433 it had been.
+        A cost test that gets cheaper after work is added is not measuring the
+        work. The assert below is why it cannot happen again.
         """
-        busy = struct.pack("<BBBBHH", 255, 3, 255, 0, 0x0200, 0)
+        busy = struct.pack("<BBBBHHBB", 255, 3, 255, 0, 0x0200, 0, 1, 1)
+        assert len(busy) == self.sym["SND_VOICE_SIZE"], (
+            "a partial voice block leaves the prescaler at 0 and measures the "
+            "held path instead of the live one")
         for name in ("SND_VOICE_A", "SND_VOICE_B", "SND_VOICE_C"):
             self.c.write_ram(self.sym[name], busy)
 
@@ -1141,7 +1320,8 @@ class TestCost(SoundFixture):
         Held to half of it, which leaves the same margin again for whatever
         goes on the tick next.
         """
-        busy = struct.pack("<BBBBHH", 255, 3, 255, 0, 0x0200, 0)
+        busy = struct.pack("<BBBBHHBB", 255, 3, 255, 0, 0x0200, 0, 1, 1)
+        assert len(busy) == self.sym["SND_VOICE_SIZE"]
         for name in ("SND_VOICE_A", "SND_VOICE_B", "SND_VOICE_C"):
             self.c.write_ram(self.sym[name], busy)
 
@@ -1173,6 +1353,17 @@ class TestLayout(unittest.TestCase):
         a = self.sym["SND_VOICE_A"]
         self.assertEqual(self.sym["SND_VOICE_B"], a + size)
         self.assertEqual(self.sym["SND_VOICE_C"], a + 2 * size)
+
+    def test_the_prescaler_fields_are_the_last_two_of_the_block(self):
+        """A descriptor IS a voice block -- snd_start LDIRs one over the other.
+
+        So the two prescaler bytes have to be inside SND_VOICE_SIZE and at the
+        end of it: a field past the size is never copied, and the sound would
+        run at whatever the previous effect on that channel left there.
+        """
+        size = self.sym["SND_VOICE_SIZE"]
+        self.assertEqual(self.sym["SND_V_SLOWC"], size - 1)
+        self.assertEqual(self.sym["SND_V_SLOW"], size - 2)
 
     def test_everything_lives_below_the_bank_window(self):
         """snd_update runs every frame, so none of it may be paged out.

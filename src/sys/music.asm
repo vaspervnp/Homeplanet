@@ -17,6 +17,9 @@
 ;      dvol   = 0        no decay, so the level does not move
 ;      period = p        the note
 ;      dstep  = 0        no sweep
+;      slow   = 1        one step a tick -- see the prescaler in sys/sound.asm.
+;      slowc  = 1        MUST NOT be left at 0: snd_step reads that as 256 and
+;                        the voice would hold for five seconds before moving.
 ;
 ;  and it is refreshed every frame, so the timer never runs out. Nothing in
 ;  sound.asm changed except which mixer mask channel B takes -- see below.
@@ -290,6 +293,10 @@ mus_write_block:
     ld (hl),0                           ; +6 dstep: no sweep
     inc hl
     ld (hl),0                           ; +7
+    inc hl
+    ld (hl),1                           ; +8 slow: one step per tick...
+    inc hl
+    ld (hl),1                           ; +9 slowc: ...starting with this one
     ret
 
 

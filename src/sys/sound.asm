@@ -59,17 +59,54 @@ SND_CH_C            equ 2
 ;  so that starting an effect is a single LDIR of the descriptor over the
 ;  voice.
 ;
-;      +0  timer   ticks left. 0 means idle, and it is the ONLY thing that
+;      +0  timer   STEPS left. 0 means idle, and it is the ONLY thing that
 ;                  ends a sound -- a decay that never quite reaches zero
 ;                  cannot leave a channel droning.
 ;      +1  pri     priority of the effect that owns the channel; 0 when idle
 ;      +2  vol     8-bit volume accumulator; the PSG gets the top nibble
-;      +3  dvol    subtracted from vol every tick, saturating at zero
+;      +3  dvol    subtracted from vol every STEP, saturating at zero
 ;      +4  period  16-bit accumulator: tone period on A and C, and on B the
 ;      +5          high byte is the noise generator's 5-bit period
-;      +6  dstep   added to period every tick, signed -- the pitch sweep
+;      +6  dstep   added to period every STEP, signed -- the pitch sweep
 ;      +7
-SND_VOICE_SIZE      equ 8
+;      +8  slow    how many 50 Hz TICKS make one step of this voice; 1 is
+;                  every tick, which is what every battle effect uses
+;      +9  slowc   the countdown to the next step. A descriptor sets it to 1
+;                  so the sound moves on the first tick it is heard.
+SND_VOICE_SIZE      equ 10
+
+SND_V_SLOW          equ 8
+SND_V_SLOWC         equ 9
+
+;  ---------------------------------------------------------------------------
+;  THE PRESCALER, AND WHY THE TIMER IS STILL ONE BYTE
+;
+;  The timer is the only thing that ends a sound and it is a byte, so the
+;  longest sound this engine could play was 255 ticks -- 5.1 seconds. The jump
+;  now wants 300 ticks going out and 880 coming back, and neither fits.
+;
+;  `slow` is what buys it: a voice advances its envelope, its sweep and its
+;  timer once every `slow` ticks rather than every tick, so the timer counts
+;  STEPS and the sound lasts `timer * slow` of them. One byte per voice, and it
+;  fixes the DECAY at the same time and for the same reason -- `dvol` is also
+;  an integer, and 255 levels spread over 880 ticks would need a third of a
+;  level a tick, which is not a number a byte can hold. Over 220 steps it is 1.
+;
+;  What it costs is RESOLUTION: at slow 4 the pitch moves 12.5 times a second
+;  rather than 50, so a long sweep is a staircase rather than a glide. That is
+;  why the jump descriptors carry the SMALLEST `slow` their length allows
+;  (3 and 4, not 10) and take a longer timer instead, and it is the whole
+;  reason `slow` is per descriptor rather than one constant.
+;
+;  The alternatives, and why not:
+;    - re-arming the descriptor as it expires: something has to do the
+;      re-arming, and the only thing running is snd_update, in the interrupt,
+;      while the transition owns the main loop. That is a second mechanism to
+;      get the sweep to CONTINUE rather than restart, for the same byte.
+;    - a 16-bit timer: fixes the length and does nothing for `dvol`, so the
+;      880-tick sound would still fall silent a third of the way through.
+;      This one field does both.
+;  ---------------------------------------------------------------------------
 
 ;  Mixer register R7, active LOW: a 0 bit ENABLES. Start from everything muted
 ;  and let each live channel clear its own bit.
@@ -236,12 +273,40 @@ snd_update:
 ;  and the RET writes the carry -- DEC, LD and INC HL all leave it alone. That
 ;  is load-bearing: there is no explicit "clear carry" instruction on those
 ;  paths.
+;
+;  A voice only STEPS every (+8) ticks -- see the prescaler note at the top of
+;  this file. On the ticks in between it is still live and still sounding, so
+;  it reports the level it already has and the caller rewrites the same
+;  registers; nothing branches on "did it move".
 ; ----------------------------------------------------------------------------
 snd_step:
     ld a,(hl)                           ; +0, the timer
     or a
     ret z                               ; already idle, A = 0, CF clear
 
+    ;  --- the prescaler ----------------------------------------------------
+    ;  slowc is never 0 on a live voice: a descriptor sets it to 1 and this
+    ;  reloads it from slow, which is at least 1 in every descriptor there is.
+    ;  Zero here would be read as 256 and the voice would hold for five
+    ;  seconds -- see mus_write_block, the only other thing that fills a block.
+    push hl
+    ld de,SND_V_SLOWC
+    add hl,de
+    ld a,(hl)
+    dec a
+    ld (hl),a
+    jr z,@snd_step_due
+    pop hl
+    jr @snd_step_hold
+
+@snd_step_due:
+    dec hl                              ; -> +8, the reload
+    ld a,(hl)
+    inc hl
+    ld (hl),a                           ; slowc = slow
+    pop hl
+
+    ld a,(hl)                           ; +0, the timer, in STEPS
     dec a
     ld (hl),a
     jr nz,@snd_step_live
@@ -253,6 +318,16 @@ snd_step:
     ld (hl),a                           ; pri = 0 (A is 0)
     dec hl
     ret                                 ; A = 0, CF still clear
+
+;  A tick the prescaler swallowed: nothing moves, and the level already in the
+;  block is what the channel goes on sounding at.
+@snd_step_hold:
+    inc hl
+    inc hl                              ; -> +2, vol
+    ld a,(hl)
+    dec hl
+    dec hl                              ; -> +0, as the contract promises
+    jr @snd_step_amp
 
 @snd_step_live:
     push bc
@@ -297,6 +372,7 @@ snd_step:
 
     ;  The accumulator is 8 bits so that a decay can be finer than one PSG
     ;  step; the chip only wants the top nibble.
+@snd_step_amp:
     rrca
     rrca
     rrca
@@ -428,12 +504,17 @@ snd_start:
 ;  Layout is SND_VOICE_SIZE bytes, identical to a voice block, so snd_start
 ;  can LDIR one straight over the other.
 ;
-;      timer, pri, vol, dvol, period, dstep
+;      timer, pri, vol, dvol, period, dstep, slow, slowc
 ;
 ;  Tone period p on channel A or C is 125000/p Hz. Volume is the 8-bit
 ;  accumulator, so #FF is PSG 15 and #10 is PSG 1; the decay is chosen to
-;  reach zero at about the same tick the timer does, so the sound fades out
+;  reach zero at about the same STEP the timer does, so the sound fades out
 ;  instead of being cut off, and the timer is only the backstop.
+;
+;  The last two bytes are the prescaler. The three battle effects are all
+;  short, so all three run at `slow` 1 -- one step a tick, exactly as they did
+;  before it existed -- and `slowc` 1 makes the first tick a step. Only the
+;  jump needs anything else; see the note at the top of this file.
 ; ----------------------------------------------------------------------------
 
 ;  A short descending zap. 8 ticks = 160 ms. Period 90 -> 410 is roughly
@@ -441,12 +522,14 @@ snd_start:
 snd_fx_fire:
     defb 8, SND_PRI_FIRE, #FF, 32
     defw 90, 40
+    defb 1, 1
 
 ;  A ship dying: 24 ticks = 480 ms of noise whose period is swept from 2 to
 ;  20, i.e. a bright crack collapsing into a rumble, under a slow decay.
 snd_fx_explosion:
     defb 24, SND_PRI_EXPLOSION, #FF, 11
     defw #0200, #00C0
+    defb 1, 1
 
 ;  A hull surviving a hit: 6 ticks = 120 ms, quieter than an explosion and
 ;  duller (a higher noise period from the start), so the two are told apart by
@@ -454,6 +537,7 @@ snd_fx_explosion:
 snd_fx_hit:
     defb 6, SND_PRI_HIT, #E0, 40
     defw #0800, #0100
+    defb 1, 1
 
 ; ----------------------------------------------------------------------------
 ;  The jump: one sound going out and one coming in, and they are a PAIR
@@ -466,12 +550,36 @@ snd_fx_hit:
 ;  subtracts and has no attack; the direction that is genuinely reversible is
 ;  the PITCH, and that is what carries the mirror.
 ;
-;      out   period 680 -> 20     pitch RISING,  30 ticks = 0.60 s
-;      in    period  42 -> 651    pitch FALLING, 88 ticks = 1.76 s
+;      out   period 620 -> 26     pitch RISING,  100 steps x 3 = 300 ticks = 6.0 s
+;      in    period  55 -> 712    pitch FALLING, 220 steps x 4 = 880 ticks = 17.6 s
+;
+;  TEN TIMES THE LENGTH THEY WERE, because the picture is: "θέλω η ταχύτητα του
+;  jump in και του jump out να είναι 10 φορές πιο αργή. Και ο ήχος να είναι
+;  αντίστοιχα τόσος." Neither length fits a one-byte timer, and the prescaler
+;  at the top of this file is what buys them; the two `slow` values here are
+;  the smallest that make the timers fit, because `slow` is exactly the
+;  coarseness of the sweep. At 3 the out moves 16.7 times a second and at 4 the
+;  in moves 12.5 -- a fine enough staircase to read as a glide, where the
+;  obvious `slow` 10 with the old 30- and 88-step timers would have moved five
+;  times a second and read as an arpeggio.
+;
+;  THE SPAN IS THE SAME GESTURE, not the same numbers. The endpoints moved
+;  because `dstep` is an integer and 660 over 99 steps is 6.67: the out is
+;  620 -> 26 at -6 a step where it was 680 -> 20 at -22, and the in is 55 -> 712
+;  at +3 where it was 42 -> 658 at +7. Both still cross about four octaves, and
+;  the out's audible end (68) and the in's audible start (58) are still within
+;  a fifth of each other, which is what test_they_are_one_gesture_run_both_ways
+;  holds them to.
+;
+;  THE LEVELS ARE 200 AND 220 RATHER THAN 255, and that is arithmetic and not
+;  taste: `dvol` is an integer too, so a decay that reaches silence exactly as
+;  the timer runs out needs vol = dvol * timer. 2 x 100 and 1 x 220. It starts
+;  at PSG 12 and 13 instead of 15, which is 6 and 3 dB down -- and over six and
+;  seventeen seconds that is the right direction anyway.
 ;
 ;  Those are the endpoints of the accumulator; what is AUDIBLE is a little
 ;  narrower at both ends, and is read off the chip in the last paragraph here.
-;  The in stops one step short of 658 because snd_step does not sweep on the
+;  The in stops one step short of 715 because snd_step does not sweep on the
 ;  tick the timer expires on -- it returns idle instead.
 ;
 ;  CHANNEL C, and the choice is already made at the top of this file: section
@@ -490,32 +598,42 @@ snd_fx_hit:
 ;  alerts the file header promises, a jump will still win. Both halves share it,
 ;  so `cp b : jr nc` ("at least", not "greater") lets one retrigger the other.
 ;
-;  WHY THE OUT IS 30 TICKS AND NOT 34. mis_jump runs jfx_vanish to completion
+;  WHY THE OUT IS 300 TICKS AND NOT 350. mis_jump runs jfx_vanish to completion
 ;  and only THEN writes the fleet to the disc -- and fdc_fleet_io holds DI for
 ;  the whole transfer, measured at 24 emulator frames, during which snd_update
 ;  does not run and a sound in progress would freeze mid-envelope and resume.
-;  The vanish measures 35 ticks with nothing on the screen at all and 41 with a
-;  full fleet, so a 30-tick sound is over before the vanish is, with five ticks
-;  of margin against the shortest one there is. The decay reaches zero on the
-;  last tick either way, which is the second net: a frozen channel at amplitude
-;  0 is silence.
+;
+;  The vanish's FLOOR is now arithmetic rather than a measurement, which is the
+;  one thing the slowdown made easier: it is JFX_VANISH_PASSES whole dwells of
+;  JFX_VANISH_DWELL vertical blanks plus the two dark passes, and it cannot be
+;  shorter however empty the screen is -- 14 * 23 + 2 = 324 ticks. Measured on
+;  mission 1, with a fleet to draw, it is 359. So a 300-tick sound has
+;  24 ticks of margin against the shortest vanish there can be, where the
+;  30-tick one had five against the shortest one anybody had measured.
+;
+;  The decay reaches zero at step 100 of 100 and PSG 0 at step 93, so the sound
+;  is silent from tick 279 -- 45 ticks before the floor. That is the second
+;  net, and it is the same one as before: a frozen channel at amplitude 0 is
+;  silence.
 ;
 ;  Tone period p is 62500/p Hz -- the AY is clocked at 1 MHz and divides by 16.
 ;  (The comment above snd_fx_fire says 125000/p, and so does tools/genmusic.py;
 ;  that is an octave out. Not touched here, because correcting it would move
 ;  every note in the music by an octave and that is a decision for an ear.)
 ;
-;  The out is audible over ticks 1..29 -- 95 Hz to 1488 Hz, four octaves -- and
-;  the in over 1..79, 1276 Hz back down to 105 Hz. Neither period ever wraps:
-;  680 - 30*22 = 20 and 42 + 88*7 = 658, both well inside the 12 bits the
-;  registers have.
+;  The out is audible over steps 1..92 -- 102 Hz to 919 Hz -- and the in over
+;  1..203, 1078 Hz back down to 94 Hz. Both are read off the chip's own
+;  registers by tests/test_sound.TestTheJump, which samples one step at a time. Neither period ever wraps: 620 - 99*6 =
+;  26 and 55 + 219*3 = 712, both well inside the 12 bits the registers have.
 snd_fx_jump_out:
-    defb 30, SND_PRI_JUMP, #FF, 8
-    defw 680, -22
+    defb 100, SND_PRI_JUMP, 200, 2
+    defw 620, -6
+    defb 3, 1
 
 snd_fx_jump_in:
-    defb 88, SND_PRI_JUMP, #FF, 3
-    defw 42, 7
+    defb 220, SND_PRI_JUMP, 220, 1
+    defw 55, 3
+    defb 4, 1
 
 ;  Priorities. Only ever compared with each other, and only within a channel.
 SND_PRI_HIT         equ 1

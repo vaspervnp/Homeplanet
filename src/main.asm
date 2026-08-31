@@ -678,6 +678,21 @@ ENDIF
     assert (JFX_VANISH_PASSES - 1) * JFX_VANISH_STEP >= JFX_TRAVEL, "the vanish stops before its bars have crossed"
     assert (JFX_REVEAL_PASSES - 2) * JFX_REVEAL_STEP >= JFX_TRAVEL, "the reveal's last two passes are not past the end of the run"
 
+;  Both dwells are counted DOWN with `dec (hl)`, and the vanish loads
+;  DWELL - 1 before it waits at all -- so a dwell of 1 loads zero, wraps to 255
+;  and holds the bars there for five seconds. A reveal dwell of 0 does the same
+;  thing one frame later.
+    assert JFX_VANISH_DWELL > 1, "a vanish dwell of 1 loads 0 and counts down from 256"
+    assert JFX_REVEAL_DWELL > 0, "a reveal dwell of 0 counts down from 256"
+
+;  THE ONE TIMING TRAP IN THIS FEATURE, and it is not on the screen. mis_jump
+;  runs jfx_vanish to completion and then fleet_disc_save, which holds DI for
+;  the whole transfer -- so a sound still running freezes mid-envelope and
+;  resumes half a second later. The vanish's floor is one whole dwell per pass
+;  plus the two dark passes, whatever is on the screen; snd_fx_jump_out is 300
+;  ticks (100 steps at slow 3). This is the only place the two are compared.
+    assert JFX_VANISH_PASSES * JFX_VANISH_DWELL + 2 > 300, "the jump-out sound outlasts the shortest possible vanish and would freeze inside the disc write's DI"
+
 ;  A bar is a whole byte of one pen, which is only a bar at all because Mode 1
 ;  packs four pixels into it. Ink 1 is the fleet's own -- see the header of
 ;  game/jumpfx.asm for why not 2 or 3.

@@ -83,7 +83,18 @@ class WipeFixture(unittest.TestCase):
         from; phase4_gcount is 0 for the entries phase4_group consolidated
         away, which are drawn by nothing and get no bar. class_geom is the
         blitter's own placement table.
+
+        IT PARKS AT scr_wait_vsync FIRST, and that is not caution. phase4_project
+        zeroes phase4_visible and counts it back up, so a read taken at an
+        arbitrary emulator-frame boundary catches the list half built -- and
+        the answer it gives is ONE ENTITY, which is a perfectly plausible
+        looking fleet. test_the_bars_leave_no_trail found exactly that: it read
+        a one-ship list, built one box out of it, and reported the other
+        fifteen ships as a trail the bars had left. Both halves of the wipe
+        reach scr_wait_vsync every frame -- the vanish has its own -- so this
+        lands inside one of them either way.
         """
+        h.run_to_stable_point(self.c, self.sym)
         s = self.sym
         margin = s["JFX_MARGIN"]
         vmargin = s["JFX_VMARGIN"]
@@ -177,8 +188,22 @@ class WipeFixture(unittest.TestCase):
                 if all(any(r["x0"] + k == x and k < r["reach"] for r in runs)
                        for x in cols)}
 
-    def sample_sweep(self, want, limit=400):
-        """Follow a sweep, one emulator frame at a time.
+    #  How often a running sweep is looked at, in emulator frames.
+    #
+    #  ONE WAS RIGHT AND IS NOT ANY MORE. The vanish was 35 emulator frames and
+    #  is 359; the reveal was 88 and is 857. Sampling every frame is therefore
+    #  ten times the work for no more information at all -- the bars only move
+    #  once every JFX_VANISH_DWELL blanks and once every JFX_REVEAL_DWELL game
+    #  frames, so the frames in between are copies of their neighbours by
+    #  construction, and each sample decodes two 16 KB buffers in Python.
+    #
+    #  Five rather than a whole dwell, so a sweep is still seen at four or five
+    #  moments per position and every test below still has more samples than it
+    #  had before the slowdown.
+    SAMPLE_EVERY = 5
+
+    def sample_sweep(self, want, limit=1600, every=None):
+        """Follow a sweep, every SAMPLE_EVERY emulator frames.
 
         Returns [(col, front base, bar columns, lit columns, lit bytes)], the
         RUNS as they stood while it happened, and {buffer base: how often it
@@ -191,10 +216,15 @@ class WipeFixture(unittest.TestCase):
         lasts and not one frame longer -- read it before pressing `J` and the
         fleet flies several pixels between the reading and the sweep, which is
         enough to put a bar outside the run the test computed for it.
+
+        `limit` is in EMULATOR FRAMES and has to cover the whole of the longer
+        half plus the wait for it to start: the reveal is seventeen and a half
+        seconds now.
         """
+        every = every or self.SAMPLE_EVERY
         seen, runs = [], None
         per_buffer = {h.SCREEN_A: 0, h.SCREEN_B: 0}
-        for _ in range(limit):
+        for _ in range(limit // every):
             if self.mode() != want:
                 if seen:
                     break
@@ -208,7 +238,7 @@ class WipeFixture(unittest.TestCase):
                              self.lit_columns(ram), self.lit_count(ram)))
                 if bars:
                     per_buffer[base] += 1
-            self.c.run_frames(1)
+            self.c.run_frames(every)
         return seen, runs or [], per_buffer
 
 
@@ -332,7 +362,7 @@ class TestTheVanish(WipeFixture):
         """
         self.press_jump()
         found = {1: 0, 2: 0, 3: 0}
-        for _ in range(200):
+        for _ in range(1600 // self.SAMPLE_EVERY):
             if self.mode() != JFX_OUT:
                 if sum(found.values()):
                     break
@@ -340,7 +370,7 @@ class TestTheVanish(WipeFixture):
                 ram = self.front()
                 for pen, ink in ((1, 0xF0), (2, 0x0F), (3, 0xFF)):
                     found[pen] += len(self.bar_columns(ram, ink))
-            self.c.run_frames(1)
+            self.c.run_frames(self.SAMPLE_EVERY)
         self.c.key_up("j")
         self.assertGreater(found[1], 0, "no ink 1 bars were ever on the screen")
         self.assertEqual((found[2], found[3]), (0, 0),
@@ -456,7 +486,11 @@ class TestTheReveal(WipeFixture):
         self.c.key_down("j")
         self.c.run_frames(25)
         self.c.key_up("j")
-        if not h.wait_for_briefing(self.c, frames=200):
+        #  The vanish alone is 359 emulator frames now and the disc write is
+        #  behind it, so this is a long wait and it has to be a bounded one:
+        #  "the jump was refused" and "the jump is still sweeping" look the
+        #  same from here for the first seven seconds.
+        if not h.wait_for_briefing(self.c, frames=800):
             self.fail("the jump never put a briefing up")
 
     def dismiss(self):
@@ -571,10 +605,11 @@ class TestTheReveal(WipeFixture):
             self.c.run_frames(1)
         else:
             self.fail("the reveal never started")
-        for _ in range(400):
+        #  Seventeen and a half seconds of it, so 1400 frames rather than 400.
+        for _ in range(140):
             if self.mode() == JFX_NONE:
                 break
-            self.c.run_frames(1)
+            self.c.run_frames(10)
         else:
             self.fail("the reveal never finished")
 
@@ -606,6 +641,48 @@ class TestTheReveal(WipeFixture):
         for base, n in per_buffer.items():
             self.assertGreater(n, 0, f"buffer #{base:04X} never carried a bar: "
                                      f"{per_buffer}")
+
+    def test_it_costs_no_game_time_at_all(self):
+        """Seventeen seconds of it, and not one of them reaches the mission.
+
+        This was worth a paragraph when the reveal was 1.76 s -- an overlay
+        with the battle live behind it cost tools/balance.py two ships in
+        mission 4 -- and it is worth a test now that it is 17.1. Seven jumps
+        times seventeen seconds of unattended battle would not be a cosmetic
+        change, it would be most of a campaign.
+
+        mis_timer is the clock the attack waves are on and mis_setup zeroes it,
+        so "the mission has not started yet" is the literal reading of a zero
+        here. The second half of the test is what stops it being vacuous: the
+        same counter has to move once the reveal is over.
+        """
+        self.dismiss()
+        for _ in range(120):
+            if self.mode() == JFX_IN:
+                break
+            self.c.run_frames(1)
+        else:
+            self.fail("the reveal never started")
+
+        def timer():
+            return int.from_bytes(self.c.read_ram(self.sym["MIS_TIMER"], 2),
+                                  "little")
+
+        samples, frames = [], 0
+        while self.mode() == JFX_IN and frames < 1400:
+            samples.append(timer())
+            self.c.run_frames(20)
+            frames += 20
+        self.assertGreater(len(samples), 20,
+                           "the reveal was over before it was watched")
+        self.assertEqual(set(samples), {0},
+                         f"the mission clock ran during the reveal: {samples}")
+
+        #  ...and it is not simply broken: it moves the moment the wipe lets go.
+        self.c.run_frames(120)
+        self.assertGreater(timer(), 0,
+                           "the mission clock never starts, so the assertion "
+                           "above says nothing")
 
     def test_it_stays_out_of_the_two_strips(self):
         """The bar by its BYTES; the HUD only by still being there.
@@ -763,19 +840,30 @@ class TestTheJumpIsHeard(WipeFixture):
     """
 
     def descriptor(self, name):
-        """(timer, pri, vol, dvol, period, dstep) out of the low 16K.
+        """(timer, pri, vol, dvol, period, dstep, slow) out of the low 16K.
 
         dstep is SIGNED -- it is what makes the two halves opposite -- so it is
         widened here rather than left as the sixteen bits it is stored in.
+
+        THE TIMER IS IN STEPS AND `slow` IS HOW MANY TICKS ONE IS. A jump is
+        300 and 880 ticks now and neither fits a byte, so the length of a sound
+        is the product; anything here that wants to run the machine for part of
+        a sound has to multiply, and the two that do say so.
         """
-        b = self.c.read_ram(self.sym[name], 8)
+        b = self.c.read_ram(self.sym[name], self.sym["SND_VOICE_SIZE"])
         dstep = b[6] | (b[7] << 8)
         if dstep >= 0x8000:
             dstep -= 0x10000
-        return (b[0], b[1], b[2], b[3], b[4] | (b[5] << 8), dstep)
+        return (b[0], b[1], b[2], b[3], b[4] | (b[5] << 8), dstep,
+                b[self.sym["SND_V_SLOW"]])
+
+    def ticks(self, name):
+        """How long a descriptor sounds for, in 50 Hz ticks."""
+        d = self.descriptor(name)
+        return d[0] * d[6]
 
     def sweep_bounds(self, name):
-        """(period at tick 0, period the descriptor's own arithmetic ends at).
+        """(period at step 0, period the descriptor's own arithmetic ends at).
 
         Bounding a reading BETWEEN these two is what makes it an observation of
         the sweep rather than of any old number: a period outside them cannot
@@ -784,7 +872,7 @@ class TestTheJumpIsHeard(WipeFixture):
         not hypothetical -- it is what a reversed dstep does, and a test that
         only asked "is the period bigger than it started" was happy with it.
         """
-        timer, _, _, _, start, dstep = self.descriptor(name)
+        timer, _, _, _, start, dstep, _ = self.descriptor(name)
         return start, start + timer * dstep
 
     def tone_c(self, why):
@@ -861,10 +949,18 @@ class TestTheJumpIsHeard(WipeFixture):
         is the sweep's DIRECTION on the real path and not a number copied here.
         """
         start, end = self.sweep_bounds("SND_FX_JUMP_OUT")
-        ticks = self.descriptor("SND_FX_JUMP_OUT")[0]
+        #  TICKS, not the descriptor's timer -- the timer counts prescaled
+        #  steps now, and reading the machine 94 frames into a 300-frame sound
+        #  would find it a third of the way up its sweep and call that "the
+        #  end of the vanish".
+        ticks = self.ticks("SND_FX_JUMP_OUT")
         self.press_jump()
-        self.c.run_frames(ticks - 6)
-        period, _ = self.tone_c(f"{ticks - 6} ticks into the vanish")
+        #  Fifty ticks off the end rather than six. The out is DESIGNED to be
+        #  silent for its last twenty-odd ticks -- the level reaches zero
+        #  before the timer does, so that a tail caught by the disc write's DI
+        #  is frozen at silence -- and tone_c insists on hearing something.
+        self.c.run_frames(ticks - 50)
+        period, _ = self.tone_c(f"{ticks - 50} ticks into the vanish")
         self.assertTrue(
             end <= period < start,
             f"the period is {period}, outside the {end}..{start} this "
@@ -899,7 +995,17 @@ class TestTheJumpIsHeard(WipeFixture):
         self.assertEqual(self.mode(), JFX_IN,
                          "dismissing the jump's briefing started no reveal")
 
-        period, amp = self.tone_c("well into the reveal")
+        #  A THIRD OF THE WAY IN, and that is what "well into" has to mean now.
+        #  The in is 880 ticks and its pitch falls by one part in 220 a step,
+        #  so a reading taken the instant the reveal opens is at the top of the
+        #  sweep and indistinguishable from the departure's own last note. It
+        #  was read immediately when the sound was 88 ticks long, and that was
+        #  a quarter of the way down it.
+        self.c.run_frames(300)
+        self.assertEqual(self.mode(), JFX_IN,
+                         "the reveal was over 300 ticks in, so the sound and "
+                         "the picture are no longer the same length")
+        period, amp = self.tone_c("a third of the way into the reveal")
         self.assertTrue(
             start < period <= end,
             f"the period is {period}, outside the {start}..{end} the in's own "
