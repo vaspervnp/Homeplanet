@@ -14,3 +14,7 @@ __pycache__/
 # The source audio: 7 MB, and the generated streams above are what the
 # build actually needs. Add them deliberately if you want them versioned.
 musicsamples/
+
+# Debugging screenshots. They were useful once and are not source; a git add -A
+# swept them in the first time.
+Errors/
