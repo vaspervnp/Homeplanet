@@ -357,3 +357,95 @@ Not a scripted camera, not cutscenes, not text that scrolls. The game already
 stops the world for a full-screen page and already has a message row; a
 tutorial that is one line and a condition per step needs no new machinery, and
 that is what makes it affordable at all.
+
+---
+
+# 4. Twenty missions, and a planet behind the last one
+
+**Asked for:** the campaign goes to twenty missions, and the last one has a
+planet in the background.
+
+## Twenty missions is a BALANCE change wearing a data change's clothes
+
+Adding a mission is adding a row — `mission_table` is a name, where the enemy
+is, where the resources are, and what winning looks like, and `mis_setup` never
+rebuilds the player's ships. Twelve more rows is perhaps 900 bytes of bank 4
+against 5170 free. `mis_index` is a byte. `fleet_disc_load` range-checks it and
+would need the new bound. **All of that is the easy part and none of it is the
+problem.**
+
+The problem is that **the campaign cannot sustain eight today.**
+`tools/balance.py` — hold station, press `A` — loses the Mothership at mission
+7. §1 and §10 are about a fleet that only ever shrinks, and eight missions is
+tuned so that it *nearly* lasts. Twenty of the same is not a longer campaign,
+it is the same campaign with twelve rows nobody reaches.
+
+So the real work is one of:
+
+- **A gentler curve.** Missions 9-20 cannot keep escalating the picket at the
+  rate 1-8 do; the enemy counts in `campaign.asm` would have to flatten or
+  cycle.
+- **More income, and a reason to spend it.** The economy already closes the
+  loop — patches, harvesters, RU, a queue of ten — and the resources were just
+  multiplied by six. A twenty-mission campaign is one where you are expected to
+  *rebuild*, not merely survive, which makes the yard the spine of the second
+  half rather than a luxury.
+- **Both**, which is likely, and which is a tuning job measured with
+  `tools/balance.py` and `tools/waverate.py` rather than argued.
+
+**Do not add twelve rows and call it done.** Measure first: run `balance.py` and
+find out what actually kills the run at 7, because that number decides whether
+missions 9-20 are content or arithmetic.
+
+Worth noting too: the **Vekhar field only interceptors**. §8's balance triangle
+is something the player's fleet has and the enemy does not use. A twenty-mission
+campaign that never varies its opposition will feel like one mission twenty
+times — a class byte per enemy row in `campaign.asm` is data, not engineering,
+and it matters more at twenty than at eight.
+
+## The planet is a rendering problem, not an art problem
+
+It is also the right ending: §1 is about a fleet carrying sixty thousand
+sleepers away from a lost world, so **arriving somewhere is the story**, and a
+planet appearing behind the last mission is the payoff for the whole campaign.
+
+### The obstacle: this renderer assumes the background is BLACK
+
+`phase4_erase` clears each dirty rectangle to **0**. Every moving thing in the
+game — ships, markers, the move disc, the labels — is erased by filling its
+rectangle with black, and that is what makes a 5 fps 3D game affordable on a
+4 MHz Z80. Put a filled disc behind the fleet and every ship punches a black
+hole in it on the frame it moves.
+
+The three ways out, in order of what they cost:
+
+1. **Draw the planet as a LIMB, not a disc** — an arc, a crescent, a ring of
+   the terminator. Most of it is black, so a dirty rectangle mostly erases
+   nothing; where it does cross the arc, the repair is a handful of pixels.
+   This is the same reasoning that makes §4.1's reference plane a lattice of
+   dots rather than a grid of lines, and the same reason resource patches are
+   three pixels rather than a blob. **Cheapest, most in keeping, and it still
+   reads as a planet.**
+2. **Redraw the intersection after the erase.** Correct for a filled disc, and
+   it puts a per-rectangle test-and-repair into the hot path — the erase is
+   75,000 T-states of a 530,000 T frame already.
+3. **Erase to the background instead of to black**, which means the background
+   has to be readable per byte — a second buffer, or a generator. Neither the
+   memory nor the frame has room.
+
+**Recommendation: (1).** A crescent limb across the lower part of the playfield,
+in ink 2 — the scenery ink, which is what the stars and the reference grid
+already use, and which cannot be confused with a hostile.
+
+### The rest of it
+
+- **It is static**, so it belongs with the markers: projected against a hash of
+  yaw, pitch, zoom and focus, and redrawn only on the frames the camera moves.
+  `gfx/markproj.asm` already does exactly this for twenty-one fixed points.
+- **It must respect `spr_clip_top`/`spr_clip_bottom`.** `gfx_vline` does;
+  `scr_fill_rect` does not, and that has already caught this project twice.
+- **Where does the arc come from?** A quarter of a circle in a table, mirrored
+  four ways, the way `sin7` is one quadrant folded by `cam_sin`. A radius of
+  ~48 pixels is 48 bytes.
+- **Only mission 20 draws it**, so it is a flag in the mission row — one bit
+  beside the objective, not a new table.
