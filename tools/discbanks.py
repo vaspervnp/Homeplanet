@@ -85,7 +85,8 @@ class Disc:
 
     def __init__(self, path: str):
         self.path = path
-        self.data = bytearray(open(path, "rb").read())
+        with open(path, "rb") as f:
+            self.data = bytearray(f.read())
         magic = bytes(self.data[:8])
         if magic not in (STANDARD, EXTENDED):
             raise DiscError(f"{path} is not a DSK image")

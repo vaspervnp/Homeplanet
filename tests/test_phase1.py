@@ -189,7 +189,23 @@ class TestProjection(EmuFixture):
 
         build = sym["CAM_BUILD_MATRIX"]
         proj = sym["PROJ_POINT"]
-        stub = bytes([0xF3]) + bytes(setup) + bytes([
+        #  BANK 4 IS THE RESTING STATE, NOT THE ONLY STATE, and this stub calls
+        #  order_apply_zoom, which lives in it. Hijacking the CPU at an
+        #  arbitrary emulator-frame boundary has about a one-in-eight chance of
+        #  landing between class_tier_addr and class_blit_done -- with a sprite
+        #  library under the window and class_blit_done, which would have put
+        #  bank 4 back, never reached. The CALL then runs #FF/#00 sprite data
+        #  as code, the zoom is never applied, and NOTHING EVER RESTORES THE
+        #  WINDOW -- so every later call in the class projects at whatever step
+        #  the build happened to be assembled with. Three tests in this class
+        #  fail at once and none of them mentions banking.
+        #
+        #  It is the hazard harness.read_bank4 exists for, met from the other
+        #  side: that one waits for the window, this one takes it. Two bytes of
+        #  OUT, and the stub is honouring the rule in game/shipclass.asm rather
+        #  than hoping. Found by a change to the DISC CODE moving the boot by a
+        #  few hundred microseconds and flipping the coin.
+        stub = bytes([0xF3, 0x01, 0xC4, 0x7F, 0xED, 0x49]) + bytes(setup) + bytes([
             0xCD, build & 0xFF, build >> 8,
             0x21, h.DATA & 0xFF, h.DATA >> 8,                       # ld hl,#2F10
             0xCD, proj & 0xFF, proj >> 8,

@@ -83,7 +83,30 @@ FDC_ST_RQM          equ %10000000       ; the controller wants a byte moved
 FDC_ST_DIO          equ %01000000       ; 1 = it has one FOR us, 0 = it wants one
 FDC_ST_EXM          equ %00100000       ; an execution phase is under way
 FDC_ST_CB           equ %00010000       ; a command is still in progress
-FDC_ST_BUSY0        equ %00000001       ; drive 0 is still stepping
+
+;  DO NOT WAIT ON THIS ONE. Bit 0 is "FDD 0 is in the seek mode", and when it
+;  is set and when it clears is the least portable thing the controller does:
+;  the datasheet has it raised some microseconds AFTER the last command byte
+;  lands -- so a poll on the instruction that follows reads zero and falls
+;  through a seek that has not started -- and cleared by SENSE INTERRUPT
+;  STATUS rather than by the head arriving, so a loop waiting for it to go out
+;  waits for something only the code AFTER the loop can do. cpcemu has never
+;  set it at all (there is a FIXME saying so in chips/upd765.h), which is why
+;  a wait on it looked fine here for months. fdc_seek asks SENSE INTERRUPT
+;  STATUS instead; see the comment there.
+FDC_ST_BUSY0        equ %00000001       ; drive 0 is in the seek mode -- unused
+
+;  Status register 0, as handed back by SENSE INTERRUPT STATUS.
+FDC_ST0_SE          equ %00100000       ; seek end: the head is where we asked
+FDC_ST0_NR          equ %00001000       ; not ready: no disc, or no drive
+
+;  ST1's REAL faults. Bit 7 is EN, "end of cylinder", and it is NOT one of
+;  them -- see fdc_transfer_ok. Bit 6 and bit 3 are unused.
+FDC_ST1_MA          equ %00000001       ; missing address mark
+FDC_ST1_ND          equ %00000100       ; no data: sector not found
+FDC_ST1_OR          equ %00010000       ; overrun: we were too slow
+FDC_ST1_DE          equ %00100000       ; data error: a CRC failed
+FDC_ST1_REAL        equ FDC_ST1_MA + FDC_ST1_ND + FDC_ST1_OR + FDC_ST1_DE
 
 FDC_CMD_READ        equ #46             ; READ DATA, MFM
 FDC_CMD_WRITE       equ #45             ; WRITE DATA, MFM

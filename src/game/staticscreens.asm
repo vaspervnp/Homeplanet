@@ -267,7 +267,16 @@ mis_brief_draw:
     ld hl,mis_brief_prompt
     ld b,BRIEF_X
     ld c,BRIEF_TEXT_Y + BRIEF_LINES * BRIEF_LINE_STEP + 12
+IF DIAG_DISC
+    call txt_draw
+    ;  One row, and it is here rather than on the title screen because this
+    ;  is the screen that comes up AFTER a jump -- so it is the only place
+    ;  the fleet SAVE can be reported. See game/libdiag.asm.
+    ld a,DIAG_BRIEF_Y
+    jp diag_draw_fleet
+ELSE
     jp txt_draw
+ENDIF
 
 
 ;  HL -> just past the zero terminator of the string at HL

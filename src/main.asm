@@ -11,6 +11,22 @@
     include "equ/memmap.asm"
 
 ; ----------------------------------------------------------------------------
+;  DIAG_DISC -- the disc diagnostic. SET THIS TO 0 TO TURN IT OFF.
+;
+;  One edit, here, and everything below vanishes: the extra status bytes the
+;  controller hands back, the seek-timeout counter, the snapshots, the panel
+;  on the title screen and the include in bank 4. Nothing else has to change.
+;
+;  It is here because the ships come up as solid white boxes on Retro Virtual
+;  Machine and are correct under cpcemu, which means lib_load fails on real
+;  hardware and succeeds on the emulator -- and the emulator cannot be asked
+;  why, because it resolves the controller's execution phase synchronously and
+;  will therefore agree with any timing assumption this code makes. So the
+;  machine has to say it out loud instead. See src/game/libdiag.asm for what
+;  the five lines on the title screen mean.
+DIAG_DISC           equ 0
+
+; ----------------------------------------------------------------------------
 ;  RASM's BANK directive, and why the build needs it now.
 ;
 ;  There are four 16K images in this file and three of them are assembled at
@@ -342,6 +358,11 @@ bank4_start:
 ;  same rule as everything above it -- but it is the ONLY thing here that runs
 ;  from inside the frame loop, so read the note at the top of the file.
     include "gfx/markproj.asm"
+IF DIAG_DISC
+;  The disc diagnostic's panel. Bank code by the rule above -- it runs from
+;  the title screen and from the briefing, both of which stop the world.
+    include "game/libdiag.asm"
+ENDIF
 bank4_end:
 
 ; ----------------------------------------------------------------------------
@@ -459,6 +480,32 @@ bank7_end:
 ;  The whole library area has to stay clear of the tracks AMSDOS hands out for
 ;  DISC.BIN, and of the fleet save at the far end of the disc.
     assert LIB_TRACK + LIB_BANKS * LIB_TRACKS_PER_BANK <= FLEET_TRACK, "the sprite libraries run into the fleet save"
+
+IF DIAG_DISC
+;  fdc_drain_result walks ST0, ST1, ST2 and then sticks on the bin, and it does
+;  it by INC L and a compare against the low byte of the last one. So the four
+;  have to be adjacent, in that order, and inside one page -- get any of that
+;  wrong and the drain writes result bytes over whatever happens to be next in
+;  the low 16K, which is a corruption with no message attached to it.
+    assert fdc_st1 == fdc_st0 + 1, "fdc_st1 is not immediately after fdc_st0"
+    assert fdc_st2 == fdc_st0 + 2, "fdc_st2 is not immediately after fdc_st1"
+    assert fdc_spill == fdc_st0 + 3, "fdc_spill is not immediately after fdc_st2"
+    assert (fdc_st0 & #FF00) == (fdc_spill & #FF00), "the FDC result bytes straddle a page boundary"
+;  The three the fleet transfer keeps for itself are copied with one LDIR.
+    assert fleet_diag_st1 == fleet_diag_st0 + 1, "the fleet diagnostic status bytes are not adjacent"
+    assert fleet_diag_st2 == fleet_diag_st0 + 2, "the fleet diagnostic status bytes are not adjacent"
+;  ...and so are the library's.
+    assert lib_diag_st1 == lib_diag_st0 + 1, "the library diagnostic status bytes are not adjacent"
+    assert lib_diag_st2 == lib_diag_st0 + 2, "the library diagnostic status bytes are not adjacent"
+;  The panel must not run into the strips that are drawn on top of it. On the
+;  title screen the prompt is at 160; under a briefing the HUD owns 168 up and
+;  static_wipe does not clear it.
+    assert DIAG_TITLE_Y >= TITLE_Y + 32, "the disc diagnostic runs into the big title"
+    assert DIAG_TITLE_Y + (DIAG_ROWS - 1) * DIAG_STEP + TXT_CHAR_H <= TITLE_SHIP_Y, "the disc diagnostic runs into the flight of ships"
+    assert DIAG_TITLE_Y - 1 + DIAG_ROWS * DIAG_STEP <= TITLE_PROMPT_Y, "the disc diagnostic runs into the title prompt"
+    assert DIAG_BRIEF_Y > BRIEF_TEXT_Y + BRIEF_LINES * BRIEF_LINE_STEP + 12 + TXT_CHAR_H, "the disc diagnostic runs into the briefing prompt"
+    assert DIAG_BRIEF_Y + TXT_CHAR_H <= HUD_TOP, "the disc diagnostic runs into the HUD strip"
+ENDIF
 
 ; ----------------------------------------------------------------------------
 ;  Per-class table invariants.

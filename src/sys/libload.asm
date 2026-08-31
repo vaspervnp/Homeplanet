@@ -158,9 +158,8 @@ lib_load:
 @lib_sector_loop:
     ld a,FDC_CMD_READ
     call fdc_sector_rw
-    ld a,(fdc_st0)
-    and #C0                             ; ST0 bits 7-6: 00 is "finished normally"
-    jr nz,@lib_failed
+    call fdc_transfer_ok                ; EN alone is not a failure -- see there
+    jr nc,@lib_failed
 
     ld hl,lib_left
     dec (hl)
@@ -197,6 +196,24 @@ lib_load:
     ret
 
 @lib_finish:
+IF DIAG_DISC
+    ;  Everything else the diagnostic wants is already sitting in a variable
+    ;  of its own -- lib_bank, lib_cur_track and lib_left are this file's and
+    ;  nothing else writes them. These four are not: fleet_disc_load runs a
+    ;  few lines after lib_init in demo_init and drives the same controller,
+    ;  so by the time the title screen is up they would be the fleet's.
+    ;
+    ;  Both exits come through here, so a SUCCESSFUL boot is photographed on
+    ;  the same terms as a failed one -- which is the point. A panel that only
+    ;  appeared when something was wrong could not be told from a panel that
+    ;  never appeared.
+    ld a,(fdc_sector)
+    ld (lib_diag_sector),a
+    ld hl,fdc_st0
+    ld de,lib_diag_st0
+    ld bc,3
+    ldir
+ENDIF
     xor a
     call fdc_spin
     ;  Bank 4 back under the window before anything else runs -- the title
@@ -236,3 +253,13 @@ lib_next_track:     defb 0
 lib_cur_track:      defb 0
 lib_left:           defb 0
 lib_ok:             defb 0
+
+IF DIAG_DISC
+;  The four bytes of the last library read, kept because the fleet load that
+;  follows would otherwise have them. lib_bank, lib_cur_track and lib_left
+;  need no copy: nothing but this file touches them.
+lib_diag_sector:    defb 0
+lib_diag_st0:       defb 0
+lib_diag_st1:       defb 0
+lib_diag_st2:       defb 0
+ENDIF

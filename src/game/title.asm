@@ -99,7 +99,15 @@ title_draw:
     ld hl,title_credit
     ld b,TITLE_CREDIT_X
     ld c,TITLE_CREDIT_Y
+IF DIAG_DISC
+    call txt_draw
+    ;  Last, so it wins over the stars and the flight it sits on. See
+    ;  game/libdiag.asm for what the five lines say and how to turn it off.
+    ld a,DIAG_TITLE_Y
+    jp diag_draw
+ELSE
     jp txt_draw
+ENDIF
 
 
 ; ----------------------------------------------------------------------------
