@@ -449,3 +449,96 @@ already use, and which cannot be confused with a hostile.
   ~48 pixels is 48 bytes.
 - **Only mission 20 draws it**, so it is a flag in the mission row — one bit
   beside the objective, not a new table.
+
+---
+
+# 5. Split the entity table: the fleet and the enemy get their own ceilings
+
+**Asked for:** a separate limit for enemies, not counted against the fleet's, so
+waves keep arriving when the player's fleet is at its own limit.
+
+## Why it matters more than it looks
+
+`ENT_MAX` is 48 and it is **one pool for everything** — the fleet, the
+Mothership, the mission's picket, every wave ship, every wreck, every
+explosion. `ent_find_free` returns "the first slot not in use", from zero.
+
+So a player who builds hard eventually fills the low slots, and then
+`wave_send` cannot find anywhere to put a wave. **The waves silently stop**,
+and the entire mechanism that makes `J` a decision rather than a formality
+quietly switches itself off for the player who has done best. Nothing reports
+it. That is the same shape as every other bug in this project's history: not a
+crash, just a thing that stops happening.
+
+The same starvation hits `mis_spawn_enemy` at mission setup, and the derelict
+in §1 of this file, which is an enemy-region entity too.
+
+## The shape: partition by index, do not build a second table
+
+Keep the one array and split it in two by slot number:
+
+```
+slots 0 .. ENT_PLAYER_MAX-1     the fleet, and the Mothership
+slots ENT_PLAYER_MAX .. ENT_MAX-1   hostiles, waves, wrecks, derelicts
+```
+
+`ent_find_free` becomes two entry points over a range — `ent_find_free_ours`
+and `ent_find_free_theirs` — and **that is nearly the whole change**. Every
+walking loop in the game already steps the whole table looking at
+`ENT_FLAGS`, so `phase4_fly`, `phase4_project`, `cbt_update`, `wave_health`,
+`squad_refresh` and the rest need no change at all.
+
+Two things that already depend on slot order and must be checked rather than
+assumed:
+
+- **`fleet_restore` packs survivors down into slots `0..n-1`** and re-finds the
+  Mothership by class as it loads — that stays inside the player region and is
+  fine, but it is the routine that has already caused one "the Mothership was
+  lost" bug and deserves a test rather than a glance.
+- **`ENT_NO_TARGET` and every cached slot index.** A zeroed `ENT_TARGET` names
+  slot 0, which is now definitely a friendly. That was already true and already
+  guarded by `cbt_fire_if_able` checking sides at the moment of firing; the
+  partition does not break it, but it makes slot 0 permanently the player's,
+  which is worth knowing.
+
+## The number, and it is a design decision not an arithmetic one
+
+The frame rate binds long before the table does: **24 entities measured at
+5.8-6.5 fps against a 12.5 target**, and going from 21 to 31 costs a third of a
+frame. So the split is not about finding room, it is about **deciding who gets
+the frame time**.
+
+A reasonable first cut of the existing 48:
+
+| region | slots | why |
+|---|---|---|
+| fleet | 28 | 16 formation slots plus growth, and the Mothership |
+| hostile | 20 | `WAVE_MAX` 8, `SLV_WRECK_MAX` 4, and mission 8's picket of 12 does not fit alongside a full wave — which is itself worth knowing |
+
+**Raising `ENT_MAX` past 48 is raising the wrong ceiling.** The table already
+holds more than the frame can draw; see the note under §4.
+
+## It makes the fleet's cap REAL, so the game has to say so
+
+Today running out of slots is invisible because it barely happens. Give the
+fleet its own ceiling and a player will hit it — and `eco_queue` currently just
+fails to find a slot with nothing said.
+
+The context bar already has the vocabulary: it says `QUEUE FULL` when ten
+orders are outstanding, re-derived from `eco_queue`'s own refusals in
+`eco_queue`'s own order. **A `FLEET FULL` beside it is the same mechanism and
+the same three lines**, and without it the yard takes RU for a ship that will
+never appear.
+
+## How to test it
+
+- **A wave arrives with the fleet at its ceiling.** That is the whole point of
+  the change and it is one test: fill the player region, run the clock past
+  `WAVE_FIRST_FRAMES`, assert a hostile appeared.
+- A fleet at its ceiling **cannot** build another ship, and the bar says so.
+- `mis_setup` on the mission with the largest picket, with a full fleet, still
+  spawns every hostile the row asks for — or, if it cannot, fails visibly
+  rather than quietly fielding fewer enemies than the mission was designed
+  around.
+- The Mothership is still found after `fleet_restore` with the fleet at its
+  ceiling.
