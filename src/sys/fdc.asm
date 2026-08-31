@@ -607,10 +607,16 @@ fdc_want:           defb 0
 ;  in this order, adjacent, and inside one page. src/main.asm asserts all of
 ;  that -- move one and the drain writes ST1 over whatever is next instead.
 fdc_st0:            defb 0
-IF DIAG_DISC
+;  ST1 AND ST2 ARE NOT DIAGNOSTIC. They were declared inside IF DIAG_DISC when
+;  only the panel read them, and fdc_transfer_ok now needs them on every build
+;  to tell END OF CYLINDER -- which is normal -- from a fault. With the panel
+;  off the assembly failed, and because `make` was piped to /dev/null the tests
+;  that followed ran against the PREVIOUS image with a symbol file that no
+;  longer matched it. That is the trap CLAUDE.md describes for running rasm by
+;  hand, arriving through a different door: check that a build succeeded before
+;  believing anything measured after it.
 fdc_st1:            defb 0
 fdc_st2:            defb 0
-ENDIF
 fdc_spill:          defb 0
 fdc_buf:            defw 0
 

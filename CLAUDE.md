@@ -45,6 +45,14 @@ code. The symptom is data three bytes out of where the symbol file says it is,
 with nothing in the source to explain it. If a `boot_disc` test disagrees with
 a `boot_quick` one, suspect the image before the code.
 
+**Check that the build SUCCEEDED before believing anything measured after
+it.** `make >/dev/null 2>&1` hides a failed assembly, and the tests that follow
+then run against the PREVIOUS `.dsk` with a symbol file that no longer matches
+it. That is the same corruption the paragraph below describes, arriving through
+a different door — and it cost a commit that did not assemble plus an hour
+spent "diagnosing" a test failure that was only the stale image. The symptom is
+a test failing for a reason that has nothing to do with the change.
+
 **Never run `rasm` by hand to look at an error.** It rewrites
 `build/homeplanet.sym`, and if that assembly fails the symbol file is left
 disagreeing with the binary `make` built. Every test then reads the right name
@@ -2714,6 +2722,67 @@ including two for the help page, whose right column is `menu_entries` and is
 therefore `MENU_COUNT` rows long rather than `HELP_ROWS`. They were checked by
 putting the old numbers back and watching the build stop; an assert nobody has
 seen fail is a comment.
+
+### Two FDC bugs that no emulator here can show
+
+**Confirmed on Retro Virtual Machine**, after two wrong guesses and a
+diagnostic build. Both had been shipping; one of them since the FDC was
+written.
+
+- **`and #C0` treated END OF CYLINDER as a failure.** A single-sector transfer
+  sends EOT equal to R — the last sector of the transfer *is* the sector — so a
+  real µPD765 reaches the end of the cylinder as a matter of course and reports
+  it with IC=01 and ST1 bit 7. **The bytes are already in memory**; the "error"
+  is the chip saying it has finished. cpcemu returns IC=00 for the same
+  transfer, so every test in this project agreed with the wrong check.
+  `fdc_transfer_ok` is the replacement: EN alone is success, a fault is IC≠00
+  with ST0's NOT READY, or something in ST1 that names a real failure, or
+  anything in ST2.
+- **The transfer loop ran at 33.1 µs a byte against a 32 µs deadline.** It
+  reloaded the port address twice a byte, and `FDC_STATUS` and `FDC_DATA`
+  differ in bit 0 alone — so `BC` holds the status port for the whole transfer
+  now and the data port is one `INC C` away. 12 T-states a byte. RVM reported
+  ST1 = `#90`, EN with **OVERRUN**, on the first sector after a track advance,
+  63 sectors in; cpcemu feeds the byte synchronously and can never produce one.
+
+**And the first was hiding a third: `FLEET.DAT` had never been written on real
+hardware.** The commit that confirmed "the jump no longer hangs" is satisfied
+by a write that is silently refused.
+
+#### The method, which is the part worth keeping
+
+Two guesses were spent first — the seek, then the timing — and both were built
+on a text description of the symptom. **A screenshot settled in two minutes
+what two investigations had not**, and it turned out the reported "white boxes"
+were two different things on two different screens, only one of which was about
+the disc at all.
+
+Then a diagnostic build that puts BANK / TRK / SEC / DONE and ST0 / ST1 / ST2
+on the title screen found **both** bugs in two boots, one number each: `DONE 0`
+with `ST1 80` said end-of-cylinder, and `DONE 9` with `ST1 90` said overrun at a
+track advance. It should have been the first thing built, not the third.
+`DIAG_DISC` in `src/main.asm` turns it back on.
+
+> **`fdc_st1` and `fdc_st2` are NOT diagnostic** and must not go back inside
+> that `IF`. `fdc_transfer_ok` reads them on every build to tell a normal
+> end-of-cylinder from a fault.
+
+#### The title screen was blitting bank 4 as pixels
+
+Separate bug, same root cause as the repack. `title_ship_table` names
+`interceptor_c` and `frigate_c`, which lived in **bank 4** — the bank the title
+screen itself runs from — until the libraries repacked 3+3+2 and moved them to
+banks 5 and 6. `title_draw_ships` does no paging, so from that day it drew bank
+4's own code as sprite data, on every machine, every boot.
+
+It cannot page the bank itself: the instant it does, the code executing
+vanishes from under the program counter. `spr_blit_banked` is the answer and
+lives in the **low 16K** — the `OUT` happens with the CPU already out of bank 4,
+and bank 4 is back before the `RET` reaches a return address that is in it.
+
+**`test_there_are_stars_and_ships` passed throughout, because it counts lit
+pixels and garbage has plenty of those.** The same blind spot as the squadron
+tests that counted and the combat tests that counted kills.
 
 ### The jump wipe
 

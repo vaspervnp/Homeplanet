@@ -31,6 +31,35 @@ SPR_ENEMY_UNIT      equ 17              ; the recolouring unit is longer
 ;       CF clear -> entirely off screen, nothing touched
 ;  Uses: everything
 ; ----------------------------------------------------------------------------
+;  spr_blit_banked -- page a library in, blit from it, put bank 4 back
+;  In : A = the bank select byte, and spr_x/y/src/w/h as spr_blit wants them
+;  Uses: everything
+;
+;  For callers whose own code lives in BANK 4 -- the title screen is the only
+;  one. It cannot do this itself: the instant it pages bank 5 into the window
+;  it vanishes from under the program counter. Here the OUT happens with the
+;  CPU already executing in the low 16K, and bank 4 is back before the RET
+;  reaches the return address, which is in bank 4.
+;
+;  THE TITLE SCREEN NEEDED THIS THE DAY THE LIBRARIES REPACKED 3+3+2. Before
+;  that the interceptor and the frigate lived in bank 4 -- the same bank the
+;  title runs from -- so they were already under the window and no paging was
+;  needed. Afterwards they were in banks 5 and 6 and title_draw_ships went on
+;  blitting bank 4's own code as pixels, on every machine, every boot. What it
+;  drew was multicoloured confetti, and test_there_are_stars_and_ships passed
+;  throughout because it COUNTS LIT PIXELS and garbage has plenty of those.
+; ----------------------------------------------------------------------------
+spr_blit_banked:
+    ld c,a
+    ld b,GA_PORT
+    out (c),c
+    call spr_blit
+    ld bc,GA_PORT * 256 + GA_BANK_4
+    out (c),c
+    ret
+
+
+; ----------------------------------------------------------------------------
 spr_blit:
     ; ================= vertical clip =====================================
     ;  Against the VIEWPORT, not against the screen. The context bar owns the

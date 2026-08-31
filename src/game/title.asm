@@ -258,9 +258,14 @@ title_draw_ships:
     ld a,(hl)                           ; height
     inc hl
     ld (spr_h),a
+    ld a,(hl)                           ; ...and which bank it lives in
+    inc hl
 
     push hl
-    call spr_blit
+    ;  NOT spr_blit. This routine runs from bank 4 and the art is in 5 and 6,
+    ;  so the paging has to happen on the other side of a CALL -- see
+    ;  spr_blit_banked.
+    call spr_blit_banked
     pop hl
 
     ld a,(title_left)

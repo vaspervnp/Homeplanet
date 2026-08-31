@@ -33,21 +33,26 @@ title_ship_table:
     defb  104
     defw  frigate_c
     defb  FRIGATE_C_W_BYTES, FRIGATE_C_H
+    defb  GA_BANK_6
     defw   18
     defb   92
     defw  interceptor_c
     defb  INTERCEPTOR_C_W_BYTES, INTERCEPTOR_C_H
+    defb  GA_BANK_5
     defw   55
     defb   94
     defw  interceptor_c
     defb  INTERCEPTOR_C_W_BYTES, INTERCEPTOR_C_H
+    defb  GA_BANK_5
     defw    7
     defb  120
     defw  interceptor_c
     defb  INTERCEPTOR_C_W_BYTES, INTERCEPTOR_C_H
+    defb  GA_BANK_5
     defw   66
     defb  122
     defw  interceptor_c
     defb  INTERCEPTOR_C_W_BYTES, INTERCEPTOR_C_H
+    defb  GA_BANK_5
 
 TITLE_SHIPS         equ 5
