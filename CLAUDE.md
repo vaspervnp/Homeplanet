@@ -2965,6 +2965,74 @@ too**, because the old fleet was allowed to grow past 28, so on its own it
 proves the right thing about the wrong fleet. It takes
 `TestTheFleetStopsAtItsOwnCeiling` beside it to mean anything.
 
+### The Frigate is unlocked by salvaging a derelict
+
+From mission 4 a dead **Vekhar frigate** is adrift at the edge of the play area,
+and towing it to the Mothership teaches the yard to build them. Until then the
+build panel steps over the class, exactly as it does the Destroyer. The
+mechanic is **reverse-engineering** rather than fetching a token, and it is what
+finally gives the Salvage Corvette a reason to exist beyond RU.
+
+`mis_spawn_derelict` writes `ACTIVE+ENEMY+DISABLED` and hull 0 — **byte for
+byte what `slv_make_wreck` produces** — so all four of a wreck's combat
+exclusions, `fleet_save`'s filter and the whole tow path come for free. The
+unlock is keyed on the delivered hull's **class**, not on "was that the
+derelict": no slot index to go stale, and it stays true the day `campaign.asm`
+gets an enemy class column.
+
+`eco_pick_allowed` is a **table** now, as its own comment predicted it would be
+the second time a class needed a gate: one byte a class, `0` always, `1..127`
+from mission N, `#80+n` a bit of `campaign_unlocks`.
+
+#### Six things the design got wrong, and they are the useful part
+
+`improvements.md` §1 was written before this was built and was wrong six times.
+Each is a shape worth recognising:
+
+- **"A save without the field reads as not unlocked, which a zeroed pad gives
+  for free."** The pad is declared *after* `bank4_end` — **uninitialised bank
+  RAM**. The `,0` is a fill for an image that is never saved, and nothing has
+  ever written those bytes, so every existing `FLEET.DAT` holds whatever the
+  machine powered up with. The field is **tagged** now, and a test writes
+  rubbish there and power-cycles.
+- **The derelict does not fit through the whole campaign.** `ENT_ENEMY_MAX` is
+  20 = mission 7's picket of twelve plus one whole wave. A derelict still adrift
+  in mission 7 is 12+1+8 = **21**, and the ship that would not fit is the eighth
+  of a wave — silently, which is the exact failure the partition exists to end.
+  Missions 4-6 only, and the test reads the picket sizes out of `mission_table`
+  rather than trusting two equates.
+- **Drawing it in ink 2 is not affordable, and not for the reason §5 gave.**
+  The visible-list entry is one byte fully spent — bit 7 enemy, 6..2 class,
+  1..0 tier — so **there is no bit for DISABLED**, and a pen1→pen2 recolour
+  would be a third unrolled blit run in a low 16K with ~230 bytes of slack. The
+  same missing bit rules out the sensor-view variant.
+- **"At the edge of the play area" has to be MEASURED.** The first position
+  cleared `PROJ_V_LIMIT` on every axis with room to spare and **was never drawn
+  at the zoom every mission opens on** — `proj_mag` magnifies a little past the
+  width on purpose, and two axes near the rim at once is the corner that clips.
+  It appeared three presses of `X` out. This is "measure what is on the screen,
+  not what the geometry could reach" arriving through a new door, and the first
+  test asserted the clip radius and passed while the ship was invisible.
+- **"Inert in `balance.py` by construction" is half wrong.** The *mechanic* is
+  inert — that script never spends RU. The *entity* is not: it is projected,
+  sorted and drawn from mission 4 on, and the script's enemy column reads 9/9/7
+  instead of 8/8/6. A real frame cost in a tool decided by frame boundaries.
+- The headroom figures quoted in the design were stale by a wide margin.
+
+#### And it explains a failure I committed as "not diagnosed"
+
+`harness.wait_for_title` and `dismiss_title` read `title_shown` — a **bank-4
+symbol** — with `read_cpu`. Since `spr_blit_banked` landed, the title screen
+itself pages banks 5 and 6 in, so that read has always been a coin toss on
+whichever sprite byte sits at the symbol's address. Adding 136 bytes to bank 4
+moved the address, the byte underneath changed, and `test_phase0.TestDrawing`
+failed three runs out of three with *"could not get past the mission briefing"*
+— a message about a screen it never reached.
+
+**That is the failure recorded two commits earlier as a tight frame budget.**
+It was not: it was the third appearance of reading a bank-4 symbol with the
+wrong helper. Both callers use `read_bank4` now.
+
 ### The Salvage Corvette
 
 `T` sends the selected squadron's corvettes to fetch **wrecks**. §8's

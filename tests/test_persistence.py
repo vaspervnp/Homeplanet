@@ -205,5 +205,95 @@ class TestTheSaveIsChecked(DiscFixture):
         self.assertGreater(self.fleet(), 10, "the rejected save cost us the fleet")
 
 
+class TestTheUnlocksSurviveThePowerGoingOff(DiscFixture):
+    """What the campaign has learned, across a reset.
+
+    The Frigate is unlocked by towing a derelict home (tests/test_derelict.py),
+    and an unlock that lasted only as long as the machine was on would be worse
+    than none: a player would salvage the hull, switch off, and come back to a
+    build list that had forgotten.
+
+    The field lives in the save block's PAD rather than in its header, because
+    growing FLEET_HDR_SIZE would move fleet_buffer and every save ever written
+    would come back one byte out. See src/main.asm.
+    """
+
+    def unlocks(self):
+        return self.byte("CAMPAIGN_UNLOCKS")
+
+    def save_with(self, unlocks):
+        """Set the flag, then jump -- the jump is what writes the disc."""
+        self.c.write_ram(self.sym["CAMPAIGN_UNLOCKS"], bytes([unlocks]))
+        self.c.run_frames(120)
+        h.jump_mission(self.c)
+        self.assertEqual(self.byte("MIS_INDEX"), 1, "the jump was refused")
+
+    def test_a_salvaged_frigate_is_still_salvaged_after_a_reset(self):
+        self.c = self.fresh_machine()
+        self.run_the_game(self.c)
+        self.assertEqual(self.unlocks(), 0, "a fresh disc came up with unlocks")
+
+        want = self.sym["CAMP_UNLOCK_FRIGATE"]
+        self.save_with(want)
+        self.power_cycle(self.c)
+
+        self.assertEqual(self.byte("MIS_SAVED"), 1, "the disc had no save on it")
+        self.assertEqual(self.unlocks(), want,
+                         "the campaign forgot what it had learned")
+
+    def test_a_save_from_before_there_were_any_reads_as_none(self):
+        """AND THE PAD IS NOT ZERO, which is the thing that had to be got
+        right. The block is declared after bank4_end, so it is uninitialised
+        bank RAM: nothing has ever written the sixty bytes behind the fleet,
+        and what an older build's FLEET.DAT has at this offset is whatever the
+        machine powered up with. "An old save reads as not unlocked" is a
+        property of the TAG in front of the field, not of the pad being clear.
+
+        Arranged by writing the block directly, which is the only way to put
+        something on the disc that fleet_disc_save would not have written.
+        """
+        self.c = self.fresh_machine()
+        self.run_the_game(self.c)
+        self.save_with(self.sym["CAMP_UNLOCK_FRIGATE"])
+
+        #  Everything else about the save stays valid: a real header, a real
+        #  fleet, and rubbish where the tag should be.
+        h.write_cpu(self.c, self.sym["FLEET_UNLOCKS"], b"\x5A\x01")
+        addr = self.sym["FDC_FLEET_SAVE"]
+        self.c.write_ram(h.STUB, bytes([0xCD, addr & 0xFF, addr >> 8,
+                                        0x18, 0xFE]))       # call it, then spin
+        self.c.set_pc(h.STUB)
+        self.c.run_frames(120)
+
+        self.power_cycle(self.c)
+
+        self.assertEqual(self.byte("MIS_SAVED"), 1,
+                         "the fleet itself was rejected, so this says nothing "
+                         "about the unlocks")
+        self.assertEqual(self.byte("MIS_INDEX"), 1, "the mission was rejected too")
+        self.assertEqual(self.unlocks(), 0,
+                         "an untagged byte in the pad was taken as an unlock")
+
+    def test_and_a_bit_that_means_nothing_reads_as_none_either(self):
+        """The same range check every other field in the header gets. A blank
+        disc and another game's disc both arrive here."""
+        self.c = self.fresh_machine()
+        self.run_the_game(self.c)
+        self.save_with(self.sym["CAMP_UNLOCK_FRIGATE"])
+
+        h.write_cpu(self.c, self.sym["FLEET_UNLOCKS"],
+                    bytes([self.sym["FLEET_UNLOCK_TAG"], 0xFF]))
+        addr = self.sym["FDC_FLEET_SAVE"]
+        self.c.write_ram(h.STUB, bytes([0xCD, addr & 0xFF, addr >> 8, 0x18, 0xFE]))
+        self.c.set_pc(h.STUB)
+        self.c.run_frames(120)
+
+        self.power_cycle(self.c)
+        self.assertEqual(self.byte("MIS_SAVED"), 1)
+        self.assertEqual(self.unlocks(), 0,
+                         "a tagged #FF was taken at face value, so a scratched "
+                         "disc can unlock bits nothing sets")
+
+
 if __name__ == "__main__":
     unittest.main()

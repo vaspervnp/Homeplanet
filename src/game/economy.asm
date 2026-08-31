@@ -590,9 +590,16 @@ eco_queue:
 ;  Out: CF set if it may
 ;  Uses: AF, DE, HL
 ;
-;  Section 8 gives the Destroyer as "διαθέσιμο από την 5η αποστολή" and gives
-;  no such condition to anything else, so this is one test rather than a table
-;  of unlock missions. It becomes a table the moment a second class needs one.
+;  IT IS A TABLE NOW, and the comment that used to be here predicted it: section
+;  8 gates only the Destroyer, so this was one `cp` "until a second class needs
+;  one". The second is the Frigate, and it needs a different KIND of condition
+;  -- a flag the player sets by salvaging the derelict, not a mission number --
+;  so eco_class_gate in game/classdata.asm holds a rule per class rather than a
+;  mission per class. See it for the encoding.
+;
+;  Both doors are covered by this one routine: eco_pick_step walks past a class
+;  it refuses, and eco_queue asks it again at ENTER because the pick is a byte
+;  in RAM that the orders menu can move.
 ; ----------------------------------------------------------------------------
 eco_pick_allowed:
     ld a,(eco_build_pick)
@@ -600,12 +607,39 @@ eco_pick_allowed:
     ld h,0
     ld de,eco_build_order
     add hl,de
+    ld a,(hl)                           ; the class
+    ld l,a
+    ld h,0
+    ld de,eco_class_gate
+    add hl,de
     ld a,(hl)
-    cp CLASS_DESTROYER
-    jr nz,@eco_allow
-    ld a,(mis_index)                    ; missions count from zero
-    cp CLASS_DESTROYER_MIS
+    or a
+    jr z,@eco_allow                     ; no condition: always on the list
+    bit 7,a
+    jr nz,@eco_gate_flag
+
+    ;  From mission N, written 1-based the way the player counts them.
+    dec a
+    ld e,a
+    ld a,(mis_index)                    ; ...but mis_index counts from zero
+    cp e
     jr c,@eco_deny
+    jr @eco_allow
+
+    ;  Bit n of campaign_unlocks. RRCA n+1 times leaves that bit in the carry,
+    ;  and DEC does not touch the carry -- so the loop lands with the answer
+    ;  already in the flag the caller is going to read.
+@eco_gate_flag:
+    and #7F
+    inc a
+    ld e,a
+    ld a,(campaign_unlocks)
+@eco_gate_bit:
+    rrca
+    dec e
+    jr nz,@eco_gate_bit
+    jr nc,@eco_deny
+
 @eco_allow:
     scf
     ret

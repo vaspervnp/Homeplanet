@@ -47,6 +47,24 @@ thing that says so.
 
 ---
 
+## 0. Harvesting does not stop when RU hits the ceiling
+
+`eco_earn` saturates at `ECO_RU_MAX` 9999, so the RU stops rising — but the
+harvesters keep mining, draining a **finite** patch for income that is thrown
+away.
+
+**It is the same bug as the twin below, from the other side.** With no patch
+left, `eco_harvester_step` does `ret nc` and `phase4_fly` skips
+`ENT_ORDER_HARVEST`, so nobody steers the ship: it stops dead and `fleet_save`
+carries the coordinates into the next mission. A full treasury creates the
+identical state.
+
+One fix for both: when there is nothing useful to do — no patch with stock, or
+RU at the ceiling — **spend the order** to `ENT_ORDER_IDLE` and let
+`phase4_fly` bring it home. Exactly the attack order's precedent. Guard it on
+HARVEST: clearing unconditionally takes `ENT_ORDER_TOW` with it and stops the
+salvage.
+
 ## 0. `dismiss_briefing` can return before the reveal starts
 
 `mis_brief_key` clears the briefing a frame before the jump's reveal begins, so

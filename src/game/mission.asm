@@ -50,6 +50,45 @@ MIS_OBJ_ARRIVE      equ 2               ; nothing to fight; just be there
 
 MIS_SURVIVE_TICKS   equ 200             ; game frames for MIS_OBJ_SURVIVE
 
+; ----------------------------------------------------------------------------
+;  THE DERELICT, and what the campaign can unlock
+; ----------------------------------------------------------------------------
+;  Section 8 gives the Frigate no unlock condition; this one is the design
+;  owner's. From mission 4 a dead VEKHAR FRIGATE is adrift at the edge of the
+;  play area, and towing it home with a Salvage Corvette is what teaches the
+;  yard to build one. It is reverse-engineering rather than fetching a token,
+;  which is what makes it this class and this ship rather than a key in a box.
+;
+;  IT COMES BACK UNTIL IT IS TAKEN, and only as far as mission 6. Two separate
+;  reasons, and the second one is arithmetic rather than taste:
+;
+;    - Losing a whole class because a briefing was not read is a punishment for
+;      not reading rather than for playing badly, and section 1's "what is lost
+;      is lost" is already carried by the fleet itself. So three chances.
+;    - It cannot come back for ever, because it is a HOSTILE-REGION entity.
+;      ENT_ENEMY_MAX is twenty, chosen as the campaign's largest picket (mission
+;      7's twelve) plus one whole WAVE_MAX wave. A derelict floating through
+;      mission 7 would make that 12 + 1 + 8 = 21, and the ship that did not fit
+;      would be the eighth of a wave -- silently, which is the exact failure the
+;      partition exists to end. Missions 4, 5 and 6 field 8, 8 and 6, so all
+;      three have room to spare. tests/test_campaign.TestEveryPicketFits reads
+;      it out of the mission table rather than trusting these two numbers.
+;
+;  Both are 0-based, like mis_index.
+MIS_DERELICT_FROM   equ 3               ; mission 4
+MIS_DERELICT_UNTIL  equ 5               ; ...and it is still there in mission 6
+
+;  What the campaign has unlocked, one bit each. It survives a jump because it
+;  is not touched by mis_setup, and a power cycle because fleet_disc_save puts
+;  it on the disc -- see src/sys/fdc.asm for why it goes in the save block's
+;  PAD and why it is tagged.
+CAMP_UNLOCK_FRIG_BIT equ 0
+CAMP_UNLOCK_FRIGATE  equ 1
+;  Every bit that means something today. fleet_disc_load range-checks what it
+;  reads against this, because a blank disc and another game's disc both arrive
+;  there and the pad is uninitialised bank RAM.
+CAMP_UNLOCK_ALL      equ CAMP_UNLOCK_FRIGATE
+
 ;  The briefing screen (section 10). Three lines, and the tone the design asks
 ;  for: "λίγο κείμενο, πολλή σιωπή".
 BRIEF_LINES         equ 3
@@ -74,6 +113,13 @@ mis_left:           defb 0
 fleet_ptr:          defw 0
 fleet_src:          defw 0
 fleet_count:        defb 0
+
+;  In the LOW 16K, with mis_index and mis_saved and for the same two reasons:
+;  fleet_disc_save and fleet_disc_load are down here and would otherwise be
+;  reaching into the bank, and half the suite would have to read it through
+;  read_bank4 rather than read_ram. It is one byte; the code that acts on it is
+;  all in bank 4.
+campaign_unlocks:   defb 0
 
 mis_briefing:       defb 0
 mis_wipe:           defb 0

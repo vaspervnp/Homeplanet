@@ -280,8 +280,17 @@ class TestBuildingThroughTheUI(ClassFixture):
 
     def order(self, ship_class):
         self.c.write_ram(self.sym["ECO_RU"], (900).to_bytes(2, "little"))
+        #  The two gated classes, each arranged the way its own gate works --
+        #  see eco_class_gate in src/game/classdata.asm. The Destroyer's is a
+        #  mission number; the Frigate's is a bit the player sets by salvaging
+        #  the derelict, and tests/test_derelict.py is where THAT is tested.
+        #  Here they are just preconditions, so that this stays a test of what
+        #  the panel charges.
         if ship_class == CLASS_DESTROYER:
             self.c.write_ram(self.sym["MIS_INDEX"], bytes([CLASS_DESTROYER_MIS]))
+        if ship_class == CLASS_FRIGATE:
+            self.c.write_ram(self.sym["CAMPAIGN_UNLOCKS"],
+                             bytes([self.sym["CAMP_UNLOCK_FRIGATE"]]))
         self.hold("b")
         self.assertEqual(self.byte("ECO_BUILD_OPEN"), 1, "the panel did not open")
 

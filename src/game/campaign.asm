@@ -152,6 +152,37 @@ enemies_wall:
 
 
 ; ----------------------------------------------------------------------------
+;  THE DERELICT -- one position, shared by every mission that fields it,
+;  because it is the same hull still adrift rather than a new one each time.
+;  game/mission.asm has the rules and mis_spawn_derelict places it.
+;
+;  Two things decided where it is, and the first was got WRONG first and is
+;  the lesson CLAUDE.md's "measure what is on the screen, not what the geometry
+;  could reach" already states.
+;
+;  It has to be ON SCREEN at the zoom every mission opens on. The obvious test
+;  is the clip -- proj_deltas rejects a world delta past PROJ_V_LIMIT per axis,
+;  so -7000 and -6500 both pass it with room to spare. They were the first
+;  position and the ship was NOT DRAWN: inside the visible cube is not the same
+;  as inside the frustum, because proj_mag deliberately magnifies by a little
+;  more than fills the width, so the outer RIM of the radius clips off the
+;  sides. Two axes near the rim at once is the corner that goes. Measured, with
+;  the derelict alone on the board and phase4_visible read at each zoom step,
+;  (-7000, 250, -6500) first appeared at step 8 -- three presses of `X` past
+;  where the player starts. A derelict the briefing points at and the screen
+;  does not show is worse than none.
+;
+;  And it has to be on the OPPOSITE side from the picket: every enemy layout
+;  above is at +z, so this sits at -z and fetching it is a decision to send a
+;  corvette AWAY from the battle rather than something that happens on the way
+;  in. It is still a real journey -- about 9,000 units of Manhattan distance
+;  from the Mothership, there and back.
+; ----------------------------------------------------------------------------
+derelict_pos:
+    defw  -5500,   250, -3500
+
+
+; ----------------------------------------------------------------------------
 ;  Resource layouts. Eight bytes a patch: x, y, z, stock.
 ;  The positions are world units and are quartered with everything else; the
 ;  STOCK is RU and is not a coordinate, so it is untouched.
@@ -222,9 +253,16 @@ mission_text:
     defb "SITTING IN IT THAT HAS NOT MOVED",0
     defb "SINCE WE ARRIVED.",0
 
-    defb "A VEKHAR SUPPLY POST.",0
-    defb "IT WILL NOT COME TO US.",0
-    defb "TAKE THE FLEET IN.",0
+;  THIS ONE CARRIES A MECHANIC AND NOT ONLY A MOOD, and that is deliberate.
+;  From here a dead Vekhar frigate is adrift at the edge of the field, and
+;  towing it home with a Salvage Corvette is the only way the yard ever learns
+;  to build one -- the build panel STEPS OVER a class it cannot offer, so a
+;  player who is not told has nothing on the screen to wonder about. The
+;  recurring lesson in this project is that a feature the player cannot find
+;  does not exist; three lines of a briefing is the cheapest place to fix that.
+    defb "A VEKHAR SUPPLY POST. A DEAD FRIGATE",0
+    defb "IS ADRIFT AT THE EDGE OF IT.",0
+    defb "SALVAGE THE HULL AND WE CAN BUILD IT.",0
 
     defb "THE NEBULA BLINDS THE SENSORS.",0
     defb "THEY WILL BE INSIDE THE FORMATION",0

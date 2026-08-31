@@ -126,7 +126,7 @@ def wait_for_title(c: cpc.CPC, frames: int = 400) -> bool:
     if "TITLE_SHOWN" not in sym:
         return False
     for _ in range(frames // 10):
-        if read_cpu(c, sym["TITLE_SHOWN"], 1)[0]:
+        if read_bank4(c, sym["TITLE_SHOWN"], 1)[0]:
             return True
         c.run_frames(10)
     return False
@@ -136,15 +136,29 @@ def dismiss_title(c: cpc.CPC) -> None:
     """Press SPACE past the title screen, if it is up.
 
     It sits in FRONT of the first mission's briefing, so anything that wants
-    the game actually running has to get past both. `title_shown` lives in
-    bank 4 with the rest of the title, so it is read through peek -- read_ram
-    would hand back bank 1 and report whatever the sprite library has there.
+    the game actually running has to get past both.
+
+    `title_shown` lives in bank 4, and it is read through read_bank4 rather
+    than read_cpu -- which is not tidiness, it is a bug this had. THE TITLE
+    SCREEN ITSELF PAGES BANKS 5 AND 6 IN, because title_draw_ships blits real
+    ship libraries through spr_blit_banked; so a peek at an arbitrary
+    emulator-frame boundary has a real chance of reading SPRITE DATA at
+    title_shown's address. Whether that byte happens to be zero decides
+    whether this routine thinks the title is up.
+
+    It read as luck for a long time and the luck was per-address: adding 136
+    bytes to bank 4 moved title_shown from #4AA3 to #4AD8, the sprite byte
+    underneath changed, and dismiss_title started returning while the title
+    was still on the screen. The ENTER that followed went into the title,
+    which ignores it, and boot_quick raised "could not get past the mission
+    briefing" -- a message about a screen this had never reached. Same shape
+    as the three failures the 3+3+2 repack shook loose.
     """
     sym = symbols()
     if "TITLE_SHOWN" not in sym:
         return
     for _ in range(6):
-        if not read_cpu(c, sym["TITLE_SHOWN"], 1)[0]:
+        if not read_bank4(c, sym["TITLE_SHOWN"], 1)[0]:
             return
         c.key_down(cpc.KEY_SPACE)
         c.run_frames(25)

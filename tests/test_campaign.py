@@ -154,6 +154,43 @@ class TestEveryPicketFits(CampaignFixture):
                              self.sym["ENT_ENEMY_MAX"],
                              "a full wave cannot land on the largest picket")
 
+    def test_a_derelict_mission_has_room_for_the_hull_as_well(self):
+        """The derelict IS a third thing to make room for, unlike a wreck.
+
+        slv_make_wreck converts a hostile in place and takes no new slot, which
+        is why the twenty above is twelve plus eight. mis_spawn_derelict places
+        a WHOLE EXTRA ENTITY in the hostile region on top of the mission's own
+        picket. If a mission that fields one ran out of room, the ship that did
+        not fit would be the last of a wave -- and it would go missing without
+        a word, which is the exact failure the partition exists to end.
+        """
+        for i in range(self.sym["MIS_DERELICT_FROM"],
+                       self.sym["MIS_DERELICT_UNTIL"] + 1):
+            count = self.descriptor(i)[12]
+            want = count + 1 + self.sym["WAVE_MAX"]
+            self.assertLessEqual(
+                want, self.sym["ENT_ENEMY_MAX"],
+                f"mission {i + 1} fields {count} hostiles and a derelict, so a "
+                f"full wave on top of them needs {want} of "
+                f"{self.sym['ENT_ENEMY_MAX']} hostile slots")
+
+    def test_the_derelict_stops_where_the_room_stops(self):
+        """MIS_DERELICT_UNTIL is mission 6, and this is the arithmetic that
+        decides it rather than taste: mission 7's twelve, plus a derelict, plus
+        a whole wave is twenty-one against twenty.
+
+        Written as a check on the missions AFTER the range, so it fails if the
+        reason ever goes away -- a picket that shrank, or a hostile region that
+        grew, would mean the range could be widened and a whole class need not
+        be lost to a briefing that was not read.
+        """
+        after = range(self.sym["MIS_DERELICT_UNTIL"] + 1, MIS_COUNT)
+        biggest = max(self.descriptor(i)[12] for i in after)
+        self.assertGreater(
+            biggest + 1 + self.sym["WAVE_MAX"], self.sym["ENT_ENEMY_MAX"],
+            "every mission after the derelict's range now has room for one, so "
+            "MIS_DERELICT_UNTIL is short for a reason that no longer holds")
+
 
 class TestObjectives(CampaignFixture):
 
@@ -261,7 +298,13 @@ class TestFleetPersistence(CampaignFixture):
                 self.c.write_ram(self.sym["ENTITIES"] + slot * ENT_SIZE + ENT_FLAGS, b"\x00")
         self.c.run_frames(60)
         self.assertEqual(self.byte("MIS_COMPLETE"), 1)
-        expected = self.descriptor(3)[12]
+        #  ...plus mission 4's DERELICT, which is a hostile-region entity that
+        #  mis_setup places and which fleet() counts because it carries
+        #  ENT_F_ENEMY. Being the enemy's is exactly what keeps it out of
+        #  fleet_save and out of the fleet's own hull -- see
+        #  tests/test_derelict.py -- so it belongs in this figure rather than
+        #  being filtered out of it.
+        expected = self.descriptor(3)[12] + 1
         self.hold("j", frames=25)
         self.assertEqual(self.fleet()[1], expected,
                          "the wrong number of enemies crossed into mission 4")

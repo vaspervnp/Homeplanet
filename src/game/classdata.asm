@@ -103,6 +103,39 @@ class_name:
 class_name_end:
 
 ; ----------------------------------------------------------------------------
+;  What has to be true before the yard will take an order for a class.
+;
+;  eco_pick_allowed WAS one `cp CLASS_DESTROYER` and a mission number, with a
+;  comment saying it "becomes a table the moment a second class needs one".
+;  This is that moment -- and the table has to hold a RULE per class rather
+;  than a mission number, because the two gates are different in kind:
+;
+;      0          always available
+;      1..127     from mission N, as the player counts them (1-based)
+;      #80 + n    when bit n of campaign_unlocks is set
+;
+;  One byte a class and one branch. The alternative -- a second table of
+;  "unlock bits" beside a table of "unlock missions" -- is two tables to keep
+;  CLASS_COUNT long and two places to look when a class is unexpectedly
+;  missing from the panel.
+;
+;  The Destroyer's row is written as CLASS_DESTROYER_MIS + 1 rather than as 5,
+;  so the equate section 8's "διαθέσιμο από την 5η αποστολή" already lives in
+;  is still the only place that number appears.
+; ----------------------------------------------------------------------------
+ECO_GATE_FLAG       equ #80
+
+eco_class_gate:
+    defb 0                              ; interceptor
+    defb 0                              ; mothership -- not buildable anyway
+    defb 0                              ; harvester
+    defb 0                              ; scout
+    defb 0                              ; bomber
+    defb ECO_GATE_FLAG + CAMP_UNLOCK_FRIG_BIT   ; frigate: salvage the derelict
+    defb 0                              ; salvage corvette
+    defb CLASS_DESTROYER_MIS + 1        ; destroyer: from mission 5
+
+; ----------------------------------------------------------------------------
 ;  What the yard offers, in the order , and . step through -- cheapest first,
 ;  so the panel reads as a price list.
 ; ----------------------------------------------------------------------------

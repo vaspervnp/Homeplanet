@@ -403,6 +403,30 @@ slv_deliver:
     xor a                               ; the same guard cbt_damage_for keeps
 @slv_class_ok:
     push af
+
+    ;  ...AND WHAT THE YARD LEARNED FROM IT. A Vekhar frigate hull towed to the
+    ;  Mothership is what unlocks the class in the build panel -- the mechanic
+    ;  is reverse-engineering rather than fetching a token, which is the whole
+    ;  reason the derelict in game/campaignrun.asm is a frigate and not a crate.
+    ;
+    ;  It is keyed on the CLASS of the hull and not on "was that the derelict",
+    ;  and that is a decision. A remembered slot index is exactly the thing
+    ;  CLAUDE.md says never to trust -- the derelict's slot is recycled the
+    ;  moment it is delivered -- and the class is the honest statement of the
+    ;  rule anyway: tow a frigate home and you can build frigates. The Vekhar
+    ;  field only interceptors today, so the derelict is the only hull in the
+    ;  game this can be true of; the day campaign.asm grows a class column it
+    ;  will be true of a frigate shot down in a fight too, which is right.
+    ;
+    ;  HERE and not at slv_find_wreck or the moment the tow line goes on: the
+    ;  yard has to actually receive the hull.
+    cp CLASS_FRIGATE
+    jr nz,@slv_nothing_learned
+    ld a,(campaign_unlocks)
+    or CAMP_UNLOCK_FRIGATE
+    ld (campaign_unlocks),a
+@slv_nothing_learned:
+
     ld de,ENT_FLAGS
     add hl,de
     ld (hl),0                           ; the hull is off the table

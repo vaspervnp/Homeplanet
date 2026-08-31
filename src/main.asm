@@ -422,10 +422,30 @@ fleet_block:
     defs FLEET_HDR_SIZE, 0              ; magic, magic, mission index, count
 fleet_buffer:
     defs ENT_MAX * ENT_SIZE, 0
-    defs FLEET_BLOCK_SIZE - FLEET_HDR_SIZE - ENT_MAX * ENT_SIZE, 0
+; ----------------------------------------------------------------------------
+;  What the campaign has unlocked, in the block's PAD and not in its header.
+;
+;  Growing FLEET_HDR_SIZE would move fleet_buffer, and every save on every disc
+;  written before today would then be read one byte out -- 48 records of
+;  plausible-looking rubbish behind a magic that still matched. The pad is 60
+;  bytes that have never held anything, so a field here costs no compatibility
+;  at all.
+;
+;  IT IS TWO BYTES AND THE FIRST IS A TAG. The obvious argument is that an old
+;  save reads as zero and zero means "nothing unlocked", which is what
+;  improvements.md assumed -- and it is WRONG here, because this block is
+;  declared after bank4_end. It is uninitialised bank RAM: the `,0` above is a
+;  fill for an image that is never saved, nothing writes the pad, and so what
+;  every existing FLEET.DAT has at this offset is whatever the machine powered
+;  up with. See fleet_disc_load.
+; ----------------------------------------------------------------------------
+fleet_unlocks:
+    defs 2, 0
+    defs FLEET_BLOCK_SIZE - FLEET_HDR_SIZE - ENT_MAX * ENT_SIZE - 2, 0
 bank4_limit:
 
     assert fleet_buffer == fleet_block + FLEET_HDR_SIZE, "the fleet must follow its header"
+    assert fleet_unlocks == fleet_buffer + ENT_MAX * ENT_SIZE, "the unlocks must follow the fleet"
     assert bank4_limit - fleet_block == FLEET_BLOCK_SIZE, "the save block is not whole sectors"
 
 ;  Printed before the assert for the same reason the low 16K's figure is.
@@ -546,6 +566,7 @@ ENDIF
     assert class_hull - class_tier_bias == CLASS_COUNT,   "class_tier_bias is not CLASS_COUNT entries"
     assert class_tag - class_hull == CLASS_COUNT,         "class_hull is not CLASS_COUNT entries"
     assert class_tag_end - class_tag == CLASS_COUNT * 4,  "class_tag is not CLASS_COUNT tags"
+    assert eco_build_order - eco_class_gate == CLASS_COUNT, "eco_class_gate is not CLASS_COUNT entries"
     assert eco_class_cost - eco_build_order == CLASS_BUILDABLE, "eco_build_order does not offer CLASS_BUILDABLE classes"
     assert eco_class_frames - eco_class_cost == CLASS_COUNT, "eco_class_cost is not CLASS_COUNT entries"
     assert cbt_damage_matrix - eco_class_frames == CLASS_COUNT, "eco_class_frames is not CLASS_COUNT entries"

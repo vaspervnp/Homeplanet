@@ -42,6 +42,11 @@ FLEET_HDR_SIZE      equ 4
 FLEET_MAGIC_0       equ "H"
 FLEET_MAGIC_1       equ "P"
 
+;  The tag in front of the campaign's unlock byte, out in the block's pad --
+;  see fleet_unlocks in src/main.asm for why it is there rather than in the
+;  header, and fleet_disc_load for why it needs a tag of its own.
+FLEET_UNLOCK_TAG    equ "U"
+
 ;  What the FLEET line of the disc diagnostic can say. Zero is the one that
 ;  is never written: it means the fleet transfer has not run at all, which on
 ;  the title screen would mean demo_init never reached fleet_disc_load.
@@ -547,6 +552,13 @@ fleet_disc_save:
     inc hl
     ld a,(fleet_count)
     ld (hl),a
+
+    ;  ...and what the campaign has learned, out in the pad behind the fleet.
+    ld hl,fleet_unlocks
+    ld (hl),FLEET_UNLOCK_TAG
+    inc hl
+    ld a,(campaign_unlocks)
+    ld (hl),a
     jp fdc_fleet_save
 
 
@@ -591,6 +603,26 @@ fleet_disc_load:
     cp ENT_PLAYER_MAX + 1
     jr nc,@fleet_no_save
     ld (fleet_count),a
+
+    ;  What the campaign had unlocked. It is TAGGED, and that is not belt and
+    ;  braces: this field lives in the save block's pad, the pad is bank RAM
+    ;  declared after bank4_end, and nothing has ever written it -- so a disc
+    ;  saved by yesterday's build has whatever powered up at this offset, not a
+    ;  zero. "An old save reads as not unlocked" is a property of the TAG, not
+    ;  of the pad. Anything else -- no tag, or a bit nothing sets -- reads as
+    ;  nothing unlocked, which is what every other failed check here does.
+    xor a
+    ld (campaign_unlocks),a
+    ld hl,fleet_unlocks
+    ld a,(hl)
+    cp FLEET_UNLOCK_TAG
+    jr nz,@fleet_no_unlocks
+    inc hl
+    ld a,(hl)
+    cp CAMP_UNLOCK_ALL + 1
+    jr nc,@fleet_no_unlocks
+    ld (campaign_unlocks),a
+@fleet_no_unlocks:
 
     ld a,1
     ld (mis_saved),a                    ; so fleet_restore will act on it

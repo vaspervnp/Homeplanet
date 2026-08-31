@@ -354,6 +354,14 @@ class TestTheMissionsPicketAlwaysFits(RegionFixture):
                 wanted = h.read_bank4(
                     self.c, self.sym["MISSION_TABLE"] + index * MIS_SIZE,
                     MIS_SIZE)[MIS_ENEMY_COUNT]
+                #  ...plus the DERELICT, in the missions that field one. It is
+                #  a hostile-region entity like any other -- which is exactly
+                #  why it has to be counted here rather than filtered out: it
+                #  is one slot the picket and a wave cannot have, and this is
+                #  the test that would notice when that stops adding up.
+                if (self.sym["MIS_DERELICT_FROM"] <= index
+                        <= self.sym["MIS_DERELICT_UNTIL"]):
+                    wanted += 1
                 self.assertEqual(len(self.picket()), wanted,
                                  f"mission {index + 1} asked for {wanted} hostiles")
 

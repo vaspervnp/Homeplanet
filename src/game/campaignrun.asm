@@ -28,6 +28,7 @@ mis_init:
     ld (mis_complete),a
     ld (mis_failed),a
     ld (mis_saved),a                    ; nothing banked yet
+    ld (campaign_unlocks),a             ; ...and nothing reverse-engineered
     ld hl,0
     ld (mis_timer),hl
     jp mis_brief_open
@@ -149,8 +150,15 @@ mis_setup:
     ;  in the low 16K with the rest of the frame loop's simulation.
     call wave_init
 
-    ;  Clear out whatever the last mission left behind.
+    ;  Clear out whatever the last mission left behind. That includes every
+    ;  wreck and the derelict itself, which carry ENT_F_ENEMY -- so the
+    ;  derelict is PLACED afresh each mission rather than carried, and it is
+    ;  placed BEFORE the picket so it takes the lowest hostile slot. That is
+    ;  what makes slv_find_wreck, which returns the first hull by index and not
+    ;  the nearest, send the first corvette at the derelict rather than at
+    ;  whatever the fight has left lying about.
     call mis_clear_enemies
+    call mis_spawn_derelict
 
     call mis_descriptor
     ld (mis_desc),hl
@@ -227,6 +235,77 @@ mis_setup:
     ld hl,eco_patches
     ex de,hl
     ldir                                ; from the descriptor into the patches
+    ret
+
+
+; ----------------------------------------------------------------------------
+;  mis_spawn_derelict -- the dead Vekhar frigate, if this mission has one
+;  Uses: everything
+;
+;  A hull, not a ship: ACTIVE + ENEMY + DISABLED, which is byte for byte what
+;  slv_make_wreck produces. Everything that follows is therefore already
+;  written and already tested -- it does not count towards a CLEAR objective
+;  (mis_count_enemies' mask), is not shot at or targeted (cbt_target_flying,
+;  cbt_find_enemy), does not fire or close (cbt_update, cbt_move_enemies), is
+;  not part of the fleet's hull (wave_health sums ACTIVE-and-not-ENEMY), is
+;  never carried between missions (fleet_save takes the same set), and a
+;  Salvage Corvette can already reach it. Not one of those is a line of code
+;  here, and that is the whole argument for making the derelict a WRECK rather
+;  than a new kind of entity.
+;
+;  The one thing it does cost is a place in slv_survey's count, so a mission
+;  with a derelict still adrift allows SLV_WRECK_MAX - 1 combat wrecks rather
+;  than SLV_WRECK_MAX. That is correct rather than tolerated: the cap is the
+;  frame budget, and a derelict is as much of an entity as any other hull.
+;
+;  It is CLASS_FRIGATE and that is the mechanic, not the decoration. slv_deliver
+;  reads the delivered hull's class to decide what the yard pays, and it is the
+;  same byte that decides what the yard has learned.
+; ----------------------------------------------------------------------------
+mis_spawn_derelict:
+    ld a,(campaign_unlocks)
+    and CAMP_UNLOCK_FRIGATE
+    ret nz                              ; taken already; there is only one
+
+    ld a,(mis_index)
+    cp MIS_DERELICT_FROM
+    ret c
+    cp MIS_DERELICT_UNTIL + 1
+    ret nc
+
+    ;  Theirs. mis_clear_enemies has just freed the whole hostile region, so
+    ;  this cannot fail -- and if a later mission ever made it fail, the answer
+    ;  is the same "place what fits" the picket takes.
+    call ent_find_free_theirs
+    ret nc
+
+    call ent_addr
+    push hl
+    ex de,hl
+    ld hl,derelict_pos
+    ld bc,6
+    ldir
+    pop hl
+
+    ;  Squadron, order and target come out right for free; the three fields
+    ;  that do not are overwritten below.
+    call mis_make_enemy
+
+    ld a,(ent_index)
+    call ent_addr
+    push hl
+    ld de,ENT_CLASS
+    add hl,de
+    ld (hl),CLASS_FRIGATE
+    pop hl
+    push hl
+    ld de,ENT_HULL
+    add hl,de
+    ld (hl),0                           ; it was destroyed a long time ago
+    pop hl
+    ld de,ENT_FLAGS
+    add hl,de
+    ld (hl),ENT_F_ACTIVE + ENT_F_ENEMY + ENT_F_DISABLED
     ret
 
 
