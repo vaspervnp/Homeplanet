@@ -7,6 +7,7 @@ watch RU come back out the other end.
 
 from __future__ import annotations
 
+import struct
 import sys
 import unittest
 
@@ -671,3 +672,113 @@ class TestHarvesting(EconomyFixture):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestTheHarvesterWithNothingToDo(EconomyFixture):
+    """Two ways a harvester runs out of work, and they are the same bug.
+
+    The obvious assertion -- "the RU stopped rising" -- is worthless here. It
+    is true when the fix works, and it is equally true when the harvester
+    stops dead in the sky with nobody steering it, which is the thing that was
+    actually wrong. phase4_fly SKIPS ENT_ORDER_HARVEST, so a harvester whose
+    order is never spent is moved by nothing at all and fleet_save carries its
+    coordinates into the next mission.
+
+    So these follow the ship BY SLOT and ask where it ends up.
+    """
+
+    ORDER_HARVEST, ORDER_IDLE = 4, 0
+    PATCH_COUNT, PATCH_SIZE, PATCH_STOCK = 4, 8, 6
+
+    def patch_stock(self):
+        base = self.sym["ECO_PATCHES"]
+        return [int.from_bytes(self.c.read_ram(
+            base + i * self.PATCH_SIZE + self.PATCH_STOCK, 2), "little")
+            for i in range(self.PATCH_COUNT)]
+
+    def empty_every_patch(self):
+        base = self.sym["ECO_PATCHES"]
+        for i in range(self.PATCH_COUNT):
+            self.c.write_ram(base + i * self.PATCH_SIZE + self.PATCH_STOCK,
+                             (0).to_bytes(2, "little"))
+
+    def harvesters(self):
+        base = self.sym["ENTITIES"]
+        out = []
+        for s in range(48):
+            b = base + s * 20
+            f = self.c.read_ram(b + 11, 1)[0]
+            if f & 1 and not f & 2 and self.c.read_ram(b + 9, 1)[0] == 2:
+                out.append(s)
+        return out
+
+    def order_of(self, slot):
+        return self.c.read_ram(self.sym["ENTITIES"] + slot * 20 + 13, 1)[0]
+
+    def pos_of(self, slot):
+        b = self.sym["ENTITIES"] + slot * 20
+        return tuple(int.from_bytes(self.c.read_ram(b + i * 2, 2), "little",
+                                    signed=True) for i in range(3))
+
+    def make_harvester(self, slot=20):
+        """Mission 1 opens with interceptors and the Mothership and nothing
+        else, so a harvester has to be put there. Slot 20 is inside the
+        player's region (0..ENT_PLAYER_MAX-1) and clear of the starting
+        fleet. It is placed FAR from squadron 1's station, because the second
+        half of the exhausted-map test asks whether phase4_fly picks the ship
+        up once the order is spent -- and a ship already standing on its
+        station has nowhere to fly, which passes for the wrong reason."""
+        b = self.sym["ENTITIES"] + slot * ENT_SIZE
+        self.c.write_ram(b, struct.pack("<hhh", 6000, 0, 6000))
+        self.c.write_ram(b + 9, bytes([2]))         # ENT_CLASS: harvester
+        self.c.write_ram(b + 10, bytes([200]))      # ENT_HULL
+        self.c.write_ram(b + 12, bytes([1]))        # ENT_SQUAD
+        self.c.write_ram(b + 15, bytes([0]))        # ENT_LOAD: empty hold
+        self.c.write_ram(b + 11, bytes([1]))        # ENT_FLAGS: active, ours
+        return slot
+
+    def send_them_out(self):
+        self.make_harvester()
+        slots = self.harvesters()
+        self.assertTrue(slots, "the fixture has no harvesters to order")
+        self.hold("h")
+        self.c.run_frames(60)
+        self.assertTrue(any(self.order_of(s) == self.ORDER_HARVEST for s in slots),
+                        "`H` did not put anybody to work")
+        return slots
+
+    def test_a_full_treasury_stops_the_mining_and_sends_them_home(self):
+        """The RU ceiling is 9999 and eco_earn saturates there, so mining on
+        drains a finite patch for income that is thrown away."""
+        slots = self.send_them_out()
+        stock = self.patch_stock()
+
+        self.c.write_ram(self.sym["ECO_RU"], (9999).to_bytes(2, "little"))
+        self.c.run_frames(300)
+
+        self.assertEqual(self.patch_stock(), stock,
+                         "the patches are still being drained at the RU ceiling")
+        for s in slots:
+            self.assertEqual(self.order_of(s), self.ORDER_IDLE,
+                             f"harvester in slot {s} still holds a harvest order "
+                             f"with the treasury full -- phase4_fly skips it, so "
+                             f"nothing is steering it")
+
+    def test_an_exhausted_map_sends_them_home_rather_than_stranding_them(self):
+        """The twin, and the one that was already shipping: with every patch
+        mined out, eco_harvester_step used to return without spending the
+        order, and the ship stopped dead where it stood."""
+        slots = self.send_them_out()
+        self.empty_every_patch()
+        self.c.run_frames(200)
+
+        for s in slots:
+            self.assertEqual(self.order_of(s), self.ORDER_IDLE,
+                             f"harvester in slot {s} is stranded on a mined-out map")
+
+        before = {s: self.pos_of(s) for s in slots}
+        self.c.run_frames(200)
+        moved = [s for s in slots if self.pos_of(s) != before[s]]
+        self.assertTrue(moved,
+                        "no harvester moved after its order was spent -- being "
+                        "IDLE is only half the fix; phase4_fly has to fly it home")

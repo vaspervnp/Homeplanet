@@ -154,6 +154,37 @@ eco_run_workers:
 ;  In : (eco_ent)
 ;  Uses: everything
 ; ----------------------------------------------------------------------------
+; ----------------------------------------------------------------------------
+;  @eco_h_no_work -- there is nothing useful to mine, so SPEND THE ORDER
+;
+;  This used to be a bare `ret nc` and that was a real bug, of a shape this
+;  project has met twice before. phase4_fly SKIPS ENT_ORDER_HARVEST -- it has
+;  to, or it and eco_update would step the same ship in two directions and
+;  cancel exactly -- so a harvester with no work is steered by NOBODY. It stops
+;  dead wherever it happened to be, stays there for the rest of the mission,
+;  and fleet_save carries those coordinates into the next one.
+;
+;  Dropping it to IDLE hands it back to phase4_fly, which flies it to its
+;  station. Exactly what cbt_fire_if_able does when an attack order's
+;  re-acquire comes back ENT_NO_TARGET, and for exactly the same reason.
+;
+;  IDLE and not GUARD, also for the same reason: cbt_retarget_one returns early
+;  for GUARD, so a ship dropped there keeps whatever target it picks up next
+;  and is never re-pointed at a nearer one. IDLE is the state the fleet starts
+;  in, so the order is SPENT rather than replaced by one the player never gave.
+;
+;  No guard on the order byte is needed and none is wanted: eco_run_workers
+;  dispatches here only for ENT_ORDER_HARVEST. Clearing unconditionally would
+;  take ENT_ORDER_TOW with it and stop the salvage.
+; ----------------------------------------------------------------------------
+@eco_h_no_work:
+    ld hl,(eco_ent)
+    ld de,ENT_ORDER
+    add hl,de
+    ld (hl),ENT_ORDER_IDLE
+    ret
+
+
 eco_harvester_step:
     ld hl,(eco_ent)
     ld de,ENT_LOAD
@@ -162,9 +193,19 @@ eco_harvester_step:
     cp ECO_LOAD_MAX
     jr nc,@eco_homebound
 
+    ;  THE TREASURY IS FULL. eco_earn saturates at ECO_RU_MAX, so mining on
+    ;  would drain a FINITE patch for income that is thrown away the moment it
+    ;  arrives. Stop, and go home -- and note this is checked outbound only, so
+    ;  a harvester already carrying a hold still delivers it.
+    ld hl,(eco_ru)
+    ld de,ECO_RU_MAX
+    or a
+    sbc hl,de
+    jr nc,@eco_h_no_work                ; eco_ru >= the ceiling
+
     ;  Outbound: find a patch with something left in it and close on it.
     call eco_nearest_patch
-    ret nc                              ; everything is mined out
+    jr nc,@eco_h_no_work                ; everything is mined out
     ld (eco_patch_ptr),hl
 
     call eco_at_target
