@@ -630,6 +630,10 @@ class TestBuyingOne(SalvageFixture):
 
     def test_a_corvette_can_be_ordered_and_costs_what_section_8_says(self):
         self.c.write_ram(self.sym["ECO_RU"], (500).to_bytes(2, "little"))
+        #  The yard offers nothing but harvesters while there are none flying
+        #  -- tests/test_economy.TestTheEconomyComesFirst -- and the walk below
+        #  would go round for ever without reaching the corvette.
+        h.give_the_yard_a_harvester(self.c, self.sym)
         self.hold("b")
         order = list(h.read_bank4(self.c, self.sym["ECO_BUILD_ORDER"], 7))
         want = order.index(CLASS_SALVAGE)

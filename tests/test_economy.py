@@ -49,6 +49,10 @@ class EconomyFixture(unittest.TestCase):
     def tearDown(self):
         h.close(getattr(self, "c", None))
 
+    def open_the_whole_list(self, slot=25):
+        """A harvester in the air, so the yard offers every class."""
+        return h.give_the_yard_a_harvester(self.c, self.sym, slot)
+
     # -- reading ------------------------------------------------------------
     def ru(self):
         return int.from_bytes(self.c.read_ram(self.sym["ECO_RU"], 2), "little")
@@ -125,6 +129,13 @@ class TestStartingState(EconomyFixture):
 
 class TestBuildPanel(EconomyFixture):
 
+
+    def setUp(self):
+        super().setUp()
+        #  These are about the yard, not about the rule that the economy comes
+        #  first -- see TestTheEconomyComesFirst.
+        self.open_the_whole_list()
+
     def test_b_toggles_the_panel(self):
         self.assertEqual(self.byte("ECO_BUILD_OPEN"), 0)
         self.hold("b")
@@ -185,6 +196,13 @@ class TestBuildPanel(EconomyFixture):
 
 class TestConstruction(EconomyFixture):
 
+
+    def setUp(self):
+        super().setUp()
+        #  These are about the yard, not about the rule that the economy comes
+        #  first -- see TestTheEconomyComesFirst.
+        self.open_the_whole_list()
+
     def test_a_finished_ship_appears_and_joins_the_squadron(self):
         before = self.ships_by_class().get(CLASS_HARVESTER, 0)
         selected = self.byte("SQUAD_SEL")
@@ -203,6 +221,67 @@ class TestConstruction(EconomyFixture):
         self.build(CLASS_INTERCEPTOR)
         self.assertGreaterEqual(self.byte("ECO_BUILD_CLASS"), 3,
                                 "the yard is still holding a finished ship")
+
+
+class TestTheEconomyComesFirst(EconomyFixture):
+    """With no harvester flying and none on the way, only harvesters build.
+
+    RU only ever arrives through a harvester, so this is the one place the game
+    can be spent into a state it cannot get out of: no harvester, forty units
+    left, buy an interceptor, never earn again. It is not a difficulty rule --
+    it is a soft-lock guard, and the build list is where it belongs because
+    eco_pick_step walks PAST a class it refuses. With no harvesters the panel
+    offers one class and there is nothing to explain and nothing to refuse.
+    """
+
+    def offered(self):
+        """Every class the panel will stop on, walked all the way round."""
+        seen = set()
+        for _ in range(CLASS_BUILDABLE + 1):
+            order = list(h.read_bank4(self.c, self.sym["ECO_BUILD_ORDER"],
+                                      CLASS_BUILDABLE))
+            seen.add(order[self.byte("ECO_BUILD_PICK")])
+            self.hold(".", frames=20)
+        return seen
+
+    def test_with_no_harvesters_the_panel_offers_only_the_harvester(self):
+        self.assertNotIn(CLASS_HARVESTER, self.ships_by_class(),
+                         "the fixture starts with a harvester")
+        self.hold("b")
+        self.assertEqual(self.offered(), {CLASS_HARVESTER},
+                         "the yard offered something that cannot pay for itself")
+
+    def test_and_the_panel_opens_on_it_rather_than_on_a_refusal(self):
+        """The pick survives between openings and what is allowed moves under
+        it, so opening on a class ENTER then refuses reads as a broken key."""
+        self.hold("b")
+        order = list(h.read_bank4(self.c, self.sym["ECO_BUILD_ORDER"],
+                                  CLASS_BUILDABLE))
+        self.assertEqual(order[self.byte("ECO_BUILD_PICK")], CLASS_HARVESTER)
+
+    def test_one_on_order_is_enough_to_open_the_list_again(self):
+        """ON THE WAY counts, or the first order would lock the list until that
+        harvester was delivered and a player would queue three."""
+        self.hold("b")
+        self.hold(cpc.KEY_ENTER)
+        self.assertEqual(self.byte("ECO_BUILD_CLASS"), CLASS_HARVESTER,
+                         "the harvester did not go on the slipway")
+        self.assertIn(CLASS_INTERCEPTOR, self.offered(),
+                      "one harvester on order and the list is still closed")
+
+    def test_the_refusal_survives_the_orders_menu_injecting_a_pick(self):
+        """eco_queue asks again at ENTER, because the pick is a byte in RAM
+        and eco_pick_step is not the only thing that can move it."""
+        order = list(h.read_bank4(self.c, self.sym["ECO_BUILD_ORDER"],
+                                  CLASS_BUILDABLE))
+        self.hold("b")
+        self.c.write_ram(self.sym["ECO_BUILD_PICK"],
+                         bytes([order.index(CLASS_INTERCEPTOR)]))
+        before = self.ru()
+        self.hold(cpc.KEY_ENTER)
+        self.assertEqual(self.byte("ECO_BUILD_CLASS"), 0xFF,
+                         "an interceptor went on the slipway with no harvester")
+        self.assertEqual(self.ru(), before, "the refused order was charged for")
 
 
 class TestTheBuildQueue(EconomyFixture):
@@ -225,6 +304,13 @@ class TestTheBuildQueue(EconomyFixture):
     #  Mothership is not on the list and the Destroyer is not offered before
     #  mission 5, which leaves five to choose four from.
     LINE = [CLASS_SCOUT, CLASS_INTERCEPTOR, CLASS_HARVESTER, CLASS_BOMBER]
+
+
+    def setUp(self):
+        super().setUp()
+        #  These are about the yard, not about the rule that the economy comes
+        #  first -- see TestTheEconomyComesFirst.
+        self.open_the_whole_list()
 
     def order(self, ship_class):
         """One ENTER on one class, with the panel already open."""
@@ -402,6 +488,13 @@ class TestTheQueueOnTheScreen(EconomyFixture):
     YARD_X, YARD_W = 44, 12             # the field, in screen bytes
     MIS_X, MIS_W = 56, 24               # "M 1 JUMP", which it must not reach
     ROW_Y, ROW_H = 188, 8
+
+
+    def setUp(self):
+        super().setUp()
+        #  These are about the yard, not about the rule that the economy comes
+        #  first -- see TestTheEconomyComesFirst.
+        self.open_the_whole_list()
 
     def field(self, x, w):
         self.c.write_ram(self.sym["PHASE4_HUD_DIRTY"], bytes([2]))

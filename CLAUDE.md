@@ -1260,6 +1260,50 @@ same thing:
 squadron out put fifteen interceptors on a patch and mined the map dry in
 seconds — the economy is meant to be a choice, not a free action.
 
+#### With no harvester, only harvesters can be built
+
+**It is a soft-lock guard and not a difficulty rule**, and that is the whole
+argument for it. RU arrives through exactly one door, so a player with no
+harvester and forty units left can buy an interceptor and then never earn
+again — the campaign is not lost, it is stuck, which is worse.
+
+The build list is where that gets decided, so the build list is where it is
+stopped: `eco_pick_allowed` refuses everything but the Harvester when there is
+none flying and none on the way. **`eco_pick_step` walks PAST a class it
+refuses**, so the panel simply offers one class — there is nothing to explain
+and nothing to refuse, which is the same reasoning that makes the Destroyer
+invisible before mission 5 rather than shown and rejected.
+
+**ON THE WAY counts** — the slipway and the waiting line, not just the air — or
+the first order would lock the list until that harvester was delivered and a
+player would queue three of them. `eco_has_a_harvester` is derived rather than
+kept in a byte, for the reason `squad_count` is: a running total would have to
+be decremented by whatever kills one, and combat has no business knowing about
+the build list.
+
+**Opening the panel now lands on a class the yard will take.** The pick is a
+byte that survives between openings and what is allowed moves under it — a
+mission is reached, a derelict is towed home, the last harvester dies — so
+`B` steps the pick forward to the next allowed class. Without it the panel can
+open on something ENTER then refuses, which reads as a broken key rather than
+as a rule.
+
+> **`push af : call : pop af` threw the answer away**, and it is worth writing
+> down because it looks right. `eco_pick_allowed` had the class in `A` and
+> needed it after the call; POP AF restores the **flags**, so the carry the
+> helper had just set was overwritten by whatever the carry had been before.
+> The class goes in `C` and the helper preserves `BC`; `LD A,C` touches no
+> flag. The symptom was the list staying closed with a harvester on the
+> slipway — a rule that never turned off.
+
+**Ten existing tests went red and all ten were right to.** They build scouts
+and interceptors to exercise the queue, the panel and the readout, and none of
+them had a harvester. `EconomyFixture.open_the_whole_list` pokes one — in
+squadron **0**, not 1, because `squad_count` is derived and a poked ship joins
+the selected squadron's tally the next time anything calls `squad_refresh`,
+which is what a finished build does. The count went up by two and read as the
+yard delivering twice.
+
 ### Attack waves, and the price of staying
 
 Stay in a mission more than **two** minutes and the Vekhar start arriving, in

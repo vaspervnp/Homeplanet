@@ -149,6 +149,22 @@ order_update:
     ld a,(hl)
     xor 1
     ld (hl),a
+    or a
+    jr z,@ord_no_build
+
+    ;  OPENING IT LANDS ON A CLASS THE YARD WILL TAKE. The pick is a byte that
+    ;  survives between openings and starts at the cheapest class, and what is
+    ;  allowed moves under it -- a mission is reached, a derelict is towed
+    ;  home, the last harvester dies. Without this the panel can open showing
+    ;  something ENTER then refuses, which reads as a broken key rather than as
+    ;  a rule. eco_pick_step walks to the next allowed class and stops, and it
+    ;  is asked to step FORWARD so the answer is the cheapest one at or after
+    ;  where the player left the list.
+    ld a,(eco_build_pick)
+    dec a                               ; ...so a legal pick steps back onto
+    ld (eco_build_pick),a               ;    itself rather than past itself
+    ld a,1
+    call eco_pick_step
 @ord_no_build:
 
     ;  While the build panel is open, `,` and `.` pick a class instead of

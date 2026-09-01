@@ -50,6 +50,9 @@ class BarFixture(unittest.TestCase):
     def tearDown(self):
         h.close(getattr(self, "c", None))
 
+    def give_the_yard_a_harvester(self, slot=25):
+        return h.give_the_yard_a_harvester(self.c, self.sym, slot)
+
     # -- pressing things ----------------------------------------------------
     #  Long enough for key_scan to observe the release: every command is
     #  edge-triggered and the game scans once per GAME frame, which is ten
@@ -211,6 +214,10 @@ class TestWhatItSays(BarFixture):
 
 class TestTheBuildPanel(BarFixture):
     """The context this was built for."""
+
+    def setUp(self):
+        super().setUp()
+        self.give_the_yard_a_harvester()
 
     def open_panel(self):
         self.hold("b")
@@ -458,6 +465,7 @@ class TestTheKeysAreBlue(BarFixture):
         would make it look like the other four.
         """
         self.c.write_ram(self.sym["ECO_RU"], struct.pack("<H", 500))
+        self.give_the_yard_a_harvester()    # ...or the list is one class long
         self.hold("b")
         self.assertEqual(self.byte("ECO_BUILD_OPEN"), 1, "B did not open the yard")
         self.assert_reads([

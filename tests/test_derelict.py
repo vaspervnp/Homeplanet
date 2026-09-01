@@ -67,6 +67,10 @@ HOLD, RELEASE = 30, 30
 
 
 class DerelictFixture(unittest.TestCase):
+
+    def give_the_yard_a_harvester(self, slot=25):
+        return h.give_the_yard_a_harvester(self.c, self.sym, slot)
+
     """One machine per test. Every one of these either walks the campaign
     forward or unlocks a class, and both would be the next test's starting
     state."""
@@ -424,6 +428,12 @@ class TestTheYardWillNotTakeAFrigateYet(DerelictFixture):
     def order_the_pick(self):
         """Put the panel on the frigate BEHIND the stepper's back and press
         ENTER, which is what the orders menu's injected key amounts to."""
+        #  The yard takes nothing but harvesters while there are none flying,
+        #  and that refusal would stand in for the UNLOCK this is about --
+        #  test_enter_is_refused_and_charges_nothing would pass for the wrong
+        #  reason and its twin would fail, which is exactly the pair this class
+        #  exists to keep honest.
+        self.give_the_yard_a_harvester()
         self.hold("b")
         self.assertEqual(self.byte("ECO_BUILD_OPEN"), 1, "B did not open the yard")
         self.c.write_ram(self.sym["ECO_BUILD_PICK"], bytes([self.frigate_pick()]))
@@ -465,6 +475,9 @@ class TestTheDestroyerGateStillWorks(DerelictFixture):
 
     def try_to_order_a_destroyer(self):
         self.c.write_ram(self.sym["ECO_RU"], (2000).to_bytes(2, "little"))
+        #  The yard takes nothing but harvesters while there are none flying,
+        #  and that refusal would stand in for the MISSION gate this is about.
+        self.give_the_yard_a_harvester()
         self.hold("b")
         self.c.write_ram(self.sym["ECO_BUILD_PICK"], bytes([self.destroyer_pick()]))
         self.hold(cpc.KEY_ENTER)
@@ -717,6 +730,12 @@ class TestTheBarNamesTheFrigateOnlyWhenItCanBeBought(BarFixture):
 
     def walk_the_list(self):
         """Every class name the bar shows as `.` goes right round the list."""
+        #  ...and there has to BE a list. With no harvester flying the yard
+        #  offers exactly one class -- see tests/test_economy's
+        #  TestTheEconomyComesFirst -- so without this the walk finds one word
+        #  and "the frigate was not offered" would be true for the wrong
+        #  reason, which is the failure mode this whole class exists to avoid.
+        self.give_the_yard_a_harvester()
         self.hold("b")
         self.assertEqual(self.byte("ECO_BUILD_OPEN"), 1, "B did not open the yard")
         seen, first = [], None

@@ -73,6 +73,13 @@ class ClassFixture(unittest.TestCase):
 
     def boot(self, **kw):
         self.c = h.boot_quick(frames=300, **kw)
+        #  A harvester in the air from the start. With none, the yard offers
+        #  only harvesters -- tests/test_economy.TestTheEconomyComesFirst --
+        #  and every class test here would pass or fail on that rule instead
+        #  of on its own. AT BOOT rather than at the point of ordering: these
+        #  tests snapshot the live slots first and count what appears, so a
+        #  ship poked in later reads as the yard delivering two.
+        h.give_the_yard_a_harvester(self.c, self.sym)
         return self.c
 
     # -- reading ------------------------------------------------------------
@@ -267,10 +274,15 @@ class TestTheDestroyerIsGated(ClassFixture):
         list one mission is on it the next. So eco_queue checks as well."""
         self.boot()
         self.c.write_ram(self.sym["ECO_RU"], (900).to_bytes(2, "little"))
+        #  OPEN FIRST, THEN POKE. Opening the panel steps the pick forward to
+        #  a class the yard would take, so a pick written before `B` is not
+        #  the pick ENTER sees -- and this test is precisely about a pick that
+        #  arrived behind the stepper's back, which is what the orders menu's
+        #  injected key amounts to.
+        self.hold("b")
         order = list(self.banked("ECO_BUILD_ORDER", CLASS_BUILDABLE))
         self.c.write_ram(self.sym["ECO_BUILD_PICK"],
                          bytes([order.index(CLASS_DESTROYER)]))
-        self.hold("b")
         self.hold(cpc.KEY_ENTER)
         self.assertEqual(self.byte("ECO_BUILD_CLASS"), 0xFF,
                          "a Destroyer went on the slipway in mission 1")

@@ -19,6 +19,7 @@ from __future__ import annotations
 import os
 import re
 import subprocess
+import struct
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -69,6 +70,12 @@ def _scratch_base() -> int:
 
 
 SCRATCH_SIZE = 0x60
+
+#  Mirrored from src/game/entity.asm and src/game/shipclass.asm, for
+#  give_the_yard_a_harvester below.
+ENT_SIZE = 20
+ENT_CLASS, ENT_HULL, ENT_FLAGS, ENT_SQUAD, ENT_TARGET = 9, 10, 11, 12, 14
+CLASS_HARVESTER = 2
 
 #  How long to let the firmware run before we take over. The game programs
 #  CRTC R12/R13 and nothing else -- it inherits the standard 40x25 display the
@@ -329,6 +336,35 @@ def boot_quick(frames: int = 40, briefing: bool = False,
         wait_for_title(c)
         dismiss_briefing(c)
     return c
+
+
+def give_the_yard_a_harvester(c: cpc.CPC, sym: dict[str, int],
+                              slot: int = 25) -> int:
+    """Put one harvester in the air, so the build list has more than one class.
+
+    With no harvester flying and none on the way the yard offers ONLY the
+    harvester -- eco_pick_allowed, and see tests/test_economy's
+    TestTheEconomyComesFirst for why. That is right, and it is not what the
+    queue, the panel, the context bar's readout or the class gates are about;
+    without this they would all pass or fail on a rule none of them names.
+
+    Poked rather than built, because building one takes a mission's worth of
+    frames and would make every one of those a test of the yard's clock.
+
+    SQUADRON 0, not 1. squad_count is DERIVED, so a poked ship joins the
+    selected squadron's tally the next time anything calls squad_refresh --
+    which is exactly what a finished build does, so a count went up by two and
+    read as the yard delivering twice.
+    """
+    base = sym["ENTITIES"] + slot * ENT_SIZE
+    c.write_ram(base, struct.pack("<hhh", 400, 0, 400))
+    c.write_ram(base + ENT_CLASS, bytes([CLASS_HARVESTER]))
+    c.write_ram(base + ENT_HULL, bytes([200]))
+    c.write_ram(base + ENT_SQUAD, bytes([0]))
+    c.write_ram(base + ENT_TARGET, bytes([0xFF]))
+    c.write_ram(base + ENT_FLAGS, bytes([1]))
+    c.run_frames(4)
+    return slot
 
 
 def pin_rng(c: cpc.CPC, seed: int = 0x1234) -> None:

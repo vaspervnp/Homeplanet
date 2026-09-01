@@ -586,9 +586,84 @@ eco_queue:
 
 
 ; ----------------------------------------------------------------------------
+;  eco_has_a_harvester -- is one flying, or one on the way?
+;  Out: CF set if there is
+;  Uses: AF
+;
+;  Three places a harvester can be, and all three count: on the slipway, in the
+;  waiting line behind it, and in the air. Derived rather than kept in a byte,
+;  for the reason squad_count is: a running total of harvesters would have to
+;  be decremented by whatever kills one, and combat has no business knowing
+;  about the build list.
+;
+;  BC and DE are pushed because this is called from inside eco_pick_allowed,
+;  whose own contract is AF/DE/HL, and eco_pick_step loops on that contract.
+; ----------------------------------------------------------------------------
+eco_has_a_harvester:
+    push bc
+    push de
+    push hl
+
+    ;  On the slipway...
+    ld a,(eco_build_class)
+    cp CLASS_HARVESTER
+    jr z,@eco_harv_yes
+
+    ;  ...or in the waiting line behind it...
+    ld a,(eco_queue_len)
+    or a
+    jr z,@eco_harv_flying
+    ld b,a
+    ld hl,eco_queue_buf
+@eco_harv_queued:
+    ld a,(hl)
+    cp CLASS_HARVESTER
+    jr z,@eco_harv_yes
+    inc hl
+    djnz @eco_harv_queued
+
+    ;  ...or in the air. The player's region only: a harvester is bought from
+    ;  the yard, so ent_find_free_ours is the only thing that ever placed one.
+@eco_harv_flying:
+    ld hl,entities + ENT_FLAGS
+    ld de,ENT_SIZE
+    ld b,ENT_PLAYER_MAX
+@eco_harv_one:
+    ld a,(hl)
+    and ENT_F_ACTIVE + ENT_F_ENEMY
+    cp ENT_F_ACTIVE
+    jr nz,@eco_harv_next                ; empty, or theirs
+    ;  ENT_CLASS is the byte two before ENT_FLAGS -- src/main.asm asserts that
+    ;  adjacency for wave_health, and this is the second thing leaning on it.
+    dec hl
+    dec hl
+    ld a,(hl)
+    inc hl
+    inc hl
+    cp CLASS_HARVESTER
+    jr z,@eco_harv_yes
+@eco_harv_next:
+    add hl,de
+    djnz @eco_harv_one
+
+    pop hl
+    pop de
+    pop bc
+    or a
+    ret
+
+@eco_harv_yes:
+    pop hl
+    pop de
+    pop bc
+    scf
+    ret
+
+
+; ----------------------------------------------------------------------------
 ;  eco_pick_allowed -- may the currently picked class be ordered yet?
 ;  Out: CF set if it may
-;  Uses: AF, DE, HL
+;  Uses: AF, C, DE, HL
 ;
 ;  IT IS A TABLE NOW, and the comment that used to be here predicted it: section
 ;  8 gates only the Destroyer, so this was one `cp` "until a second class needs
@@ -608,6 +683,33 @@ eco_pick_allowed:
     ld de,eco_build_order
     add hl,de
     ld a,(hl)                           ; the class
+
+    ;  THE ECONOMY COMES FIRST. With no harvester flying and none on the way,
+    ;  the only thing the yard will take is a harvester.
+    ;
+    ;  It is not a difficulty rule, it is the one place this game can be spent
+    ;  into a state it cannot get out of: RU only ever arrives through a
+    ;  harvester, so a player with none and forty units left can buy an
+    ;  interceptor and then never earn again. The build list is where that gets
+    ;  decided, so the build list is where it is stopped -- and eco_pick_step
+    ;  walks PAST a class it refuses, so with no harvesters the panel simply
+    ;  offers one class. There is nothing to explain and nothing to refuse.
+    ;
+    ;  ON THE WAY counts, or the first order would lock the list to harvesters
+    ;  until that one was delivered and the player would queue three.
+    ;  THE CLASS GOES IN C, NOT ON THE STACK. `push af : call : pop af` is the
+    ;  obvious way to keep it and it throws away the answer: POP AF restores
+    ;  the FLAGS, so the carry eco_has_a_harvester just set is overwritten by
+    ;  the carry that was there before the call. The helper preserves BC for
+    ;  exactly this, and LD A,C touches no flag.
+    ld c,a
+    call eco_has_a_harvester
+    ld a,c
+    jr c,@eco_gates
+    cp CLASS_HARVESTER
+    jr nz,@eco_deny
+
+@eco_gates:
     ld l,a
     ld h,0
     ld de,eco_class_gate
