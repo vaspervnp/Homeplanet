@@ -128,8 +128,31 @@ slv_make_wreck:
     and ENT_F_ENEMY
     jr z,@slv_no_wreck
 
-    call slv_survey                     ; CF: a corvette is flying
-    jr nc,@slv_no_wreck
+    ;  A WRECK IS LEFT WHETHER OR NOT THERE IS ANYTHING TO FETCH IT, on the
+    ;  design owner's instruction: "να μένουν derelicts στην πίστα ακόμα και αν
+    ;  δεν έχεις salvage".
+    ;
+    ;  It used to need a live Salvage Corvette, and the argument for that was
+    ;  safety -- a wreck is a whole entity through phase4_project, phase4_sort
+    ;  and phase4_draw, so a player who never bought one was exactly where they
+    ;  were. What it cost is that the rule was CIRCULAR: kills only leave hulls
+    ;  once you own the ship that collects them, so a player who has not bought
+    ;  one never sees that hulls are a thing at all. That is this project's own
+    ;  recurring lesson -- a feature the player cannot find does not exist --
+    ;  and it is why the derelict of missions 4 to 6 was never gated either.
+    ;
+    ;  The safety is now SLV_WRECK_MAX alone, and it was always the half that
+    ;  bounded the cost: four more entities, never five, whatever the fleet
+    ;  owns. slv_survey still runs, because that count is what it is for; only
+    ;  its carry is ignored.
+    ;
+    ;  Everything else a wreck must be excluded from already excludes it, and
+    ;  none of it was ever conditional on owning a corvette: mis_count_enemies
+    ;  and mis_count_hostiles mask out DISABLED, so a CLEAR mission is still
+    ;  completable and the jump gate still opens; wave_health sums
+    ;  ACTIVE-and-not-ENEMY; cbt_target_flying stops the fleet shooting at it;
+    ;  fleet_save never carries one.
+    call slv_survey                     ; ...for the COUNT; the carry is not read
     ld a,(slv_wrecks)
     cp SLV_WRECK_MAX
     jr nc,@slv_no_wreck

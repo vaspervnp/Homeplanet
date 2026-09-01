@@ -1573,11 +1573,33 @@ waves have to be MEASURED.
 | orders outstanding | 1 | **10**, mixed classes |
 | resource stock a patch | 900 / 400 | **×6** |
 | first wave | 900 frames (3 min) | **600** (2 min), and **426** (1 min) since |
-| spacing | `300 + 3.5r`, mean 746 | **`100 + 1.125r`, mean 243** |
+| spacing | `300 + 3.5r`, mean 746 | `100 + 1.125r`, mean 243, and **`426 + 1.625r`** since |
 
 The spacing is a factor of **3.07**, and `1.125` is three shifts and an add
 against `3.5`'s two adds, a shift and an add — no dearer than the thing it
 replaced, which is why `3.5` was chosen over a multiply in the first place.
+
+> **AND THE THIRD SETTING REVERSES THE SECOND.** *"Οι επιθέσεις να είναι
+> συνεχής με διαφορά 1 ως 2 λεπτά η μία από την άλλη"* — so `WAVE_GAP_MIN` is
+> **426**, the same interval as the first wave, and the spread is
+> `426 + 1.625r`: **60 to 118 seconds** at the measured 7.10 fps. `1.625` is
+> `r + (r>>1) + (r>>3)`, against the `1.664` that would land the far end
+> exactly on two minutes — a second and a half at the extreme of a range that
+> is random anyway, and it rounds *inside* what was asked for.
+>
+> **What it undoes is the overlap.** At 100 + 1.125r a wave landed while the
+> last was still flying, and that was the substance of the second setting
+> rather than a side effect. A minute is longer than any fight, so each wave
+> is its own fight again — which also means `tools/waverate.py`'s **default**
+> protocol is the honest measurement of this build once more, and `--overlap`
+> is measuring a spacing the game no longer has.
+>
+> **What it costs is the length of a mission, and that is the thing to watch.**
+> `WAVE_BEFORE_JUMP` is 3 and `mis_gate` will not let a mission be left before
+> its third wave, so the floor on a mission went from about a minute and a half
+> to **three minutes at the very least and nearer five on an average roll**. If
+> that turns out to be too long, the number to move is `WAVE_BEFORE_JUMP` — not
+> the spacing, which is what was asked for.
 
 **The head of the queue IS the slipway.** `eco_build_class` and
 `eco_build_timer` keep their exact meaning and `eco_queue_buf` holds the nine
@@ -1740,6 +1762,21 @@ happily with two of its clauses deleted.
 > `boot_quick` is perfectly happy — those eight are the only ones that read
 > the real image, so they are the net, and they caught it.
 
+> **AND A SUITE RUN LEAVES THE TREE STALE, WHICH IS A NEW REASON FOR AN OLD
+> RULE.** `test_music.TestTheGeneratorIsRepeatable` runs `tools/genmusic.py`
+> twice to prove the analyser is deterministic, and `genmusic.py` writes
+> `src/gen/mus_*.asm` — so **`make` is out of date from the middle of every
+> suite onwards**, because `$(DSK)` depends on `$(MUSIC_BIN)` which depends on
+> those files. (It has to: see "The `.dsk` depends on the music binaries".)
+>
+> Observed repeatedly: the gen files get a fresh timestamp part way through a
+> run and `build/homeplanet.dsk` is **194816** by the end of it — which is what
+> `rasm` mints before `tools/discbanks.py` adds the raw sector tracks. What
+> invokes the rebuild has not been identified; no test calls `harness.build()`,
+> there is no hook, no watcher and no cron. What IS established is the trigger
+> and the cure: **run `make` and check the size before believing any
+> measurement taken after a suite.** 204544 is a whole image.
+
 > **A STALE `.dsk` cost an hour of this, and the file above says so.** Eight
 > `test_persistence` failures all reading "the jump was refused", on a build
 > where `boot_quick` jumped perfectly. Everything pointed at the new gate: it
@@ -1857,6 +1894,45 @@ times a second in a battle and undo the entire bargain that makes the HUD
 affordable. This is nine characters. `phase4_hud` sets `wave_dirty` when it
 repaints, because a `mis_wipe` clears all 200 lines including this row and
 nothing else would put it back.
+
+#### ...and the Mothership's own, because an average hides it
+
+`BASE nnn%` at the far end of the same row. *"Να φαίνεται κάπου ξεχωριστά η
+υγεία του mothership"* — and the reason it has to be **separate** rather than
+derivable is the whole of it: `wave_pct` is an average over seventeen ships, so
+it reads **94% with the one ship whose loss ends the campaign at a tenth of its
+hull.** §8 makes that the end of the game; it is not a number to bury in a mean.
+
+- **`BASE`, not `MOTH`.** It is the word the game already uses — the orders menu
+  says `CENTRE ON BASE` and the help page repeats it — and four letters keeps it
+  the same shape as `HULL` beside it.
+- **Byte 60, not 44.** The row is 80 bytes: `HULL nnn%` takes 2–20 and
+  `INCOMING` 24–40, so the right half was empty either way. Opposite ends is
+  what makes them read as two figures rather than as one pair.
+- **Its own shadow in `wave_changed`.** A wave that goes straight for the
+  Mothership takes a fifth of its hull without moving the fleet's average a
+  whole point, and the row would sit there showing the old number.
+- **A dead Mothership reads zero**, from the FLAGS byte and not the hull —
+  `fleet_restore` packs survivors down and `mis_setup` spawns into the freed
+  slots, so `moth_slot` can be pointing at something that is not a Mothership
+  at all. "Never trust a slot index", twice over. `ENT_HULL` is next door to
+  `ENT_FLAGS`, which `src/main.asm` already asserts, so asking costs one `INC`.
+
+> **It cost the low 16K a whole page and forced a split.** About a hundred
+> bytes of code took `free:` from 524 to **268** — the bill arrives in units of
+> 256 because `gen/tables.asm` is page-aligned — and the floor is ~450, below
+> which a dozen test classes fail for want of scratch. So `game/wavesdraw.asm`
+> is new: `wave_draw`, `wave_changed` and the row's four strings, in bank 4.
+> Same split as `order.asm`/`ordercmd.asm`, and legal by the **narrow** test —
+> this runs once every game frame, not only while the game is stopped, and what
+> matters is that it cannot run between `class_tier_addr` and
+> `class_blit_done`. `game/ctxbar.asm` and `gfx/markproj.asm` are the other two
+> here on that reasoning. **The state stayed in the low 16K**, because half the
+> suite reads it with `read_ram`.
+>
+> And the two asserts that measure `wave_say_text` had to move to the bottom of
+> `src/main.asm` with it: `ASSERT` is evaluated where it stands and cannot see
+> an include that has not happened yet.
 
 #### The only division in the game
 
@@ -2136,6 +2212,50 @@ mechanics are symmetric, so the cause was never the damage numbers.
 4. **Nothing ever ENDED the order**, which is item 1 read backwards and is its
    own section immediately below.
 
+#### A slot is not empty, it is full of the last ship that was in it
+
+**A replacement built after a casualty came out of the Mothership already
+attacking**, and it took two halves to do it:
+
+- **`order_issue` asked only about `ENT_SQUAD`.** A dead ship's record keeps
+  every byte it had — nothing clears it, because nothing needs to while the
+  slot is empty — so pressing `A` wrote `ENT_ORDER_ATTACK` into every *empty*
+  slot of the selection as well.
+- **`eco_spawn_built` never wrote `ENT_ORDER` at all.** It writes position,
+  flags, class, hull, `ENT_TARGET` and the hold; the order it simply inherited.
+
+`phase4_fly` **skips an attacking ship on purpose**, so the new ship never
+joined the formation and ignored every move and formation order given to it.
+Reported as *"χάνονται οι σχηματισμοί κάποιες φορές στην μάχη. Έκανα επίθεση
+και δεν ανταποκρίνονταν μετά. Μόνο τα καινούρια σκάφη."*
+
+**The "κάποιες φορές" is the interesting part, and it is why this survived the
+suite.** `cbt_fire_if_able` spends an attack order the moment a re-acquire
+comes back empty, so with nothing hostile alive the inherited order is gone
+within a frame or two and nothing is visibly wrong. It needs an enemy on the
+board to stand — which, since the waves arrive every minute and three are
+needed before a jump, is now most of a mission.
+
+The rule, and it is the one `mis_make_enemy` has always followed:
+
+> **A spawn initialises every field it depends on.** "Never trust a slot
+> index" is about reading one; this is about inheriting one.
+
+`order_issue` requiring `ENT_F_ACTIVE` is the other half — an order given to a
+slot with no ship in it cannot mean anything — and it is what stops the mine
+being laid at all.
+
+> **Two of the three tests could not fail, and fixing that is the whole
+> lesson.** Written the obvious way — poke the order, build, read it back —
+> they pass against the broken build, because mission 1 fields no enemies and
+> the inherited order is spent before `build()`'s eight-hundred-frame wait is
+> over. Keeping a hostile alive to prevent that **does not work either**: the
+> Vekhar close at `PHASE4_STEP`, so anything near enough for `cbt_find_enemy`
+> to see at all — `dist_manhattan` saturates past 16320 units — crosses the gap
+> and is killed inside the same window. The test polls frame by frame and reads
+> `ENT_ORDER` **the instant the slot goes ACTIVE**, which is the claim actually
+> being made: the spawn writes the order. All three fail on the pre-fix build.
+
 #### An attack order has to be spent, and for a long time nothing spent it
 
 `phase4_fly` skips a ship under `ENT_ORDER_ATTACK`, and `cbt_move_enemies`
@@ -2403,6 +2523,83 @@ a test asserting ink in column 79 is asserting the wrong thing.
 
 `spr_x` is a **byte column, not a pixel** — the first flight had three of its
 five ships off the right-hand side because the table was written in pixels.
+
+#### The planet, and where a Mode 1 fill may and may not be seen
+
+The game is named after it and it was not on the screen. It sits to the right,
+between the big letters and the prompt, and the two right-hand ships of the
+flight cross it — so it is what they are flying towards rather than a
+decoration in a corner. An **ellipse, 41 × 34**, because a Mode 1 pixel is
+0.83 of a line on a 4:3 display and a disc that reads as round wants its
+horizontal radius about 1.2× its vertical one.
+
+**The whole design is one question asked three times: can a four-pixel step be
+seen here?**
+
+| edge | drawn with | why |
+|---|---|---|
+| the interior | `scr_fill_rect`, whole bytes | invisible: it is covered by the rim |
+| the **limb** | `gfx_vline`, one pixel | it *is* the shape; a four-pixel staircase on it is the only thing that could make this look cheap |
+| the **terminator** | bytes, then 0-3 pixels of repair | a soft edge, but the byte version was a visible three-step staircase across the face |
+
+Two asymmetries fall out of it, and both are the interesting part:
+
+- **The night side's fill rounds OUTWARD and the day side's rounds INWARD.**
+  Black outside the disc is black anyway, so spilling three pixels past the
+  limb costs nothing; three pixels of *blue* past it is three pixels of ragged
+  silhouette. Be honest about what the outward rounding buys, though — the
+  starfield is forty stars over the whole screen, so the band it protects
+  holds a tenth of one. It is insurance, and `tests/test_title.py` says so
+  rather than claiming a test proves it: **rounding it inward does not make
+  anything fail.**
+- **The day side therefore stops short of the limb, and the RIM finishes it.**
+  Those nought to three pixels are the same ink as the limb and belong to it,
+  so `title_planet_rim` draws them. Without that run the planet reads as a
+  ring standing off a slightly-too-small disc, which is what it looked like on
+  the screen. `test_the_day_side_is_solid_right_up_to_the_limb` fails with the
+  run removed — checked.
+
+**The terminator comes out of the same table with one shift**, because the
+terminator of a lit sphere is an ellipse of the same height and a narrower
+width. The shift is the phase: `hw >> 1` is twenty pixels of curve at the
+equator, `hw >> 2` is ten — and ten pixels over sixty-eight lines is a
+straight line with two steps in it. Past the centre, so the planet is gibbous;
+a crescent reads as a moon.
+
+**It costs a third of a title frame — 3.45 fps to 2.30, measured** — which is
+an order of magnitude more than a hand count of its ~820 `gfx_vline` calls
+suggests. Affordable, because this screen does nothing else and is not the
+frame loop. Not free: **`TITLE_BLINK_BIT` had to move from 4 to 2**, because
+the blink is counted in GAME frames and four of them had quietly become 1.7
+seconds each way. That is the third time a constant in game frames has turned
+out to be a constant in seconds only against a frame rate somebody looked at
+— see the attack waves for the other two.
+
+> **Two tests of this were wrong before the code was, and both in the same
+> way: they read ink 2 and called it a star.** Section 2 gives ink 2 to the
+> stars, the reference grid *and the sprites' shading*, so a ship crossing the
+> planet is full of legitimate ink 2 — and a ship is white, so the first
+> version, which asked for black, failed on an interceptor at (275, 127). The
+> flight is cut out of the sample now, by reading `title_ship_table` out of the
+> bank rather than by writing its coordinates down.
+
+> **AND THE FIRST BRIEFING WORE ITS LAST TWO LINES FOR THE WHOLE OF IT.**
+> `T FOR THE TUTORIAL` at 172 and the credit at 186 both sit in the strip the
+> HUD owns, and a briefing's `static_wipe` deliberately stops short of it —
+> every *other* time a briefing is up, the fleet counts are down there and they
+> are what the player is about to give an order about. The first time, nothing
+> was ever going to take them off: the HUD does not clear its strip, it draws
+> labels onto it.
+>
+> `title_key` has always scheduled `mis_wipe` for exactly this **and says so in
+> a comment**. What was missing is that `mis_wipe_screen` is called from
+> `demo_update`'s PLAYING path only, and the briefing goes up before the game
+> reaches it — so the two frames sat unspent behind the briefing and were still
+> unspent when `mis_brief_key` scheduled two more over the top of them.
+> `mis_brief_draw` spends them now, which costs a flag test and a RET on every
+> frame but those two, and cannot lose anything because the briefing schedules
+> its own pair on the way out. Reported as *"στο κείμενο της πρώτης πίστας
+> μένει από κάτω μέρος κειμένων του μενού"*.
 
 Two things this screen broke by touching state it did not own, both of which
 showed up as "the HUD comes and goes":
@@ -3739,13 +3936,60 @@ wrong helper. Both callers use `read_bank4` now.
 "ρυμουλκεί εχθρικά ναυάγια στο Mothership", and until it landed the class was
 90 RU for a ship that did everything worse than a 35 RU interceptor.
 
-An enemy that would die leaves a hull instead — **deterministically**, when the
-player has a live corvette and fewer than `SLV_WRECK_MAX` (4) are already
-adrift. A coin toss is not something a player can act on; "I built the salvage
-ship, so kills leave hulls" is a rule they can. **The live-corvette test is the
-safety argument, not flavour**: a wreck is an ACTIVE entity that is projected,
-sorted and drawn, so a player who never buys one must be exactly where they
-were. `TestNoCorvetteNoWrecks` states that.
+An enemy that would die leaves a hull instead — **deterministically**, while
+fewer than `SLV_WRECK_MAX` (4) are already adrift. A coin toss is not something
+a player can act on; "kills leave hulls" is a rule they can.
+
+> **IT USED TO NEED A LIVE CORVETTE AND NO LONGER DOES**, on the design owner's
+> instruction: *"να μένουν derelicts στην πίστα ακόμα και αν δεν έχεις
+> salvage"*. The old gate had a safety argument — a wreck is an ACTIVE entity
+> that is projected, sorted and drawn, so a player who never bought one was
+> exactly where they were — and a cost that turned out to matter more: **the
+> rule was circular.** Kills only left hulls once you owned the ship that
+> collects them, so a player who had not bought one never saw that hulls
+> existed at all. That is this project's own recurring lesson — a feature the
+> player cannot find does not exist — and the derelict of missions 4 to 6 was
+> never gated this way either.
+>
+> **`SLV_WRECK_MAX` is what holds the cost now, and it was always the half that
+> did**: four more entities, never five, whatever the fleet owns. `slv_survey`
+> still runs, because that count is what it is for; only its carry is ignored.
+>
+> Nothing else had to move, and that is worth noticing: every exclusion a wreck
+> depends on was written for the derelict, which has never been conditional on
+> owning anything. `mis_count_enemies` and `mis_count_hostiles` mask out
+> DISABLED, so a CLEAR mission still completes and the jump gate still opens;
+> `wave_health` sums ACTIVE-and-not-ENEMY; `cbt_target_flying` stops the fleet
+> shooting at it; `fleet_save` never carries one.
+>
+> `TestNoCorvetteNoWrecks` stated the old rule and is now
+> `TestWrecksDoNotWaitForACorvette`, which states the new one — and its
+> "a CLEAR mission still completes" case has stopped being a control and
+> become the real case, because every player gets wrecks now.
+
+> **SIX TESTS FAILED AND EVERY ONE OF THEM MEASURED "DEAD" AS "THE SLOT WAS
+> FREED".** That was true for the whole life of the project and stopped being
+> true here: an enemy death now leaves the record ACTIVE with DISABLED set.
+> The messages were all about something else — *"an attacking squadron failed
+> to finish an even fight"*, *"the attackers never killed the one enemy they
+> were sent at"*, *"slot 56 is active with no hull"* — and one of them,
+> `TestTheFleetComesHomeWhenTheShootingStops`, is the exact behaviour the
+> player had complained about, so it read as a regression in the thing just
+> repaired. **It was not**: measured directly, mission 3 ends with four wrecks
+> adrift and not one ship still under `ENT_ORDER_ATTACK`.
+>
+> The repair is one idea in three files: `counts()` in `test_combat.py`,
+> `fleet()` in `test_campaign.py` and the hull sweep in `TestBattle` now ask
+> what is **flying**, which is the question `mis_count_enemies` and
+> `cbt_target_flying` have always asked. And fixing `fleet()` immediately
+> exposed a seventh: `test_the_enemy_does_not_come_with_you` expected mission
+> 4's picket **plus one**, because the derelict carries ENT_F_ENEMY and the
+> old counter could not tell a hull from a ship.
+>
+> The general shape, and it is the mirror of the one this file keeps writing
+> down about counts: **when a state gains a new value, every test that
+> enumerated the old ones is now wrong, and it will say so in the vocabulary
+> of whatever it was really about.**
 
 The reward is `eco_class_cost` for the hull's own class — 35 RU for a Vekhar
 interceptor, full price and not half. Measured: mission 3, a corvette at 90 RU,
@@ -4221,6 +4465,107 @@ into both buffers, the bar does the same), two of them cross a tick boundary,
 and `demo_frames` is an integer — so 19.8 game frames counted as 19.
 `test_frame_rate_does_not_regress` now settles for 100 frames and measures
 over 400.
+
+### The game-over screen
+
+Losing the Mothership has ended the campaign since §8 was written —
+`mis_update` sets `mis_failed` the frame its slot goes inactive — and **nothing
+ever looked at it.** The only reader was `wave_update`, which quietly stopped
+sending waves; the frame loop went on running, the HUD went on offering `JUMP`,
+and the player was left flying a fleet around an empty map with no way to be
+told the game had ended. **A defeat condition that is computed and not shown is
+not a defeat condition.**
+
+`src/game/gameover.asm`, in bank 4 with the other screens that stop the world.
+`GAME OVER` in the title's own 4× font, three lines of §1's voice, and
+`SPACE - BEGIN AGAIN`.
+
+**It has no flag of its own, and that is the whole design of it.** The page is
+up exactly when `mis_failed` is set, and `mis_failed` is already cleared in the
+three places a campaign can begin — `mis_init`, `mis_setup` and the tutorial's
+setup. So "the screen goes away when a new campaign starts" is true by
+construction rather than by anyone remembering to clear a second byte. Same
+reasoning as `squad_count` being derived and `eco_repaired` being per-mission.
+
+**It takes all 200 lines, where the other four full-screen pages stop at
+`spr_clip_bottom`.** They leave the HUD standing because the fleet counts are
+what a player is about to give an order about. There are no more orders: a
+strip reading `RU 1240` and `M 5` under GAME OVER is the instruments of a ship
+that is gone.
+
+#### SPACE destroys the save, and that is what makes the defeat real
+
+`FLEET.DAT` is written at every jump, so it holds the fleet as it stood at the
+**start of the mission just lost** — with the Mothership alive. Leave it there
+and *τέλος παιχνιδιού* costs nothing at all: the player power-cycles,
+`demo_init` reads the save back, and the campaign resumes one mission earlier.
+§1's premise is that what is lost is lost, and the Mothership is the one thing
+whose loss cannot be a setback.
+
+So `over_erase_save` zeroes the two magic bytes and writes the block back —
+**not** `fleet_disc_save`, which begins by stamping the magic in again. An
+erased save reads as no save, and no save is how a new game starts. Then
+`demo_reset`, which is the tutorial's own way out: it re-reads the disc, spawns
+a fresh fleet, lays mission 1 out and opens the title. Reading the campaign
+back **is** reading the disc, so there is one path and it cannot disagree with
+itself — which is also what makes the test cheap and real, because `mis_saved`
+and `mis_index` coming back zero is the disc and not a flag somebody cleared.
+
+The prompt says BEGIN AGAIN rather than CONTINUE for exactly that reason.
+
+#### The homeplanet, burning
+
+The same ellipse the title screen draws, out of the same table and through the
+same `planet_draw`, at the middle of the game-over screen with fires on it.
+**The sameness is the point**: the title shows the world the fleet is flying
+towards and this shows it burning, which is the only picture in the game that
+says what was lost rather than counting it. The centre became a variable; the
+radii did not, because they are the shape of the half-width table.
+
+The fires are a table of `(dx, dy, height)` offsets from the centre, each a
+one-pixel column through `gfx_vline` in ink 3 — the same ink `GAME OVER` is in,
+which is §2 saying the word and the fires are one statement.
+
+Two things had to be **looked at** rather than reasoned about:
+
+- **A dark planet with fires on it reads as a hollow ring with red specks.**
+  There was a `planet_lit` flag for exactly that version. The interior is black
+  and the limb is one pixel, so nothing says it is a body at all. Lit, it is
+  unmistakably the same world — better picture and better story. The flag went
+  with it: nothing used it, and an untested branch is worse than none.
+- **Sixteen entries of one and two columns were not enough fire.** Three
+  columns at heights 3/5/4 with the tall one a row higher is what turns a mark
+  into a flame at this size, and thirty-six entries is what fills the face. An
+  even scatter of single pixels reads as a texture; these are grouped into ten
+  fires and six strays.
+
+There is **no per-fire clip** and there should not be one — a fire outside the
+planet is a fire in space, and the table is where that is got right. Every
+entry is inside 0.54 of the way to the limb, and `tests/test_gameover.py`
+re-derives the ellipse and checks all of them, top and bottom.
+
+#### Two small things it needed
+
+- **`txt_big` grew an x and a pen.** It started at x=0 and had one fixed ink,
+  because the title is ten glyphs and *is* the eighty-byte line and is white.
+  `GAME OVER` is nine and red. `txt_big_at` is a label on the instruction after
+  the `ld b,0` — free — and the ink is **self-modifying**, patched by
+  `txt_big_set_ink`, because the routine writes a whole screen byte per source
+  pixel and there is no pen to thread through it. Whoever changes it puts it
+  back to 1, the same contract `txt_set_pen` has.
+- **The centring is asserted against the strings.** There is no centring in
+  `txt_draw` and one screen does not justify inventing it, so each `x` is
+  `(80 - n * 2) / 2` worked out by hand — and `src/main.asm` checks each one
+  against the string's own length. Reword a line without moving its `x` and the
+  build stops. The big word's assert is **two-sided**, because its drawn width
+  is odd (72 cells less the 3 blank columns of the last glyph) and the margin
+  either side is therefore a half byte.
+
+> **Every test of the drawing failed first, on a build whose screenshot was
+> perfect.** The fixture returned the moment `mis_failed` went up — which is
+> the frame *before* the page is drawn into one buffer and two before the
+> other. It polls until the words are on both buffers now. Fifth time this
+> exact shape has been recorded here, and it will not be the last.
 
 ### Known open questions
 

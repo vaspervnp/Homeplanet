@@ -21,7 +21,7 @@ ENT_SIZE = 20
 #  exactly where the new slots are.
 ENT_MAX = h.symbols()["ENT_MAX"]
 ENT_HULL, ENT_FLAGS, ENT_CLASS = 10, 11, 9
-F_ACTIVE, F_ENEMY = 1, 2
+F_ACTIVE, F_ENEMY, F_DISABLED = 1, 2, 4
 MIS_COUNT, MIS_SIZE = 8, 20
 MIS_OBJ_CLEAR, MIS_OBJ_SURVIVE, MIS_OBJ_ARRIVE = 0, 1, 2
 
@@ -49,14 +49,24 @@ class CampaignFixture(unittest.TestCase):
         return self.c.read_ram(self.sym["ENTITIES"] + slot * ENT_SIZE + offset, 1)[0]
 
     def fleet(self):
+        """How many ships are FLYING on each side.
+
+        A wreck is not one, and this is the counter that has to agree with
+        mis_count_enemies: slv_make_wreck leaves the hostile that just died
+        ACTIVE with DISABLED set, and mis_count_enemies masks that bit out --
+        which is exactly what lets a CLEAR mission complete over a battlefield
+        with hulls on it. Every enemy death leaves one now; it used to need a
+        live Salvage Corvette, which this fixture never builds.
+        """
         friendly = enemy = 0
         for slot in range(ENT_MAX):
             f = self.ent(slot, ENT_FLAGS)
-            if f & F_ACTIVE:
-                if f & F_ENEMY:
-                    enemy += 1
-                else:
-                    friendly += 1
+            if (f & (F_ACTIVE | F_DISABLED)) != F_ACTIVE:
+                continue
+            if f & F_ENEMY:
+                enemy += 1
+            else:
+                friendly += 1
         return friendly, enemy
 
     def descriptor(self, index):
@@ -441,13 +451,14 @@ class TestFleetPersistence(CampaignFixture):
                 self.c.write_ram(self.sym["ENTITIES"] + slot * ENT_SIZE + ENT_FLAGS, b"\x00")
         self.c.run_frames(60)
         self.assertEqual(self.byte("MIS_COMPLETE"), 1)
-        #  ...plus mission 4's DERELICT, which is a hostile-region entity that
-        #  mis_setup places and which fleet() counts because it carries
-        #  ENT_F_ENEMY. Being the enemy's is exactly what keeps it out of
-        #  fleet_save and out of the fleet's own hull -- see
-        #  tests/test_derelict.py -- so it belongs in this figure rather than
-        #  being filtered out of it.
-        expected = self.descriptor(3)[12] + 1
+        #  Mission 4's DERELICT is NOT in this figure, and the reason it used
+        #  to be is worth keeping. It carries ENT_F_ENEMY -- which is what
+        #  keeps it out of fleet_save and out of the fleet's own hull, see
+        #  tests/test_derelict.py -- so a counter that asked only about that
+        #  bit found nine where the mission's row says eight. It also carries
+        #  DISABLED, and fleet() now counts what is FLYING, which is the same
+        #  question mis_count_enemies asks. The picket alone is the answer.
+        expected = self.descriptor(3)[12]
         h.jump_mission(self.c)
         self.assertEqual(self.fleet()[1], expected,
                          "the wrong number of enemies crossed into mission 4")

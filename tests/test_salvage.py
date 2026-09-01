@@ -288,42 +288,66 @@ class TestWhatMakesAWreck(SalvageFixture):
         self.assertTrue(self.ent(corvette, ENT_FLAGS) & F_ACTIVE)
 
 
-class TestNoCorvetteNoWrecks(SalvageFixture):
-    """A player who has not built one is exactly where they were.
+class TestWrecksDoNotWaitForACorvette(SalvageFixture):
+    """A kill leaves a hull whether or not anything can fetch it.
 
-    This is the whole safety argument for the feature, stated as a test. A
-    wreck is an ACTIVE entity: it holds a slot, and it is projected, sorted and
-    drawn every frame. Wrecks nobody can tow would be a frame-rate bill charged
-    to a player who never opted in.
+    THIS CLASS USED TO STATE THE OPPOSITE, and the reversal was asked for:
+    "να μένουν derelicts στην πίστα ακόμα και αν δεν έχεις salvage". The old
+    rule had a safety argument -- a wreck is a whole entity through
+    phase4_project, sort and draw, so a player who never bought a corvette was
+    exactly where they were -- and it had a cost that turned out to matter
+    more: the rule was CIRCULAR. Kills only left hulls once you owned the ship
+    that collects them, so a player who had not bought one never saw that
+    hulls existed at all. A feature the player cannot find does not exist, and
+    the derelict of missions 4 to 6 was never gated this way either.
+
+    What is left holding the cost is SLV_WRECK_MAX, which was always the half
+    that bounded it: four more entities, never five.
     """
 
-    def test_a_fleet_with_no_corvette_leaves_no_hulls(self):
+    def test_a_fleet_with_no_corvette_still_leaves_hulls(self):
         self.assertEqual(
             [s for s in self.active() if self.ent(s, ENT_CLASS) == CLASS_SALVAGE],
             [], "the starting fleet already has a corvette")
         victim = self.spawn_hostile(self.pos(self.moth()), hull=8)
         for _ in range(30):
             self.c.run_frames(30)
+            if self.ent(victim, ENT_FLAGS) & F_DISABLED:
+                return
             if not (self.ent(victim, ENT_FLAGS) & F_ACTIVE):
+                self.fail("the hostile was freed instead of being left adrift")
+        self.fail("the hostile never died")
+
+    def test_and_no_more_than_the_cap_however_many_die(self):
+        """The cost is bounded by SLV_WRECK_MAX and by nothing else now, so
+        that is the number this has to hold to."""
+        cap = self.sym["SLV_WRECK_MAX"]
+        for _ in range(cap + 3):
+            self.spawn_hostile(self.pos(self.moth()), hull=8)
+        for _ in range(60):
+            self.c.run_frames(30)
+            if len(self.wrecks()) >= cap:
                 break
-        else:
-            self.fail("the hostile never died")
-        self.assertEqual(self.wrecks(), set(),
-                         "a fleet with no salvage ship left a hull adrift")
+        self.c.run_frames(400)
+        self.assertLessEqual(
+            len(self.wrecks()), cap,
+            f"more than {cap} hulls are adrift with no corvette to fetch them")
 
     def test_the_last_hostile_dying_still_completes_a_clear_mission(self):
-        """The trap this feature could have walked into, from the side where
-        it does not even apply. mis_count_enemies counts ACTIVE+ENEMY; if the
-        DISABLED bit were not in its mask a wreck would keep a CLEAR objective
-        open for ever. Here there is no corvette and so no wreck, which is the
-        control for the test of the same name below."""
+        """The trap this could walk into, and it matters MORE now that every
+        player gets wrecks. mis_count_enemies counts ACTIVE+ENEMY; if the
+        DISABLED bit were not in its mask, a wreck would keep a CLEAR objective
+        open for ever -- and with the gate on jumping, keep the player in the
+        mission for ever with it. There is no corvette here, which used to mean
+        no wreck; now it means a wreck all the same, so this is no longer a
+        control but the real case."""
         h.jump_mission(self.c)
         h.jump_mission(self.c)                      # mission 3: the first fight
         for _ in range(60):
             self.c.run_frames(30)
             if self.byte("MIS_COMPLETE"):
                 return
-        self.fail("mission 3 never completed with no wrecks in play")
+        self.fail("mission 3 never completed with wrecks in play")
 
 
 class TestACrippledHullIsNotAShip(SalvageFixture):

@@ -29,7 +29,7 @@ PLAYER_MAX = h.symbols()["ENT_PLAYER_MAX"]
 ENT_X, ENT_HULL, ENT_FLAGS, ENT_SQUAD, ENT_TARGET, ENT_TIMER = 0, 10, 11, 12, 14, 19
 ENT_CLASS, ENT_ORDER = 9, 13
 ENT_ORDER_NONE, ENT_ORDER_ATTACK = 0, 2
-F_ACTIVE, F_ENEMY = 1, 2
+F_ACTIVE, F_ENEMY, F_DISABLED = 1, 2, 4
 #  Mirrored from src/game/combat.asm.
 CBT_RANGE = 40
 CBT_COOLDOWN = 6
@@ -99,14 +99,26 @@ class CombatFixture(unittest.TestCase):
         return self.ent(slot, ENT_HULL)[0]
 
     def counts(self):
+        """How many ships are FLYING on each side.
+
+        A wreck is not one. slv_make_wreck leaves the hostile that just died
+        ACTIVE with DISABLED set, and everything in the game agrees that is out
+        of the fight: cbt_find_enemy will not target it, cbt_target_flying
+        rejects it, mis_count_enemies masks it out of a CLEAR objective. Every
+        enemy death leaves one now -- it used to need a live Salvage Corvette,
+        which no fixture here builds, so this counter had never met one and
+        "the attackers never killed the enemy they were sent at" was what a
+        clean kill looked like from in here.
+        """
         friendly = enemy = 0
         for slot in range(ENT_MAX):
             f = self.flags(slot)
-            if f & F_ACTIVE:
-                if f & F_ENEMY:
-                    enemy += 1
-                else:
-                    friendly += 1
+            if (f & (F_ACTIVE | F_DISABLED)) != F_ACTIVE:
+                continue
+            if f & F_ENEMY:
+                enemy += 1
+            else:
+                friendly += 1
         return friendly, enemy
 
     def shots(self):
@@ -250,8 +262,16 @@ class TestBattle(CombatFixture):
         the fix is the same: read a finished frame."""
         self._fight()
         h.run_to_stable_point(self.c, self.sym)
+        #  ...EXCEPT A WRECK, which is ACTIVE with hull 0 BY CONSTRUCTION:
+        #  slv_make_wreck sets DISABLED on the hostile that just died and
+        #  leaves ENT_HULL at the zero that brought it there. Every enemy
+        #  death leaves one now, up to SLV_WRECK_MAX -- it used to need a live
+        #  Salvage Corvette, which no starting fleet has, so this loop had
+        #  never met one.
         for slot in range(ENT_MAX):
             if not (self.flags(slot) & F_ACTIVE):
+                continue
+            if self.flags(slot) & F_DISABLED:
                 continue
             self.assertGreater(self.hull(slot), 0, f"slot {slot} is active with no hull")
 
@@ -390,8 +410,13 @@ class TestConcentration(CombatFixture):
         self.c.write_ram(self.sym["MOTH_SLOT"], bytes([0]))
 
         self.c.run_frames(2500)
+        #  FLYING, not merely holding a slot. A crippled hull keeps ACTIVE and
+        #  is out of the fight -- it does not shoot, is not shot at, and does
+        #  not count towards an objective -- so counting it as alive says an
+        #  even duel was lost when it was won.
         alive = lambda lo, hi: sum(1 for s in range(lo, hi)
-                                   if self.flags(s) & F_ACTIVE)
+                                   if (self.flags(s) & (F_ACTIVE | F_DISABLED))
+                                   == F_ACTIVE)
         return alive(0, 8), alive(PLAYER_MAX, PLAYER_MAX + 8)
 
     def test_an_attack_order_closes_the_ship_on_its_target(self):
