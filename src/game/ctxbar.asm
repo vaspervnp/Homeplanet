@@ -482,6 +482,8 @@ ctx_classify:
     or (hl)
     ld hl,menu_shown
     or (hl)
+    ld hl,mis_failed                    ; ...and the game-over screen, which
+    or (hl)                             ; has no flag but this one
     jr z,@ctx_not_static
     xor a                               ; CTX_NONE
     ld (ctx_key),a

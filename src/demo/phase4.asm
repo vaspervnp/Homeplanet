@@ -108,6 +108,14 @@ HUD_HP_X            equ 2
 HUD_HP_CHARS        equ 9               ; "HULL 100%"
 HUD_SAY_X           equ 24
 
+;  The Mothership's own hull, at the far end of the row from the fleet's. The
+;  row is eighty bytes; HULL nnn% takes 2..20 and INCOMING 24..40, so the right
+;  half was empty. Sixty rather than forty-four so the two figures are at
+;  OPPOSITE ends and cannot be read as one pair -- "ξεχωριστά" was the whole
+;  ask, and a reader who has to work out which percentage is which has been
+;  given one number, not two.
+HUD_MOTH_X          equ 60
+
 ;  Below this the figure goes to ink 3. Section 2 keeps that ink for the thing
 ;  that wants attention, and a third of a fleet's hull is when the answer to
 ;  "one more wave or jump now" changes.
@@ -227,9 +235,30 @@ demo_update:
     ;  briefing -- which mis_init has already opened behind it.
     ld a,(title_shown)
     or a
-    jr z,@p4_check_brief
+    jr z,@p4_check_over
     call title_key
     call title_draw
+    jr @p4_static_done
+
+    ;  ...and the campaign being OVER comes before everything after it, because
+    ;  nothing past this point has anything left to act on. It has no flag of
+    ;  its own -- mis_failed IS the flag, and it is already cleared in all three
+    ;  places a campaign begins. See game/gameover.asm.
+    ;
+    ;  The flag is re-read after over_key for the reason the orders menu
+    ;  re-reads its own: SPACE erases the save and calls demo_reset, which
+    ;  opens the title, and drawing the page afterwards would put it over the
+    ;  screen it has just handed on to.
+@p4_check_over:
+    ld a,(mis_failed)
+    or a
+    jr z,@p4_check_brief
+    call over_key
+    ld a,(mis_failed)
+    or a
+    jr z,@p4_static_done                ; dismissed: the title has it now
+    call phase4_select_list
+    call over_draw
     jr @p4_static_done
 
 @p4_check_brief:

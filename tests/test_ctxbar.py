@@ -103,15 +103,20 @@ class BarFixture(unittest.TestCase):
         lo = any(b & 0x0F for b in cell_bytes)
         return (1 if hi else 0) | (2 if lo else 0)
 
-    def strip_cells(self, y=None, cells=40):
+    def strip_cells(self, y=None, cells=40, base=None):
         """(text, inks) for the bar's text row: a character and a pen a cell.
 
         Anything that is not a glyph in the font comes back as '?', which is
         how a ship drawn into the strip would show up.
+
+        `base` names a buffer to read instead of whichever is in front. A
+        screen test that only reads the front one is half a test -- the display
+        page-flips -- and every page in this game has to be painted into both.
         """
         if y is None:
             y = self.sym["CTX_Y"]
-        base = h.front_buffer(self.c)
+        if base is None:
+            base = h.front_buffer(self.c)
         ram = self.c.read_ram(base, 0x4000)
         raw = [[ram[h.screen_offset(y + r, x)] for x in range(80)]
                for r in range(CHAR_H)]
@@ -129,8 +134,8 @@ class BarFixture(unittest.TestCase):
                                    for c in range(CHAR_W_BYTES)]))
         return "".join(text), inks
 
-    def strip_text(self, y=None, cells=40) -> str:
-        return self.strip_cells(y, cells)[0].rstrip()
+    def strip_text(self, y=None, cells=40, base=None) -> str:
+        return self.strip_cells(y, cells, base)[0].rstrip()
 
     def assert_reads(self, expect, y=None):
         """Walk the bar left to right checking each word AND the ink it is in.
