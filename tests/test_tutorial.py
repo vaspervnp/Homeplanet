@@ -302,7 +302,12 @@ class TestTheTitleScreen(TutFixture):
         #  the same trap four tests fell into when the frame rate went the
         #  other way; CLAUDE.md calls it "a test whose setup is a fixed number
         #  of emulator frames is asserting on the frame rate".
-        want = ("T FOR THE TUTORIAL", "PRESS SPACE TO START")
+        #  THE KEY, not the wording. The line read "T FOR THE TUTORIAL" -- one
+        #  sentence mirroring the one above it -- until the title screen's
+        #  music needed naming too and there was nowhere to put a fourth line.
+        #  It is "T TUTORIAL  M MUSIC" now. What this test is about is that T
+        #  is on the screen at all, beside SPACE, which is still true.
+        want = ("T TUTORIAL", "PRESS SPACE TO START")
         seen = {0x8000: set(), 0xC000: set()}
         for _ in range(120):
             for base in (0x8000, 0xC000):
@@ -314,7 +319,7 @@ class TestTheTitleScreen(TutFixture):
                 break
             self.c.run_frames(4)
         for base, rows in seen.items():
-            self.assertIn("T FOR THE TUTORIAL", "".join(rows),
+            self.assertIn("T TUTORIAL", "".join(rows),
                           f"buffer #{base:04X} never says how to reach the "
                           f"tutorial; it says {sorted(rows)}")
             self.assertIn("PRESS SPACE TO START", "".join(rows),

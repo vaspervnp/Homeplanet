@@ -199,6 +199,24 @@ class TestTheHullFigure(InfoFixture):
         and this page's figure is a squadron's, which is a different number.
         """
         self.make(40, CLASS_HARVESTER, 10, 1)
+
+        #  LET THE READING SETTLE BEFORE SNAPSHOTTING IT. wave_health walks the
+        #  fleet on one game frame in WAVE_READ_EVERY -- four -- so the ship
+        #  just poked in is not in wave_pct yet, and `before` would be the
+        #  figure from before it existed. wave_update then notices it while
+        #  open_info's keypress is being held, the HUD's percentage moves for
+        #  the right reason, and this reads it as the page overwriting it:
+        #  "95 != 100", which is the game working.
+        settled = self.byte("WAVE_PCT")
+        for _ in range(120):
+            self.c.run_frames(4)
+            now = self.byte("WAVE_PCT")
+            if now == settled:
+                break
+            settled = now
+        else:
+            self.fail("the fleet's hull percentage never settled")
+
         before = self.byte("WAVE_PCT")
         self.open_info()
         self.assertEqual(self.byte("WAVE_PCT"), before,

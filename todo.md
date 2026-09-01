@@ -197,9 +197,28 @@ Also worth knowing: **neither RU nor the yard is in the disc save.**
 queue. Pre-existing and unchanged, and more visible now a queue can be ten
 deep.
 
-## 2. Music on the TITLE SCREEN, on `M`
+## 2. Music on the TITLE SCREEN, on `M` — DONE
 
-**It is written and it does not fit.** `src/sys/music.asm` is complete and is
+**Done.** The repack made the room and this is wired exactly as the plan
+below said it would be. It plays by DEFAULT rather than waiting for `M` — a
+tune nobody has turned on is a tune nobody knows is there — and `M` is the
+way back to silence; `SPACE` and `T` both stop it, so the game and the
+tutorial are as quiet as they were. The screen says `T TUTORIAL  M MUSIC`,
+because there is no fourth line to be had between the planet at 152 and the
+prompt at 160.
+
+**It cost the bank-4 WINDOW down to four bytes**, which is now the binding
+constraint on this project ahead of both the low 16K and `DISC.BIN`. Two
+things paid for it: the player's state moved to the low 16K with the rest of
+the interrupt's world, and six single-pixel strays came out of the game-over
+screen's fire table. The next thing that needs bank 4 has to find room first,
+and the biggest lever by far is `class_standin` — 2688 bytes of window for a
+no-disc fallback that could draw at tier A only if `class_use_fallback`
+patched `class_geom` along with `class_sprite`.
+
+What it was, for the record:
+
+**It was written and it did not fit.** `src/sys/music.asm` is complete and is
 deliberately NOT included in the build; putting it in took bank 4 from 235
 bytes to 20, the low 16K from 1024 to 512, and `DISC.BIN` over `#A700`, where
 `src/disc.asm`'s own assert stopped the build. Do step 1 first and this becomes

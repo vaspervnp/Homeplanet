@@ -409,6 +409,14 @@ bank4_start:
     include "game/titletext.asm"
     include "game/menutext.asm"
     include "game/gameover.asm"
+;  The title screen's music. In the bank with the screen it belongs to, and
+;  legal here by the narrow test: it runs once a game frame from the title's
+;  own branch of demo_update, never from between class_tier_addr and
+;  class_blit_done, and it reads its notes out of this bank. It writes no PSG
+;  register at all -- see the head of the file -- so nothing about it has to
+;  run in the interrupt, which is the other half of why it may live here.
+    include "sys/music.asm"
+    include "gen/mus_menu.asm"
     include "game/wavesdraw.asm"
     include "game/overtext.asm"
     include "game/staticscreens.asm"

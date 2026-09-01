@@ -299,23 +299,9 @@ mus_write_block:
     ld (hl),1                           ; +9 slowc: ...starting with this one
     ret
 
-
-; ============================================================================
-;  State
-; ============================================================================
-mus_v0:             defw 0
-mus_v1:             defw 0
-mus_v2:             defw 0
-mus_c0:             defb 0
-mus_c1:             defb 0
-mus_c2:             defb 0
-
-mus_ptr_at:         defw 0
-mus_count_at:       defw 0
-mus_block:          defw 0
-mus_last_tick:      defb 0
-mus_elapsed:        defb 0
-mus_left:           defb 0
-mus_note:           defb 0
-mus_vol:            defb 0
-mus_dur:            defb 0
+;  THE STATE IS IN sys/sound.asm, in the LOW 16K, and the code is here in
+;  bank 4. Same split as order.asm/ordercmd.asm and for the two reasons that
+;  one gives: it takes twenty bytes out of a bank window that was thirteen
+;  over, and a variable in the bank has to be read with read_bank4 where one
+;  down there is read with read_ram -- which is what a test of a note stream
+;  wants to do.

@@ -473,5 +473,103 @@ class TestWhatItLeavesBehind(TitleFixture):
             "it is on screen every other frame")
 
 
+class TestTheMusic(TitleFixture):
+    """A tune on the menu screen and nowhere else.
+
+    src/sys/music.asm was written a long time ago and deliberately left out of
+    the build: it did not fit. It does now -- see todo.md section 2, which is
+    the plan this follows line for line.
+
+    IT WRITES NO PSG REGISTER AT ALL. snd_update owns the AY, runs from the
+    50 Hz interrupt, rebuilds the mixer every tick and mutes every idle
+    channel, so a second writer would be silenced within a tick whatever it
+    wrote. The player fills the three VOICE BLOCKS instead -- a held note is
+    already expressible as one -- and lets snd_update do what it always does.
+    """
+
+    def on(self):
+        return self.c.read_ram(self.sym["SND_MUSIC_ON"], 1)[0]
+
+    def streams(self):
+        """Where the three note streams have got to."""
+        return tuple(
+            int.from_bytes(self.c.read_ram(self.sym[n], 2), "little")
+            for n in ("MUS_V0", "MUS_V1", "MUS_V2"))
+
+    def tap(self, key, frames=30):
+        self.c.key_down(key)
+        self.c.run_frames(frames)
+        self.c.key_up(key)
+        self.c.run_frames(frames)
+
+    def test_it_plays_without_being_asked(self):
+        """A tune nobody has turned on is a tune nobody knows is there. `M` is
+        for the player who wants the silence back."""
+        self.assertEqual(self.on(), 1, "the title screen came up silent")
+
+    def test_the_streams_advance(self):
+        """Not "a flag is set" -- the three note streams have to MOVE.
+
+        Read out of RAM rather than off the chip, and that is not a shortcut:
+        test_music's read_psg begins with DI and ends with HALT, so the first
+        call leaves interrupts off for good. Sampling the AY in a loop measures
+        a machine whose keyboard and 50 Hz counter have both stopped, which is
+        exactly what it looked like the first time -- a tune that would not
+        advance and an M that did nothing.
+        """
+        seen = set()
+        for _ in range(40):
+            seen.add(self.streams())
+            self.c.run_frames(25)
+        self.assertGreater(len(seen), 4,
+                           f"the streams barely moved in twenty seconds: {seen}")
+
+    def test_M_silences_it_and_brings_it_back(self):
+        self.tap("m")
+        self.assertEqual(self.on(), 0, "M did not silence the music")
+        self.tap("m")
+        self.assertEqual(self.on(), 1, "M did not bring it back")
+
+    def test_M_does_not_leave_the_screen(self):
+        """It is the only one of the three keys that toggles and falls
+        through, so a player can silence the tune and go on reading."""
+        self.tap("m")
+        self.assertEqual(self.banked("TITLE_SHOWN")[0], 1,
+                         "M started the game")
+
+    def test_the_game_starts_in_silence(self):
+        """"Όχι στο παιχνίδι". The battle has the AY to itself: snd_update's
+        three voices are for shots, kills and the jump, and a tune underneath
+        them is section 12's channel assignment being spent twice."""
+        self.tap(cpc.KEY_SPACE, frames=25)
+        self.c.run_frames(60)
+        self.assertEqual(self.on(), 0, "the music followed the fleet into the game")
+
+    def test_and_the_tutorial_does_too(self):
+        self.tap("t", frames=25)
+        self.c.run_frames(60)
+        self.assertEqual(self.on(), 0, "the music followed T into the tutorial")
+
+    def test_channel_B_is_a_tone_voice_while_the_music_has_it(self):
+        """The ONE change in sound.asm, and the subtle one.
+
+        Section 12 gives B to the noise generator -- explosions and hull breach
+        -- and that assignment lives in snd_mix_mask. The tune has no
+        percussion, so with the noise bit open its harmony comes out as a hiss.
+        While snd_music_on is set the loop takes the other table.
+
+        read_psg LAST and once: it takes the CPU away and leaves interrupts
+        off, so anything measured after it is measuring a stopped machine.
+        """
+        from tests.test_music import read_psg
+        self.c.run_frames(60)
+        mixer = read_psg(self.c)[7]
+        #  Bits 0-2 are tone A/B/C off, 3-5 are noise A/B/C off.
+        self.assertEqual(mixer & 0b111, 0,
+                         f"a tone channel is muted: R7 = {mixer:08b}")
+        self.assertEqual(mixer & 0b111000, 0b111000,
+                         f"the noise generator is open: R7 = {mixer:08b}")
+
+
 if __name__ == "__main__":
     unittest.main()

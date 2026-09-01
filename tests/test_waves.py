@@ -157,6 +157,27 @@ class WaveFixture(unittest.TestCase):
         h.force_wave(self.c, self.sym)
         self.c.run_frames(frames)
 
+    def wait_for_a_fresh_hull_reading(self, want):
+        """Run until wave_health has NOTICED what the test just poked.
+
+        A wave is sized against the fleet's summed hull, and wave_health takes
+        that reading on one game frame in WAVE_READ_EVERY -- four. A game frame
+        is seven to fourteen 50 Hz frames, so a poke can be forty emulator
+        frames away from being seen, and a fixed `run_frames(20)` before
+        forcing a wave is a bet on the frame rate rather than a wait.
+
+        It was a losing bet the moment the title screen's music shifted the
+        boot: a fleet cut to the Mothership alone still read 4080 -- sixteen
+        ships -- and got a wave of two where the test wanted one. The message
+        was "2 != 1", which says nothing whatever about scaling.
+        """
+        for _ in range(200):
+            if self.word("WAVE_HULL") == want:
+                return
+            self.c.run_frames(2)
+        self.fail(f"wave_health never saw the fleet change: it still reads "
+                  f"{self.word('WAVE_HULL')}, not {want}")
+
     def kill_the_picket(self):
         """Free the mission's own hostiles, so the objective can be met."""
         for slot in self.picket():
@@ -520,10 +541,13 @@ class TestTheWaveIsScaledToTheFleet(WaveFixture):
     def test_a_fleet_of_one_still_gets_a_wave(self):
         """Plus one, always. A fleet down to the Mothership is not left alone
         -- it is the reason the waves exist, and the moment `J` matters most."""
+        moth = None
         for slot in self.friendly():
             if self.ent(slot, ENT_CLASS) != CLASS_MOTHERSHIP:
                 self.poke_ent(slot, ENT_FLAGS, 0)
-        self.c.run_frames(20)
+            else:
+                moth = slot
+        self.wait_for_a_fresh_hull_reading(self.ent(moth, ENT_HULL))
         self.force_wave()
         self.assertEqual(len(self.riders()), 1)
 

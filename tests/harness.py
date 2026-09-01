@@ -534,6 +534,37 @@ def run_until_pc_in(c: cpc.CPC, lo: int, hi: int,
     return False
 
 
+def let_the_game_draw(c: cpc.CPC, sym: dict[str, int], frames: int = 8) -> None:
+    """Run until the game has painted whole frames into BOTH buffers.
+
+    boot_quick returns as soon as the briefing is dismissed, which is several
+    GAME frames before anything is on the screen: mis_wipe clears both buffers
+    and the HUD and the context bar are painted on the first genuinely playing
+    frame after that. A fixture that reads the screen the instant boot_quick
+    returns is asserting on the frame rate -- and the frames right after a
+    briefing are the heaviest the game ever runs, which makes it the worst
+    place in the game to do it.
+
+    Measured on the build that put music on the title screen: boot_quick(250)
+    came back with NINE game frames run and an empty context bar, and forty
+    more emulator frames filled it. The three fixtures that read the screen
+    had been a hair inside the margin for a long time and the title getting a
+    little slower pushed them out; the failures read as "the bar is blank"
+    and "the patch drew nothing", which say nothing about either.
+
+    Polled in GAME frames, so it follows the rate instead of guessing at it.
+    """
+    def played() -> int:
+        return int.from_bytes(c.read_ram(sym["DEMO_FRAMES"], 2), "little")
+
+    target = played() + frames
+    for _ in range(400):
+        if played() >= target:
+            return
+        c.run_frames(2)
+    raise RuntimeError("the game never drew: demo_frames is not advancing")
+
+
 def run_to_stable_point(c: cpc.CPC, sym: dict[str, int]) -> None:
     """Park the machine in scr_wait_vsync, where a frame has just finished.
 

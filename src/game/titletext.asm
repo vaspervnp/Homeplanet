@@ -28,10 +28,26 @@ TITLE_PROMPT_X      equ 20
 ;  "T FOR THE TUTORIAL" are the same sentence about two keys, and the whole
 ;  point is that one is not more discoverable than the other.
 title_tut:
-    defb "T FOR THE TUTORIAL",0
+    defb "T TUTORIAL  M MUSIC",0
 title_tut_end:
 
-TITLE_TUT_X         equ 22
+;  19 characters at 2 bytes is 38, so 21 bytes of margin each side -- and this
+;  is 20, deliberately. A CHARACTER CELL IS TWO BYTES, so every screen decoder
+;  in the test suite walks cells from byte 0 and can only read text drawn at an
+;  EVEN byte column; at 21 this line came back as a row of question marks and
+;  the tutorial's own test could not see the word TUTORIAL at all. Two pixels
+;  left of true centre is invisible on a Mode 1 screen. The game-over screen
+;  had the same collision and paid for it with a phase-aware reader; this line
+;  is one byte, so it pays with the byte.
+;
+;  IT USED TO READ "T FOR THE TUTORIAL", one sentence mirroring the one above
+;  it, and the note over TITLE_TUT_Y argues for that at length: whatever this
+;  screen says about SPACE it should say about T, in the same words. The music
+;  needs naming too and there is nowhere to put a fourth line -- the planet
+;  ends at 152 and the prompt starts at 160 -- so the second line carries both
+;  keys in the terser form. T loses its sentence; what it keeps is being on the
+;  screen at all, which is the thing that argument was really about.
+TITLE_TUT_X         equ 20
 
 
 ;  --- the flight: x in BYTES (word, signed -- spr_x is a byte column, not a

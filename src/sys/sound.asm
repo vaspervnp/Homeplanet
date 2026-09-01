@@ -219,7 +219,18 @@ snd_update:
 
 @snd_ch_mix:
     ;  Unmute this channel: tone for A and C, noise for B.
+    ;  WHILE THE MUSIC IS PLAYING, CHANNEL B IS A TONE VOICE. Section 12 gives
+    ;  B to the noise generator -- explosions and hull breach -- and that is
+    ;  where the channel assignment actually lives, in this table. The tune has
+    ;  no percussion in it, so with the noise bit open its harmony comes out as
+    ;  a hiss. One table or the other; nothing else in the loop changes, and
+    ;  snd_music_on is clear for the whole of a mission.
     ld hl,snd_mix_mask
+    ld a,(snd_music_on)
+    or a
+    jr z,@snd_ch_mask_chosen
+    ld hl,snd_mix_mask_music
+@snd_ch_mask_chosen:
     ld b,0
     add hl,bc
     ld a,(snd_mixer)
@@ -657,6 +668,14 @@ snd_mix_mask:
     defb %11101111                      ; B: noise B on, tone B stays muted
     defb %11111011                      ; C: tone C on
 
+;  ...and the same three with B as a TONE voice, for while sys/music.asm has
+;  it. Two tables rather than a patched byte: the choice is read once per
+;  channel in the interrupt and a table lookup is what the loop already does.
+snd_mix_mask_music:
+    defb %11111110                      ; A: tone A on
+    defb %11111101                      ; B: TONE B on -- the music's harmony
+    defb %11111011                      ; C: tone C on
+
 
 ; ============================================================================
 ;  Data
@@ -677,3 +696,37 @@ snd_voice_c:        defs SND_VOICE_SIZE, 0
 ;  already spoken for: HL is the voice pointer, C the channel number, B the
 ;  port, and AF/DE are scratch for snd_psg_out.
 snd_mixer:          defb SND_MIXER_OFF
+
+;  Set while sys/music.asm is filling the three voice blocks. It is read by the
+;  mixer choice above, fifty times a second, so it is here in the low 16K with
+;  the rest of the interrupt's working set rather than in the bank with the
+;  player -- the interrupt can fire with a sprite bank under the window.
+snd_music_on:       defb 0
+
+
+; ============================================================================
+;  sys/music.asm's state, down here with the rest of the interrupt's world
+; ============================================================================
+;  The PLAYER is in bank 4 -- it runs once a game frame from the title screen
+;  and reads its notes out of that bank -- but its state is here, for the two
+;  reasons the order.asm/ordercmd.asm split gives. It took twenty bytes out of
+;  a bank window that was thirteen bytes over; and a variable in the bank has
+;  to be read with read_bank4, where one down here is read with read_ram,
+;  which is what a test that follows a note stream wants to do.
+mus_v0:             defw 0
+mus_v1:             defw 0
+mus_v2:             defw 0
+mus_c0:             defb 0
+mus_c1:             defb 0
+mus_c2:             defb 0
+
+mus_ptr_at:         defw 0
+mus_count_at:       defw 0
+mus_block:          defw 0
+mus_last_tick:      defb 0
+mus_elapsed:        defb 0
+mus_left:           defb 0
+mus_note:           defb 0
+mus_vol:            defb 0
+mus_dur:            defb 0
+

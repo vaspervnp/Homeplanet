@@ -71,7 +71,14 @@ all: $(BANKED)
 # rasmoutput.cpr is a side effect of the BANK directive -- RASM writes a
 # cartridge whenever a source uses banks, and there is no flag to say no.
 # Nothing reads it.
-$(GAME_RAW) $(SPRITE_RAW) $(LIB_RAW) $(SYM) &: $(ASM_SOURCES) $(TABLES) $(SPRITES) | $(BUILD_DIR)
+# $(MUSIC_GEN) is in here because src/main.asm now INCLUDES gen/mus_menu.asm --
+# the title screen's tune is assembled into bank 4, where it used to exist only
+# as an input to the standalone MUSIC3.BIN. Without it here the game builds
+# perfectly on an incremental run, because the file happens to be lying about,
+# and fails on the first `make clean` with "File to include was not found" --
+# which is how it was found. Same lesson as the $(MUSIC_BIN) note below, one
+# step further in: a dependency that is only true after a clean is still true.
+$(GAME_RAW) $(SPRITE_RAW) $(LIB_RAW) $(SYM) &: $(ASM_SOURCES) $(TABLES) $(SPRITES) $(MUSIC_GEN) | $(BUILD_DIR)
 	$(RASM) $(MAIN) $(RASMFLAGS) -s -sa -ec -os $(SYM)
 	rm -f rasmoutput.cpr
 

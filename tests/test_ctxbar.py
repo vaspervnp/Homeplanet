@@ -44,6 +44,8 @@ class BarFixture(unittest.TestCase):
 
     def setUp(self):
         self.c = h.boot_quick(frames=250)
+        #  ...and then let it PAINT. See harness.let_the_game_draw.
+        h.let_the_game_draw(self.c, self.sym)
         self.font = bytes(self.c.read_ram(
             self.sym["TXT_FONT"], (LAST_CHAR - FIRST_CHAR + 1) * CHAR_H))
 

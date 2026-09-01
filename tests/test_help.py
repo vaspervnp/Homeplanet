@@ -38,6 +38,8 @@ class HelpFixture(unittest.TestCase):
 
     def setUp(self):
         self.c = h.boot_quick(frames=400)
+        #  ...and then let it PAINT. See harness.let_the_game_draw.
+        h.let_the_game_draw(self.c, self.sym)
 
     def tearDown(self):
         h.close(getattr(self, "c", None))

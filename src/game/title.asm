@@ -56,7 +56,12 @@ TITLE_SHIP_Y        equ 104
 title_open:
     ld a,1
     ld (title_shown),a
-    ret
+
+    ;  ...and the music, which belongs to this screen and to nothing else. It
+    ;  plays by DEFAULT rather than waiting for a key: a tune nobody has turned
+    ;  on is a tune nobody knows is there, and `M` is here for the player who
+    ;  wants the silence back rather than for the one who wants the music.
+    jp mus_start
 
 
 ; ----------------------------------------------------------------------------
@@ -72,13 +77,24 @@ title_key:
     ;  builds the tutorial's own world. demo_update goes on to call title_draw
     ;  once more in this same frame, exactly as it does after SPACE, and the two
     ;  frames of mis_wipe tut_enter schedules are what pay for that.
+    ;  `M` first, and it is the only one of the three that does not leave: it
+    ;  toggles and falls through, so a player can silence the tune and then go
+    ;  on reading the screen.
+    ld a,KEY_M
+    call key_hit
+    call c,mus_toggle
+
     ld a,KEY_T
     call key_hit
-    jp c,tut_enter
+    jr nc,@title_no_tut
+    call mus_stop                       ; the tutorial is not this screen
+    jp tut_enter
+@title_no_tut:
 
     ld a,KEY_SPACE
     call key_hit
     ret nc
+    call mus_stop                       ; ...and neither is the campaign
     xor a
     ld (title_shown),a
 
@@ -110,6 +126,13 @@ title_draw:
     ld hl,title_text
     ld c,TITLE_Y
     call txt_big
+
+    ;  One call a game frame. It writes no PSG register -- it fills the three
+    ;  voice blocks and lets snd_update do what it already does -- and it
+    ;  advances by the number of 50 Hz TICKS that have gone by, so the tempo is
+    ;  right whatever this screen's frame rate happens to be. Which matters
+    ;  here more than anywhere: the planet took it from 3.45 fps to 2.30.
+    call mus_update
 
     call title_draw_stars
     ;  Between the two on purpose: the planet blacks its own interior, so it

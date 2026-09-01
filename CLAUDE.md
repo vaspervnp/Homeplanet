@@ -2626,6 +2626,95 @@ showed up as "the HUD comes and goes":
   the rest of the game, because the HUD does not clear its strip, it draws
   labels onto it.
 
+### The title screen has music, and the game does not
+
+`MUSIC3`'s tune plays on the menu screen and stops the moment the game or the
+tutorial starts. `src/sys/music.asm` had been written and deliberately left out
+of the build for a long time — it did not fit — and `todo.md` §2 carried the
+wiring plan; the 3+3+2 repack made the room and this follows that plan line for
+line.
+
+**It writes no PSG register at all, and that is the whole design.** `snd_update`
+owns the AY: it runs from the 50 Hz interrupt, rebuilds the mixer from scratch
+every tick and **mutes every idle channel**, so a second writer would be
+silenced within a tick whatever it wrote. The player fills the three **voice
+blocks** instead — a held note is already expressible as one (`timer=200,
+pri=0, vol=v<<4, dvol=0, period=p, dstep=0`, refreshed every frame) — and lets
+`snd_update` do exactly what it already does.
+
+**One change in `sound.asm`: channel B is a TONE voice while `snd_music_on` is
+set.** §12 gives B to the noise generator, and that assignment lives in
+`snd_mix_mask`; the tune has no percussion, so with the noise bit open its
+harmony comes out as a hiss. Two tables rather than a patched byte — the choice
+is read once per channel in the interrupt and a table lookup is what the loop
+already does.
+
+**It advances by `sys_tick_50hz` deltas**, the same mechanism `mis_timer` now
+uses, so the tempo is right whatever the frame rate is — which matters more
+here than anywhere, because the planet took this screen to 2.30 fps. It also
+means none of it runs in the interrupt, and that is load-bearing: the interrupt
+can fire with a sprite bank paged into the window, and the player reads its
+notes out of bank 4.
+
+**It plays by default**, and `M` is the way back to silence rather than the way
+in: a tune nobody has turned on is a tune nobody knows is there. `SPACE` and
+`T` both stop it. The screen says `T TUTORIAL  M MUSIC` — there is no fourth
+line to be had between the planet at 152 and the prompt at 160, so the second
+line carries both keys and `T` loses the full sentence the tutorial section
+argues for. What it keeps is being on the screen at all.
+
+> **Bank 4's WINDOW is now the binding constraint, at four bytes.** Not the
+> image and not `DISC.BIN` — the 16 KB window, which holds the image plus
+> `class_standin` (2688) plus `fleet_block` (1024). Two things paid for the
+> music: the player's state moved to the low 16K with the rest of the
+> interrupt's world, and six single-pixel strays came out of the game-over
+> screen's fire table. **The biggest lever left is `class_standin`**: 2688
+> bytes of window for a no-disc fallback that could draw at tier A alone if
+> `class_use_fallback` patched `class_geom` along with `class_sprite`.
+
+> **And the Makefile had to learn a dependency it had never needed.**
+> `src/main.asm` now `include`s `gen/mus_menu.asm`, which until today existed
+> only as an input to the standalone `MUSIC3.BIN`. Without `$(MUSIC_GEN)` on
+> `$(GAME_RAW)`'s prerequisites the game builds perfectly on an incremental run
+> — the file happens to be lying about — and fails on the first `make clean`
+> with "File to include was not found". **A dependency that is only true after
+> a clean is still true.**
+
+#### Eight tests failed and every one of them was counting emulator frames
+
+Not one was about the music. `run_frames` counts 50 Hz frames, the game counts
+its own, and the ratio is neither ten nor constant — so **a test that waits a
+fixed number of emulator frames is asserting on the frame rate**, and the music
+made the title a little slower.
+
+They failed in the vocabulary of whatever they were really about, which is why
+this costs an afternoon every time:
+
+| what it said | what it was |
+|---|---|
+| "the bar reads ''" | `boot_quick(250)` came back with nine game frames run and the context bar not yet painted |
+| "nothing is drawn where the help label should be" | the same |
+| "the patch drew nothing" | the same |
+| "2 != 1" | `wave_health` reads the fleet on one game frame in four, so a fleet cut to the Mothership still summed 4080 |
+| "the squadron page overwrote the fleet's hull percentage" | `wave_pct` had not yet noticed the ship the test poked in, so the "before" was from before it existed |
+
+The cure is always the same and it is cheap: **wait for the thing, do not count
+frames.** `harness.let_the_game_draw` polls GAME frames;
+`wait_for_a_fresh_hull_reading` polls until the reading has seen the fleet; the
+squadron-page test polls until the percentage settles.
+
+> **Moving `mis_timer` onto ticks deleted a whole sub-class of this.** A test
+> margin and a `run_frames` are in the same unit now, because both count 50 Hz
+> frames — so nothing about the mission clock can drift against a test again.
+> What is left is the DRAWING rate, which is what the three helpers above are
+> for.
+
+> **`read_psg` leaves interrupts off**, and that is worth knowing before
+> sampling the chip in a loop. It begins with `DI` and ends with `HALT`, so the
+> first call stops `sys_tick_50hz` and `key_scan` for good: the tune appears
+> not to advance and `M` appears to do nothing, on a build where both work.
+> Read the player's state out of RAM, and the chip **once, last**.
+
 ### Panning
 
 `P` hands the cursor keys to the camera; `0` (and the menu's CENTRE ON BASE)

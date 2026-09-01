@@ -41,8 +41,12 @@ OVER_PROMPT_X       equ 21
 ;
 ;  Both offsets are SIGNED. Ten fires of THREE COLUMNS EACH -- heights 3, 5, 4
 ;  with the tall one starting a row higher, so the shape is a flame and not a
-;  block -- and six single columns scattered between them so the field is not
-;  ten copies of one silhouette.
+;  block.
+;
+;  There were six single columns scattered between them as well, so the field
+;  was not ten copies of one silhouette, and they were SPENT: eighteen bytes of
+;  the bank-4 window, which was thirteen bytes over when the title screen's
+;  music went in. Six pixels of texture against a tune is not a close call.
 ;
 ;  IT WAS SIXTEEN ENTRIES OF ONE AND TWO COLUMNS AND THAT WAS NOT ENOUGH. Looked
 ;  at, the planet read as a hollow blue ring with red specks inside it: the
@@ -88,15 +92,9 @@ over_fire_table:
     defb    7,   21, 3
     defb    8,   19, 5
     defb    9,   20, 4
-    defb  -30,   -2, 2
-    defb   28,   -2, 2
-    defb  -16,   -6, 2
-    defb   10,   -3, 2
-    defb   -2,   -6, 2
-    defb   17,   16, 2
 over_fire_table_end:
 
 ;  A literal with an assert rather than (end - start) / 3, because RASM cannot
 ;  resolve an equate derived from two bank-4 labels at symbol-export time --
 ;  the same reason TUT_STEPS is written out.
-OVER_FIRE_COUNT     equ 36
+OVER_FIRE_COUNT     equ 30
