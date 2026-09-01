@@ -50,6 +50,20 @@ MIS_OBJ_ARRIVE      equ 2               ; nothing to fight; just be there
 
 MIS_SURVIVE_TICKS   equ 200             ; game frames for MIS_OBJ_SURVIVE
 
+;  WHAT A JUMP COSTS. The drive is fuelled out of the same treasury the yard
+;  spends, so leaving is a purchase and not a formality.
+;
+;  It is the fourth thing mis_gate asks and it is asked the same way as the
+;  other three -- the HUD's JUMP simply does not appear until the RU is there,
+;  so a player never presses a key that refuses them.
+;
+;  A THOUSAND AGAINST ECO_START_RU's 120 AND ECO_RU_MAX's 9999. The number
+;  makes the economy compulsory rather than optional: a fleet that never mines
+;  cannot leave mission 1, which is a bigger change than it looks -- see the
+;  note in tools/balance.py, whose DEFAULT tactic never spends a unit and can
+;  no longer finish the campaign at all.
+MIS_JUMP_COST       equ 1000
+
 ; ----------------------------------------------------------------------------
 ;  THE DERELICT, and what the campaign can unlock
 ; ----------------------------------------------------------------------------

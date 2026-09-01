@@ -234,6 +234,13 @@ class TestTheWayOut(CampaignFixture):
     def waves_seen(self, n):
         self.c.write_ram(self.sym["WAVE_COUNT"], bytes([n]))
 
+    def pay_the_fare(self, over=True):
+        """The treasury the drive is fuelled out of. `over=False` leaves the
+        player one unit short, which is the only interesting failing case."""
+        cost = self.sym["MIS_JUMP_COST"]
+        self.c.write_ram(self.sym["ECO_RU"],
+                         struct.pack("<H", cost if over else cost - 1))
+
     def hostiles(self):
         return [s for s in range(self.sym["ENT_PLAYER_MAX"], ENT_MAX)
                 if self.ent(s, ENT_FLAGS) & F_ACTIVE]
@@ -275,6 +282,7 @@ class TestTheWayOut(CampaignFixture):
 
     def test_and_with_both_it_goes(self):
         self.to_a_mission_with_a_picket()
+        self.pay_the_fare()
         self.clear_the_board()
         self.waves_seen(self.sym["WAVE_BEFORE_JUMP"])
         self.c.run_frames(24)
@@ -286,6 +294,7 @@ class TestTheWayOut(CampaignFixture):
         met; the way out does not. A flag folded into mis_complete could not
         express this and would offer JUMP over the top of a live wave."""
         self.to_a_mission_with_a_picket()
+        self.pay_the_fare()
         self.clear_the_board()
         self.waves_seen(self.sym["WAVE_BEFORE_JUMP"])
         self.c.run_frames(24)
@@ -299,12 +308,45 @@ class TestTheWayOut(CampaignFixture):
                          "a wave landed and the jump was still on offer")
         self.assertFalse(self.press_j(), "left with a wave on the screen")
 
+    def test_the_fare_is_the_fourth_thing_it_asks(self):
+        """A jump spends MIS_JUMP_COST, so the drive has to be paid for. One
+        unit short is the case worth writing: it separates "cannot afford it"
+        from "has no money at all", which a treasury of zero would not."""
+        self.to_a_mission_with_a_picket()
+        self.clear_the_board()
+        self.waves_seen(self.sym["WAVE_BEFORE_JUMP"])
+        self.pay_the_fare(over=False)
+        self.c.run_frames(24)
+        self.assertEqual(self.byte("MIS_COMPLETE"), 1)
+        self.assertEqual(self.byte("MIS_LEAVE_OK"), 0,
+                         "the jump was offered a unit short of the fare")
+        self.assertFalse(self.press_j(), "left without paying for the drive")
+
+        self.pay_the_fare()
+        self.c.run_frames(24)
+        self.assertEqual(self.byte("MIS_LEAVE_OK"), 1,
+                         "one more unit and it is still closed")
+
+    def test_the_fare_is_actually_taken(self):
+        """Charged once, and only when the jump happens."""
+        self.to_a_mission_with_a_picket()
+        self.clear_the_board()
+        self.waves_seen(self.sym["WAVE_BEFORE_JUMP"])
+        purse = self.sym["MIS_JUMP_COST"] + 250
+        self.c.write_ram(self.sym["ECO_RU"], struct.pack("<H", purse))
+        self.c.run_frames(24)
+        self.assertTrue(self.press_j(), "the way out was closed with the fare paid")
+        h.dismiss_briefing(self.c)
+        left = int.from_bytes(self.c.read_ram(self.sym["ECO_RU"], 2), "little")
+        self.assertEqual(left, 250, f"the drive cost {purse - left}")
+
     def test_a_wreck_does_not_hold_the_player_in(self):
         """A crippled hull carries ACTIVE and ENEMY and is going nowhere, and
         the DERELICT is one for the whole of missions 4 to 6 -- counting it
         would make those three impossible to leave. Third time this trap has
         been avoided by one bit in a mask; see mis_count_enemies."""
         self.to_a_mission_with_a_picket()
+        self.pay_the_fare()
         self.clear_the_board()
         slot = self.sym["ENT_PLAYER_MAX"]
         base = self.sym["ENTITIES"] + slot * ENT_SIZE

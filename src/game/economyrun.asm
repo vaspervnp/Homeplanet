@@ -780,6 +780,340 @@ eco_pick_step:
 
 
 ; ----------------------------------------------------------------------------
+;  eco_repair_cost -- what it costs to put one ship back to full
+;  In : HL -> the entity record
+;  Out: HL = the price in RU, CF set if there is anything to repair
+;  Uses: everything
+;
+;  TWICE THE SHIP'S PRICE, FOR THE FRACTION OF IT THAT IS GONE:
+;
+;      cost = 2 * eco_class_cost[class] * (full - hull) / full
+;
+;  So a half-dead interceptor costs 35 RU -- exactly what a new one costs --
+;  and a nearly-dead one costs nearly seventy. That is the whole design of it
+;  and it is a decision rather than an arbitrary multiplier: at 50% damage
+;  repairing and replacing cost the same, so the number tells the player which
+;  to do without a word of explanation. Below half, mend it; above half, let it
+;  die and build another. A multiplier of one would make repair strictly better
+;  than building and nobody would ever build again.
+;
+;  Hull is NOT recovered by building, so the two are not interchangeable in the
+;  other direction: a fresh ship is a fresh SHIP, and the fleet only ever
+;  shrinks (section 1). Repair is the only thing in the game that puts hull
+;  back, which is why it is allowed to be expensive.
+;
+;  THE ARITHMETIC AVOIDS A SECOND DIVIDE. wave_frac_of gives the damage in
+;  256ths, so
+;
+;      cost = (price * frac) >> 7
+;
+;  is 2 * price * frac / 256 with one mul_u8 and a shift. The product is at
+;  most 250 * 255 = 63,750, which is why it is >>7 of the product rather than
+;  <<1 of it -- doubling first would overflow sixteen bits at the Destroyer.
+; ----------------------------------------------------------------------------
+eco_repair_cost:
+    push hl
+    ld de,ENT_CLASS
+    add hl,de
+    ld a,(hl)
+    inc hl                              ; ENT_HULL is the byte after ENT_CLASS,
+    ld c,(hl)                           ; which src/main.asm asserts
+    pop hl
+
+    ;  The class's full hull and its price, both bank-4 tables and both read
+    ;  with the window at rest -- this runs on a keypress.
+    ld e,a
+    ld d,0
+    ld hl,class_hull
+    add hl,de
+    ld b,(hl)                           ; B = full
+    ld hl,eco_class_cost
+    add hl,de
+    ld a,(hl)
+    ld (eco_rep_price),a
+
+    ld a,b
+    sub c                               ; A = full - hull
+    jr nz,@eco_rep_damaged
+    ld hl,0
+    or a                                ; CF clear: nothing to do
+    ret
+
+@eco_rep_damaged:
+    ld l,a
+    ld h,0
+    ld e,b
+    ld d,0
+    call wave_frac_of                   ; A = damage in 256ths
+
+    ld h,a
+    ld a,(eco_rep_price)
+    ld l,a
+    call mul_u8                         ; HL = price * frac
+
+    ;  Rounded rather than truncated, so a ship one hull point short does not
+    ;  come back free for every class.
+    ld de,64
+    add hl,de
+    ld b,7
+@eco_rep_shift:
+    srl h
+    rr l
+    djnz @eco_rep_shift
+    scf
+    ret
+
+
+; ----------------------------------------------------------------------------
+;  eco_repair -- the E key: mend the selected squadron, as far as the RU goes
+;  Uses: everything
+;
+;  Walks the squadron in SLOT ORDER and repairs every ship it can afford,
+;  SKIPPING the ones it cannot rather than stopping at the first. Stopping
+;  would let one Destroyer at 90% damage hold up four interceptors that cost
+;  ten RU each, which is a rule the player would have to be told; skipping is
+;  the forgiving version and the only thing it costs is that the order the
+;  yard mends in is the order the ships happen to sit in.
+;
+;  ALL OR NOTHING PER SHIP. Buying half a repair is expressible -- the cost is
+;  linear in the damage -- and it is not offered, because a partial repair
+;  makes the price of the NEXT one depend on how much was bought last time and
+;  the player can no longer read the cost off the ship. A ship comes back
+;  whole or it does not come back.
+;
+;  Section 8 makes losing the Mothership the end of the game, and it is a ship
+;  like any other here: it is in the squadron walk if the player has selected
+;  its squadron, and it is the most expensive thing in the game to mend.
+; ----------------------------------------------------------------------------
+eco_repair:
+    ;  ONCE A MISSION. mis_setup clears the flag, so "once per mission" is
+    ;  true by construction rather than by anyone remembering to reset it.
+    ld a,(eco_repaired)
+    or a
+    ret nz
+
+    ;  ...AND NOT UNDER FIRE. The same predicate the jump gate asks: nothing
+    ;  hostile still flying, wave ships included and wrecks excluded. The yard
+    ;  works in the lulls, so repairing is something the player does after
+    ;  winning the ground rather than a way of winning it -- otherwise a
+    ;  treasury deep enough turns every fight into an attrition the enemy
+    ;  cannot win, which is the opposite of section 1's fleet that only ever
+    ;  shrinks.
+    call mis_count_hostiles
+    or a
+    ret nz
+
+    ld hl,entities + ENT_FLAGS
+    ld (eco_walk),hl
+    ld a,ENT_PLAYER_MAX
+    ld (eco_index),a
+
+@eco_rep_one:
+    ld hl,(eco_walk)
+    ld a,(hl)
+    and ENT_F_ACTIVE + ENT_F_ENEMY
+    cp ENT_F_ACTIVE
+    jr nz,@eco_rep_next                 ; empty, or theirs
+
+    ;  ...and in the squadron the player is looking at.
+    ld hl,(eco_walk)
+    inc hl                              ; ENT_SQUAD follows ENT_FLAGS
+    ld a,(hl)
+    ld hl,squad_sel
+    cp (hl)
+    jr nz,@eco_rep_next
+
+    ld hl,(eco_walk)
+    ld de,-ENT_FLAGS
+    add hl,de                           ; -> the record
+    push hl
+    call eco_repair_cost
+    pop de                              ; DE -> the record
+    jr nc,@eco_rep_next                 ; undamaged
+
+    ;  Affordable? The treasury is a word and so is the price.
+    ld (eco_rep_cost),hl
+    ld hl,(eco_ru)
+    ld bc,(eco_rep_cost)
+    or a
+    sbc hl,bc
+    jr c,@eco_rep_next                  ; not this one; the next may be cheaper
+    ld (eco_ru),hl
+
+    ;  Back to full, out of the class table.
+    ex de,hl                            ; HL -> the record
+    push hl
+    ld de,ENT_CLASS
+    add hl,de
+    ld a,(hl)
+    ld e,a
+    ld d,0
+    ld hl,class_hull
+    add hl,de
+    ld a,(hl)
+    pop hl
+    ld de,ENT_HULL
+    add hl,de
+    ld (hl),a
+
+    ;  A ship was actually mended, so the one repair is spent. Set here and
+    ;  not at the top: a press that found nothing damaged, or nothing it could
+    ;  afford, has used nothing up -- spending it on a no-op would be a rule
+    ;  the player could trip over without ever seeing why.
+    ld a,1
+    ld (eco_repaired),a
+
+@eco_rep_next:
+    ld hl,(eco_walk)
+    ld de,ENT_SIZE
+    add hl,de
+    ld (eco_walk),hl
+    ld hl,eco_index
+    dec (hl)
+    jr nz,@eco_rep_one
+    ret
+
+
+; ----------------------------------------------------------------------------
+;  eco_scrap_value -- what breaking one ship up pays back
+;  In : HL -> the entity record
+;  Out: A = the refund in RU
+;  Uses: everything
+;
+;  HALF THE PRICE, RISING TO SEVEN TENTHS FOR A SHIP IN GOOD ORDER:
+;
+;      refund = eco_class_cost[class] * (0.5 + 0.2 * hull / full)
+;
+;  "50% to 70%" was the ask and the RANGE had to be given a driver. It is the
+;  HULL, not a die roll, for the reason game/salvage.asm gives about wrecks: a
+;  coin toss is not something a player can act on, and "a ship in good order is
+;  worth more broken up than a hulk is" is a rule they can. It is also the only
+;  number on the screen that the player is already watching -- the `I` page
+;  prints it per class.
+;
+;  IT COMPOSES WITH THE REPAIR PRICE, AND THE CROSSOVER IS THE INTERESTING
+;  PART. Repair costs 2 * P * d for damage d; scrapping and rebuilding costs
+;  P - refund = P * (0.3 + 0.2 * d). Repair is the cheaper of the two only
+;  while 1.8 * d < 0.3 -- below about ONE SIXTH damage. So the pair of them
+;  says: mend a scratch, recycle a hulk. That is a real decision and it is
+;  narrower than it looks; if repair is meant to be the usual answer rather
+;  than the exceptional one, it is these two constants that have to move, not
+;  the code.
+;
+;  THE ARITHMETIC, in 256ths so that nothing needs a second divide:
+;
+;      frac    = 256 * hull / full          wave_frac_of
+;      share   = 128 + (frac * 51 >> 8)     128..178, i.e. 50%..69.5%
+;      refund  = (price * share) >> 8       and 250 * 178 fits sixteen bits
+; ----------------------------------------------------------------------------
+eco_scrap_value:
+    push hl
+    ld de,ENT_CLASS
+    add hl,de
+    ld a,(hl)
+    inc hl                              ; ENT_HULL follows ENT_CLASS
+    ld c,(hl)
+    pop hl
+
+    ld e,a
+    ld d,0
+    ld hl,class_hull
+    add hl,de
+    ld b,(hl)                           ; B = full
+    ld hl,eco_class_cost
+    add hl,de
+    ld a,(hl)
+    ld (eco_rep_price),a
+
+    ld l,c
+    ld h,0
+    ld e,b
+    ld d,0
+    call wave_frac_of                   ; A = hull in 256ths of full
+
+    ld h,a
+    ld l,51                             ; 0.2 of 256, near enough
+    call mul_u8
+    ld a,h
+    add a,128                           ; the half that is unconditional
+    ld h,a
+    ld a,(eco_rep_price)
+    ld l,a
+    call mul_u8
+    ld a,l
+    add a,128                           ; round rather than truncate
+    ld a,h
+    adc a,0
+    ret
+
+
+; ----------------------------------------------------------------------------
+;  eco_decommission -- the Y key: break the selected squadron up for RU
+;  Uses: everything
+;
+;  Squadron-scoped, like H, T, E, A and G -- and the squadron IS the selection
+;  mechanism here, which is what makes a destructive command safe enough to sit
+;  on one key: `O` splits the fleet by class in one press, so "scrap the
+;  scouts" is two keystrokes and never touches anything else.
+;
+;  THE MOTHERSHIP IS NEVER BROKEN UP. Section 8 makes losing it the end of the
+;  campaign, so a key that could scrap it is a key that can end the game by
+;  accident -- and moth_slot is not the test, because fleet_restore moves what
+;  that points at. The CLASS is.
+; ----------------------------------------------------------------------------
+eco_decommission:
+    ld hl,entities + ENT_FLAGS
+    ld (eco_walk),hl
+    ld a,ENT_PLAYER_MAX
+    ld (eco_index),a
+
+@eco_dec_one:
+    ld hl,(eco_walk)
+    ld a,(hl)
+    and ENT_F_ACTIVE + ENT_F_ENEMY
+    cp ENT_F_ACTIVE
+    jr nz,@eco_dec_next                 ; empty, or theirs
+
+    ld hl,(eco_walk)
+    inc hl                              ; ENT_SQUAD follows ENT_FLAGS
+    ld a,(hl)
+    ld hl,squad_sel
+    cp (hl)
+    jr nz,@eco_dec_next
+
+    ld hl,(eco_walk)
+    ld de,-ENT_FLAGS
+    add hl,de                           ; -> the record
+    push hl
+    ld de,ENT_CLASS
+    add hl,de
+    ld a,(hl)
+    cp CLASS_MOTHERSHIP
+    pop hl
+    jr z,@eco_dec_next                  ; sixty thousand sleepers are not scrap
+
+    call eco_scrap_value
+    ld c,a
+    call eco_earn                       ; ...which saturates at ECO_RU_MAX
+
+    ld hl,(eco_walk)
+    ld (hl),0                           ; the slot is free
+
+@eco_dec_next:
+    ld hl,(eco_walk)
+    ld de,ENT_SIZE
+    add hl,de
+    ld (eco_walk),hl
+    ld hl,eco_index
+    dec (hl)
+    jr nz,@eco_dec_one
+
+    ;  Counts are derived, so one recount puts the HUD right -- and the
+    ;  selection falls back by itself if the squadron is now empty.
+    jp squad_refresh
+
+
+; ----------------------------------------------------------------------------
 ;  eco_set_harvest -- the H key: the selected squadron's HARVESTERS go to work
 ;
 ;  Section 9 marks this one "(harvesters)". Ordering the whole squadron out

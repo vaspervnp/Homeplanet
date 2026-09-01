@@ -12,6 +12,13 @@ THE DEFAULT TACTIC: hold station over the Mothership and press A. Section 8
 makes losing the Mothership the end of the game, so abandoning it to chase is
 the thing the design punishes -- see the notes on concentration in CLAUDE.md.
 
+IT CANNOT FINISH THE CAMPAIGN ANY MORE, and that is not a fault in it. A jump
+costs MIS_JUMP_COST out of the treasury, and this tactic never spends a unit
+and never sends a harvester anywhere -- so it earns nothing, and ECO_START_RU
+does not cover one jump. Read it now as what it has always literally been: the
+cost of a campaign to a fleet that only ever shrinks, up to the mission where
+the fare runs out. `--rebuild` is the one that plays the game this build has.
+
 AND A SECOND ONE, `--rebuild`, because the default cannot measure the campaign
 this project is now trying to have. It never spends a unit of RU and never
 sends a harvester anywhere, so it measures a fleet that only ever SHRINKS --

@@ -24,21 +24,28 @@
 ;  stopped, so it has no business in the low 16K.
 ; ----------------------------------------------------------------------------
 
-;  Fifteen rows, and the last two of those were paid for in Y rather than in
-;  step. "Adding an order to the menu is adding a row" is true about the
-;  DISPATCH and was never true about the layout: at fourteen rows the list
-;  already ended eight scanlines short of HUD_TOP, and the fifteenth would have
-;  been drawn across "RU 0080 ?HELP" and stayed there, because the HUD does not
-;  clear its strip -- it draws labels onto it. The asserts in src/main.asm are
-;  what stop that shipping, and they did their job: TOW WRECKS failed the build
-;  until the title and the list moved six lines up. Shrinking MENU_STEP was the
-;  other way and was not taken -- the glyphs are eight tall, so a step of nine
-;  is a one-pixel gutter, and there is empty screen above the title to spend
-;  instead.
-MENU_COUNT          equ 15
-MENU_TITLE_Y        equ 6
-MENU_TOP            equ 18
-MENU_STEP           equ 10
+;  Sixteen rows, and the last three of those were paid for out of the layout
+;  rather than out of nothing. "Adding an order to the menu is adding a row" is
+;  true about the DISPATCH and was never true about the layout: at fourteen
+;  rows the list already ended eight scanlines short of HUD_TOP, and the
+;  fifteenth would have been drawn across "RU 0080 ?HELP" and stayed there,
+;  because the HUD does not clear its strip -- it draws labels onto it. The
+;  asserts in src/main.asm are what stop that shipping, and they have now done
+;  it twice: TOW WRECKS failed the build until the title and the list moved six
+;  lines up, and REPAIR failed it again with nothing left above the title to
+;  move.
+;
+;  SO THE STEP IS NINE, which the note here previously declined to do. The
+;  glyphs are eight tall, so nine is a one-pixel gutter and the list is visibly
+;  tighter than it was; ten with sixteen rows is 176 and the HUD starts at 168.
+;  The choice was a cramped list or a command the player cannot find -- the
+;  help page's right column IS this table, so a row that is not here is not
+;  anywhere. Seventeen rows will need a second column, which is what
+;  help.asm already does.
+MENU_COUNT          equ 17
+MENU_TITLE_Y        equ 4
+MENU_TOP            equ 14
+MENU_STEP           equ 9
 MENU_MARK_X         equ 22              ; x is in BYTES
 MENU_TEXT_X         equ 24
 ;  Beside the title, not under the list. Thirteen rows do not leave room for a

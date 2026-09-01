@@ -436,6 +436,15 @@ def clear_the_way_out(c: cpc.CPC) -> None:
             c.write_ram(addr, b"\x00")
     c.write_ram(sym["MIS_COMPLETE"], b"\x01")
 
+    #  ...and the fare. A jump spends MIS_JUMP_COST out of the same treasury
+    #  the yard spends, so a test that jumps in order to get somewhere else
+    #  would otherwise have to mine for it.
+    if "MIS_JUMP_COST" in sym:
+        purse = int.from_bytes(c.read_ram(sym["ECO_RU"], 2), "little")
+        if purse < sym["MIS_JUMP_COST"]:
+            c.write_ram(sym["ECO_RU"],
+                        struct.pack("<H", sym["MIS_JUMP_COST"]))
+
     #  AND THE ANSWER ITSELF, not just the three things it is computed from.
     #
     #  mis_gate runs once per GAME frame from inside mis_update, so waiting

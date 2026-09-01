@@ -361,6 +361,8 @@ class TestItDoesNotTrapThePlayer(DerelictFixture):
         #  true for a reason that has nothing to do with a hull on the board.
         self.c.write_ram(self.sym["WAVE_COUNT"],
                          bytes([self.sym["WAVE_BEFORE_JUMP"]]))
+        self.c.write_ram(self.sym["ECO_RU"],
+                         self.sym["MIS_JUMP_COST"].to_bytes(2, "little"))
         self.c.run_frames(24)
         self.assertEqual(self.byte("MIS_LEAVE_OK"), 1,
                          "the derelict closed the way out")

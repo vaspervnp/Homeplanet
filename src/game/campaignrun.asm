@@ -148,11 +148,12 @@ mis_setup:
     ld (mis_complete),a
     ld (mis_leave_ok),a
     ld (mis_failed),a
+    ld (eco_repaired),a                 ; one repair per mission
     ld hl,0
     ld (mis_timer),hl
 
     ;  The attack-wave clock runs off mis_timer, which has just gone back to
-    ;  zero, so the two minutes are per MISSION by construction. wave_init is
+    ;  zero, so the minute is per MISSION by construction. wave_init is
     ;  in the low 16K with the rest of the frame loop's simulation.
     call wave_init
 
@@ -480,6 +481,14 @@ mis_gate:
     or a
     ret nz
 
+    ;  ...and the drive has to be paid for. Asked here rather than at the key
+    ;  so that the HUD's JUMP never offers what ENTER would refuse.
+    ld hl,(eco_ru)
+    ld de,MIS_JUMP_COST
+    or a
+    sbc hl,de
+    ret c
+
     ld a,1
     ld (mis_leave_ok),a
     ret
@@ -592,6 +601,15 @@ mis_jump:
     inc a
     cp MIS_COUNT
     jr nc,@mis_no_jump                  ; the campaign is over
+
+    ;  Pay for the drive. AFTER the two refusals above and before anything
+    ;  else moves, so a refused jump is never charged for -- mis_gate has
+    ;  already checked the treasury covers it, and nothing has run between.
+    ld hl,(eco_ru)
+    ld de,MIS_JUMP_COST
+    or a
+    sbc hl,de
+    ld (eco_ru),hl
 
     ;  The wipe goes FIRST, before a single byte of state has moved, so what
     ;  the line sweeps away is the mission the player is leaving. It runs to

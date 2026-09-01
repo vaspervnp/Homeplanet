@@ -344,7 +344,19 @@ class TestConcentration(CombatFixture):
 
         Returns (friendly survivors, enemy survivors). Everything is wiped
         first so the mission's own ships cannot join in.
+
+        PARKED AT A STABLE POINT FIRST, and that is not tidiness -- it is the
+        difference between measuring the fight and measuring the phase. This
+        duel is the knife edge CLAUDE.md describes: identical ships, identical
+        guns, decided by which one re-targets on which game frame. TWO emulator
+        frames of padding before the ships are placed turns 3-0 to us into 0-3
+        to them, measured, with nothing else changed at all -- and the way that
+        turned up was the jump reveal being made twice as fast, which shifted
+        how many frames the two jumps above this took and flipped the coin.
+        run_to_stable_point lands on a frame boundary, so the duel starts at
+        the same point in the cycle whatever led up to it.
         """
+        h.run_to_stable_point(self.c, self.sym)
         base = self.sym["ENTITIES"]
         for slot in range(ENT_MAX):
             self.c.write_ram(base + slot * ENT_SIZE + ENT_FLAGS, b"\x00")

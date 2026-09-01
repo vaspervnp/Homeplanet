@@ -284,6 +284,404 @@ class TestTheEconomyComesFirst(EconomyFixture):
         self.assertEqual(self.ru(), before, "the refused order was charged for")
 
 
+class TestTheRepairPrice(EconomyFixture):
+    """Twice the ship's price, for the fraction of it that is gone.
+
+        cost = 2 * eco_class_cost[class] * (full - hull) / full
+
+    THE NUMBER IS THE DESIGN. At half damage repairing costs exactly what
+    building costs, so the price tells the player which to do without a word of
+    explanation: below half mend it, above half let it die. A test that only
+    checked "repairing costs something" would pass with a multiplier of one,
+    which would make repair strictly better than building and nobody would ever
+    build again.
+    """
+
+    COST = {CLASS_INTERCEPTOR: 35, CLASS_HARVESTER: 40, CLASS_SCOUT: 25}
+    FULL = {}
+
+    def setUp(self):
+        super().setUp()
+        self.FULL = {c: h.read_bank4(self.c, self.sym["CLASS_HULL"] + c, 1)[0]
+                     for c in self.COST}
+
+    def hurt(self, slot, ship_class, fraction):
+        """Put a ship of `ship_class` in `slot` at `fraction` of full hull."""
+        full = self.FULL[ship_class]
+        base = self.sym["ENTITIES"] + slot * ENT_SIZE
+        self.c.write_ram(base, struct.pack("<hhh", 0, 0, 0))
+        self.c.write_ram(base + 9, bytes([ship_class]))
+        self.c.write_ram(base + 10, bytes([max(1, int(full * fraction))]))
+        self.c.write_ram(base + 12, bytes([1]))         # ENT_SQUAD: the selection
+        self.c.write_ram(base + 13, bytes([0]))
+        self.c.write_ram(base + 14, bytes([0xFF]))
+        self.c.write_ram(base + 11, bytes([1]))         # ENT_FLAGS: active
+        self.c.run_frames(4)
+        return full
+
+    def wipe_the_fleet(self):
+        """Nothing but the ships this test puts there, so the price read off
+        the treasury is one ship's and not the squadron's."""
+        for slot in range(ENT_MAX):
+            self.c.write_ram(
+                self.sym["ENTITIES"] + slot * ENT_SIZE + ENT_FLAGS, b"\x00")
+        self.c.run_frames(4)
+
+    def repair_and_measure(self, ship_class, fraction, purse=9000):
+        #  wipe_the_fleet takes the picket with it, which is what lets the
+        #  yard work at all -- repair is refused while anything hostile is
+        #  flying. TestWhenTheYardWillNotWork is where that rule is driven.
+        self.wipe_the_fleet()
+        self.c.write_ram(self.sym["ECO_REPAIRED"], b"\x00")
+        full = self.hurt(20, ship_class, fraction)
+        self.c.write_ram(self.sym["ECO_RU"], struct.pack("<H", purse))
+        self.hold("e")
+        self.c.run_frames(20)
+        spent = purse - self.ru()
+        hull = self.c.read_ram(
+            self.sym["ENTITIES"] + 20 * ENT_SIZE + 10, 1)[0]
+        return spent, hull, full
+
+    def test_half_a_ship_costs_what_a_whole_one_costs(self):
+        """The load-bearing number: at 50% damage, mending and building are the
+        same price. Everything else about this feature follows from it."""
+        for cls in (CLASS_INTERCEPTOR, CLASS_SCOUT):
+            with self.subTest(ship=cls):
+                spent, hull, full = self.repair_and_measure(cls, 0.5)
+                self.assertEqual(hull, full, "the ship did not come back whole")
+                self.assertAlmostEqual(spent, self.COST[cls], delta=2,
+                                       msg=f"half a ship cost {spent}, not "
+                                           f"{self.COST[cls]}")
+
+    def test_a_scratch_is_cheap_and_a_wreck_is_dear(self):
+        """Linear in the damage, which is what makes the half-way point mean
+        anything. A flat price would make a scratch as dear as a hulk."""
+        light, _, _ = self.repair_and_measure(CLASS_INTERCEPTOR, 0.9)
+        heavy, _, _ = self.repair_and_measure(CLASS_INTERCEPTOR, 0.1)
+        self.assertLess(light, heavy // 4,
+                        f"10% damage cost {light} against 90%'s {heavy}")
+        #  0.9 of 2 x 35, not 2 x 35: the ceiling price is for a ship with NO
+        #  hull left, which is a ship that is dead. This asserted the ceiling
+        #  and the code was right -- linear is what linear gives.
+        self.assertAlmostEqual(heavy, 0.9 * 2 * self.COST[CLASS_INTERCEPTOR],
+                               delta=3,
+                               msg=f"a nine-tenths dead interceptor cost {heavy}")
+
+    def test_an_undamaged_ship_is_free_and_is_not_charged_for(self):
+        spent, hull, full = self.repair_and_measure(CLASS_INTERCEPTOR, 1.0)
+        self.assertEqual(hull, full)
+        self.assertEqual(spent, 0, "the yard charged to mend a whole ship")
+
+    def test_the_price_follows_the_class_and_not_a_flat_rate(self):
+        """eco_class_cost, not a constant: a Harvester at 40 RU and a Scout at
+        25 cannot cost the same to mend or the class table means nothing."""
+        harv, _, _ = self.repair_and_measure(CLASS_HARVESTER, 0.5)
+        scout, _, _ = self.repair_and_measure(CLASS_SCOUT, 0.5)
+        self.assertGreater(harv, scout,
+                           f"harvester {harv} against scout {scout}")
+
+
+class TestBreakingShipsUp(EconomyFixture):
+    """`Y` recycles the selected squadron: half the price back, rising to
+    seven tenths for a ship in good order.
+
+        refund = eco_class_cost[class] * (0.5 + 0.2 * hull / full)
+
+    THE RANGE HAS A DRIVER AND IT IS THE HULL, not a die roll -- the same
+    reasoning game/salvage.asm gives for wrecks being deterministic: a coin
+    toss is not something a player can act on.
+    """
+
+    COST = {CLASS_INTERCEPTOR: 35, CLASS_HARVESTER: 40, CLASS_SCOUT: 25}
+
+    def setUp(self):
+        super().setUp()
+        for slot in range(ENT_MAX):
+            self.c.write_ram(
+                self.sym["ENTITIES"] + slot * ENT_SIZE + ENT_FLAGS, b"\x00")
+        self.c.run_frames(4)
+
+    def full_of(self, ship_class):
+        return h.read_bank4(self.c, self.sym["CLASS_HULL"] + ship_class, 1)[0]
+
+    def put(self, slot, ship_class, fraction, squad=1):
+        full = self.full_of(ship_class)
+        base = self.sym["ENTITIES"] + slot * ENT_SIZE
+        self.c.write_ram(base, struct.pack("<hhh", 0, 0, 0))
+        self.c.write_ram(base + 9, bytes([ship_class]))
+        self.c.write_ram(base + 10, bytes([max(1, int(full * fraction))]))
+        self.c.write_ram(base + 12, bytes([squad]))
+        self.c.write_ram(base + 13, bytes([0]))
+        self.c.write_ram(base + 14, bytes([0xFF]))
+        self.c.write_ram(base + 11, bytes([1]))
+        self.c.run_frames(2)
+
+    def recycle(self, purse=0):
+        self.c.write_ram(self.sym["ECO_RU"], struct.pack("<H", purse))
+        self.hold("y")
+        self.c.run_frames(20)
+        return self.ru() - purse
+
+    def alive(self, slot):
+        return bool(self.c.read_ram(
+            self.sym["ENTITIES"] + slot * ENT_SIZE + ENT_FLAGS, 1)[0] & 1)
+
+    def test_a_whole_ship_gives_seven_tenths_back(self):
+        self.put(10, CLASS_INTERCEPTOR, 1.0)
+        paid = self.recycle()
+        self.assertFalse(self.alive(10), "the ship was not broken up")
+        self.assertAlmostEqual(paid, 0.7 * self.COST[CLASS_INTERCEPTOR],
+                               delta=2, msg=f"a whole interceptor paid {paid}")
+
+    def test_and_a_hulk_gives_half(self):
+        self.put(10, CLASS_INTERCEPTOR, 0.01)
+        paid = self.recycle()
+        self.assertAlmostEqual(paid, 0.5 * self.COST[CLASS_INTERCEPTOR],
+                               delta=2, msg=f"a nearly-dead one paid {paid}")
+
+    def test_the_range_is_driven_by_the_hull_and_not_by_chance(self):
+        """The same ship at the same hull has to pay the same twice, or the
+        player cannot decide anything with the number."""
+        seen = set()
+        for _ in range(3):
+            self.setUp()
+            self.put(10, CLASS_INTERCEPTOR, 0.5)
+            seen.add(self.recycle())
+        self.assertEqual(len(seen), 1, f"the refund varied: {sorted(seen)}")
+
+    def test_the_price_follows_the_class(self):
+        self.put(10, CLASS_HARVESTER, 1.0)
+        harv = self.recycle()
+        self.setUp()
+        self.put(10, CLASS_SCOUT, 1.0)
+        scout = self.recycle()
+        self.assertGreater(harv, scout,
+                           f"harvester {harv} against scout {scout}")
+
+    def test_the_mothership_is_never_broken_up(self):
+        """Section 8 makes losing it the end of the campaign, so a key that
+        could scrap it is a key that can end the game by accident."""
+        self.put(10, CLASS_MOTHERSHIP, 1.0)
+        self.put(11, CLASS_INTERCEPTOR, 1.0)
+        self.recycle()
+        self.assertTrue(self.alive(10), "the Mothership was recycled")
+        self.assertFalse(self.alive(11), "nothing else was recycled either")
+
+    def test_nothing_outside_the_selection_is_touched(self):
+        self.put(10, CLASS_INTERCEPTOR, 1.0, squad=1)
+        self.put(11, CLASS_INTERCEPTOR, 1.0, squad=4)
+        self.recycle()
+        self.assertFalse(self.alive(10))
+        self.assertTrue(self.alive(11), "a ship in another squadron went too")
+
+    def test_it_cannot_earn_past_the_ceiling(self):
+        """eco_earn saturates, and the refund goes through it rather than
+        round it -- ECO_RU_MAX is what the HUD's four digits can say."""
+        for slot in range(10, 16):
+            self.put(slot, CLASS_INTERCEPTOR, 1.0)
+        self.c.write_ram(self.sym["ECO_RU"], struct.pack("<H", 9990))
+        self.hold("y")
+        self.c.run_frames(20)
+        self.assertLessEqual(self.ru(), 9999, "the treasury went past its ceiling")
+
+
+class TestWhenTheYardWillNotWork(EconomyFixture):
+    """Two refusals, and each is checked with the OTHER one satisfied."""
+
+    def full_hull(self):
+        return h.read_bank4(self.c, self.sym["CLASS_HULL"], 1)[0]
+
+    def hurt_one(self, slot=10, squad=1):
+        full = self.full_hull()
+        base = self.sym["ENTITIES"] + slot * ENT_SIZE
+        self.c.write_ram(base, struct.pack("<hhh", 0, 0, 0))
+        self.c.write_ram(base + 9, bytes([CLASS_INTERCEPTOR]))
+        self.c.write_ram(base + 10, bytes([full // 2]))
+        self.c.write_ram(base + 12, bytes([squad]))
+        self.c.write_ram(base + 13, bytes([0]))
+        self.c.write_ram(base + 14, bytes([0xFF]))
+        self.c.write_ram(base + 11, bytes([1]))
+        self.c.write_ram(self.sym["ECO_RU"], struct.pack("<H", 9000))
+        self.c.run_frames(4)
+        return full
+
+    def hull(self, slot=10):
+        return self.c.read_ram(
+            self.sym["ENTITIES"] + slot * ENT_SIZE + 10, 1)[0]
+
+    def clear_the_board(self):
+        for slot in range(self.sym["ENT_PLAYER_MAX"], ENT_MAX):
+            self.c.write_ram(
+                self.sym["ENTITIES"] + slot * ENT_SIZE + ENT_FLAGS, b"\x00")
+        self.c.run_frames(4)
+
+    def put_one_hostile(self):
+        base = self.sym["ENTITIES"] + self.sym["ENT_PLAYER_MAX"] * ENT_SIZE
+        self.c.write_ram(base, struct.pack("<hhh", 9000, 0, 9000))
+        self.c.write_ram(base + 9, bytes([CLASS_INTERCEPTOR]))
+        self.c.write_ram(base + 10, bytes([200]))
+        self.c.write_ram(base + 12, bytes([0xFF]))
+        self.c.write_ram(base + 14, bytes([0xFF]))
+        self.c.write_ram(base + 11, bytes([3]))         # ACTIVE | ENEMY
+        self.c.run_frames(4)
+
+    def test_not_while_anything_hostile_is_flying(self):
+        """The yard works in the lulls. Repairing under fire would turn a deep
+        treasury into an attrition the enemy cannot win."""
+        full = self.hurt_one()
+        self.clear_the_board()
+        self.put_one_hostile()
+        self.hold("e")
+        self.c.run_frames(20)
+        self.assertEqual(self.hull(), full // 2,
+                         "the yard mended a ship with an enemy on the board")
+
+        #  ...and with that one gone, the same keypress works. Same machine,
+        #  same ship, one bit different.
+        self.clear_the_board()
+        self.hold("e")
+        self.c.run_frames(20)
+        self.assertEqual(self.hull(), full, "and then it would not mend at all")
+
+    def test_a_wreck_is_not_an_enemy_for_this_either(self):
+        """The derelict is ACTIVE and ENEMY for the whole of missions 4 to 6,
+        so counting it would mean no repair in three missions of the eight."""
+        full = self.hurt_one()
+        self.clear_the_board()
+        base = self.sym["ENTITIES"] + self.sym["ENT_PLAYER_MAX"] * ENT_SIZE
+        self.c.write_ram(base + 11, bytes([1 | 2 | 4]))     # ...and DISABLED
+        self.c.run_frames(4)
+        self.hold("e")
+        self.c.run_frames(20)
+        self.assertEqual(self.hull(), full, "a wreck stopped the yard working")
+
+    def test_only_once_in_a_mission(self):
+        full = self.hurt_one()
+        self.clear_the_board()
+        self.hold("e")
+        self.c.run_frames(20)
+        self.assertEqual(self.hull(), full)
+        self.assertEqual(self.byte("ECO_REPAIRED"), 1)
+
+        #  Hurt it again and ask again: the yard has had its turn.
+        self.c.write_ram(
+            self.sym["ENTITIES"] + 10 * ENT_SIZE + 10, bytes([full // 2]))
+        self.c.run_frames(4)
+        self.hold("e")
+        self.c.run_frames(20)
+        self.assertEqual(self.hull(), full // 2,
+                         "the yard mended twice in one mission")
+
+    def test_a_press_that_mends_nothing_does_not_use_the_turn_up(self):
+        """Set at the moment a hull moves, not at the top of the routine --
+        or a press with nothing damaged would silently spend the mission's
+        one repair and the player would never see why."""
+        self.clear_the_board()
+        self.c.write_ram(self.sym["ECO_RU"], struct.pack("<H", 9000))
+        self.hold("e")                                  # nothing is damaged
+        self.c.run_frames(20)
+        self.assertEqual(self.byte("ECO_REPAIRED"), 0,
+                         "an empty repair used the mission's one up")
+
+        full = self.hurt_one()
+        self.hold("e")
+        self.c.run_frames(20)
+        self.assertEqual(self.hull(), full, "and then the real one was refused")
+
+    def test_and_a_press_that_cannot_be_afforded_does_not_either(self):
+        self.hurt_one()
+        self.clear_the_board()
+        self.c.write_ram(self.sym["ECO_RU"], struct.pack("<H", 1))
+        self.hold("e")
+        self.c.run_frames(20)
+        self.assertEqual(self.byte("ECO_REPAIRED"), 0,
+                         "a repair nobody could pay for used the turn up")
+
+    def test_the_turn_comes_back_with_the_next_mission(self):
+        """mis_setup clears it, so "once per mission" is by construction."""
+        self.clear_the_board()
+        self.hurt_one()
+        self.hold("e")
+        self.c.run_frames(20)
+        self.assertEqual(self.byte("ECO_REPAIRED"), 1)
+        h.jump_mission(self.c)
+        self.assertEqual(self.byte("ECO_REPAIRED"), 0,
+                         "the repair did not come back with the new mission")
+
+
+class TestRepairingASquadron(EconomyFixture):
+    """`E` mends the selected squadron, as far as the RU goes."""
+
+    def setUp(self):
+        super().setUp()
+        for slot in range(ENT_MAX):
+            self.c.write_ram(
+                self.sym["ENTITIES"] + slot * ENT_SIZE + ENT_FLAGS, b"\x00")
+        self.full = h.read_bank4(
+            self.c, self.sym["CLASS_HULL"] + CLASS_INTERCEPTOR, 1)[0]
+        self.c.run_frames(4)
+
+    def put(self, slot, hull, squad=1):
+        base = self.sym["ENTITIES"] + slot * ENT_SIZE
+        self.c.write_ram(base, struct.pack("<hhh", 0, 0, 0))
+        self.c.write_ram(base + 9, bytes([CLASS_INTERCEPTOR]))
+        self.c.write_ram(base + 10, bytes([hull]))
+        self.c.write_ram(base + 12, bytes([squad]))
+        self.c.write_ram(base + 13, bytes([0]))
+        self.c.write_ram(base + 14, bytes([0xFF]))
+        self.c.write_ram(base + 11, bytes([1]))
+        self.c.run_frames(2)
+
+    def hull(self, slot):
+        return self.c.read_ram(
+            self.sym["ENTITIES"] + slot * ENT_SIZE + 10, 1)[0]
+
+    def test_every_ship_of_the_selection_comes_back(self):
+        for slot in (10, 11, 12):
+            self.put(slot, self.full // 2)
+        self.c.write_ram(self.sym["ECO_RU"], struct.pack("<H", 9000))
+        self.hold("e")
+        self.c.run_frames(20)
+        for slot in (10, 11, 12):
+            self.assertEqual(self.hull(slot), self.full,
+                             f"slot {slot} was not mended")
+
+    def test_and_nothing_outside_it_does(self):
+        """Squadron-scoped, like H, T, A and G. Mending the whole fleet from
+        one key would make the selection mean nothing."""
+        self.put(10, self.full // 2, squad=1)
+        self.put(11, self.full // 2, squad=3)
+        self.c.write_ram(self.sym["ECO_RU"], struct.pack("<H", 9000))
+        self.hold("e")
+        self.c.run_frames(20)
+        self.assertEqual(self.hull(10), self.full)
+        self.assertEqual(self.hull(11), self.full // 2,
+                         "a ship in another squadron was mended")
+
+    def test_what_cannot_be_afforded_is_skipped_and_not_a_full_stop(self):
+        """Slot order, and an unaffordable ship does not hold up the cheap
+        ones behind it -- that would be a rule the player has to be told."""
+        self.put(10, 1)                                 # nearly dead: ~70 RU
+        self.put(11, self.full - 4)                     # a scratch: about 1 RU
+        self.c.write_ram(self.sym["ECO_RU"], struct.pack("<H", 8))
+        self.hold("e")
+        self.c.run_frames(20)
+        self.assertEqual(self.hull(10), 1, "the unaffordable ship was mended")
+        self.assertEqual(self.hull(11), self.full,
+                         "the cheap ship behind it was skipped as well")
+
+    def test_a_ship_comes_back_whole_or_not_at_all(self):
+        """Half a repair is expressible and is not offered: it would make the
+        price of the next one depend on how much was bought last time."""
+        self.put(10, 1)
+        self.c.write_ram(self.sym["ECO_RU"], struct.pack("<H", 30))
+        before = self.ru()
+        self.hold("e")
+        self.c.run_frames(20)
+        self.assertEqual(self.hull(10), 1, "a part-paid repair moved the hull")
+        self.assertEqual(self.ru(), before, "a refused repair was charged for")
+
+
 class TestTheBuildQueue(EconomyFixture):
     """Ten orders, mixed classes, first in first out.
 

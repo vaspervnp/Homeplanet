@@ -36,6 +36,13 @@ menu_entries:
     defb "TOW WRECKS      T",0
     defb KEY_B
     defb "BUILD           B",0
+    ;  Beside BUILD, because they are the two things RU buys and the choice
+    ;  between them is the whole point of what a repair costs.
+    defb KEY_E
+    defb "REPAIR          E",0
+    ;  ...and its opposite, beside it: the other direction RU and hull go in.
+    defb KEY_Y
+    defb "RECYCLE         Y",0
     defb KEY_F
     defb "FORMATION       F",0
     defb KEY_O

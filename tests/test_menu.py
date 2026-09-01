@@ -20,15 +20,42 @@ sys.path.insert(0, __file__.rsplit("/", 2)[0])
 from tests import harness as h
 import cpc
 
-MENU_COUNT = 15
+#  Read out of the build, both of them. The count and the ORDER of the rows
+#  are menutext.asm's, and every row after an inserted one moves -- REPAIR went
+#  in beside BUILD and shifted nine of the eleven constants below, every one of
+#  which was a number written down here. A row index is a fact about a table in
+#  bank 4, so it is looked up in that table.
+def _menu_rows():
+    sym = h.symbols()
+    base = sym["MENU_ENTRIES"]
+    raw = h.read_bank4(h.boot_quick(frames=250), base,
+                       sym["MENU_ENTRIES_END"] - base)
+    rows, i = [], 0
+    while i < len(raw):
+        end = raw.index(0, i + 1)
+        rows.append(raw[i + 1:end].decode("ascii").split()[0])
+        i = end + 1
+    return rows
+
+
+_ROWS = _menu_rows()
+MENU_COUNT = len(_ROWS)
+
+
+def row_of(word):
+    """The index of the row whose command STARTS with `word`."""
+    return _ROWS.index(word)
 #  Row order, mirrored from src/game/menutext.asm. SPLIT BY CLASS went in at 6,
 #  beside the other thing that reshapes the fleet, and moved everything below it
 #  down one. SQUADRON INFO went in at 12, next to CONTROLS -- the two entries
 #  that tell you something rather than order somebody -- so only CONTROLS moved.
 #  TOW WRECKS went in at 4, beside HARVEST because it is the same order for the
 #  other work ship, and moved everything below IT down one again.
-ROW_ATTACK, ROW_TOW, ROW_BY_CLASS, ROW_SENSORS, ROW_MOVE = 0, 4, 7, 8, 9
-ROW_PAN, ROW_CENTRE, ROW_INFO, ROW_CONTROLS = 11, 12, 13, 14
+ROW_ATTACK, ROW_TOW = row_of("ATTACK"), row_of("TOW")
+ROW_BY_CLASS, ROW_SENSORS = row_of("SPLIT"), row_of("SENSORS")
+ROW_MOVE, ROW_PAN = row_of("MOVE"), row_of("PAN")
+ROW_CENTRE, ROW_INFO = row_of("CENTRE"), row_of("SQUADRON")
+ROW_CONTROLS, ROW_REPAIR = row_of("CONTROLS"), row_of("REPAIR")
 
 ENT_SIZE = 20
 #  Straight out of the build: the table got bigger when the fleet's
@@ -171,6 +198,20 @@ class TestPickingActuallyDoesIt(MenuFixture):
         self.choose(ROW_CONTROLS)
         self.assertEqual(self.banked("HELP_SHOWN"), 1,
                          "choosing CONTROLS did not put the key list up")
+
+    def test_repair_mends_the_selected_squadron(self):
+        """The newest row, and the one that spends money -- so it is followed
+        all the way to the hull rather than to the flag."""
+        full = h.read_bank4(self.c, self.sym["CLASS_HULL"], 1)[0]
+        base = self.sym["ENTITIES"] + 3 * ENT_SIZE
+        self.c.write_ram(base + 10, bytes([full // 2]))     # ENT_HULL
+        self.c.write_ram(self.sym["ECO_RU"], (900).to_bytes(2, "little"))
+        self.c.run_frames(4)
+
+        self.choose(ROW_REPAIR)
+        self.c.run_frames(20)
+        self.assertEqual(self.c.read_ram(base + 10, 1)[0], full,
+                         "REPAIR from the menu did not mend the ship")
 
     def test_squadron_info_opens_the_breakdown(self):
         """INFO_SHOWN is in the LOW 16K, not the bank: squadinfo.asm is one of

@@ -134,6 +134,20 @@ order_update:
     call key_hit
     call c,eco_set_harvest
 
+    ;  RU into hull. The other thing the treasury buys, and the only thing in
+    ;  the game that puts hull back -- see eco_repair_cost for what it costs
+    ;  and why the multiplier is two.
+    ld a,KEY_E
+    call key_hit
+    call c,eco_repair
+
+    ;  ...and its opposite: hull back into RU. Destructive, and on one key
+    ;  because the SQUADRON is the selection -- `O` splits the fleet by class
+    ;  in one press, so "scrap the scouts" is two keystrokes.
+    ld a,KEY_Y
+    call key_hit
+    call c,eco_decommission
+
     ;  ...and its sibling: the corvettes go and fetch the wrecks. Two work
     ;  orders, two keys, for the reason section 9 gives H its "(harvesters)" --
     ;  a player who wants the mining kept going while the salvage ships stay in

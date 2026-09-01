@@ -79,6 +79,21 @@ eco_new_slot:       defb 0
 eco_pick_class:     defb 0
 eco_pick_dir:       defb 0
 eco_amount:         defb 0
+eco_rep_price:      defb 0
+eco_rep_cost:       defw 0
+
+;  WHETHER THE YARD HAS ALREADY MENDED ANYTHING THIS MISSION.
+;
+;  Cleared by mis_setup, so "once per mission" is true by construction rather
+;  than by anyone remembering to reset it -- the same way mis_timer's two
+;  minutes are per mission. In the low 16K with the rest of the economy's
+;  state, so a test reads it with read_ram.
+;
+;  It is set only when a ship was ACTUALLY mended. A press that found nothing
+;  damaged, or nothing affordable, has not used the one repair up -- spending
+;  it on a no-op would be a rule the player could trip over without ever
+;  seeing why.
+eco_repaired:       defb 0
 
 eco_build_open:     defb 0              ; the panel is showing
 eco_build_pick:     defb 0              ; which class the panel is offering

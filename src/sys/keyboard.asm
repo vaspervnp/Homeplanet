@@ -100,6 +100,11 @@ KEY_A               equ 8*8 + 5
 KEY_B               equ 6*8 + 6
 KEY_C               equ 7*8 + 6
 KEY_D               equ 7*8 + 5
+;  Repair: RU goes into hull. R was already the station order and F was already
+;  the formation, so the two obvious initials for "repair" and "fix" were both
+;  gone -- E is the letter left in the word, and it is on the same row 7 as
+;  the D and C the squadron commands already use (4 3 E W S D C X).
+KEY_E               equ 7*8 + 2
 KEY_F               equ 6*8 + 5
 KEY_G               equ 6*8 + 4
 KEY_H               equ 5*8 + 4
@@ -112,6 +117,12 @@ KEY_O               equ 4*8 + 2         ; split by class; line 4 is 0 9 O I L K 
 ;  and T was the only unclaimed letter in the game with the right initial --
 ;  H already means "the harvesters go to work" and this is its sibling.
 KEY_T               equ 6*8 + 3
+
+;  Recycle: the selected squadron is broken up for RU. Every letter of SCRAP
+;  and of DECOMMISSION was already taken -- S, C, R, A, P, D, E, O, M, I, N all
+;  mean something -- so the word is RECYCLE and the key is its Y. Row 5 is
+;  8 7 U Y H J N SPACE, beside the H and J it sits with in the menu.
+KEY_Y               equ 5*8 + 3
 KEY_X               equ 7*8 + 7
 KEY_Z               equ 8*8 + 7
 

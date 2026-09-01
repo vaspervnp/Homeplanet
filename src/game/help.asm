@@ -18,11 +18,15 @@
 ;  RIGHT column IS menu_entries, so this page's height is set by a file it does
 ;  not mention, and the assert in src/main.asm is the only thing that says so.
 HELP_TITLE_Y        equ 4
-HELP_BODY_Y         equ 18
-;  Ten and not eleven: the RIGHT column is menu_entries, so it is MENU_COUNT
-;  rows long and grows every time an order is added. At fifteen rows, eleven
-;  put the last one inside the HUD's strip -- see the asserts in src/main.asm.
-HELP_LINE_STEP      equ 10
+HELP_BODY_Y         equ 14
+;  Nine, and it has come down twice for the same reason: the RIGHT column is
+;  menu_entries, so it is MENU_COUNT rows long and grows every time an order is
+;  added, and this page's height is set by a file it does not mention. At
+;  fifteen rows a step of eleven put the last one inside the HUD's strip; at
+;  sixteen, ten does. The glyphs are eight tall, so nine is a one-pixel gutter
+;  and there is nothing below it -- seventeen orders will need this column
+;  split, which is what this page already does with the left one.
+HELP_LINE_STEP      equ 9
 HELP_ROWS           equ 10              ; the left column; the right one is
                                         ; MENU_COUNT long
 HELP_COL1_X         equ 1               ; x is in BYTES: 4 pixels each
