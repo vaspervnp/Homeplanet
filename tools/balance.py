@@ -32,11 +32,16 @@ NAMES = {0: "int", 1: "moth", 2: "harv", 3: "scout",
 s = h.symbols()
 c = h.boot_quick(frames=300)
 E = s["ENTITIES"]
+#  Out of the build. It was 48 and the fleet's ceiling has since doubled, so a
+#  fixed count stops looking exactly where the new slots are -- and this script
+#  is a MEASURING tool, so it would have gone on printing a plausible campaign
+#  with ships missing from it.
+ENT_MAX = s["ENT_MAX"]
 
 
 def fleet():
     friendly, enemy, hull = {}, 0, 0
-    for i in range(48):
+    for i in range(ENT_MAX):
         f = c.read_ram(E + i * ENT_SIZE + ENT_FLAGS, 1)[0]
         if not (f & F_ACTIVE):
             continue

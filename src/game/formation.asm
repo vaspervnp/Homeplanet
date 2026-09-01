@@ -23,6 +23,32 @@ FORM_COUNT          equ 4
 FORM_SLOTS          equ 16
 FORM_SLOT_MASK      equ FORM_SLOTS - 1
 
+;  ...AND THE SHAPE IS REPEATED IN LAYERS, which is what makes it hold a fleet.
+;
+;  It did not. `and FORM_SLOT_MASK` had the comment "more ships than slots:
+;  share them", and sharing a slot means two ships flying to the same point --
+;  invisible, harmless at seventeen ships, and the normal case the moment
+;  ENT_PLAYER_MAX doubled to 56. Doubling the fleet without touching this would
+;  have been doubling the number of ships inside each other.
+;
+;  Four layers of the SAME authored shape, displaced along the axis that shape
+;  does not use: Y for Loose, Wedge and Sphere, which are flat in XZ or spread
+;  evenly, and Z for Wall, which is already standing in XY. That keeps all four
+;  shapes exactly as they were drawn -- a wedge of 40 ships is four wedges in
+;  echelon rather than a wedge with a different outline -- and it costs one
+;  16-bit add per ship per frame plus an eight-byte table.
+;
+;  The layers alternate about zero (0, +1, -1, +2) so the station stays in the
+;  MIDDLE of the squadron. All one way and a big squadron would sit entirely to
+;  one side of the point the camera orbits.
+FORM_LAYERS         equ 4
+FORM_LAYER_MASK     equ FORM_LAYERS - 1
+FORM_CAPACITY       equ FORM_SLOTS * FORM_LAYERS
+
+;  Offsets within form_off: which axis a formation's layers move along.
+FORM_AXIS_Y         equ 2
+FORM_AXIS_Z         equ 4
+
 
 ; ----------------------------------------------------------------------------
 ;  form_init -- everyone starts loose
@@ -81,8 +107,18 @@ form_slot_offset:
     ld (form_which),a
 
     ld a,c
-    and FORM_SLOT_MASK                  ; more ships than slots: share them
+    and FORM_SLOT_MASK                  ; where in the shape...
     ld (form_slot),a
+    ld a,c
+    rrca
+    rrca
+    rrca
+    rrca
+    and FORM_LAYER_MASK                 ; ...and which copy of it
+    ld (form_layer),a
+
+    ld a,FORM_AXIS_Y                    ; every shape but Wall layers upward
+    ld (form_axis),a
 
     ld a,(form_which)
     cp FORM_SPHERE
@@ -93,7 +129,16 @@ form_slot_offset:
     call phase4_times6
     ld de,form_shell
     add hl,de
-    ret
+    ld a,(form_layer)
+    or a
+    ret z                               ; layer 0: point straight at the shape
+
+    ;  Past that it has to be copied out, because the layer is added to it and
+    ;  form_shell is in bank 4 -- read-only in every sense that matters.
+    ld de,form_off
+    ld bc,6
+    ldir
+    jr @form_layered
 
 @form_flat:
     ;  The other three are flat, so two words say all of it. Wedge reads its
@@ -120,8 +165,7 @@ form_slot_offset:
     inc hl
     ld d,(hl)
     ld (form_off + 4),de
-    ld hl,form_off
-    ret
+    jr @form_layered
 
 @form_grid_shape:
     ld a,(form_slot)
@@ -139,12 +183,49 @@ form_slot_offset:
     cp FORM_WALL
     jr z,@form_upright
     ld (form_off + 4),de                ; Loose: flat in XZ
-    ld hl,form_off
-    ret
+    jr @form_layered
 @form_upright:
     ld (form_off + 2),de                ; Wall: stood on end in XY
     ld hl,0
     ld (form_off + 4),hl
+    ld a,FORM_AXIS_Z                    ; ...so its layers go back, not up
+    ld (form_axis),a
+;  ...and fall through.
+
+
+; ----------------------------------------------------------------------------
+;  @form_layered -- displace the shape in form_off by its layer
+;  Out: HL -> form_off
+;  Uses: everything
+; ----------------------------------------------------------------------------
+@form_layered:
+    ld hl,form_off
+    ld a,(form_layer)
+    or a
+    ret z                               ; the common case, and it costs a test
+
+    add a,a                             ; a word an entry
+    ld e,a
+    ld d,0
+    ld hl,form_layer_off
+    add hl,de
+    ld e,(hl)
+    inc hl
+    ld d,(hl)                           ; DE = how far this layer stands off
+
+    ld a,(form_axis)
+    ld l,a
+    ld h,0
+    ld bc,form_off
+    add hl,bc                           ; HL -> the axis this shape layers on
+    ld a,(hl)
+    add a,e
+    ld (hl),a
+    inc hl
+    ld a,(hl)
+    adc a,d
+    ld (hl),a
+
     ld hl,form_off
     ret
 
@@ -172,6 +253,8 @@ squad_form:         defs SQUAD_MAX + 1, 0
 ;  Where form_slot_offset assembles its answer.
 form_which:         defb 0
 form_slot:          defb 0
+form_layer:         defb 0
+form_axis:          defb 0
 form_off:           defs 6, 0
 
 

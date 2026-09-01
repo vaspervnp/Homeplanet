@@ -229,9 +229,13 @@ wave_health:
     ld (wave_hull),hl
     ld (wave_full),hl
 
+    ;  ENT_PLAYER_MAX and not ENT_MAX: this sums ACTIVE-and-not-ENEMY, and by
+    ;  the partition in game/entity.asm one of ours cannot be in the hostile
+    ;  region at all. The compare rejected those slots and the walk still paid
+    ;  for reading them.
     ld hl,entities + ENT_FLAGS
     ld de,ENT_SIZE
-    ld b,ENT_MAX
+    ld b,ENT_PLAYER_MAX
 @wave_hp_one:
     ld a,(hl)
     and ENT_F_ACTIVE + ENT_F_ENEMY

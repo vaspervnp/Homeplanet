@@ -9,7 +9,7 @@
 ;  that only mean something mid-battle.
 ; ----------------------------------------------------------------------------
 
-ENT_MAX             equ 48
+ENT_MAX             equ 76
 ENT_SIZE            equ 20
 
 ;  THE TABLE IS PARTITIONED BY INDEX, and it is one array still.
@@ -37,7 +37,43 @@ ENT_SIZE            equ 20
 ;  mis_clear_enemies, so the whole hostile region is free when a mission is
 ;  laid out, and tests/test_campaign.TestEveryPicketFits reads the enemy count
 ;  out of every row of mission_table and checks it against ENT_ENEMY_MAX.
-ENT_PLAYER_MAX      equ 28
+;  TWENTY-EIGHT WAS NOT AN ARBITRARY NUMBER AND FIFTY-SIX IS NOT EITHER.
+;  Twenty-eight was the starting sixteen plus a full build queue plus two, and
+;  it meant a fleet could never grow: build ten ships in mission 1 and the yard
+;  was closed for the rest of the campaign. Fifty-six is that ceiling doubled,
+;  which is what was asked for, and what it cost is worth writing down because
+;  none of it was where the design expected:
+;
+;    - the low 16K. Four arrays are ENT_MAX long and one of them is twenty
+;      bytes a slot. They are declared after code_end in src/main.asm now, so
+;      they cost address space and not DISC.BIN, and game/squadinforun.asm and
+;      game/economyrun.asm went to bank 4 to pay for the address space.
+;    - FLEET.DAT. Two raw sectors, so 56 ships needed a narrower record than
+;      the entity table's twenty bytes; see FLEET_REC_SIZE below.
+;    - phase4_sort. It is the only O(n^2) thing in the frame, so it is the term
+;      that decides how many ships may exist at once. It carries each entry's
+;      depth beside its index now and a comparison is ~104 T-states rather than
+;      ~390.
+;    - FORM_SLOTS, which was sixteen and silently stacked ships on top of each
+;      other past that.
+;
+;  A BIG FLEET IS STILL A SLOW GAME, and that is the player's own choice to
+;  make. Measured on mission 1, the fleet padded out, the camera where the
+;  mission opens:
+;
+;                        16     22     27     40     55  ships
+;      before, at 28     5.0    3.8    3.1     -      -
+;      now               6.9    5.5    4.6    3.3    2.4
+;      now, zoomed out  10.1    7.2    6.3    5.0    3.7
+;
+;  So the ORDINARY sixteen-ship game got 38% faster and 40 ships now runs
+;  better than 27 used to -- nearly all of that is cbt_find_enemy, which swept
+;  the whole table per ship per frame and so grew with the SQUARE of this
+;  number. Fifty-six in the air is about 2.4 fps close in, which is a slower
+;  game than the one at 16, and it always was going to be: nothing stopped a
+;  player filling 28 slots and dropping to 3.1 either. What has gone is the
+;  arithmetic refusing them the choice.
+ENT_PLAYER_MAX      equ 56
 ENT_ENEMY_MAX       equ ENT_MAX - ENT_PLAYER_MAX
 
 ENT_X               equ 0               ; world position, 16-bit signed
@@ -107,6 +143,42 @@ ENT_ORDER_TOW       equ 6
 
 ;  ENT_TARGET holds a slot index; this means nobody.
 ENT_NO_TARGET       equ #FF
+
+
+; ----------------------------------------------------------------------------
+;  WHAT A SHIP IS WHEN IT IS NOT IN A BATTLE -- the FLEET.DAT record.
+;
+;  The twenty bytes above used to be the save format too, and the file said so:
+;  "the record is already the save format, so this is a copy with a filter
+;  rather than a serialiser". That was true and it was also the fleet's
+;  ceiling. FLEET.DAT is two raw sectors, 1024 bytes, header and all -- so
+;  twenty bytes a ship stops at fifty, and doubling ENT_PLAYER_MAX to 56 needed
+;  either a third sector or a narrower record. The narrower record is the
+;  better half of that trade and would have been worth doing at 28: most of
+;  ENT_SIZE is per-frame state that a restored fleet does not want back.
+;
+;  Thirteen bytes, in three runs, because the fields that survive happen to sit
+;  in three groups:
+;
+;      x, y, z, yaw            7 bytes from ENT_X       -- where it is
+;      (pitch, speed)          skipped: NOTHING READS EITHER
+;      class, hull, flags,
+;        squad, order          5 bytes from ENT_CLASS   -- what it is
+;      (target)                skipped: a slot index does not survive a repack
+;      load                    1 byte  from ENT_LOAD    -- a harvester's hold
+;
+;  So the serialiser is two LDIRs and an LDI in each direction. The adjacency
+;  that makes it three runs rather than nine loads is asserted in src/main.asm
+;  -- move ENT_SQUAD and a restored fleet quietly comes back with its orders in
+;  its hulls.
+;
+;  ENT_TARGET is the one field that must be WRITTEN rather than left: a zeroed
+;  target names slot 0, which is a real ship, and that is the bug this project
+;  already shipped once.
+; ----------------------------------------------------------------------------
+FLEET_REC_A_LEN     equ 7               ; ENT_X .. ENT_YAW
+FLEET_REC_B_LEN     equ 5               ; ENT_CLASS .. ENT_ORDER
+FLEET_REC_SIZE      equ FLEET_REC_A_LEN + FLEET_REC_B_LEN + 1
 
 
 ; ----------------------------------------------------------------------------
@@ -261,4 +333,6 @@ ent_room_ours:
 ;  Storage
 ; ============================================================================
 ent_index:          defb 0
-entities:           defs ENT_MAX * ENT_SIZE, 0
+;  entities lives in src/main.asm, above code_end -- see the comment there.
+;  It is an array of zeros at boot, so keeping it out of the saved image costs
+;  nothing and gives DISC.BIN back most of a kilobyte.

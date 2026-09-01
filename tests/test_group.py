@@ -49,9 +49,19 @@ class GroupFixture(unittest.TestCase):
         self.c.run_frames(frames)
 
     def load_vis(self, entries, zoom=None):
-        """Put `entries` in phase4_vis, in z order, at the given zoom step."""
+        """Put `entries` in phase4_vis, in z order, at the given zoom step.
+
+        AN ORDER ENTRY IS TWO BYTES -- the index, and a copy of its depth --
+        since phase4_sort stopped fetching the depth through phase4_vis_addr
+        for every comparison. Written as one byte a piece this reads every
+        other entry as a depth, so phase4_group walked half the list at
+        double stride and every grouping test came out with singletons.
+        """
         self.c.write_ram(self.sym["PHASE4_VIS"], b"".join(entries))
-        self.c.write_ram(self.sym["PHASE4_ORDER"], bytes(range(len(entries))))
+        order = bytearray()
+        for i, entry in enumerate(entries):
+            order += bytes([i, entry[3]])           # index, then its depth
+        self.c.write_ram(self.sym["PHASE4_ORDER"], bytes(order))
         self.c.write_ram(self.sym["PHASE4_VISIBLE"], bytes([len(entries)]))
         if zoom is not None:
             self.c.write_ram(self.sym["CAM_ZOOM"], bytes([zoom]))

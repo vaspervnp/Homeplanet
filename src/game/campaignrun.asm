@@ -452,8 +452,12 @@ mis_update:
 ;  already there.
 ; ----------------------------------------------------------------------------
 mis_count_enemies:
-    xor a
+    ;  The hostile region only, which is where every hostile is by
+    ;  construction -- ent_find_free_theirs and mis_setup are the only things
+    ;  that place one.
+    ld a,ENT_PLAYER_MAX
     ld (mis_scan),a
+    xor a
     ld (mis_left),a
 @mis_count:
     ld a,(mis_scan)
@@ -564,10 +568,17 @@ fleet_save:
     cp ENT_F_ACTIVE
     jr nz,@fleet_store_next             ; empty, or theirs
 
+    ;  Thirteen bytes of twenty, in the three runs game/entity.asm describes.
     ld hl,(fleet_src)
     ld de,(fleet_ptr)
-    ld bc,ENT_SIZE
-    ldir
+    ld bc,FLEET_REC_A_LEN
+    ldir                                ; x, y, z, yaw
+    inc hl
+    inc hl                              ; pitch and speed: nothing reads either
+    ld bc,FLEET_REC_B_LEN
+    ldir                                ; class, hull, flags, squad, order
+    inc hl                              ; the target: a slot index does not keep
+    ldi                                 ; the hold
     ld (fleet_ptr),de
     ld hl,fleet_count
     inc (hl)
@@ -576,7 +587,10 @@ fleet_save:
     ld hl,mis_scan
     inc (hl)
     ld a,(hl)
-    cp ENT_MAX
+    ;  ENT_PLAYER_MAX and not ENT_MAX. The filter above already rejects
+    ;  hostiles, so walking the whole table gave the same answer -- it just
+    ;  walked twenty slots that cannot hold one of ours to find out.
+    cp ENT_PLAYER_MAX
     jr c,@fleet_store
 
     ld a,1
@@ -612,8 +626,21 @@ fleet_restore:
     call ent_addr
     ex de,hl
     ld hl,(fleet_ptr)
-    ld bc,ENT_SIZE
-    ldir
+    ld bc,FLEET_REC_A_LEN
+    ldir                                ; x, y, z, yaw
+    inc de
+    inc de                              ; pitch and speed stay as cleared
+    ld bc,FLEET_REC_B_LEN
+    ldir                                ; class, hull, flags, squad, order
+
+    ;  ENT_TARGET, and it is WRITTEN rather than left. ent_clear_all does put
+    ;  ENT_NO_TARGET in every slot, so this is belt and braces -- but a zeroed
+    ;  target names slot 0, which is a real ship, and this project has already
+    ;  had a fleet open fire on its own Mothership over exactly that.
+    ld a,ENT_NO_TARGET
+    ld (de),a
+    inc de
+    ldi                                 ; the hold
     ld (fleet_ptr),hl
 
     ;  The fleet packs down as ships are lost, so the Mothership almost never

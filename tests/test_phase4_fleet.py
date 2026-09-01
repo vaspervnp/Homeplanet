@@ -46,6 +46,15 @@ class TestFleet(unittest.TestCase):
             for i in range(n)
         ]
 
+    def _order(self, n):
+        """The draw order, as (visible index, the depth cached beside it).
+
+        Two bytes an entry since the sort started carrying the depth rather
+        than fetching it -- see phase4_sort.
+        """
+        raw = self.c.read_ram(self.sym["PHASE4_ORDER"], n * 2)
+        return [(raw[i * 2], raw[i * 2 + 1]) for i in range(n)]
+
     def test_ships_are_on_screen(self):
         vis = self._visible()
         self.assertGreaterEqual(len(vis), 8, "hardly any of the squadron survived")
@@ -125,10 +134,32 @@ class TestFleet(unittest.TestCase):
         for _ in range(5):
             self.c.run_frames(4)
             vis = self._visible()          # leaves us parked at a stable point
-            order = list(self.c.read_ram(self.sym["PHASE4_ORDER"], len(vis)))
-            depths = [vis[i]["z"] for i in order]
+            order = self._order(len(vis))
+            depths = [vis[i]["z"] for i, _cached in order]
             self.assertEqual(depths, sorted(depths, reverse=True),
                              f"draw order is not back to front: {depths}")
+
+    def test_the_cached_depth_is_the_depth(self):
+        """An entry carries a COPY of its depth, and a copy can go stale.
+
+        That copy is the whole of the sort's speed -- a comparison reads the
+        byte next door instead of multiplying an index by six -- so the one
+        thing that can go wrong with it is that it stops agreeing with
+        phase4_vis. Sorting a stale key is the sort of defect that shows up as
+        one ship drawn through another every so often, which is exactly the
+        kind of thing nobody reports and no other test here looks at: the test
+        above passes on the CACHE, so on its own it would be checking the sort
+        against its own copy of the answer.
+        """
+        for _ in range(5):
+            self.c.run_frames(4)
+            vis = self._visible()
+            for i, cached in self._order(len(vis)):
+                self.assertEqual(
+                    cached, vis[i]["z"],
+                    f"entry {i} is sorted on depth {cached} and IS at "
+                    f"{vis[i]['z']}",
+                )
 
     def test_no_residue(self):
         """Phase 2: 'χωρίς σκιές/υπολείμματα'.

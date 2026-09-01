@@ -553,11 +553,14 @@ phase4_fly:
     djnz @p4_zero_slots
 
     ;  Stepped rather than indexed. ent_addr is a shift ladder and a call --
-    ;  about 120 T-states -- and this is one of six loops that walk all 48
-    ;  slots every frame; twenty bytes further on is one ADD.
+    ;  about 120 T-states -- and this is one of the loops that walk the entity
+    ;  table every frame; twenty bytes further on is one ADD.
+    ;  ...and only the player's region: this flies a ship to its SQUADRON's
+    ;  station, mis_make_enemy writes SQUAD_NONE, and the loop below drops
+    ;  anything unassigned anyway. Twenty slots that can never answer yes.
     ld hl,entities
     ld (phase4_ent),hl
-    ld a,ENT_MAX
+    ld a,ENT_PLAYER_MAX
     ld (phase4_index),a
 @p4_ship_fly:
     ld hl,(phase4_ent)
@@ -1081,92 +1084,115 @@ phase4_tier_for:
 ;  Insertion sort over an index array, descending by depth, so the nearest
 ;  ship is drawn last and ends up on top. Nearly-sorted from frame to frame,
 ;  which is exactly where insertion sort is O(n).
+;
+;  AN ENTRY IS TWO BYTES -- the index, and A COPY OF ITS DEPTH beside it. That
+;  is the whole of this routine's cost, and it is the reason the fleet's
+;  ceiling could move at all.
+;
+;  It used to be one byte, and every comparison therefore went and fetched the
+;  depth out of phase4_vis: `call phase4_order_at` to turn j into a pointer,
+;  then `call phase4_z_of`, which calls phase4_vis_addr to multiply the index
+;  by six. Hand-counted that is about 390 T-states an iteration, of which the
+;  comparison itself is eight. Caching the byte beside the index makes the
+;  whole inner step ~104 T -- and this is the ONLY O(n^2) thing in the frame,
+;  so it is the term that decides how many ships may exist at once. Measured:
+;  73,000 T-states at 24 entities before.
+;
+;  The cost is ENT_MAX more bytes of the low 16K, and it buys back several
+;  times its own weight in slots.
 ; ----------------------------------------------------------------------------
 phase4_sort:
     ld a,(phase4_visible)
     or a
     ret z
+
+    ;  Every entry starts where it is, carrying its own depth.
     ld b,a
     ld hl,phase4_order
+    ld de,phase4_vis + 3                ; the depth byte of visible entry 0
     xor a
 @p4_fill:
-    ld (hl),a
+    ld c,a
+    ld a,(de)
+    ld (hl),c                           ; the index
     inc hl
+    ld (hl),a                           ; ...and its depth, cached beside it
+    inc hl
+    ;  Six INC DEs rather than an ADD HL,BC through the stack: BC is the loop
+    ;  counter and the index, and six of these are cheaper than saving it.
+    inc de
+    inc de
+    inc de
+    inc de
+    inc de
+    inc de
+    ld a,c
     inc a
     djnz @p4_fill
 
     ld a,(phase4_visible)
     cp 2
     ret c
-    ld (phase4_sort_n),a
 
-    ld a,1
-    ld (phase4_sort_i),a
+    dec a
+    ld c,a                              ; keys still to insert
+    ld b,1                              ; ...and how far left this one may go
+    ld hl,phase4_order + 2
 
 @p4_outer:
-    ld a,(phase4_sort_i)
-    ld hl,phase4_sort_n
-    cp (hl)
-    ret nc
-
-    ld (phase4_sort_j),a
-    call phase4_order_at
-    ld a,(hl)
-    ld (phase4_sort_key),a
-    call phase4_z_of
-    ld (phase4_sort_key_z),a
+    ld e,(hl)
+    inc hl
+    ld d,(hl)
+    dec hl                              ; DE = the key: E its index, D its depth
+    push hl                             ; where it came from
+    push bc
 
 @p4_inner:
-    ld a,(phase4_sort_j)
-    or a
-    jr z,@p4_place
-
-    dec a
-    call phase4_order_at
+    dec hl                              ; the depth of the entry before the hole
     ld a,(hl)
-    call phase4_z_of
-    ld b,a
-    ld a,b
-    ld hl,phase4_sort_key_z
-    cp (hl)
-    jr nc,@p4_place                        ; at least as far away: the key sits here
+    cp d
+    jr nc,@p4_settle                    ; at least as far away: the key sits here
 
-    ld a,(phase4_sort_j)
-    dec a
-    call phase4_order_at
+    ;  It is nearer than the key, so it moves up into the hole and the hole
+    ;  becomes the slot it left.
+    ld c,a
+    dec hl
     ld a,(hl)
     inc hl
+    inc hl
     ld (hl),a
-    ld hl,phase4_sort_j
-    dec (hl)
-    jr @p4_inner
+    inc hl
+    ld (hl),c
+    dec hl
+    dec hl
+    dec hl
+    djnz @p4_inner
+    jr @p4_store                        ; ran out of list: the hole is the front
 
-@p4_place:
-    ld a,(phase4_sort_j)
-    call phase4_order_at
-    ld a,(phase4_sort_key)
-    ld (hl),a
+@p4_settle:
+    inc hl
+@p4_store:
+    ld (hl),e
+    inc hl
+    ld (hl),d
 
-    ld hl,phase4_sort_i
-    inc (hl)
-    jr @p4_outer
+    pop bc
+    pop hl
+    inc hl
+    inc hl                              ; the next key...
+    inc b                               ; ...with one more entry to its left
+    dec c
+    jr nz,@p4_outer
+    ret
 
 
-;  HL = &phase4_order[A]
+;  HL = &phase4_order[A]. Two bytes an entry, so the index doubles.
 phase4_order_at:
     ld l,a
     ld h,0
+    add hl,hl
     ld de,phase4_order
     add hl,de
-    ret
-
-;  A = the camera depth of visible entry A
-phase4_z_of:
-    call phase4_vis_addr
-    inc hl
-    inc hl
-    inc hl
-    ld a,(hl)
     ret
 
 ;  HL = &phase4_vis[A]
@@ -1240,13 +1266,15 @@ phase4_group:
     ld (phase4_grp_left),a
     ld l,a
     ld h,0
-    ld de,phase4_order - 1
+    add hl,hl                           ; two bytes an entry: index, then depth
+    ld de,phase4_order - 2
     add hl,de
     ld (phase4_grp_ptr),hl              ; the last entry: the nearest ship
 
 @p4_grp_one:
     ld hl,(phase4_grp_ptr)
     ld a,(hl)
+    dec hl
     dec hl
     ld (phase4_grp_ptr),hl
     ld (phase4_grp_i),a
@@ -1410,6 +1438,7 @@ phase4_draw:
     ld a,(phase4_order_idx)
     ld l,a
     ld h,0
+    add hl,hl                           ; two bytes an entry: index, then depth
     ld de,phase4_order
     add hl,de
     ld a,(hl)
@@ -2353,11 +2382,9 @@ phase4_grp_r:       defw 0
 phase4_grp_rects:   defb 0
 phase4_grp_plus:    defb "+",0
 
-phase4_sort_key:    defb 0
-phase4_sort_key_z:  defb 0
-phase4_sort_n:      defb 0
-phase4_sort_i:      defb 0
-phase4_sort_j:      defb 0
+;  phase4_sort keeps its whole working set in registers and on the stack now.
+;  The five bytes of state it used to need went with the five memory reads a
+;  comparison used to cost.
 
 phase4_expl_ptr:    defw 0
 phase4_expl_left:   defb 0
@@ -2406,7 +2433,7 @@ phase4_nheads:      defb 0
 
 ;  How many ships each visible entry draws for: 0 = consolidated away and not
 ;  drawn at all, 1 = itself, n = itself and n-1 behind it.
-phase4_gcount:      defs ENT_MAX, 0
+
 
 ;  Ships, explosions, the reference plane, the move disc. A consolidated
 ;  group's "+n" gets no slot of its own: phase4_draw_count WIDENS the sprite's
@@ -2425,8 +2452,9 @@ phase4_gcount:      defs ENT_MAX, 0
 ;  check this bound, it appends and increments, so a slot that is not here is
 ;  four bytes written past the end of the array.
 PHASE4_RECT_SLOTS        equ ENT_MAX + EXPL_MAX + GRID_POINTS + MARK_PATCHES + 5
-phase4_rects_a:     defs PHASE4_RECT_SLOTS * 4, 0
-phase4_rects_b:     defs PHASE4_RECT_SLOTS * 4, 0
+;  The two lists themselves are in src/main.asm, above code_end: they are read
+;  only as far as phase4_drawn_a / phase4_drawn_b say, and those two DO start
+;  at zero in the image, so the 650 bytes behind them never needed carrying.
 
-phase4_vis:         defs ENT_MAX * PHASE4_VIS_SIZE, 0
-phase4_order:       defs ENT_MAX, 0
+
+

@@ -18,6 +18,10 @@ import cpc
 
 #  Mirrored from src/game/entity.asm, shipclass.asm and economy.asm
 ENT_SIZE = 20
+#  Straight out of the build: the table got bigger when the fleet's
+#  ceiling doubled, and a test that walks range(ENT_MAX) then stops looking
+#  exactly where the new slots are.
+ENT_MAX = h.symbols()["ENT_MAX"]
 ENT_CLASS, ENT_FLAGS, ENT_SQUAD, ENT_ORDER, ENT_LOAD = 9, 11, 12, 13, 15
 F_ACTIVE, F_ENEMY = 1, 2
 CLASS_INTERCEPTOR, CLASS_MOTHERSHIP, CLASS_HARVESTER = 0, 1, 2
@@ -62,7 +66,7 @@ class EconomyFixture(unittest.TestCase):
 
     def ships_by_class(self):
         out = {}
-        for slot in range(48):
+        for slot in range(ENT_MAX):
             f = self.ent(slot, ENT_FLAGS)
             if (f & F_ACTIVE) and not (f & F_ENEMY):
                 k = self.ent(slot, ENT_CLASS)
@@ -228,7 +232,7 @@ class TestTheBuildQueue(EconomyFixture):
         self.hold(cpc.KEY_ENTER, frames=25)
 
     def active(self):
-        return {s for s in range(48) if self.ent(s, ENT_FLAGS) & F_ACTIVE}
+        return {s for s in range(ENT_MAX) if self.ent(s, ENT_FLAGS) & F_ACTIVE}
 
     def line(self):
         """The whole order book: the slipway first, then what is waiting.
@@ -304,8 +308,25 @@ class TestTheBuildQueue(EconomyFixture):
         self.assertEqual(seen, [3, 2, 1, 0, 0], f"the depth went {seen}")
 
     def test_ten_orders_are_taken_and_the_eleventh_is_refused(self):
-        """The slipway is one of the ten, so the waiting line is nine."""
+        """The slipway is one of the ten, so the waiting line is nine.
+
+        PAUSED FIRST, because this is a test about the queue's DEPTH and the
+        yard drains it. SPACE freezes the battle and the economy and leaves the
+        orders running (section 9), so B and ENTER still work and eco_update
+        does not -- which is the only way to press ten orders in and still know
+        that ten is what is standing there.
+
+        It used to get away without: ten presses at 25 emulator frames each is
+        250 frames, and at five game frames a second that was not quite long
+        enough to finish a Scout. The frame rate went to about seven when
+        cbt_find_enemy stopped sweeping the whole table, the first hull came
+        off the slipway inside those same 250 frames, and the depth read 8.
+        A test whose precondition is "the game is too slow to have done
+        anything yet" was always going to break the day it got faster.
+        """
         self.c.write_ram(self.sym["ECO_RU"], (900).to_bytes(2, "little"))
+        self.hold(" ")
+        self.assertEqual(self.byte("ORDER_PAUSED"), 1, "the yard did not stop")
         self.hold("b")
         self.set_pick(CLASS_SCOUT)
         cost = 25
@@ -483,7 +504,7 @@ class TestTheRuCeiling(EconomyFixture):
         base = self.sym["ENTITIES"]
         here = self.c.read_ram(base + moth * ENT_SIZE, 6)
 
-        slot = next(s for s in range(48)
+        slot = next(s for s in range(ENT_MAX)
                     if (self.ent(s, ENT_FLAGS) & F_ACTIVE) and s != moth)
         self.c.write_ram(base + slot * ENT_SIZE, here)          # on top of it
         self.c.write_ram(base + slot * ENT_SIZE + ENT_CLASS, bytes([CLASS_HARVESTER]))
@@ -564,7 +585,7 @@ class TestTheReadout(EconomyFixture):
 class TestHarvesting(EconomyFixture):
 
     def _harvester_slots(self):
-        return [s for s in range(48)
+        return [s for s in range(ENT_MAX)
                 if (self.ent(s, ENT_FLAGS) & F_ACTIVE)
                 and self.ent(s, ENT_CLASS) == CLASS_HARVESTER]
 
@@ -574,7 +595,7 @@ class TestHarvesting(EconomyFixture):
         self.hold("h")
 
         working = 0
-        for slot in range(48):
+        for slot in range(ENT_MAX):
             if not (self.ent(slot, ENT_FLAGS) & F_ACTIVE):
                 continue
             harvesting = self.ent(slot, ENT_ORDER) == ORDER_HARVEST
@@ -705,7 +726,7 @@ class TestTheHarvesterWithNothingToDo(EconomyFixture):
     def harvesters(self):
         base = self.sym["ENTITIES"]
         out = []
-        for s in range(48):
+        for s in range(ENT_MAX):
             b = base + s * 20
             f = self.c.read_ram(b + 11, 1)[0]
             if f & 1 and not f & 2 and self.c.read_ram(b + 9, 1)[0] == 2:
@@ -770,15 +791,28 @@ class TestTheHarvesterWithNothingToDo(EconomyFixture):
         order, and the ship stopped dead where it stood."""
         slots = self.send_them_out()
         self.empty_every_patch()
-        self.c.run_frames(200)
+
+        #  MEASURED FROM WHERE IT WAS PUT, and before a frame of the flight
+        #  home has run. This asked whether the ship moved between two later
+        #  windows, which is a statement about the FRAME RATE and not about
+        #  phase4_fly: make_harvester places it 12,000 units out on purpose,
+        #  and the day the game got faster it had flown home and stopped
+        #  inside the first window -- so the second one saw a ship standing
+        #  still, which is exactly what "nothing is steering it" looks like.
+        home = struct.unpack("<hhh", self.c.read_ram(self.sym["SQUAD_DEST"], 6))
+        away = lambda s: sum(abs(a - b) for a, b in zip(self.pos_of(s), home))
+        started = {s: away(s) for s in slots}
+
+        self.c.run_frames(400)
 
         for s in slots:
             self.assertEqual(self.order_of(s), self.ORDER_IDLE,
                              f"harvester in slot {s} is stranded on a mined-out map")
-
-        before = {s: self.pos_of(s) for s in slots}
-        self.c.run_frames(200)
-        moved = [s for s in slots if self.pos_of(s) != before[s]]
-        self.assertTrue(moved,
-                        "no harvester moved after its order was spent -- being "
-                        "IDLE is only half the fix; phase4_fly has to fly it home")
+            #  Half the way home and no nearer test than that: where it stops
+            #  is its FORMATION SLOT, which is a lattice corner some thousands
+            #  of units off the station itself.
+            self.assertLess(
+                away(s), started[s] // 2,
+                f"harvester in slot {s} is {away(s)} from its station and was "
+                f"{started[s]} -- being IDLE is only half the fix; phase4_fly "
+                "has to fly it home")

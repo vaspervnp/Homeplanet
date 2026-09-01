@@ -16,7 +16,8 @@
 ;  ENT_SQUAD field of the entities it moves and then calls squad_refresh,
 ;  which recounts the whole table from scratch. Keeping running totals in step
 ;  with the entity list is exactly the sort of bookkeeping that drifts once
-;  ships start dying, and a 48-slot recount is about 2,000 T-states.
+;  ships start dying, and a recount of the player's region is a couple of
+;  thousand T-states on a keypress.
 ;
 ;  Commands (Homeplanet.md section 9 plus the fleet-splitting the player asked
 ;  for):

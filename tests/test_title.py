@@ -76,9 +76,9 @@ class TestItIsUpAtTheStart(TitleFixture):
 
     def test_nothing_simulates_behind_it(self):
         base = self.sym["ENTITIES"]
-        before = [self.c.read_ram(base + s * 20, 6) for s in range(48)]
+        before = [self.c.read_ram(base + s * 20, 6) for s in range(self.sym['ENT_MAX'])]
         self.c.run_frames(200)
-        after = [self.c.read_ram(base + s * 20, 6) for s in range(48)]
+        after = [self.c.read_ram(base + s * 20, 6) for s in range(self.sym['ENT_MAX'])]
         self.assertEqual(after, before, "the fleet was flying behind the title screen")
 
 

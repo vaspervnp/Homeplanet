@@ -40,7 +40,18 @@ FLEET_BLOCK_SIZE    equ 1024
 ;  two whole sectors from one address rather than a gather.
 FLEET_HDR_SIZE      equ 4
 FLEET_MAGIC_0       equ "H"
-FLEET_MAGIC_1       equ "P"
+;  "H2" AND NOT "HP", AND THE SECOND BYTE IS A FORMAT NUMBER. A ship on the
+;  disc was twenty bytes -- the entity record itself -- until doubling
+;  ENT_PLAYER_MAX made 56 of them overflow the two sectors this block gets. It
+;  is thirteen now (game/entity.asm), so the fleet, the count it is read with
+;  and fleet_unlocks behind it all sit somewhere else in the block.
+;
+;  A save written by an older build still matches "H", still has a plausible
+;  mission index and a plausible count, and would be read back as a fleet of
+;  rubbish. The magic is the only thing standing in front of that, so it moves
+;  whenever the layout does: an old disc reads as NO SAVE, which is what every
+;  other failed check in fleet_disc_load does, and the campaign starts again.
+FLEET_MAGIC_1       equ "2"
 
 ;  The tag in front of the campaign's unlock byte, out in the block's pad --
 ;  see fleet_unlocks in src/main.asm for why it is there rather than in the

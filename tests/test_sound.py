@@ -22,7 +22,7 @@ Two consequences worth knowing about while reading the tests:
     every sixth interrupt -- because what they are testing is the two of them
     sharing PPI port A.
 
-  - the scratch addresses are derived from CODE_END rather than hard-coded.
+  - the scratch addresses are derived from LOW_END rather than hard-coded.
     The lookup tables in src/gen are `align 256`, so adding code slides them
     up a page at a time, and a fixed scratch address that is free today lands
     in the middle of a table tomorrow. (The older test modules do hard-code
@@ -118,11 +118,13 @@ class SoundFixture(unittest.TestCase):
         cls.c = machine()
         cls.sym = h.symbols()
 
-        #  Free space between the end of the code+tables and the stack margin.
-        base = cls.sym["CODE_END"]
+        #  Free space between the end of the low 16K and the stack margin.
+        #  LOW_END and not CODE_END: the entity table and the visible list sit
+        #  between the two now -- see harness._scratch_base.
+        base = cls.sym["LOW_END"]
         limit = 0x4000 - 256
         assert base + 0x180 < limit, (
-            f"no room for the test scratch: CODE_END is #{base:04X}")
+            f"no room for the test scratch: LOW_END is #{base:04X}")
         cls.DONE = base
         cls.PSG_BUF = base + 0x10
         cls.SAVE = base + 0x30
@@ -1413,7 +1415,7 @@ class TestLayout(unittest.TestCase):
 #  player moves the tables another page, which changes WHICH of them fail.
 #
 #  The fix is one line in each of those modules: derive the scratch addresses
-#  from CODE_END the way SoundFixture does above. It is not done here because
+#  from LOW_END the way SoundFixture does above. It is not done here because
 #  those files are not this change's to edit.
 #  --------------------------------------------------------------------------
 

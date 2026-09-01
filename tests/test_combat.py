@@ -19,6 +19,13 @@ from tools import gentables as g
 
 #  Mirrored from src/game/entity.asm and src/game/combat.asm
 ENT_SIZE = 20
+#  Straight out of the build: the table got bigger when the fleet's
+#  ceiling doubled, and a test that walks range(ENT_MAX) then stops looking
+#  exactly where the new slots are.
+ENT_MAX = h.symbols()["ENT_MAX"]
+#  Where the fleet stops and the enemy starts. Tests that stage a
+#  battle have to respect it: cbt_find_enemy searches one region.
+PLAYER_MAX = h.symbols()["ENT_PLAYER_MAX"]
 ENT_X, ENT_HULL, ENT_FLAGS, ENT_SQUAD, ENT_TARGET, ENT_TIMER = 0, 10, 11, 12, 14, 19
 ENT_CLASS, ENT_ORDER = 9, 13
 ENT_ORDER_NONE, ENT_ORDER_ATTACK = 0, 2
@@ -80,8 +87,8 @@ class CombatFixture(unittest.TestCase):
         four times smaller than it was, and against the old >>8 every ship
         would look four times closer than the game thinks it is.
         """
-        friendly = [s for s in range(48) if (self.flags(s) & 3) == F_ACTIVE]
-        enemy = [s for s in range(48) if (self.flags(s) & 3) == F_ACTIVE | F_ENEMY]
+        friendly = [s for s in range(ENT_MAX) if (self.flags(s) & 3) == F_ACTIVE]
+        enemy = [s for s in range(ENT_MAX) if (self.flags(s) & 3) == F_ACTIVE | F_ENEMY]
         if not friendly or not enemy:
             return 255
         return min(min(255, sum(abs(a - b) >> g.WORLD_SHIFT
@@ -93,7 +100,7 @@ class CombatFixture(unittest.TestCase):
 
     def counts(self):
         friendly = enemy = 0
-        for slot in range(48):
+        for slot in range(ENT_MAX):
             f = self.flags(slot)
             if f & F_ACTIVE:
                 if f & F_ENEMY:
@@ -118,7 +125,7 @@ class CombatFixture(unittest.TestCase):
         self.c.write_ram(self.sym["SQUAD_DEST"], struct.pack("<hhh", x, y, z))
 
     def kill_all_enemies(self):
-        for slot in range(48):
+        for slot in range(ENT_MAX):
             if self.flags(slot) & F_ENEMY:
                 self.c.write_ram(self.sym["ENTITIES"] + slot * ENT_SIZE + ENT_FLAGS, b"\x00")
 
@@ -164,13 +171,14 @@ class TestStartingState(CombatFixture):
         by the time a test looks they all have one. The invariant that
         actually matters was always this one.
         """
-        for slot in range(48):
+        for slot in range(ENT_MAX):
             if not (self.flags(slot) & F_ACTIVE):
                 continue
             target = self.ent(slot, ENT_TARGET)[0]
             if target == 0xFF:
                 continue
-            self.assertLess(target, 48, f"slot {slot} targets nonexistent {target}")
+            self.assertLess(target, ENT_MAX,
+                            f"slot {slot} targets nonexistent {target}")
             mine = self.flags(slot) & F_ENEMY
             theirs = self.flags(target) & F_ENEMY
             self.assertNotEqual(mine, theirs,
@@ -242,14 +250,14 @@ class TestBattle(CombatFixture):
         the fix is the same: read a finished frame."""
         self._fight()
         h.run_to_stable_point(self.c, self.sym)
-        for slot in range(48):
+        for slot in range(ENT_MAX):
             if not (self.flags(slot) & F_ACTIVE):
                 continue
             self.assertGreater(self.hull(slot), 0, f"slot {slot} is active with no hull")
 
         #  squad_count is derived, so it has to agree with the table.
         counted = [0] * 10
-        for slot in range(48):
+        for slot in range(ENT_MAX):
             if self.flags(slot) & F_ACTIVE:
                 squadron = self.ent(slot, ENT_SQUAD)[0]
                 if 1 <= squadron <= 9:
@@ -273,13 +281,13 @@ class TestBattle(CombatFixture):
 
     def test_nobody_ends_up_targeting_a_dead_ship(self):
         self._fight()
-        for slot in range(48):
+        for slot in range(ENT_MAX):
             if not (self.flags(slot) & F_ACTIVE):
                 continue
             target = self.ent(slot, ENT_TARGET)[0]
             if target == 0xFF:
                 continue
-            self.assertLess(target, 48)
+            self.assertLess(target, ENT_MAX)
             self.assertTrue(self.flags(target) & F_ACTIVE,
                             f"slot {slot} is still aiming at dead slot {target}")
 
@@ -302,7 +310,7 @@ class TestBattle(CombatFixture):
         #  would be nothing left to be the wrong colour. Just stand it above
         #  and beside the fleet, spread out, and look at it.
         placed = 0
-        for slot in range(48):
+        for slot in range(ENT_MAX):
             if self.flags(slot) & F_ENEMY:
                 self.c.write_ram(
                     self.sym["ENTITIES"] + slot * ENT_SIZE + ENT_X,
@@ -338,7 +346,7 @@ class TestConcentration(CombatFixture):
         first so the mission's own ships cannot join in.
         """
         base = self.sym["ENTITIES"]
-        for slot in range(48):
+        for slot in range(ENT_MAX):
             self.c.write_ram(base + slot * ENT_SIZE + ENT_FLAGS, b"\x00")
 
         def place(slot, enemy, x):
@@ -353,9 +361,16 @@ class TestConcentration(CombatFixture):
                              bytes([ENT_ORDER_NONE if enemy else order]))
             self.c.write_ram(addr + ENT_TARGET, bytes([255]))
 
+        #  THE HOSTILES GO IN THE HOSTILE REGION, and that is not tidiness.
+        #  They used to be slots 8..15, which are the fleet's -- harmless while
+        #  cbt_find_enemy swept the whole table and rejected the wrong side on
+        #  a compare, and fatal now that it searches the other side's region:
+        #  eight enemies nobody could see, and an even duel that ended 8-0
+        #  because one side never fired. The partition has said where a hostile
+        #  lives since it landed; the tests were simply free to ignore it.
         for i in range(8):
             place(i, False, -1000 + i * 200)
-            place(8 + i, True, 1000 + i * 200)
+            place(PLAYER_MAX + i, True, 1000 + i * 200)
 
         #  Station the squadron where it stands, and keep the defeat check off
         #  a slot that is now an interceptor.
@@ -365,7 +380,7 @@ class TestConcentration(CombatFixture):
         self.c.run_frames(2500)
         alive = lambda lo, hi: sum(1 for s in range(lo, hi)
                                    if self.flags(s) & F_ACTIVE)
-        return alive(0, 8), alive(8, 16)
+        return alive(0, 8), alive(PLAYER_MAX, PLAYER_MAX + 8)
 
     def test_an_attack_order_closes_the_ship_on_its_target(self):
         """`A` used to set a target and nothing else.
@@ -389,14 +404,15 @@ class TestConcentration(CombatFixture):
         target, only ever lost the few that had been aiming at the casualty.
         """
         base = self.sym["ENTITIES"]
-        for slot in range(48):
+        for slot in range(ENT_MAX):
             self.c.write_ram(base + slot * ENT_SIZE + ENT_FLAGS, b"\x00")
 
         #  One shooter, two enemies stacked on it. Kill the one it is aiming
         #  at and it must pick the other up at once, not in forty frames.
-        for slot, (enemy, hull) in enumerate([(False, 255), (True, 255), (True, 255)]):
+        for i, (enemy, hull) in enumerate([(False, 255), (True, 255), (True, 255)]):
+            slot = PLAYER_MAX + i - 1 if enemy else 0
             addr = base + slot * ENT_SIZE
-            self.c.write_ram(addr, struct.pack("<hhh", slot * 200, 0, 0))
+            self.c.write_ram(addr, struct.pack("<hhh", i * 200, 0, 0))
             self.c.write_ram(addr + ENT_CLASS, bytes([0]))
             self.c.write_ram(addr + ENT_HULL, bytes([hull]))
             self.c.write_ram(addr + ENT_FLAGS,
@@ -409,7 +425,8 @@ class TestConcentration(CombatFixture):
 
         self.c.run_frames(60)
         aimed = self.ent(0, ENT_TARGET)[0]
-        self.assertIn(aimed, (1, 2), "the shooter never acquired anything")
+        self.assertIn(aimed, (PLAYER_MAX, PLAYER_MAX + 1),
+                      "the shooter never acquired anything")
 
         #  Take that target away. Re-acquisition happens when the ship is next
         #  ready to shoot, so allow the weapon to come off cooldown. The game
@@ -419,7 +436,7 @@ class TestConcentration(CombatFixture):
         self.c.write_ram(base + aimed * ENT_SIZE + ENT_FLAGS, b"\x00")
         self.c.run_frames((CBT_COOLDOWN + 4) * TICKS_PER_GAME_FRAME)
 
-        other = 2 if aimed == 1 else 1
+        other = (PLAYER_MAX + 1) if aimed == PLAYER_MAX else PLAYER_MAX
         self.assertEqual(self.ent(0, ENT_TARGET)[0], other,
                          "the shooter sat idle instead of switching to the survivor")
 
@@ -458,7 +475,7 @@ class TestTheFleetComesHomeWhenTheShootingStops(CombatFixture):
     def stage_one_fight(self, enemy_hull=1):
         """Six attackers on station, one enemy a long way off."""
         base = self.sym["ENTITIES"]
-        for slot in range(48):
+        for slot in range(ENT_MAX):
             self.c.write_ram(base + slot * ENT_SIZE + ENT_FLAGS, b"\x00")
 
         def place(slot, enemy, pos, hull, order):
@@ -474,7 +491,8 @@ class TestTheFleetComesHomeWhenTheShootingStops(CombatFixture):
 
         for i in range(self.SHIPS):
             place(i, False, (0, 0, 0), 255, ENT_ORDER_ATTACK)
-        place(self.SHIPS, True, (0, 0, self.ENEMY_Z), enemy_hull, ENT_ORDER_NONE)
+        #  ...and the one enemy in the hostile region; see even_duel above.
+        place(PLAYER_MAX, True, (0, 0, self.ENEMY_Z), enemy_hull, ENT_ORDER_NONE)
 
         self.order_fleet_to(0, 0, 0)
         #  Keep the defeat check off a slot that is now an ordinary interceptor.
@@ -487,7 +505,7 @@ class TestTheFleetComesHomeWhenTheShootingStops(CombatFixture):
         return sum(abs(a - b) for a, b in zip(self.position(slot), dest))
 
     def friendly_slots(self):
-        return [s for s in range(48) if (self.flags(s) & 3) == F_ACTIVE]
+        return [s for s in range(ENT_MAX) if (self.flags(s) & 3) == F_ACTIVE]
 
     def fight_it_out(self, limit=2000):
         """Run until the enemy is gone. Returns the frame budget left."""
@@ -583,7 +601,7 @@ class TestRange(CombatFixture):
         #  there, so the only variable is distance. The station has to move
         #  with them, or phase4_fly pulls them straight back out of range.
         self.order_fleet_to(0, 0, 5500)
-        for slot in range(48):
+        for slot in range(ENT_MAX):
             if (self.flags(slot) & F_ACTIVE) and not (self.flags(slot) & F_ENEMY):
                 self.c.write_ram(self.sym["ENTITIES"] + slot * ENT_SIZE + ENT_X,
                                  struct.pack("<hhh", 0, 0, 5500))
@@ -591,6 +609,65 @@ class TestRange(CombatFixture):
         #  come round to the ships that are now in contact.
         self.c.run_frames(300)
         self.assertGreater(self.shots(), 0, "point blank and still not firing")
+
+
+class TestBothSidesLookInTheRightPlace(CombatFixture):
+    """cbt_find_enemy searches ONE REGION, and it has to be the other one.
+
+    It used to sweep the whole table and reject the wrong side on a compare.
+    Searching by region instead is what made a fleet of 56 affordable -- the
+    sweep was O(fleet x table), so it grew with the square of the ceiling --
+    but it turns a comparison into a DECISION, and a decision can be made
+    backwards.
+
+    It was, in the first version of this: the two stores that set cbt_best and
+    cbt_best_dist to #FF sit between the side being worked out and the side
+    being tested, so the test read #FF and sent every searcher into the hostile
+    region. A friendly ship still worked perfectly. An ENEMY looked for the
+    player's fleet among the enemies, found nothing, and never fired again --
+    and every count in this file would have been happy: the right number of
+    ships, all of them alive, in a battle where one side had quietly stopped
+    playing. The same blind spot the squadron and the attack-order sections of
+    CLAUDE.md record.
+
+    So this asserts on WHICH SLOT each side is aiming at, which is the thing
+    the regions are about and the thing a count cannot see.
+    """
+
+    def test_each_side_targets_a_slot_in_the_others_region(self):
+        player_max = self.sym["ENT_PLAYER_MAX"]
+        no_target = 0xFF
+
+        #  Long enough for the round-robin to have reached everybody: it
+        #  re-targets one entity a frame, and a game frame is about ten of
+        #  these.
+        self.c.run_frames(400)
+
+        aiming = {"ours": [], "theirs": []}
+        for slot in range(ENT_MAX):
+            flags = self.flags(slot)
+            if not flags & F_ACTIVE:
+                continue
+            target = self.ent(slot, ENT_TARGET)[0]
+            if target == no_target:
+                continue
+            side = "theirs" if flags & F_ENEMY else "ours"
+            aiming[side].append((slot, target))
+
+        self.assertTrue(aiming["ours"], "not one of ours had picked a target")
+        self.assertTrue(
+            aiming["theirs"],
+            "NOT ONE HOSTILE HAD PICKED A TARGET -- cbt_find_enemy is looking "
+            "for the player's fleet in the wrong half of the table")
+
+        for slot, target in aiming["ours"]:
+            self.assertGreaterEqual(
+                target, player_max,
+                f"friendly slot {slot} is aiming at {target}, which is one of ours")
+        for slot, target in aiming["theirs"]:
+            self.assertLess(
+                target, player_max,
+                f"hostile slot {slot} is aiming at {target}, which is one of theirs")
 
 
 if __name__ == "__main__":

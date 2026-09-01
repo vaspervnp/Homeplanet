@@ -549,7 +549,18 @@ class TestTheReveal(WipeFixture):
         #  the middle of the band of half the fleet. The frame where the bars
         #  are at offset 0 has every ship hidden by construction, so whatever
         #  is lit THERE is the place, and it is what this has to ignore.
-        scenery, checked = None, 0
+        #  ONE SNAPSHOT PER BUFFER, and that is not caution. The display
+        #  page-flips and the reveal masks the DIRTY RECTANGLES, so which
+        #  ships a buffer is carrying at a given step depends on which buffer
+        #  it is -- a snapshot taken from A and compared against a sample from
+        #  B reports every ship the two disagree about as "showing ahead of its
+        #  own bar". It read as a real defect and was the test comparing two
+        #  different pictures.
+        #
+        #  It only started failing when the frame rate went up: the sweep is
+        #  counted in GAME frames and the sampling in emulator frames, so
+        #  which buffer happens to be in front at k == 0 moved.
+        scenery, checked = {}, 0
         for col, base, bars, _, _ in seen:
             if not bars:
                 continue
@@ -558,13 +569,13 @@ class TestTheReveal(WipeFixture):
                 continue
             k = min(ks)
             ram = self.buffer(base)
-            if k == 0 and scenery is None:
-                scenery = {(x, y)
-                           for y in range(CTX_BAR_H, HUD_TOP)
-                           for x in range(WIDTH)
-                           if ram[h.screen_offset(y, x)]}
+            if k == 0 and base not in scenery:
+                scenery[base] = {(x, y)
+                                 for y in range(CTX_BAR_H, HUD_TOP)
+                                 for x in range(WIDTH)
+                                 if ram[h.screen_offset(y, x)]}
                 continue
-            if scenery is None:
+            if base not in scenery:
                 continue
             for r in runs:
                 start = max(0, r["x0"] + max(k, self.sym["JFX_MARGIN"]) + 1)
@@ -572,7 +583,7 @@ class TestTheReveal(WipeFixture):
                     lit = [y for y in range(max(CTX_BAR_H, r["band_top"]),
                                             min(HUD_TOP, r["band_top"] + r["band_h"]))
                            if ram[h.screen_offset(y, x)]
-                           and (x, y) not in scenery]
+                           and (x, y) not in scenery[base]]
                     self.assertFalse(
                         lit, f"at col {col} the bars are {k} along their runs and "
                              f"column {x} of the ship at {r['left']} is already "

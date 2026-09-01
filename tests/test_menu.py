@@ -31,6 +31,10 @@ ROW_ATTACK, ROW_TOW, ROW_BY_CLASS, ROW_SENSORS, ROW_MOVE = 0, 4, 7, 8, 9
 ROW_PAN, ROW_CENTRE, ROW_INFO, ROW_CONTROLS = 11, 12, 13, 14
 
 ENT_SIZE = 20
+#  Straight out of the build: the table got bigger when the fleet's
+#  ceiling doubled, and a test that walks range(ENT_MAX) then stops looking
+#  exactly where the new slots are.
+ENT_MAX = h.symbols()["ENT_MAX"]
 ENT_FLAGS, ENT_ORDER = 11, 13
 F_ACTIVE, F_ENEMY = 1, 2
 ENT_ORDER_ATTACK = 2
@@ -106,10 +110,10 @@ class TestOpeningAndPicking(MenuFixture):
         base = self.sym["ENTITIES"]
         self.open_menu()
         self.c.run_frames(10)
-        before = [self.c.read_ram(base + s * ENT_SIZE, 6) for s in range(48)]
+        before = [self.c.read_ram(base + s * ENT_SIZE, 6) for s in range(ENT_MAX)]
         shots = self.byte("CBT_SHOTS")
         self.c.run_frames(200)
-        self.assertEqual([self.c.read_ram(base + s * ENT_SIZE, 6) for s in range(48)],
+        self.assertEqual([self.c.read_ram(base + s * ENT_SIZE, 6) for s in range(ENT_MAX)],
                          before, "the fleet flew on behind the orders menu")
         self.assertEqual(self.byte("CBT_SHOTS"), shots, "the battle carried on")
 
@@ -140,11 +144,14 @@ class TestPickingActuallyDoesIt(MenuFixture):
         this takes, and the order has something to hold onto.
         """
         def attacking():
-            return sum(1 for s in range(48)
+            return sum(1 for s in range(ENT_MAX)
                        if (self.c.read_ram(self.sym["ENTITIES"] + s * ENT_SIZE + ENT_FLAGS, 1)[0] & 3) == F_ACTIVE
                        and self.c.read_ram(self.sym["ENTITIES"] + s * ENT_SIZE + ENT_ORDER, 1)[0] == ENT_ORDER_ATTACK)
 
-        base = self.sym["ENTITIES"] + 47 * ENT_SIZE
+        #  In the HOSTILE region. Slot 47 was the top of a 48-slot table and is
+        #  now inside the fleet's half, where cbt_find_enemy will not look for
+        #  it -- see tests/test_combat.TestConcentration.even_duel.
+        base = self.sym["ENTITIES"] + (ENT_MAX - 1) * ENT_SIZE
         self.c.write_ram(base, struct.pack("<hhh", 0, 0, 12000))
         self.c.write_ram(base + 9, bytes([0]))              # ENT_CLASS: interceptor
         self.c.write_ram(base + 10, bytes([255]))           # ENT_HULL

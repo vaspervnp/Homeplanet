@@ -47,11 +47,19 @@ def _scratch_base() -> int:
     sine table first, and the failures showed up somewhere else entirely, in
     whichever test happened to build a camera matrix next.
 
-    So take it from the build: everything above code_end is free by
+    So take it from the build: everything above low_end is free by
     construction, and main.asm already asserts that the stack (growing down
     from #4000) never reaches it.
+
+    LOW_END AND NOT CODE_END. The entity table, the visible list, the draw
+    order and the two dirty-rectangle lists sit BETWEEN the two: they are
+    uninitialised, so keeping them out of the saved image gave DISC.BIN two
+    kilobytes back and let the fleet's ceiling move -- but they are still
+    real addresses, and a stub poked at code_end would land on top of the
+    entity table. The symptom would be a test that quietly clears the fleet
+    it is measuring.
     """
-    base = (symbols()["CODE_END"] + 0x0F) & ~0x0F
+    base = (symbols()["LOW_END"] + 0x0F) & ~0x0F
     limit = 0x4000 - 256 - SCRATCH_SIZE
     if base > limit:
         raise RuntimeError(
@@ -228,7 +236,7 @@ def dismiss_briefing(c: cpc.CPC) -> None:
     raise RuntimeError("could not get past the mission briefing")
 
 
-def wait_for_jump_wipe(c: cpc.CPC, frames: int = 1400) -> bool:
+def wait_for_jump_wipe(c: cpc.CPC, frames: int = 3200) -> bool:
     """Let the jump's reveal finish before handing the machine back.
 
     Dismissing a briefing that a JUMP put up starts the second half of the
@@ -240,10 +248,22 @@ def wait_for_jump_wipe(c: cpc.CPC, frames: int = 1400) -> bool:
     frames and found one pen-3 pixel, because the bars had not reached them.
 
     THE REVEAL IS SEVENTEEN SECONDS NOW, not one and three quarters -- 857
-    emulator frames measured -- so the BOUND is 1400 rather than 300. That is
-    the single largest thing the slowdown costs the suite: about forty tests
-    jump, and each of them now waits out roughly 1200 frames of transition it
-    is not interested in.
+    emulator frames measured -- so the BOUND is well past 300. That is the
+    single largest thing the slowdown costs the suite: about forty tests jump,
+    and each of them now waits out roughly 1200 frames of transition it is not
+    interested in.
+
+    AND THE BOUND IS 3200 RATHER THAN 1400 BECAUSE THE REVEAL IS COUNTED IN
+    GAME FRAMES. Its dwell is game frames, so how long it takes in emulator
+    frames is one over the frame rate -- and doubling ENT_PLAYER_MAX means a
+    player CAN now field 56 ships, which is about 2.4 fps against the 6.9 an
+    ordinary fleet gets. The reveal then takes nearly three times as long, and
+    1400 was not a margin, it was a measurement of one particular fleet.
+    tests/test_regions.py is where that turned up: it fills the fleet to the
+    ceiling on purpose, and the fifth jump of its campaign walk was pressed
+    into a reveal that had not finished, which reads exactly like a jump being
+    refused. Raising it costs nothing when the wipe is quick -- the poll
+    returns the moment JFX_MODE clears.
 
     THE STEP STAYS AT FIVE, and that is worth a line because coarsening it to
     ten is the obvious economy and it is not free. It decides how many LIVE

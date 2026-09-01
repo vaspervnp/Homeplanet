@@ -640,10 +640,35 @@ exactly that kind of question.
 
 ---
 
-# 7. Double the fleet's capacity
+# 7. Double the fleet's capacity — BUILT
 
 **Asked for:** twice the fleet capacity — `ENT_PLAYER_MAX` from 28 to 56, and
-`ENT_MAX` from 48 to 76.
+`ENT_MAX` from 48 to 76. **That is what shipped**, and CLAUDE.md's "Doubling
+the fleet, and the four things that had to happen first" is what it took.
+
+> **Read the rest of this section as a record of being wrong, because it was,
+> four times, and the shape of each is worth more than the design was.**
+>
+> - **"The entity table has to leave the low 16K", at a cost of ~70 test call
+>   sites.** It did not have to. It and the four other `ENT_MAX` arrays are
+>   declared **above `code_end`** — they are uninitialised, so they cost
+>   address space and not the file — and `DISC.BIN` gained 2 KB while they grew
+>   by half again. Not one test call site moved. The mistake was assuming the
+>   only two places a byte can live are "in the low 16K" and "in a bank"; the
+>   third is "in the low 16K but not in the file".
+> - **"The frame rate is the ceiling, and it does not move."** It moved a
+>   long way. `cbt_find_enemy` swept the whole table through `ent_addr`, per
+>   ship, every frame once the shooting stopped — O(fleet × table), so it grew
+>   with the *square* of the ceiling. Searching one region with a stepped
+>   pointer took the ordinary sixteen-ship game from 5.0 fps to **6.9**, and a
+>   fleet of 40 now runs better than 27 used to. This section reasoned from
+>   CLAUDE.md's budget table, and every line of that table is per-entity;
+>   the routine that actually bound it is per-entity *per entity* and is not
+>   in it.
+> - **"The honest number is somewhere in the thirties."** It is 56, because of
+>   the above. What survives is the *reason* the number had to be measured.
+> - **The FLEET.DAT arithmetic and `FORM_SLOTS` were both right**, and they are
+>   the two that were checked against the source rather than reasoned about.
 
 **This one fights three measured limits, and one of them is a hard break rather
 than a cost.** None of that means don't; it means know the bill before signing.

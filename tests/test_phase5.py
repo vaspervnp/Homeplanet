@@ -279,13 +279,15 @@ class TestTheWidthOfTheScreen(ControlFixture):
         divide mixed in.
         """
         rungs = self.ladder()
-        self.assertLessEqual(len(rungs), 48, "the ladder does not fit the entity table")
+        ent_max = self.sym["ENT_MAX"]
+        self.assertLessEqual(len(rungs), ent_max,
+                             "the ladder does not fit the entity table")
         fx = self.word("CAM_FOCUS_X", signed=True)
         fy = self.word("CAM_FOCUS_Y", signed=True)
         fz = self.word("CAM_FOCUS_Z", signed=True)
 
         base = self.sym["ENTITIES"]
-        for i in range(48):
+        for i in range(ent_max):
             rec = bytearray(20)
             if i < len(rungs):
                 rec[0:6] = struct.pack("<hhh", fx + rungs[i], fy, fz)
@@ -725,7 +727,8 @@ class TestOrders(ControlFixture):
         for _ in range(12):
             self.hold(".", frames=15)
             target = self.byte("ORDER_TARGET")
-            self.assertLess(target, 48, "the target walked off the entity table")
+            self.assertLess(target, self.sym["ENT_MAX"],
+                            "the target walked off the entity table")
             self.assertTrue(self.ent_field(target, 11) & 1,
                             f"slot {target} is targeted but not active")
 

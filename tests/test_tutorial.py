@@ -124,22 +124,34 @@ def disc_with_save(mission: int, fleet: list[dict], unlocks: int) -> bytes:
     """
     sym = h.symbols()
     block = bytearray(sym["FLEET_BLOCK_SIZE"])
-    block[0] = ord("H")
-    block[1] = ord("P")
+
+    #  THE MAGIC COMES OUT OF THE BUILD. It was written here as "HP" and the
+    #  record as the whole twenty-byte entity record, which was the format
+    #  right up until the fleet's ceiling doubled -- 56 ships of twenty bytes
+    #  do not fit two sectors, so the record is thirteen and the magic moved
+    #  with it. A save that still said "HP" would be rejected outright and
+    #  every test here would fail on "the machine did not come up on the saved
+    #  mission", which says nothing at all about the tutorial.
+    hdr = sym["FLEET_HDR_SIZE"]
+    rec_size = sym["FLEET_REC_SIZE"]
+    block[0] = sym["FLEET_MAGIC_0"]
+    block[1] = sym["FLEET_MAGIC_1"]
     block[2] = mission
     block[3] = len(fleet)
     for i, ship in enumerate(fleet):
-        rec = bytearray(ENT_SIZE)
+        #  x, y, z, yaw | class, hull, flags, squad, order | load.
+        #  Three runs, as game/entity.asm lays it out.
+        rec = bytearray(rec_size)
         for axis, off in enumerate((0, 2, 4)):
             v = ship["pos"][axis] & 0xFFFF
             rec[off] = v & 0xFF
             rec[off + 1] = v >> 8
-        rec[ENT_CLASS] = ship["cls"]
-        rec[ENT_HULL] = ship["hull"]
-        rec[ENT_FLAGS] = F_ACTIVE
-        rec[ENT_SQUAD] = ship["squad"]
-        rec[14] = 0xFF                      # ENT_TARGET: nobody
-        block[4 + i * ENT_SIZE:4 + (i + 1) * ENT_SIZE] = rec
+        a = sym["FLEET_REC_A_LEN"]
+        rec[a + 0] = ship["cls"]
+        rec[a + 1] = ship["hull"]
+        rec[a + 2] = F_ACTIVE
+        rec[a + 3] = ship["squad"]
+        block[hdr + i * rec_size:hdr + (i + 1) * rec_size] = rec
 
     off = sym["FLEET_UNLOCKS"] - sym["FLEET_BLOCK"]
     block[off] = sym["FLEET_UNLOCK_TAG"]

@@ -17,6 +17,10 @@ from tests import harness as h
 import cpc
 
 ENT_SIZE = 20
+#  Straight out of the build: the table got bigger when the fleet's
+#  ceiling doubled, and a test that walks range(ENT_MAX) then stops looking
+#  exactly where the new slots are.
+ENT_MAX = h.symbols()["ENT_MAX"]
 ENT_X, ENT_FLAGS = 0, 11
 F_ACTIVE = 1
 HUD_TOP = 168
@@ -96,7 +100,7 @@ class TestItStopsTheWorld(HelpFixture):
 
     def positions(self):
         return [self.c.read_ram(self.sym["ENTITIES"] + s * ENT_SIZE + ENT_X, 6)
-                for s in range(48)
+                for s in range(ENT_MAX)
                 if self.c.read_ram(self.sym["ENTITIES"] + s * ENT_SIZE + ENT_FLAGS, 1)[0] & F_ACTIVE]
 
     def test_nothing_moves_while_the_keys_are_up(self):

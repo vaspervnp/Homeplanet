@@ -722,8 +722,29 @@ cbt_retarget_one:
 ;  towards, and it has to be able to pick something before it can close on it.
 ;  Firing checks the range separately.
 ;
-;  One entity does this per frame (see cbt_retarget_one), so the O(n) sweep
-;  costs a frame's worth of work spread over the whole table.
+;  THIS IS THE MOST EXPENSIVE LOOP IN THE GAME THAT IS NOT A BLIT, and it was
+;  costing about eight times what it had to. Two things, both of which the
+;  entity table's own layout had already made available:
+;
+;  IT SEARCHES ONE REGION, NOT THE TABLE. The two sides are disjoint BY INDEX
+;  (game/entity.asm), so a friendly ship looking for a hostile has twenty slots
+;  to look at and not seventy-six, and every slot it used to reject on the side
+;  compare it now never reads. The old sweep was written before the partition
+;  existed and nobody went back to it.
+;
+;  IT STEPS A POINTER ALONG THE FLAGS BYTE. It used to `call ent_addr` per
+;  slot -- a shift ladder and a call, about 120 T-states -- to reach a byte
+;  eleven along from a record twenty further on than the last one. The same
+;  find as the six loops CLAUDE.md records, arriving in the one place where it
+;  is multiplied by the number of ships doing the searching.
+;
+;  Together: an empty slot goes from ~250 T-states to ~65, and a friendly
+;  ship's whole search from ~19,000 T to ~1,300. That matters because of when
+;  it runs -- once the picket is dead EVERY live ship reaches @cbt_reacquire
+;  every frame, so this is multiplied by the fleet, and it is what made
+;  cbt_update half the frame at sixteen ships. It is also what made doubling
+;  ENT_PLAYER_MAX affordable: the old sweep was O(fleet x table), so it grew
+;  with the SQUARE of the ceiling.
 ; ----------------------------------------------------------------------------
 cbt_find_enemy:
     ld hl,(cbt_ent)
@@ -737,32 +758,42 @@ cbt_find_enemy:
     ld a,#FF
     ld (cbt_best),a
     ld (cbt_best_dist),a                ; nothing found yet is "infinitely far"
-    xor a
-    ld (cbt_scan),a
+
+    ;  Which region holds that side. HL walks the FLAGS byte, C is the slot
+    ;  number that goes with it, B is how many are left.
+    ;
+    ;  RELOADED, not left in A: the two stores above put #FF there, so testing
+    ;  the accumulator here sends EVERY searcher into the hostile region --
+    ;  where an enemy finds nothing on the side compare and so never targets
+    ;  anything again.
+    ld a,(cbt_side)
+    or a
+    jr nz,@cbt_hunt_theirs
+
+    ld hl,entities + ENT_FLAGS
+    ld c,0
+    ld b,ENT_PLAYER_MAX
+    jr @cbt_search
+
+@cbt_hunt_theirs:
+    ld hl,entities + ENT_PLAYER_MAX * ENT_SIZE + ENT_FLAGS
+    ld c,ENT_PLAYER_MAX
+    ld b,ENT_ENEMY_MAX
 
 @cbt_search:
-    ld a,(cbt_scan)
-    call ent_addr
-    push hl
-    ld de,ENT_FLAGS
-    add hl,de
     ld a,(hl)
-    pop hl
 
     ;  THE EMPTY TEST STAYS IN FRONT, AND THAT IS THE WHOLE PERFORMANCE STORY
-    ;  OF THIS FILE. This is the innermost loop in the game that is not a blit:
-    ;  in a mission with nothing left to shoot at, every live ship reaches
-    ;  @cbt_reacquire every frame and searches the whole table, so cbt_update
-    ;  measures 260,000 T-states -- half the frame -- with sixteen ships and no
-    ;  enemy. Thirty-two of the forty-eight slots are empty and leave here.
+    ;  OF THIS FILE. Most of a region is empty most of the time, and this is
+    ;  the path those slots take.
     ;
-    ;  Sixteen T-states on that path is eight thousand a frame. The wreck test
-    ;  was first written as a second `bit` after this one, then as one masked
-    ;  compare with the empty test folded in; the second version reads better
-    ;  and cost exactly that, taking the frame rate from 5.00 to 4.85 over a
-    ;  thousand frames. That is not the demo_wait_frame tick boundary CLAUDE.md
-    ;  warns about -- it was measured against a worktree build of HEAD, and
-    ;  then attributed with a stub around cbt_find_enemy itself.
+    ;  The wreck test was first written as a second `bit` after it, then as one
+    ;  masked compare with the empty test folded in; the second version reads
+    ;  better and cost sixteen T-states here, which took the frame rate from
+    ;  5.00 to 4.85 over a thousand frames. That is not the demo_wait_frame
+    ;  tick boundary CLAUDE.md warns about -- it was measured against a
+    ;  worktree build of HEAD and then attributed with a stub around this
+    ;  routine.
     ;
     ;  So it is folded into the SIDE compare instead, where there was already
     ;  an `and` and a `cp`: cbt_side is the side we are after, a wreck's flags
@@ -771,28 +802,36 @@ cbt_find_enemy:
     bit 0,a
     jr z,@cbt_search_next               ; empty slot: the common case
     and ENT_F_ENEMY + ENT_F_DISABLED
-    ld hl,cbt_side
-    cp (hl)
+    ld e,a
+    ld a,(cbt_side)
+    cp e
     jr nz,@cbt_search_next              ; ours, or wreckage
 
-    ld a,(cbt_scan)
+    ;  A candidate, which is rare enough to pay for the spill.
+    push bc
+    push hl
+    ld a,c
     ld (cbt_target),a
     call cbt_distance
     ld hl,cbt_best_dist
     cp (hl)
-    jr nc,@cbt_search_next              ; something closer is already held
+    jr nc,@cbt_no_nearer                ; something closer is already held
     ld (hl),a
-    ld a,(cbt_scan)
+    pop hl
+    pop bc
+    ld a,c
     ld (cbt_best),a
+    jr @cbt_search_next
+@cbt_no_nearer:
+    pop hl
+    pop bc
 
 @cbt_search_next:
-    ld hl,cbt_scan
-    inc (hl)
-    ld a,(hl)
-    cp ENT_MAX
-    jr c,@cbt_search
+    ld de,ENT_SIZE
+    add hl,de
+    inc c
+    djnz @cbt_search
 
-@cbt_search_done:
     ld a,(cbt_best)
     ld (cbt_target),a
     ret

@@ -16,6 +16,10 @@ sys.path.insert(0, __file__.rsplit("/", 2)[0])
 from tests import harness as h
 
 ENT_SIZE = 20
+#  Straight out of the build: the table got bigger when the fleet's
+#  ceiling doubled, and a test that walks range(ENT_MAX) then stops looking
+#  exactly where the new slots are.
+ENT_MAX = h.symbols()["ENT_MAX"]
 ENT_HULL, ENT_FLAGS, ENT_CLASS = 10, 11, 9
 F_ACTIVE, F_ENEMY = 1, 2
 MIS_COUNT, MIS_SIZE = 8, 20
@@ -46,7 +50,7 @@ class CampaignFixture(unittest.TestCase):
 
     def fleet(self):
         friendly = enemy = 0
-        for slot in range(48):
+        for slot in range(ENT_MAX):
             f = self.ent(slot, ENT_FLAGS)
             if f & F_ACTIVE:
                 if f & F_ENEMY:
@@ -270,7 +274,7 @@ class TestFleetPersistence(CampaignFixture):
         before, _ = self.fleet()
         #  Take two ships out by hand rather than waiting on the battle.
         killed = 0
-        for slot in range(48):
+        for slot in range(ENT_MAX):
             f = self.ent(slot, ENT_FLAGS)
             if (f & F_ACTIVE) and not (f & F_ENEMY) and self.ent(slot, ENT_CLASS) == 0:
                 self.c.write_ram(self.sym["ENTITIES"] + slot * ENT_SIZE + ENT_FLAGS, b"\x00")
@@ -293,7 +297,7 @@ class TestFleetPersistence(CampaignFixture):
         self.assertGreater(self.fleet()[1], 0)
 
         #  Wipe them and jump: the next mission's enemy must be its own.
-        for slot in range(48):
+        for slot in range(ENT_MAX):
             if self.ent(slot, ENT_FLAGS) & F_ENEMY:
                 self.c.write_ram(self.sym["ENTITIES"] + slot * ENT_SIZE + ENT_FLAGS, b"\x00")
         self.c.run_frames(60)
@@ -326,7 +330,7 @@ class TestFleetPersistence(CampaignFixture):
         self.hold("j", frames=25)                 # mission 3, with a picket
 
         killed = 0
-        for slot in range(48):
+        for slot in range(ENT_MAX):
             f = self.ent(slot, ENT_FLAGS)
             if (f & F_ACTIVE) and not (f & F_ENEMY) and self.ent(slot, ENT_CLASS) == 0:
                 self.c.write_ram(self.sym["ENTITIES"] + slot * ENT_SIZE + ENT_FLAGS, b"\x00")
@@ -348,7 +352,7 @@ class TestFleetPersistence(CampaignFixture):
 
     def test_the_saved_fleet_holds_the_hull_of_every_ship(self):
         """A damaged ship must arrive damaged, not repaired."""
-        slot = next(s for s in range(48)
+        slot = next(s for s in range(ENT_MAX)
                     if (self.ent(s, ENT_FLAGS) & F_ACTIVE)
                     and not (self.ent(s, ENT_FLAGS) & F_ENEMY))
         self.c.write_ram(self.sym["ENTITIES"] + slot * ENT_SIZE + ENT_HULL, bytes([77]))
@@ -356,7 +360,7 @@ class TestFleetPersistence(CampaignFixture):
         self.c.run_frames(120)
         self.hold("j", frames=25)
 
-        hulls = [self.ent(s, ENT_HULL) for s in range(48)
+        hulls = [self.ent(s, ENT_HULL) for s in range(ENT_MAX)
                  if (self.ent(s, ENT_FLAGS) & F_ACTIVE)
                  and not (self.ent(s, ENT_FLAGS) & F_ENEMY)]
         self.assertIn(77, hulls, "the damaged ship came out of the jump repaired")

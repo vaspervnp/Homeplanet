@@ -101,7 +101,10 @@ class SquadFixture(unittest.TestCase):
 
 
 ENT_SIZE = 20
-ENT_MAX = 48
+#  Straight out of the build: the table got bigger when the fleet's
+#  ceiling doubled, and a test that walked a fixed forty-eight would
+#  stop looking exactly where the new slots are.
+ENT_MAX = h.symbols()["ENT_MAX"]
 ENT_CLASS, ENT_FLAGS, ENT_SQUAD = 9, 11, 12
 F_ACTIVE = 1
 CLASS_INTERCEPTOR, CLASS_MOTHERSHIP, CLASS_HARVESTER = 0, 1, 2
@@ -384,7 +387,7 @@ class TestSplitByClass(SquadFixture):
 
 
 class TestWhichShipsEndUpWhere(SquadFixture):
-    """The reshaping commands, asserted on ENT_SQUAD across all 48 slots.
+    """The reshaping commands, asserted on ENT_SQUAD across every slot.
 
     Every other test in this file asserts on SQUAD_COUNT, and a count is
     preserved by a swap that puts the wrong ships in the wrong squadrons --

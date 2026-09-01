@@ -41,6 +41,10 @@ sys.path.insert(0, __file__.rsplit("/", 2)[0])
 from tests import harness as h
 
 ENT_SIZE = 20
+#  Straight out of the build: the table got bigger when the fleet's
+#  ceiling doubled, and a test that walked a fixed forty-eight would
+#  stop looking exactly where the new slots are.
+ENT_MAX = h.symbols()["ENT_MAX"]
 ENT_X, ENT_Y, ENT_Z = 0, 2, 4
 ENT_YAW, ENT_CLASS, ENT_HULL, ENT_FLAGS = 6, 9, 10, 11
 F_ACTIVE, F_ENEMY, F_WAVE = 1, 2, 8
@@ -114,7 +118,7 @@ class WaveFixture(unittest.TestCase):
                          bytes([value]))
 
     def slots(self, predicate):
-        return [s for s in range(48) if predicate(self.ent(s, ENT_FLAGS))]
+        return [s for s in range(ENT_MAX) if predicate(self.ent(s, ENT_FLAGS))]
 
     def friendly(self):
         return self.slots(lambda f: f & F_ACTIVE and not f & F_ENEMY)
@@ -415,7 +419,7 @@ class TestWhatArrives(WaveFixture):
                 c.run_frames(40)
                 E = self.sym["ENTITIES"]
                 out = []
-                for slot in range(48):
+                for slot in range(ENT_MAX):
                     f = c.read_ram(E + slot * ENT_SIZE + ENT_FLAGS, 1)[0]
                     if f == F_ACTIVE | F_ENEMY | F_WAVE:
                         out.append((slot,
@@ -503,7 +507,7 @@ class TestTheWaveIsScaledToTheFleet(WaveFixture):
         self.assertEqual(len(self.riders()), 1)
 
     def test_no_wave_ever_fills_the_table(self):
-        """WAVE_MAX is a hard cap whatever the arithmetic says. 48 slots is the
+        """WAVE_MAX is a hard cap whatever the arithmetic says. The table is the
         whole entity table and the later missions already field twelve
         hostiles; a wave that filled it would cost the frame rate far more than
         it cost the fleet."""

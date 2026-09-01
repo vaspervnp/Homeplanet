@@ -20,6 +20,10 @@ from tests import harness as h
 import cpc
 
 ENT_SIZE = 20
+#  Straight out of the build: the table got bigger when the fleet's
+#  ceiling doubled, and a test that walks range(ENT_MAX) then stops looking
+#  exactly where the new slots are.
+ENT_MAX = h.symbols()["ENT_MAX"]
 ENT_CLASS, ENT_FLAGS = 9, 11
 F_ACTIVE, F_ENEMY = 1, 2
 CLASS_MOTHERSHIP = 1
@@ -71,10 +75,10 @@ class DiscFixture(unittest.TestCase):
         return self.c.read_ram(self.sym["ENTITIES"] + slot * ENT_SIZE + offset, 1)[0]
 
     def fleet(self):
-        return sum(1 for s in range(48) if (self.ent(s, ENT_FLAGS) & 3) == F_ACTIVE)
+        return sum(1 for s in range(ENT_MAX) if (self.ent(s, ENT_FLAGS) & 3) == F_ACTIVE)
 
     def kill_one_interceptor(self):
-        for slot in range(48):
+        for slot in range(ENT_MAX):
             if ((self.ent(slot, ENT_FLAGS) & 3) == F_ACTIVE
                     and self.ent(slot, ENT_CLASS) != CLASS_MOTHERSHIP):
                 self.c.write_ram(
@@ -195,8 +199,13 @@ class TestTheSaveIsChecked(DiscFixture):
         self.c.run_frames(120)
         h.jump_mission(self.c)
 
-        #  Right magic, impossible mission.
-        self.put_block_on_the_disc(bytes([ord("H"), ord("P"), 200, 15]))
+        #  Right magic, impossible mission -- and the magic comes OUT OF THE
+        #  BUILD, because it moves whenever the record's layout does and it
+        #  has. Written out as "HP" this test would still pass, on the magic
+        #  being rejected instead of the mission index, and would have stopped
+        #  testing the thing it is named after without saying so.
+        self.put_block_on_the_disc(bytes([self.sym["FLEET_MAGIC_0"],
+                                          self.sym["FLEET_MAGIC_1"], 200, 15]))
 
         self.power_cycle(self.c)
         self.assertEqual(self.byte("MIS_SAVED"), 0,

@@ -48,15 +48,20 @@ The build **prints the four numbers that matter** and you should watch all of
 them:
 
 ```
-hand-written code ends at #30BD
-code+tables: #40 .. #3C00  free: 768
-bank 4: #4000 .. #6A2D  image: 7085  free: 5170
-DISC.BIN: 23123 bytes, exec at #9A1A
+hand-written code ends at #256F
+code+tables: #40 .. #3100  image: 12480
+  + entity arrays to #3CF4  free: 524
+bank 4: #4000 .. #7739  image: 10425  free: 2247
+DISC.BIN: 23291 bytes, exec at #9AAB
 ```
 
 - `free:` for the low 16K is **quantised to 256 bytes** because the generated
   tables are page-aligned, so it lies about how close you are — watch
-  *"hand-written code ends at"* instead.
+  *"hand-written code ends at"* instead. About 450 of it belongs to the tests,
+  which put their stubs above `LOW_END`.
+- The two low-16K lines are two different things. `code+tables` is what
+  `DISC.BIN` carries; the **entity arrays above it are uninitialised**, so they
+  cost address space and nothing in the file.
 - `DISC.BIN` must finish below `#A700`, where AMSDOS keeps its workspace. That
   is a 26368-byte ceiling and it has been the binding constraint more than once.
 
@@ -81,7 +86,7 @@ python3 -m unittest tests.test_phase0 -v   # one module
 python3 -m unittest discover -s tests -t . # the same as make test
 ```
 
-Around **540 tests**. They are slow for a specific reason: the sprite libraries
+Around **630 tests**. They are slow for a specific reason: the sprite libraries
 live on the disc as raw sectors, so every boot spins the drive up and reads
 them — a second and a half of emulated time per machine, and there are about a
 hundred machines. That is the price of testing the real loader instead of a

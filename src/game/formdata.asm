@@ -32,6 +32,18 @@
 ;  note in src/math/proj.asm.
 FORM_SPACING        equ 550
 
+;  --- how far the four LAYERS of every shape stand off each other ---------
+;  A squadron bigger than sixteen repeats its shape rather than stacking ships
+;  on one point; see FORM_LAYERS in game/formation.asm. Alternating about zero
+;  so the station stays in the middle of the squadron. Two spacings apart,
+;  which is far enough that two layers of a Loose lattice do not interleave and
+;  near enough that a squadron still reads as one thing.
+form_layer_off:
+    defw  0
+    defw  2 * FORM_SPACING
+    defw -2 * FORM_SPACING
+    defw  4 * FORM_SPACING
+
 ;  --- Loose and Wall: a 4 x 4 lattice ------------------------------------
 ;  Slot n takes column n AND 3 on one axis and row n >> 2 on the other. Loose
 ;  is the default: spread out, nothing clever, easy to read at a glance. Wall

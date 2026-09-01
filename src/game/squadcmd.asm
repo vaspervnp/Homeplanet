@@ -99,7 +99,11 @@ squad_recount:
     ld hl,squad_index
     inc (hl)
     ld a,(hl)
-    cp ENT_MAX
+    ;  The player's region. mis_make_enemy writes SQUAD_NONE and the test
+    ;  above rejects it, so this counted the same squadrons either way -- it
+    ;  just walked the hostile region to find that out, on every keypress that
+    ;  reshapes a squadron and after every ship that dies.
+    cp ENT_PLAYER_MAX
     jr c,@sq_tally
     ret
 

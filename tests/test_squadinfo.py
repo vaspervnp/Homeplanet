@@ -33,6 +33,10 @@ from tests.test_ctxbar import BarFixture, CHAR_H
 import cpc
 
 ENT_SIZE = 20
+#  Straight out of the build: the table got bigger when the fleet's
+#  ceiling doubled, and a test that walked a fixed forty-eight would
+#  stop looking exactly where the new slots are.
+ENT_MAX = h.symbols()["ENT_MAX"]
 ENT_CLASS, ENT_HULL, ENT_FLAGS, ENT_SQUAD = 9, 10, 11, 12
 F_ACTIVE, F_ENEMY = 1, 2
 
@@ -141,7 +145,7 @@ class TestTheHullFigure(InfoFixture):
 
     def test_half_hull_reads_about_half(self):
         base = self.sym["ENTITIES"]
-        for slot in range(48):
+        for slot in range(ENT_MAX):
             flags = self.c.read_ram(base + slot * ENT_SIZE + ENT_FLAGS, 1)[0]
             squad = self.c.read_ram(base + slot * ENT_SIZE + ENT_SQUAD, 1)[0]
             if flags & F_ACTIVE and not flags & F_ENEMY and squad == 1:
@@ -302,9 +306,9 @@ class TestItBehavesLikeTheOtherStaticScreens(InfoFixture):
         base = self.sym["ENTITIES"]
         self.open_info()
         self.c.run_frames(10)
-        before = [self.c.read_ram(base + s * ENT_SIZE, 6) for s in range(48)]
+        before = [self.c.read_ram(base + s * ENT_SIZE, 6) for s in range(ENT_MAX)]
         self.c.run_frames(200)
-        self.assertEqual([self.c.read_ram(base + s * ENT_SIZE, 6) for s in range(48)],
+        self.assertEqual([self.c.read_ram(base + s * ENT_SIZE, 6) for s in range(ENT_MAX)],
                          before, "the fleet flew on behind the squadron page")
 
     def test_it_is_repainted_into_both_buffers(self):

@@ -341,6 +341,20 @@ class TestTheMissionsPicketAlwaysFits(RegionFixture):
         #  emulators. The fleet is at its ceiling throughout, which is the
         #  state that used to leave nothing for the enemy.
         self.fill_the_fleet()
+
+        #  AND THE BATTLE IS FROZEN FOR THE WHOLE WALK, because this test
+        #  counts what mis_setup PLACED and a live fleet does not leave that
+        #  alone. Fifty-six interceptors sitting on the Mothership killed one
+        #  of mission 5's picket inside the four game frames between the setup
+        #  and the count, and the test reported it as a slot the mission could
+        #  not find -- which is the opposite of what happened. SPACE stops the
+        #  battle and not the orders, so `J` still works and mis_setup still
+        #  runs; nothing here is about combat.
+        #
+        #  It only became reachable when the fleet's ceiling doubled: at 28
+        #  ships those four frames were not enough to kill anything.
+        self.hold(" ")
+        self.assertEqual(self.byte("ORDER_PAUSED"), 1, "the battle did not stop")
         for index in range(1, 8):
             self.jump_once()
             with self.subTest(mission=index + 1):

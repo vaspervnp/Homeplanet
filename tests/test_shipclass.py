@@ -52,6 +52,10 @@ GA_BANK_4 = 0xC4
 BANK_WINDOW = 0x4000
 
 ENT_SIZE = 20
+#  Straight out of the build: the table got bigger when the fleet's
+#  ceiling doubled, and a test that walked a fixed forty-eight would
+#  stop looking exactly where the new slots are.
+ENT_MAX = h.symbols()["ENT_MAX"]
 ENT_CLASS, ENT_HULL, ENT_FLAGS = 9, 10, 11
 F_ACTIVE, F_ENEMY = 1, 2
 
@@ -336,13 +340,13 @@ class TestBuildingThroughTheUI(ClassFixture):
         for cls in (CLASS_SCOUT, CLASS_BOMBER, CLASS_FRIGATE, CLASS_DESTROYER):
             with self.subTest(ship=NAME[cls]):
                 self.boot()
-                before = {s for s in range(48)
+                before = {s for s in range(ENT_MAX)
                           if self.ent(s, ENT_FLAGS) & F_ACTIVE}
                 self.order(cls)
                 self.c.write_ram(self.sym["ECO_BUILD_TIMER"], bytes([0]))
                 self.c.run_frames(80)
 
-                new = [s for s in range(48)
+                new = [s for s in range(ENT_MAX)
                        if (self.ent(s, ENT_FLAGS) & F_ACTIVE) and s not in before]
                 self.assertEqual(len(new), 1, f"{NAME[cls]}: {len(new)} new ships")
                 slot = new[0]
@@ -360,11 +364,11 @@ class TestBuildingThroughTheUI(ClassFixture):
         hull = list(self.banked("CLASS_HULL", CLASS_COUNT))
         self.assertLess(hull[CLASS_SCOUT], hull[CLASS_INTERCEPTOR])
 
-        before = {s for s in range(48) if self.ent(s, ENT_FLAGS) & F_ACTIVE}
+        before = {s for s in range(ENT_MAX) if self.ent(s, ENT_FLAGS) & F_ACTIVE}
         self.order(CLASS_SCOUT)
         self.c.write_ram(self.sym["ECO_BUILD_TIMER"], bytes([0]))
         self.c.run_frames(80)
-        slot = next(s for s in range(48)
+        slot = next(s for s in range(ENT_MAX)
                     if (self.ent(s, ENT_FLAGS) & F_ACTIVE) and s not in before)
         self.assertEqual(self.ent(slot, ENT_CLASS), CLASS_SCOUT)
         self.assertEqual(self.ent(slot, ENT_HULL), hull[CLASS_SCOUT])
@@ -470,7 +474,7 @@ class TestTheBanks(ClassFixture):
         walks straight from a bank-7 ship to a bank-5 one to a bank-4 one."""
         self.boot()
         base = self.sym["ENTITIES"]
-        live = [s for s in range(48) if self.ent(s, ENT_FLAGS) & F_ACTIVE]
+        live = [s for s in range(ENT_MAX) if self.ent(s, ENT_FLAGS) & F_ACTIVE]
         self.assertGreaterEqual(len(live), CLASS_COUNT)
         for i, slot in enumerate(live[:CLASS_COUNT]):
             self.c.write_ram(base + slot * ENT_SIZE + ENT_CLASS, bytes([i]))

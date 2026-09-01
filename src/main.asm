@@ -94,10 +94,10 @@ game_main:
 ;  equates from there. It is the frame loop's simulation like combat and the
 ;  economy, so it stays in the low 16K with them rather than going to bank 4.
     include "game/waves.asm"
-;  ...and this one is in the low 16K only because bank 4 is full. By the rule
-;  it belongs there with the help page and the orders menu -- it runs only
-;  while the game is stopped. It is after waves.asm because it calls
-;  wave_pct_of, and after phase4 for HUD_HP_ALARM and the pens.
+;  The `I` page's layout and its one flag. Its CODE went to bank 4 the day the
+;  fleet's ceiling needed the room -- see game/squadinforun.asm. Still after
+;  waves.asm because the equates sit beside wave_pct_of's caller, and after
+;  phase4 for HUD_HP_ALARM and the pens.
     include "game/squadinfo.asm"
 ;  The tutorial's equates and the dozen bytes of it the frame loop and the
 ;  tests read. Its CODE is in bank 4 -- see game/tutorialrun.asm -- and the
@@ -117,6 +117,41 @@ game_main:
     include "gen/tables.asm"
 
 code_end:
+
+; ----------------------------------------------------------------------------
+;  The six arrays that are ENT_MAX long, and they are here rather than beside
+;  their own code for ONE reason: everything above code_end costs address
+;  space and costs DISC.BIN NOTHING.
+;
+;  They held nothing at boot even when they were in the file. `entities` is
+;  wiped by ent_clear_all before demo_reset spawns a fleet into it; the three
+;  below it are rebuilt from scratch every frame off phase4_visible, which
+;  phase4_project zeroes and counts back up; and the two rectangle lists are
+;  read only as far as their own count byte, which does start at zero in the
+;  image. So the two thousand bytes of `defs ..., 0` were two thousand bytes of
+;  ZEROS carried across a disc into a file that has to finish under #A700, for
+;  nothing at all -- and they were the fleet's ceiling, because they are also
+;  the biggest thing in the tightest 16K there is. This is what paid for
+;  ENT_PLAYER_MAX doubling.
+;
+;  IT IS THE SAME TRICK AS fleet_block AND class_standin, which sit after
+;  bank4_end for exactly this reason. The difference is that the low 16K has
+;  no equivalent of `bank4_end`, so the boundary is code_end and the arrays
+;  have to be declared HERE, after the include of the tables, rather than in
+;  game/entity.asm and demo/phase4.asm where they read better.
+;
+;  What it costs: the tests' scratch is derived from a symbol, and that symbol
+;  is now low_end and not CODE_END. tests/harness.py says so.
+; ----------------------------------------------------------------------------
+entities:           defs ENT_MAX * ENT_SIZE
+phase4_vis:         defs ENT_MAX * PHASE4_VIS_SIZE
+phase4_order:       defs ENT_MAX * 2        ; index, and its depth beside it
+phase4_gcount:      defs ENT_MAX
+;  ...and the two dirty-rectangle lists, which are ENT_MAX-shaped as well
+;  (PHASE4_RECT_SLOTS), so they grew with the fleet too.
+phase4_rects_a:     defs PHASE4_RECT_SLOTS * 4
+phase4_rects_b:     defs PHASE4_RECT_SLOTS * 4
+low_end:
 
 ; ----------------------------------------------------------------------------
 ;  Table layout invariants.
@@ -293,6 +328,14 @@ code_end:
 ;  number that says twenty-eight rather than "some slots for growth".
     assert PHASE4_SHIPS + 1 + ECO_QUEUE_MAX <= ENT_PLAYER_MAX, "a full build queue on the starting fleet would not fit"
 
+;  ...and the formation has to have somewhere to put them. `O` can leave every
+;  ship the player owns in one squadron, so a shape short of slots does not
+;  fail -- it flies the overflow to a point another ship is already at, which
+;  is invisible from the outside and was the normal case at FORM_SLOTS 16 the
+;  moment ENT_PLAYER_MAX doubled. The Mothership is squadron 0, so the largest
+;  a real squadron can be is one short of the region.
+    assert FORM_CAPACITY >= ENT_PLAYER_MAX - 1, "a squadron can be bigger than its formation has slots for"
+
 ;  One whole wave has to be able to land, or the pressure the waves exist to
 ;  apply is capped by arithmetic rather than by the fight. The picket it lands
 ;  ON is checked from the mission table itself, in tests/test_campaign.py --
@@ -309,9 +352,15 @@ code_end:
 ;  and "code + tables overflow into the stack" without a number is a question
 ;  rather than an answer. The figure is negative when it fails, which is
 ;  exactly how much has to come back out.
-    print "code+tables:", {hex}CODE_START, "..", {hex}code_end, " free:", CODE_LIMIT - STACK_SIZE - code_end
+    print "code+tables:", {hex}CODE_START, "..", {hex}code_end, " image:", code_end - CODE_START
+    print "  + entity arrays to", {hex}low_end, " free:", CODE_LIMIT - STACK_SIZE - low_end
 
-    assert code_end < CODE_LIMIT - STACK_SIZE, "code + tables overflow into the stack"
+;  low_end and not code_end: the arrays above the image take address space
+;  even though they take no file, and it is the ADDRESS that collides with the
+;  stack. tests/harness.py takes its scratch from the same symbol, so this
+;  figure has to stay above about 450 or a dozen test classes with nothing to
+;  do with the change start failing for want of somewhere to put a stub.
+    assert low_end < CODE_LIMIT - STACK_SIZE, "code + tables + entities overflow into the stack"
 
 ; ============================================================================
 ;  Output
@@ -392,6 +441,17 @@ bank4_start:
 ;  ctxbar.asm because it calls mis_make_enemy, mis_count_enemies and
 ;  str_index, and after ordercmd.asm for order_dest_addr.
     include "game/tutorialrun.asm"
+;  Section 7's economy. Bank code by the narrow rule: eco_update runs from
+;  inside the frame loop and nothing in it draws, which is the same argument
+;  game/salvage.asm is already here on -- and eco_update is what calls it, so
+;  this has to come before it... except that RASM resolves forward references,
+;  so the order here is only about which comment explains which. After
+;  campaignrun.asm for mis_*, and its state stays in the low 16K.
+    include "game/economyrun.asm"
+;  The `I` page. Bank code by the narrow rule -- it runs on a keypress and
+;  then once a frame with the world stopped. After ctxbar.asm because it calls
+;  ctx_class_name and str_index, and after staticscreens.asm for static_wipe.
+    include "game/squadinforun.asm"
 ;  The cached half of the marker pass. It runs only when the camera hash has
 ;  changed and always with the window at rest, so it is bank-4 code by the
 ;  same rule as everything above it -- but it is the ONLY thing here that runs
@@ -433,7 +493,12 @@ class_standin:
 fleet_block:
     defs FLEET_HDR_SIZE, 0              ; magic, magic, mission index, count
 fleet_buffer:
-    defs ENT_MAX * ENT_SIZE, 0
+;  ENT_PLAYER_MAX records of FLEET_REC_SIZE, not ENT_MAX of ENT_SIZE. It was
+;  the second of those and both halves of that were wrong by a margin: only
+;  the player's region is ever saved, so twenty of the slots could not be
+;  filled, and the record carried six bytes a ship that a restored fleet
+;  throws away. 960 bytes for 28 ships; 728 for 56.
+    defs ENT_PLAYER_MAX * FLEET_REC_SIZE, 0
 ; ----------------------------------------------------------------------------
 ;  What the campaign has unlocked, in the block's PAD and not in its header.
 ;
@@ -453,12 +518,25 @@ fleet_buffer:
 ; ----------------------------------------------------------------------------
 fleet_unlocks:
     defs 2, 0
-    defs FLEET_BLOCK_SIZE - FLEET_HDR_SIZE - ENT_MAX * ENT_SIZE - 2, 0
+    defs FLEET_BLOCK_SIZE - FLEET_HDR_SIZE - ENT_PLAYER_MAX * FLEET_REC_SIZE - 2, 0
 bank4_limit:
 
     assert fleet_buffer == fleet_block + FLEET_HDR_SIZE, "the fleet must follow its header"
-    assert fleet_unlocks == fleet_buffer + ENT_MAX * ENT_SIZE, "the unlocks must follow the fleet"
+    assert fleet_unlocks == fleet_buffer + ENT_PLAYER_MAX * FLEET_REC_SIZE, "the unlocks must follow the fleet"
     assert bank4_limit - fleet_block == FLEET_BLOCK_SIZE, "the save block is not whole sectors"
+;  The one that decides how big the fleet may be. FLEET.DAT is two raw sectors
+;  and nothing here would report going past them: fdc_fleet_save writes 1024
+;  bytes from fleet_block whatever is behind it, so a fleet that did not fit
+;  would simply not come back, silently, in whichever slots fell off the end.
+    assert FLEET_HDR_SIZE + ENT_PLAYER_MAX * FLEET_REC_SIZE + 2 <= FLEET_BLOCK_SIZE, "the fleet does not fit its two sectors"
+
+;  The three runs game/entity.asm's save record is made of. Nine loads would
+;  need no adjacency; two LDIRs and an LDI need all of this, and getting it
+;  wrong does not fail -- it brings a fleet back with its orders in its hulls.
+    assert ENT_Y == ENT_X + 2 && ENT_Z == ENT_Y + 2 && ENT_YAW == ENT_Z + 2, "the position is not one run"
+    assert ENT_CLASS == ENT_X + FLEET_REC_A_LEN + 2, "pitch and speed are not the two bytes skipped after the position"
+    assert ENT_ORDER == ENT_CLASS + FLEET_REC_B_LEN - 1, "class..order is not one run of FLEET_REC_B_LEN"
+    assert ENT_LOAD == ENT_TARGET + 1, "the hold is not the byte after the target"
 
 ;  Printed before the assert for the same reason the low 16K's figure is.
     print "bank 4:", {hex}BANK_WINDOW, "..", {hex}bank4_limit, " image:", bank4_end - BANK_WINDOW, " free:", BANK_WINDOW + BANK_WINDOW_SIZE - bank4_limit

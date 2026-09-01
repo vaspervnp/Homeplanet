@@ -38,6 +38,10 @@ import cpc
 
 #  Mirrored from src/game/entity.asm
 ENT_SIZE = 20
+#  Straight out of the build: the table got bigger when the fleet's
+#  ceiling doubled, and a test that walked a fixed forty-eight would
+#  stop looking exactly where the new slots are.
+ENT_MAX = h.symbols()["ENT_MAX"]
 ENT_X, ENT_CLASS, ENT_HULL, ENT_FLAGS = 0, 9, 10, 11
 ENT_SQUAD, ENT_ORDER, ENT_TARGET, ENT_TOW, ENT_TIMER = 12, 13, 14, 16, 19
 F_ACTIVE, F_ENEMY, F_DISABLED, F_WAVE = 1, 2, 4, 8
@@ -89,18 +93,26 @@ class SalvageFixture(unittest.TestCase):
         return int.from_bytes(self.c.read_ram(self.sym["ECO_RU"], 2), "little")
 
     def active(self):
-        return {s for s in range(48) if self.ent(s, ENT_FLAGS) & F_ACTIVE}
+        return {s for s in range(ENT_MAX) if self.ent(s, ENT_FLAGS) & F_ACTIVE}
 
     def wrecks(self):
-        return {s for s in range(48)
+        return {s for s in range(ENT_MAX)
                 if (self.ent(s, ENT_FLAGS) & (F_ACTIVE | F_ENEMY | F_DISABLED))
                 == (F_ACTIVE | F_ENEMY | F_DISABLED)}
 
     def free_slot(self):
-        for s in range(48):
+        """A free slot in the HOSTILE region, because that is what this is for.
+
+        It used to search from zero, and every caller here is spawning a
+        Vekhar. That was harmless while cbt_find_enemy swept the whole table
+        and rejected the wrong side on a compare; it searches the OTHER SIDE'S
+        REGION now, so a hostile parked among the fleet is one nothing can see
+        -- invisible, and it looks like the guns not working.
+        """
+        for s in range(self.sym["ENT_PLAYER_MAX"], ENT_MAX):
             if not (self.ent(s, ENT_FLAGS) & F_ACTIVE):
                 return s
-        self.fail("the entity table is full")
+        self.fail("the hostile region is full")
 
     def moth(self):
         return self.byte("MOTH_SLOT")

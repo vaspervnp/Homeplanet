@@ -168,8 +168,11 @@ gives you a CRTC that has never been initialised. `harness.boot_quick` runs
 
 ```
 #0000-#003F   RST vectors; our IM 1 handler is JP'd from #0038
-#0040-#3FFF   code + lookup tables + entity data        (16 KB)
-              ...stack grows DOWN from #4000 into the slack
+#0040-code_end   code + lookup tables      <- this is what DISC.BIN carries
+code_end-low_end the entity table, the visible list, the draw order and
+                 the two dirty-rectangle lists: uninitialised, so they cost
+                 address space and NOT the file
+              ...stack grows DOWN from #4000 into what is left
 #4000-#7FFF   BANK WINDOW — bank 4 at rest; 5, 6 and 7 while blitting
 #8000-#BFFF   screen buffer B
 #C000-#FFFF   screen buffer A
@@ -178,33 +181,46 @@ gives you a CRTC that has never been initialised. `harness.boot_quick` runs
 `src/main.asm` asserts at build time that code+tables stay clear of the stack
 and prints how many bytes are left in the low 16K and in every bank. Watch all
 of them, and watch the "hand-written code ends at" figure rather than `free:` —
-see "Where 700 bytes came from" for why the second one lies. The low 16K has
-**1536 bytes of which about 1100 are reachable**, and bank 4 has **259**.
-Before six yaw views they were 512 and 9; see "Six yaw views, and where the
-space went" for what that bought. The short version is that the low 16K
-stopped being desperate and bank 4 is the place most new code should go by
+see "Where 700 bytes came from" for why the second one lies.
+
+**Today: low 16K 524, bank 4 2247, `DISC.BIN` 23303 of 26368 so 3065 of
+headroom.** The low 16K figure is the one to watch again — it went back to
+being the binding constraint the day the fleet's ceiling doubled, and about 450
+of those 524 belong to the tests (see "The low 16K's real floor" below). It is
+also measured **above the entity arrays** now: `free:` is the gap between
+`low_end` and the stack, and the build prints `code+tables` and `+ entity
+arrays to` as two separate lines because only the first of them is in the file.
+See "Doubling the fleet, and the four things that had to happen first".
+
+The figures before that were 1536 / 2255 / 1234, and before six yaw views 512
+and 9; see "Six yaw views, and where the space went" for what that bought. The
+short version is that bank 4 is still the place most new code should go by
 default. The help text, the mission table, the formation shapes, the per-class
 data, the cached half of the marker pass, the context bar, the player's
 commands and the campaign's setup and teardown all live there.
 
-**`DISC.BIN`'s ceiling WAS the binding constraint and is not any more.**
-It is 21770 bytes against 26368, so **4598 bytes of headroom**, after the
-sprite libraries were repacked 3+3+2 — see "The repack, and the three things
-it was expected to buy". The paragraph below is the arithmetic from before
-that, kept because the reasoning still holds: it is 21770 — see "What it
-cost, and the ceiling it moved" for where the last five hundred went, and note
-that low-16K code costs the file byte for byte while bank-4 code costs it
-whatever RLE makes of it (which for code is nearly nothing). Watch this figure
-first.
+**`DISC.BIN`'s ceiling WAS the binding constraint and is not any more.** It is
+**23303 against 26368, so 3065 of headroom** — and it got there twice over: the
+sprite libraries repacked 3+3+2 ("The repack, and the three things it was
+expected to buy"), and then the six `ENT_MAX`-shaped arrays moved above
+`code_end`, which took 2 KB of zeros out of the file in one go. Note that
+low-16K code costs the file byte for byte while bank-4 code costs it whatever
+RLE makes of it (which for code is nearly nothing), and that **uninitialised
+data need not cost it anything at all** — that is the newest of the three
+levers and the one to reach for first.
 
-**Bank 4 is no longer tight: 6227 bytes.** The two sprite libraries it used to
-carry left in the repack. What follows is how it got to 235, kept because the
-shapes are the ones to look for when it fills again. The context bar spent
+**Bank 4 is at 2247 bytes.** The two sprite libraries it used to carry left in
+the repack and took it to 6227; the tutorial, the `I` page's code and section
+7's economy have spent most of that since. What follows is how it got to 235
+the first time, kept because the shapes are the ones to look for when it fills
+again. The context bar spent
 595 of its 1032 on code and words and the magnification another 78 — six bytes
 a zoom record, twelve records, plus the LDIR that carries them. It is now full
 enough that `game/squadinfo.asm` could not go there and sits in the low 16K
 instead, which is the first time the "runs while stopped → bank 4" rule has
-been overruled by arithmetic. The low 16K is still comfortable at 1024, and the two are not
+been overruled by arithmetic — and that was reversed the day the fleet doubled
+and the low 16K needed the four hundred bytes back, so `game/squadinforun.asm`
+is in the bank now. The two are not
 interchangeable — see "The one rule" below for what may go where.
 
 The attack waves went the other way and are the exception worth knowing about:
@@ -212,9 +228,12 @@ they are **681 bytes of the LOW 16K** and gave bank 4 eight back, because
 `title_rand`'s xorshift moved down here to be shared with them. That is
 deliberate — see "Attack waves, and the price of staying" — and it is the same
 reasoning that kept `game/combat.asm` and `game/economy.asm` out of the bank.
+**The economy has since gone across**, when doubling the fleet made the low 16K
+desperate again; `game/combat.asm` is the one still down here, and it is the
+next one if it happens a third time.
 
 **The low 16K's real floor is not `#4000`.** `tests/test_sound.py` puts 384
-bytes of stub above `CODE_END` and `harness` puts another 0x60 there, so the
+bytes of stub above **`LOW_END`** and `harness` puts another 0x60 there, so the
 `free:` figure has to stay above about 450 — or a dozen test classes that have
 nothing to do with your change start failing with "no room for the test
 scratch".
@@ -468,17 +487,30 @@ Combat is cheap; the cost is the entity count. Going from 21 entities to 31
 cost about a third of the frame, which is why the demo now runs the 24 §6
 asks for rather than as many as would fit on screen.
 
+> **"Combat is cheap" is what this table says and it was the most expensive
+> line in the game.** `cbt_update` is 28,000 T with a picket alive and about
+> **260,000** — half a frame — once the picket is dead, because every ship then
+> re-acquires every frame and the search swept the whole table through
+> `ent_addr`. This table only ever measured the first of those. Two lines below
+> it are also stale in the same direction: `phase4_sort`'s 73,000 T is ~20,000
+> now. See "Doubling the fleet, and the four things that had to happen first"
+> for both, and for the measured fps curve, which is the number to trust.
+
 Where the remaining headroom is, in the order worth taking it:
 
 - **Blitting.** 46 T a byte is close to the floor for a masked blit, but the
   per-row overhead is ~185 T of `scr_line_addr` and address arithmetic, about
   a third of a tier-C sprite. Stepping the screen address incrementally
   between scanlines would take most of that back.
-- **The z-sort at 54,000 T** is O(n²) because the list is rebuilt in entity
-  order every frame, so it is never nearly sorted. Caching each entry's depth
-  beside its index would cut the comparison from ~140 T to ~40 T.
-- **`phase4_fly` and `phase4_project` both walk all 48 slots** to find 20 live
-  ones. A high-water mark would nearly halve that.
+- ~~**The z-sort at 54,000 T**~~ — **DONE**, and the estimate was too modest in
+  both directions: the comparison was ~390 T rather than ~140, and it is ~104
+  now rather than ~40. See `phase4_sort`.
+- **`phase4_project` walks the whole table** to find the live ones, and it is
+  76 slots now. A high-water mark would nearly halve that. `phase4_fly` is
+  half done -- it walks the player's region only, which is the cheap half of
+  the same idea and needs no state to maintain; the other single-region loops
+  (`wave_health`, `eco_run_workers`, `mis_count_enemies`, `cbt_find_enemy`)
+  went the same way.
 - Fewer ships at tier C: the thresholds in `tools/gentables.py` decide how
   many 24×16 sprites are on screen, and tier C is four times the pixels of
   tier B.
@@ -2964,6 +2996,242 @@ copying: **`test_a_full_fleet_does_not_stop_the_waves` passes on the OLD build
 too**, because the old fleet was allowed to grow past 28, so on its own it
 proves the right thing about the wrong fleet. It takes
 `TestTheFleetStopsAtItsOwnCeiling` beside it to mean anything.
+
+### Doubling the fleet, and the four things that had to happen first
+
+`ENT_PLAYER_MAX` is **56** and `ENT_MAX` **76**. Twenty-eight was the starting
+sixteen plus a full build queue plus two, which meant the fleet could never
+actually *grow*: build ten ships in mission 1 and the yard was shut for the
+rest of the campaign.
+
+**Not one of the four things that had to give was where `improvements.md` §7
+said it would be**, and that is the part worth reading.
+
+| §7 predicted | what it actually was |
+|---|---|
+| the entity table has to leave the low 16K, and it costs ~70 test call sites | it stayed. Moving it and the four other `ENT_MAX` arrays **above `code_end`** cost nothing at all and gave `DISC.BIN` 2 KB back |
+| "the frame rate is the ceiling, and it does not move" | it moved a long way, and in the one routine §7 never mentions |
+| `FLEET.DAT` needs a third sector or a narrower record | correct, and the narrower record was right |
+| `FORM_SLOTS` is 16 and nothing says so | correct |
+
+#### The frame was being spent in `cbt_find_enemy`, and it was O(fleet × table)
+
+This is the whole story. Measured before anything else changed: 16 ships
+5.0 fps, 27 ships 3.1 — about 9.4 ms a ship, which extrapolates to ~1.5 fps at
+56 and is what §7 called "not a slower game, a different one".
+
+`cbt_fire_if_able` re-acquires the moment its target is wreckage, so **once the
+picket is dead every live ship calls `cbt_find_enemy` every frame** — the file
+already said so, in a comment about how the empty test must stay in front. What
+nobody went back and looked at is what the search itself does:
+
+- it swept **the whole table**, rejecting the player's own ships on a side
+  compare — although the two sides have been **disjoint by index** since the
+  partition landed. A friendly ship has twenty slots to look at, not
+  seventy-six;
+- it reached each slot with **`call ent_addr`** — a shift ladder and a call,
+  about 120 T-states — to get a byte eleven along from a record twenty further
+  on than the last one. The same find as the six loops recorded under "Six
+  loops walked all 48 slots with `ent_addr`", arriving in the one place where
+  it is *multiplied by the number of ships doing the searching*.
+
+An empty slot went from ~250 T-states to ~65, and a friendly ship's whole
+search from ~19,000 T to ~1,300. The measured curve, ceiling already doubled:
+
+| ships | 16 | 22 | 27 | 40 | 55 |
+|---|---|---|---|---|---|
+| before, at `ENT_MAX` 48 | 5.0 | 3.8 | 3.1 | — | — |
+| after | **6.9** | 5.5 | 4.6 | 3.3 | 2.4 |
+| after, zoomed out 3 steps | **10.1** | 7.2 | 6.3 | 5.0 | 3.7 |
+
+So the ordinary sixteen-ship game got 38% faster, and 40 ships now runs better
+than 27 used to. **A fleet of 56 is still about 2.4 fps close in**, and that is
+the player's own choice to make — nothing stopped them filling 28 slots and
+dropping to 3.1 either. What has gone is the arithmetic refusing them the
+choice.
+
+> **The lesson is not "profile first", it is that the cost was in a routine the
+> design document's performance section never mentions.** §7 reasoned from
+> CLAUDE.md's own budget table — draw, project, erase, sort, fly — and every
+> one of those is per-*entity*. `cbt_find_enemy` is per-entity **per entity**,
+> and it only shows up when the shooting stops, which is not when anybody
+> profiles.
+
+#### `phase4_sort` carries the depth beside the index
+
+The other O(n²) term, and the one that decides how many ships may exist at
+once. An entry is two bytes now — the index, and a copy of its depth — so a
+comparison reads the byte next door instead of `call phase4_order_at` then
+`call phase4_z_of`, which multiplies an index by six. **~390 T-states an
+iteration to ~104.** Costs `ENT_MAX` bytes of address space and gives back the
+five bytes of sort state, which now lives in registers and on the stack.
+
+`tests/test_phase4_fleet.test_the_cached_depth_is_the_depth` is the guard that
+matters: the existing draw-order test now passes on the *cache*, so on its own
+it would be checking the sort against its own copy of the answer.
+
+#### The arrays above `code_end` cost address space and no file
+
+`entities`, `phase4_vis`, `phase4_order`, `phase4_gcount` and the two dirty-
+rectangle lists are declared in `src/main.asm` **after `code_end`**, which is
+where the saved image stops. They held nothing at boot even when they were in
+it — `ent_clear_all` wipes one and the other five are rebuilt every frame off
+`phase4_visible` — so ~1400 bytes of `defs ..., 0` were being carried across a
+disc into a file with a hard ceiling, for nothing.
+
+`DISC.BIN` went **25134 → 23303**, which is 3065 bytes of headroom against 1234
+before, *while* the arrays grew by half again. It is the same trick as
+`fleet_block` and `class_standin` after `bank4_end`; the low 16K simply had no
+equivalent boundary until now.
+
+**The cost is one symbol.** `harness._scratch_base` and `test_sound` take their
+scratch from **`LOW_END`** and not `CODE_END` — a stub poked at `CODE_END`
+would now land on top of the entity table, and the symptom would be a test
+quietly clearing the fleet it is measuring.
+
+#### Thirteen bytes on the disc, and the magic had to move
+
+`FLEET.DAT` is two raw sectors, so twenty bytes a ship stops at fifty. The
+record is thirteen — x, y, z, yaw; class, hull, flags, squad, order; the hold —
+in **three runs**, because those fields happen to sit in three groups, so the
+serialiser is two `LDIR`s and an `LDI` each way. `src/main.asm` asserts the
+adjacency: get it wrong and a fleet comes back with its orders in its hulls.
+
+Two fields are deliberately not carried. `ENT_PITCH` and `ENT_SPEED` are
+**read by nothing in the whole game** — worth knowing before designing anything
+around them. `ENT_TARGET` is not carried but *is written*, with
+`ENT_NO_TARGET`, for the reason "Never trust a slot index" gives.
+
+**The magic is `H2`, not `HP`.** An old save still matches `H`, still has a
+plausible mission index and a plausible count, and would come back as 56 ships
+of rubbish. The magic moves whenever the layout does; an old disc reads as no
+save and the campaign starts again.
+
+#### A formation of sixteen holding a squadron of fifty-five
+
+`and FORM_SLOT_MASK` carried the comment *"more ships than slots: share them"*,
+and sharing a slot means two ships flying to the same point — invisible,
+harmless at seventeen ships, and the **normal case** the moment the ceiling
+doubled. `O` can put every ship the player owns in one squadron.
+
+Four **layers** of the same authored shape, displaced along the axis that shape
+does not use: Y for Loose, Wedge and Sphere, Z for Wall, which already stands
+in XY. Every shape stays exactly as it was drawn — a wedge of 40 ships is four
+wedges in echelon, not a wedge with a different outline. The layers alternate
+about zero (0, +1, -1, +2) so the station stays in the **middle** of the
+squadron rather than at one end of it. One 16-bit add per ship per frame and an
+eight-byte table, and `src/main.asm` asserts `FORM_CAPACITY >= ENT_PLAYER_MAX - 1`.
+
+The sphere is the one shape still written out in full, so it is the one that
+has to be **copied** before a layer can be added to it — it lives in bank 4.
+Layer 0 still returns the bank pointer directly, which is every squadron of
+sixteen or fewer.
+
+#### Where the address space came from, and the rule it broke
+
+`game/squadinforun.asm` and `game/economyrun.asm` are new: the code halves of
+the `I` page and of section 7's economy, in bank 4, with their equates and all
+their state left in the low 16K. Same split as `order.asm`/`ordercmd.asm`.
+
+Both were named in this file already. `squadinfo.asm` said it was in the low
+16K *only* because bank 4 had 235 bytes left and "it is the first thing that
+should move across the day the bank frees up"; `economy.asm` was one of the two
+CLAUDE.md said were "next, and they are safe" if the low 16K got desperate
+again. It did. `game/combat.asm` is the one still down here.
+
+Four single-region loops were bounded at the same time, and they are free
+correctness as much as speed: `wave_health` and `eco_run_workers` and
+`phase4_fly` walk the player's region only, `mis_count_enemies` the hostile
+one. Each was rejecting the other region on a compare it no longer performs.
+
+#### Two test failures, and only one of them was about slots
+
+`tests/test_regions.TestTheMissionsPicketAlwaysFits` failed twice, both times
+for a reason created by the fleet being real:
+
+- **the fifth jump was refused.** It was not: `wait_for_jump_wipe`'s bound was
+  1400 emulator frames, and the reveal's dwell is counted in **game** frames —
+  so at 2.4 fps it takes nearly three times as long, and `J` was pressed into a
+  sweep that had not finished. The bound is 3200 and costs nothing when the
+  wipe is quick.
+- **mission 5 fielded 8 hostiles where the table asks for 9.** Also not: 56
+  interceptors sitting on the Mothership killed one inside the four game frames
+  between `mis_setup` and the count. The test presses SPACE and walks the whole
+  campaign with the battle frozen — it is a test about *placement*, and orders
+  still run while paused.
+
+Neither was reachable at 28 ships. **And a dozen test files walked
+`range(48)`** — a hard-coded ceiling that would have stopped looking exactly
+where the new slots are, and passed. They read `ENT_MAX` out of the symbol file
+now, which `tests/test_regions.py` was already doing and is the model.
+`tools/balance.py`, `tools/waverate.py` and `tools/record.py` had the same
+`48`, and there it is worse: a measuring tool with a stale count does not fail,
+it prints a plausible campaign with ships missing from it.
+
+#### Five combat tests staged their enemies in the fleet's half
+
+The partition has said where a hostile lives since it landed, and **the tests
+were free to ignore it, because nothing read the two regions apart.**
+`even_duel` put eight friendlies in slots 0-7 and eight hostiles in 8-15;
+`stage_one_fight` put its enemy in slot 6; `test_menu` used slot 47, because
+that used to be the top of the table.
+
+All of it was harmless while `cbt_find_enemy` swept everything and rejected the
+wrong side on a compare. The moment it searches the *other side's* region, a
+hostile parked among the fleet is one nothing can see — so an even duel ended
+8-0 again, this time because one side never fired at all.
+
+> **The search itself had the same shape of bug the same afternoon.**
+> `cbt_side` is worked out, then two stores put `#FF` in `A`, and the first
+> version tested `A` rather than reloading it — so every searcher hunted in the
+> hostile region. A friendly ship still worked perfectly; an **enemy** looked
+> for the player's fleet among the enemies and never fired again. Every count
+> in `test_combat.py` would have been happy: the right number of ships, all of
+> them alive, in a battle where one side had quietly stopped playing.
+>
+> `TestBothSidesLookInTheRightPlace` is the guard, and it asserts on **which
+> slot each side is aiming at** rather than on shots or kills. Against the
+> broken build it fails with "not one hostile had picked a target". Turning a
+> comparison into a decision is exactly when you need a test that reads the
+> decision.
+
+#### Four tests whose precondition was "the game is too slow to have done it yet"
+
+**This is the one to remember**, because the frame rate will move again and
+every one of these looked like a defect in the code:
+
+- **`test_ten_orders_are_taken_and_the_eleventh_is_refused`** pressed ten
+  orders in over 250 emulator frames and read the queue's depth. At five game
+  frames a second that was not quite long enough to finish a Scout; at seven it
+  is, the first hull came off the slipway, and the depth read 8. It presses
+  SPACE first now — `eco_update` is skipped while paused and `phase4_commands`
+  is not, so the yard holds still while `B` and ENTER go on working.
+- **`test_an_exhausted_map_sends_them_home_rather_than_stranding_them`** asked
+  whether a harvester moved between two *later* windows. It had already flown
+  home and stopped inside the first one — and a ship standing on its own
+  station is exactly what "nothing is steering it" looks like. It measures from
+  where the fixture PUT the ship now, before a frame of the flight has run.
+- **`test_regions`' campaign walk**, twice, for the two reasons above it.
+- **`test_a_ship_is_hidden_until_its_own_bar_has_gone_by`** is the odd one out
+  and the sharpest. It snapshots "the scenery" from the frame where the bars
+  stand at offset 0 and subtracts it from every later frame. The display
+  page-flips and the reveal masks the *dirty rectangles*, so which ships a
+  buffer is carrying at a given step depends on **which buffer it is** — and
+  the snapshot came from whichever happened to be in front. It is one snapshot
+  per buffer now. The frame rate did not break this one; it moved which buffer
+  was in front at offset 0, and the flaw had been sitting there all along.
+
+> **The shape: a test whose setup is a fixed number of emulator frames is
+> asserting on the frame rate.** `run_frames` counts 50 Hz frames, the game
+> counts its own, and the ratio has now moved twice — once when the jump wipe
+> made a game frame heavier, once when this made it lighter. If a test starts
+> failing after a performance change, ask what it assumed had *not* happened
+> yet before believing the change broke behaviour.
+
+`tests/test_group.py` failed for a simpler reason worth naming separately: it
+hand-builds `phase4_order` and was writing **one byte an entry** after the sort
+started keeping two. Half the list read as depths, and every grouping test came
+out with singletons where it wanted groups.
 
 ### The Frigate is unlocked by salvaging a derelict
 

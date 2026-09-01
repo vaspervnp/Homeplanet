@@ -70,7 +70,7 @@ def word(name):
 
 def fleet():
     friendly = enemy = 0
-    for slot in range(48):
+    for slot in range(sym["ENT_MAX"]):
         f = c.read_ram(sym["ENTITIES"] + slot * 20 + 11, 1)[0]
         if f & 1:
             if f & 2:

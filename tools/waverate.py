@@ -106,6 +106,11 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from tests import harness as h
 
 ENT_SIZE = 20
+#  Out of the build: it was a fixed 48 and the fleet's ceiling has since
+#  doubled. This is a MEASURING tool, so a stale count does not fail -- it
+#  prints a plausible win rate with ships missing from both the reading and
+#  the photograph it puts back.
+ENT_MAX = h.symbols()["ENT_MAX"]
 ENT_HULL, ENT_FLAGS, ENT_CLASS = 10, 11, 9
 F_ACTIVE, F_ENEMY, F_WAVE = 1, 2, 8
 
@@ -134,7 +139,7 @@ SNAPSHOT = ["MOTH_SLOT", "MIS_FAILED", "MIS_COMPLETE", "SQUAD_SEL"]
 def fleet(c, E):
     """(friendly ships, friendly hull, hostile wave ships still flying)."""
     ships = hull = riders = 0
-    for i in range(48):
+    for i in range(ENT_MAX):
         f = c.read_ram(E + i * ENT_SIZE + ENT_FLAGS, 1)[0]
         if not (f & F_ACTIVE):
             continue
@@ -148,7 +153,7 @@ def fleet(c, E):
 
 
 def photograph(c, s, E):
-    snap = {"entities": c.read_ram(E, 48 * ENT_SIZE)}
+    snap = {"entities": c.read_ram(E, ENT_MAX * ENT_SIZE)}
     for name in SNAPSHOT:
         snap[name] = c.read_ram(s[name], 1)
     snap["squad_count"] = c.read_ram(s["SQUAD_COUNT"], 10)
@@ -177,7 +182,7 @@ def cripple(c, s, E):
     which is the whole claim under test.
     """
     keep = True
-    for i in range(48):
+    for i in range(ENT_MAX):
         base = E + i * ENT_SIZE
         f = c.read_ram(base + ENT_FLAGS, 1)[0]
         if not (f & F_ACTIVE) or (f & F_ENEMY):
