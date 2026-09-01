@@ -211,6 +211,45 @@ squad_by_class:
 
 ; ----------------------------------------------------------------------------
 mis_brief_draw:
+    ;  ...AND PAY THE DEBT OF WHATEVER PAGE WAS HERE BEFORE, which for the
+    ;  first briefing of a game is the TITLE SCREEN. Reported as "στο κείμενο
+    ;  της πρώτης πίστας μένει από κάτω μέρος κειμένων του μενού".
+    ;
+    ;  static_wipe stops at spr_clip_bottom and leaves the strip alone, because
+    ;  every other time a briefing is up the fleet counts are down there and
+    ;  they are what the player is about to give an order about. The FIRST
+    ;  time, what is down there is the title screen's own last two lines -- T
+    ;  FOR THE TUTORIAL at 172 and the credit at 186 -- and nothing was ever
+    ;  going to take them off: the HUD does not clear its strip, it draws
+    ;  labels onto it.
+    ;
+    ;  title_key already schedules the wipe for exactly this and says so in a
+    ;  comment. What was missing is that mis_wipe_screen is called from
+    ;  demo_update's PLAYING path only, and the briefing goes up before the
+    ;  game ever reaches it -- so the two frames sat unspent behind the
+    ;  briefing, and were still unspent when mis_brief_key scheduled two more
+    ;  of its own over the top of them.
+    ;
+    ;  ONLY WHILE THE BRIEFING IS ACTUALLY UP, and that guard is the whole of
+    ;  the second bug this caused. A page closes by clearing its own flag
+    ;  inside its `_key` routine and demo_update then draws it ONE MORE TIME in
+    ;  the same frame -- so without this test, the closing frame spent one of
+    ;  the two wipes mis_brief_key had just scheduled for erasing the briefing
+    ;  itself. One buffer got cleared and the other did not, and the display
+    ;  page-flips: the mission text was on screen every OTHER frame for the
+    ;  rest of the mission. Reported as "το κείμενο της πίστας δεν σβήνεται
+    ;  όταν μπαίνω στην πίστα, αναβοσβήνει συνέχεια μπροστά".
+    ;
+    ;  It is the same trap the context bar shipped and @p4_static_done carries
+    ;  a paragraph about, arriving from the other side: there the page was
+    ;  drawn a frame too late, here its debt was paid a frame too early.
+    ;
+    ;  On every frame but the first two of a briefing this is a flag test and a
+    ;  RET.
+    ld a,(mis_briefing)
+    or a
+    call nz,mis_wipe_screen
+
     ;  Wipe the whole tactical area; the strip below belongs to the HUD.
     call static_wipe
 

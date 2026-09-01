@@ -332,6 +332,33 @@ order_issue:
 @ord_issue_one:
     ld a,(order_index)
     call ent_addr
+
+    ;  ACTIVE FIRST, AND THIS IS A REPAIR RATHER THAN TIDINESS. A dead ship's
+    ;  record keeps every byte it had, ENT_SQUAD included -- nothing clears it,
+    ;  because nothing needs to while the slot is empty. So this loop, which
+    ;  asked only about the squadron, wrote the order into every EMPTY slot of
+    ;  the selection as well: press `A` after losing a ship and the hole it
+    ;  left is carrying ENT_ORDER_ATTACK.
+    ;
+    ;  That is a landmine rather than a bug on its own -- until the yard builds
+    ;  into that slot, and the ship comes out of the Mothership already
+    ;  attacking. phase4_fly SKIPS an attacking ship on purpose, so the new
+    ;  ship never joins the formation and ignores every move and formation
+    ;  order the player gives; and it only shows when a hostile is alive to
+    ;  keep the order from being spent, which since the attack waves is most
+    ;  of a mission. Reported as "χάνονται οι σχηματισμοί ... μόνο τα
+    ;  καινούρια σκάφη".
+    ;
+    ;  eco_spawn_built writing ENT_ORDER_IDLE is the other half and the one
+    ;  that makes it impossible; this half stops the order being planted at
+    ;  all. An order issued to a slot with no ship in it cannot mean anything.
+    push hl
+    ld de,ENT_FLAGS
+    add hl,de
+    bit 0,(hl)
+    pop hl
+    jr z,@ord_issue_next
+
     push hl
     ld de,ENT_SQUAD
     add hl,de

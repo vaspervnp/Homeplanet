@@ -459,6 +459,23 @@ eco_spawn_built:
     ld de,ENT_TARGET
     add hl,de
     ld (hl),ENT_NO_TARGET
+
+    ;  ...AND THE ORDER, which this did not write and had to. A slot keeps
+    ;  every byte the ship that died in it left behind, and order_issue used to
+    ;  put ENT_ORDER_ATTACK into the empty ones -- so a replacement built after
+    ;  a casualty came out of the Mothership already attacking, and phase4_fly
+    ;  skips an attacking ship on purpose. It never joined the formation and
+    ;  ignored every order given to it.
+    ;
+    ;  It is the same rule ENT_TARGET is written for one line above, and the
+    ;  same rule mis_make_enemy has always followed: A SPAWN INITIALISES EVERY
+    ;  FIELD IT DEPENDS ON. "Never trust a slot index" is about reading one;
+    ;  this is about inheriting one.
+    ld hl,(eco_ent)
+    ld de,ENT_ORDER
+    add hl,de
+    ld (hl),ENT_ORDER_IDLE
+
     ld hl,(eco_ent)
     ld de,ENT_LOAD
     add hl,de

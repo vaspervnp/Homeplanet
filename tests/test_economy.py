@@ -22,6 +22,11 @@ ENT_SIZE = 20
 #  ceiling doubled, and a test that walks range(ENT_MAX) then stops looking
 #  exactly where the new slots are.
 ENT_MAX = h.symbols()["ENT_MAX"]
+ENT_PLAYER_MAX = h.symbols()["ENT_PLAYER_MAX"]
+
+#  src/game/entity.asm. IDLE is what a spawn has to leave behind and ATTACK is
+#  what a slot can be carrying when the yard reaches it.
+ENT_ORDER_IDLE, ENT_ORDER_ATTACK = 0, 2
 ENT_CLASS, ENT_FLAGS, ENT_SQUAD, ENT_ORDER, ENT_LOAD = 9, 11, 12, 13, 15
 F_ACTIVE, F_ENEMY = 1, 2
 CLASS_INTERCEPTOR, CLASS_MOTHERSHIP, CLASS_HARVESTER = 0, 1, 2
@@ -67,6 +72,29 @@ class EconomyFixture(unittest.TestCase):
         base = self.sym["ECO_PATCHES"]
         return [int.from_bytes(self.c.read_ram(base + i * PATCH_SIZE + 6, 2), "little")
                 for i in range(PATCH_COUNT)]
+
+    def clear_every_slot_but_the_mothership(self):
+        """Empty the table, and LEAVE THE MOTHERSHIP FLYING.
+
+        Losing it now ends the campaign. mis_update sets mis_failed the frame
+        its slot goes inactive, the game-over screen takes the whole screen,
+        and demo_update returns before phase4_commands ever runs -- so every
+        key a test presses afterwards is ignored and the failure reads as "the
+        ship did not come back whole" rather than as "there is no game any
+        more". Before there was a game-over screen this was harmless, which is
+        why several fixtures wipe the table and none of them thought about it.
+
+        It does not disturb what these tests measure: the Mothership is in
+        squadron 0 and repair, recycle and the rest are scoped to squad_sel,
+        so an untouched one is skipped anyway.
+        """
+        moth = self.byte("MOTH_SLOT")
+        for slot in range(ENT_MAX):
+            if slot == moth:
+                continue
+            self.c.write_ram(
+                self.sym["ENTITIES"] + slot * ENT_SIZE + ENT_FLAGS, b"\x00")
+        self.c.run_frames(4)
 
     def ships_by_class(self):
         out = {}
@@ -223,6 +251,120 @@ class TestConstruction(EconomyFixture):
                                 "the yard is still holding a finished ship")
 
 
+class TestAShipIsBornWithNoOrders(EconomyFixture):
+    """A replacement built after a casualty must not inherit its orders.
+
+    THE BUG, reported as "χάνονται οι σχηματισμοί κάποιες φορές στην μάχη.
+    Έκανα επίθεση και δεν ανταποκρίνονταν μετά. Μόνο τα καινούρια σκάφη."
+
+    Two halves, and it took both to bite. A dead ship's record keeps every byte
+    it had, ENT_SQUAD included -- so order_issue, which asked only about the
+    squadron, wrote ENT_ORDER_ATTACK into the EMPTY slots of the selection as
+    well. Then eco_spawn_built, which never wrote ENT_ORDER at all, built a
+    ship into one of those holes and it came out of the Mothership already
+    attacking. phase4_fly SKIPS an attacking ship on purpose, so the new ship
+    never joined the formation and ignored every order given to it.
+
+    It only shows while a hostile is alive to stop cbt_fire_if_able spending
+    the order -- which since the attack waves is most of a mission, and is why
+    it is "κάποιες φορές" rather than always.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.open_the_whole_list()
+
+    def free_slot_in_the_selection(self):
+        """A hole where a ship of the selected squadron used to be.
+
+        Killed by clearing ACTIVE and nothing else, which is exactly what a
+        killing blow leaves behind: cbt_kill does not tidy the record, and
+        there is no reason it should.
+        """
+        squad = self.byte("SQUAD_SEL")
+        for slot in range(ENT_PLAYER_MAX):
+            f = self.ent(slot, ENT_FLAGS)
+            if (f & F_ACTIVE) and not (f & F_ENEMY) \
+                    and self.ent(slot, ENT_SQUAD) == squad \
+                    and self.ent(slot, ENT_CLASS) != CLASS_MOTHERSHIP:
+                self.c.write_ram(
+                    self.sym["ENTITIES"] + slot * ENT_SIZE + ENT_FLAGS,
+                    bytes([0]))
+                return slot
+        self.fail("the selected squadron has no ship to lose")
+
+    def press_attack(self):
+        self.hold(",")
+        self.hold("a")
+
+    def order_the_ship_is_born_with(self, ship_class, slot):
+        """Build, and read ENT_ORDER the instant the slot comes alive.
+
+        CAUGHT AT THE MOMENT OF SPAWN RATHER THAN A MOMENT LATER, and that is
+        what makes this able to fail. An inherited attack order does not last:
+        cbt_fire_if_able spends it on the first turn the new ship takes if
+        there is no enemy to be found -- and mission 1 has none, so reading the
+        byte after build()'s eight-hundred-frame wait comes back IDLE on the
+        broken build as well as the fixed one.
+
+        Keeping an enemy alive to stop that was tried and does not work: the
+        Vekhar close at PHASE4_STEP, so any hostile near enough for
+        cbt_find_enemy to see at all -- dist_manhattan saturates past 16320
+        units -- crosses the gap and is killed well inside the same window.
+
+        So the claim is narrowed to the one that is actually being made: THE
+        SPAWN WRITES THE ORDER. What happens to it afterwards is combat's, and
+        combat is right.
+        """
+        self.hold("b")
+        self.set_pick(ship_class)
+        self.hold(cpc.KEY_ENTER, frames=25)
+        self.hold("b")
+        base = self.sym["ENTITIES"] + slot * ENT_SIZE
+        for _ in range(1400):
+            if self.c.read_ram(base + ENT_FLAGS, 1)[0] & F_ACTIVE:
+                return self.c.read_ram(base + ENT_ORDER, 1)[0]
+            self.c.run_frames(1)
+        self.fail("the yard never delivered into the slot that was free")
+
+    def test_an_order_is_not_given_to_an_empty_slot(self):
+        """The cause. An order issued to a slot with no ship in it cannot mean
+        anything, and it is what plants the mine the yard then steps on."""
+        slot = self.free_slot_in_the_selection()
+        self.assertEqual(self.ent(slot, ENT_ORDER), ENT_ORDER_IDLE)
+        self.press_attack()
+        self.assertEqual(
+            self.ent(slot, ENT_ORDER), ENT_ORDER_IDLE,
+            "pressing A wrote an attack order into an EMPTY slot of the "
+            "selected squadron")
+
+    def test_a_ship_built_into_that_slot_comes_out_idle(self):
+        """The guarantee, and it holds even if something else plants an order.
+
+        The slot's order is poked directly rather than through `A`, so this
+        still fails with only the order_issue half of the repair present: a
+        spawn has to initialise every field it depends on, which is the rule
+        ENT_TARGET on the line above it has always followed.
+        """
+        slot = self.free_slot_in_the_selection()
+        self.c.write_ram(self.sym["ENTITIES"] + slot * ENT_SIZE + ENT_ORDER,
+                         bytes([ENT_ORDER_ATTACK]))
+        self.assertEqual(
+            self.order_the_ship_is_born_with(CLASS_INTERCEPTOR, slot),
+            ENT_ORDER_IDLE,
+            "the new ship inherited the dead one's attack order, so "
+            "phase4_fly will never fly it into formation")
+
+    def test_and_pressing_A_does_not_arm_the_slot_for_the_next_one(self):
+        """The two halves together, on the path the player actually walks:
+        lose a ship, press A, build a replacement into the hole."""
+        slot = self.free_slot_in_the_selection()
+        self.press_attack()
+        self.assertEqual(
+            self.order_the_ship_is_born_with(CLASS_INTERCEPTOR, slot),
+            ENT_ORDER_IDLE)
+
+
 class TestTheEconomyComesFirst(EconomyFixture):
     """With no harvester flying and none on the way, only harvesters build.
 
@@ -322,10 +464,7 @@ class TestTheRepairPrice(EconomyFixture):
     def wipe_the_fleet(self):
         """Nothing but the ships this test puts there, so the price read off
         the treasury is one ship's and not the squadron's."""
-        for slot in range(ENT_MAX):
-            self.c.write_ram(
-                self.sym["ENTITIES"] + slot * ENT_SIZE + ENT_FLAGS, b"\x00")
-        self.c.run_frames(4)
+        self.clear_every_slot_but_the_mothership()
 
     def repair_and_measure(self, ship_class, fraction, purse=9000):
         #  wipe_the_fleet takes the picket with it, which is what lets the
@@ -396,10 +535,7 @@ class TestBreakingShipsUp(EconomyFixture):
 
     def setUp(self):
         super().setUp()
-        for slot in range(ENT_MAX):
-            self.c.write_ram(
-                self.sym["ENTITIES"] + slot * ENT_SIZE + ENT_FLAGS, b"\x00")
-        self.c.run_frames(4)
+        self.clear_every_slot_but_the_mothership()
 
     def full_of(self, ship_class):
         return h.read_bank4(self.c, self.sym["CLASS_HULL"] + ship_class, 1)[0]
@@ -614,12 +750,9 @@ class TestRepairingASquadron(EconomyFixture):
 
     def setUp(self):
         super().setUp()
-        for slot in range(ENT_MAX):
-            self.c.write_ram(
-                self.sym["ENTITIES"] + slot * ENT_SIZE + ENT_FLAGS, b"\x00")
+        self.clear_every_slot_but_the_mothership()
         self.full = h.read_bank4(
             self.c, self.sym["CLASS_HULL"] + CLASS_INTERCEPTOR, 1)[0]
-        self.c.run_frames(4)
 
     def put(self, slot, hull, squad=1):
         base = self.sym["ENTITIES"] + slot * ENT_SIZE
