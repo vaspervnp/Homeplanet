@@ -55,7 +55,12 @@ CHAR_H, CHAR_W_BYTES = 8, 2
 
 #  Mirrored from src/game/waves.asm. Anything here that drifts from the source
 #  is a test that has stopped describing the game.
-WAVE_FIRST_FRAMES = 600
+#
+#  ...which is why the first wave's clock is READ rather than copied. It is a
+#  conversion of a wall-clock minute at whatever frame rate the build measures,
+#  so it moves whenever the frame rate does -- three times now -- and a
+#  mirrored copy of it fails for a reason that has nothing to do with waves.
+WAVE_FIRST_FRAMES = h.symbols()["WAVE_FIRST_FRAMES"]
 WAVE_GAP_MIN = 100
 WAVE_GAP_MAX = 100 + 255 + 31
 WAVE_MAX = 8

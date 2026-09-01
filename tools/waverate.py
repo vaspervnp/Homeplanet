@@ -66,7 +66,7 @@ home" in CLAUDE.md.
 
 WHAT IT DOES NOT MEASURE
 ------------------------
-The clock, in its default mode. WAVE_FIRST_FRAMES is 600 game frames, there
+The clock, in its default mode. WAVE_FIRST_FRAMES is 426 game frames, there
 are three waves a mission and eight missions a campaign, and waiting all of it
 out is more emulated time than anyone will sit through. So the run writes
 wave_next to bring each arrival forward: it moves WHEN a wave lands and touches

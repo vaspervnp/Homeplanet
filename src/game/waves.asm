@@ -3,7 +3,7 @@
 ; ============================================================================
 ;  Two things that look like two features and are one:
 ;
-;      *  after two minutes in a mission the Vekhar start arriving, in waves
+;      *  after a minute in a mission the Vekhar start arriving, in waves
 ;         of random size at random spacing, and they never stop;
 ;      *  the fleet's hull, as a percentage, at the top of the HUD strip.
 ;
@@ -59,7 +59,7 @@
 ;  mechanism: the reason to jump is that staying is now expensive.
 ;
 ;  The clock is mis_timer, which mis_setup zeroes, so it resets on every jump
-;  by construction -- the two minutes are per mission, not per campaign. And
+;  by construction -- the minute is per mission, not per campaign. And
 ;  because demo_update skips mis_update while order_paused is set, SPACE stops
 ;  the clock along with the battle, which is what a tactical pause is for.
 ; ----------------------------------------------------------------------------
@@ -67,25 +67,35 @@
 ; ----------------------------------------------------------------------------
 ;  The clock, in GAME frames, because that is what mis_timer counts.
 ;
-;  The design targets 12.5 fps and the game measures 5.0 (see the frame budget
+;  The design targets 12.5 fps and the game measures 7.1 (see the frame budget
 ;  in CLAUDE.md), so a wall-clock figure has to be converted at the rate the
-;  machine actually runs at, not the one it aims at. Two minutes is 120
-;  seconds at 5.0 game frames a second = 600, and twenty seconds is 100.
+;  machine actually runs at, not the one it aims at.
+;
+;  THE RATE IS RE-MEASURED EVERY TIME ONE OF THESE MOVES, and it has to be: it
+;  was 5.0 when this file was written and 600 meant two minutes, and the work
+;  that doubled the fleet took it to 7.1 -- so the same 600 had quietly become
+;  a minute and a half without a line of this file changing. A constant in
+;  game frames is a constant in SECONDS only against a rate somebody looked at.
+;
+;      DEMO_FRAMES over 1000 emulator frames, mission 1, this build: 7.10 fps
+;
+;  ONE MINUTE, on the design owner's instruction: "τα κύμματα επίθεσης να
+;  αρχίζουν 1 λεπτό μετά την είσοδο στην πίστα". 60 * 7.1 = 426.
 ;
 ;  It is honest to a few per cent and no better: the frame rate falls as the
-;  entity count rises, so two minutes with a wave already on screen is nearer
-;  two and a half. Making it exact would mean a second counter on
+;  entity count rises, so a minute with a wave already on screen is nearer a
+;  minute and a quarter. Making it exact would mean a second counter on
 ;  sys_tick_50hz, and mis_timer is already a word that already resets in
 ;  exactly the right place.
 ;
-;  BOTH OF THESE WERE THREE TIMES LARGER and were cut on the design owner's
-;  instruction: the first wave at two minutes rather than three, and the ones
-;  after it three times as often. What that buys is that the loiter is no
-;  longer a sequence of separate fights -- the old spacing was 60 to 238
-;  seconds and a wave takes 20 to 40 to resolve, so one was always dead before
-;  the next arrived. See the note on wave_next below.
+;  This is the third cut. It was three minutes, then two on the design owner's
+;  instruction, and one now -- and the ones after the first are three times as
+;  often as they first were. What that buys is that the loiter is no longer a
+;  sequence of separate fights: the old spacing was 60 to 238 seconds and a
+;  wave takes 20 to 40 to resolve, so one was always dead before the next
+;  arrived. See the note on wave_next below.
 ; ----------------------------------------------------------------------------
-WAVE_FIRST_FRAMES   equ 600             ; 2 minutes at the measured 5.0 fps
+WAVE_FIRST_FRAMES   equ 426             ; 1 minute at the measured 7.1 fps
 
 ;  HOW MANY WAVES A MISSION HAS TO SEE BEFORE IT MAY BE LEFT.
 ;
@@ -100,7 +110,7 @@ WAVE_FIRST_FRAMES   equ 600             ; 2 minutes at the measured 5.0 fps
 ;  the third wave is dead. What it buys is that no mission can be walked out
 ;  of -- see mis_gate in game/campaignrun.asm for the other half of the rule.
 WAVE_BEFORE_JUMP    equ 3
-WAVE_GAP_MIN        equ 100             ; ...and 20 to about 77 seconds after
+WAVE_GAP_MIN        equ 100             ; ...and 14 to about 54 seconds after
 
 ;  The spacing is WAVE_GAP_MIN + 1.125 * a random byte, which reaches 386. It
 ;  was WAVE_GAP_MIN 300 + 3.5r, reaching 1192, and both ends are a third of
@@ -142,7 +152,7 @@ WAVE_READ_EVERY     equ 4
 
 
 ; ----------------------------------------------------------------------------
-;  wave_init -- a fresh mission: the clock back to two minutes, no waves sent
+;  wave_init -- a fresh mission: the clock back to a minute, no waves sent
 ;  Uses: everything
 ;
 ;  Called from mis_setup, which is the one path every mission arrives through
@@ -362,25 +372,65 @@ wave_pct_of:
 
 @wave_pct_divide:
     add hl,de                           ; HL = hull again, and HL < DE
+    call wave_frac_bits
+    ld h,a
+    ld l,100
+    call mul_u8
+    ld a,h                              ; (C * 100) >> 8
+    ret
+
+
+; ----------------------------------------------------------------------------
+;  wave_frac_of -- A = 256ths of DE that HL is, saturating at 255
+;  In : HL over DE
+;  Out: A = floor(256 * HL / DE), or 255 if HL >= DE, or 0 if DE = 0
+;  Uses: everything
+;
+;  The middle of wave_pct_of, given a name because the repair price wants the
+;  fraction itself rather than a percentage of it -- `eco_repair_cost` is
+;  2 x the class price x how damaged the ship is, and 256ths multiply into a
+;  byte-wide answer where hundredths would need a second divide.
+;
+;  Same split, same reason, as wave_pct_of being lifted out of wave_percent:
+;  the caller that wants the number is not the caller that owns the globals.
+;
+;  IT SATURATES AT 255 AND wave_pct_of DOES NOT USE THAT PATH. 256 does not fit
+;  a byte, so "all of it" has to be 255 -- and (255 * 100) >> 8 is 99, not 100,
+;  which would put the HUD's fleet readout at 99% with nothing damaged. That is
+;  why wave_pct_of keeps its own `HL >= DE` case above rather than being three
+;  lines on top of this one.
+; ----------------------------------------------------------------------------
+wave_frac_of:
+    ld a,d
+    or e
+    ret z                               ; nothing to be a fraction of; A = 0
+    or a
+    sbc hl,de
+    jr c,@wave_frac_go
+    ld a,255                            ; all of it, or more than all of it
+    ret
+@wave_frac_go:
+    add hl,de                           ; HL = the numerator again, and HL < DE
+;  ...and fall through.
+
+;  The eight restoring-divide steps themselves. HL < DE on entry, which is what
+;  keeps the doubling below inside sixteen bits.
+wave_frac_bits:
     ld c,0                              ; the quotient, eight fractional bits
     ld b,8
-@wave_pct_bit:
+@wave_frac_bit:
     sla c
     add hl,hl
     or a
     sbc hl,de
-    jr c,@wave_pct_zero
+    jr c,@wave_frac_zero
     inc c
-    jr @wave_pct_step
-@wave_pct_zero:
+    jr @wave_frac_step
+@wave_frac_zero:
     add hl,de                           ; it did not fit; put it back
-@wave_pct_step:
-    djnz @wave_pct_bit
-
-    ld h,c
-    ld l,100
-    call mul_u8
-    ld a,h                              ; (C * 100) >> 8
+@wave_frac_step:
+    djnz @wave_frac_bit
+    ld a,c
     ret
 
 

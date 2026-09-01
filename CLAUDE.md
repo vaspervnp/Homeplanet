@@ -915,13 +915,17 @@ not needed and should stay unspent.
 | `,` / `.` | step the target through live entities |
 | `A` / `G` | attack / guard. `A` closes the squadron on its target and **spends itself** when there is nothing left to shoot at, so the fleet re-forms on its station by itself |
 | `H` | send the selected squadron's **harvesters** to work |
+| `E` | **repair** the selected squadron — once a mission, and not under fire |
+| `Y` | **recycle**: break the selected squadron up for RU |
 | `B` | open the build panel; `,`/`.` pick a class, ENTER orders it |
 | `ESC` | the orders menu — cursor keys pick, `ENTER` runs it |
 | `I` | what the selected squadron is made of; `ESC` goes back |
 | `?` | the key list; `ESC` goes back |
 | `SPACE` | on the title screen, start the game |
 
-`J` jumps when the objective is met, and writes the save on its way out.
+`J` jumps when `mis_gate` allows it — the objective met, three waves seen, no
+enemy flying and **`MIS_JUMP_COST` in the treasury** — and writes the save on
+its way out.
 
 **The context bar at the top of the screen names whichever of these are live
 right now** — see its own section. That is where a player is meant to find
@@ -1260,6 +1264,132 @@ same thing:
 squadron out put fifteen interceptors on a patch and mined the map dry in
 seconds — the economy is meant to be a choice, not a free action.
 
+#### `E` puts RU back into hull, at twice the price for the damage
+
+    cost = 2 * eco_class_cost[class] * (full - hull) / full
+
+**The multiplier IS the design.** At half damage, mending and building cost
+exactly the same — so the price tells the player which to do without a word of
+explanation: below half mend it, above half let it die and build another. A
+multiplier of one would make repair strictly better than building and nobody
+would ever build again.
+
+The two are not interchangeable the other way either, and that is why repair
+is allowed to be this expensive: **nothing else in the game puts hull back.**
+§1's fleet only ever shrinks, a new ship is a new *ship*, and `wave_health` is
+summed hull — so the fleet's percentage and the size of the next attack wave
+both move when a repair lands.
+
+**The arithmetic avoids a second divide.** `wave_frac_of` — lifted out of
+`wave_pct_of` exactly as `wave_pct_of` was lifted out of `wave_percent` — gives
+the damage in **256ths**, so `cost = (price * frac) >> 7` is `2 * price * frac
+/ 256` with one `mul_u8` and a shift. It is `>>7` of the product rather than
+`<<1` of it because 250 × 255 doubled overflows sixteen bits at the Destroyer.
+
+> **`wave_frac_of` saturates at 255 and `wave_pct_of` does not use that path.**
+> 256 does not fit a byte, so "all of it" has to be 255 — and `(255 * 100) >> 8`
+> is **99**, which would put the HUD's fleet readout at 99% with nothing
+> damaged. `wave_pct_of` keeps its own `HL >= DE` case rather than becoming
+> three lines on top of the new one.
+
+**Squadron-scoped, like `H`, `T`, `A` and `G`.** It walks the selection in slot
+order and repairs everything it can afford, **skipping** what it cannot rather
+than stopping at the first — stopping would let one Destroyer at 90% damage
+hold up four interceptors at ten RU each, which is a rule the player would have
+to be told. And a ship comes back **whole or not at all**: half a repair is
+expressible, and offering it would make the price of the next one depend on how
+much was bought last time, so the player could no longer read the cost off the
+ship.
+
+#### ...and it is refused under fire, and once a mission
+
+**Not while anything hostile is flying** — the same predicate the jump gate
+asks, `mis_count_hostiles`, wave ships counted and wrecks not. The yard works
+in the lulls, so repairing is what a player does *after* winning the ground
+rather than a way of winning it: under fire, a deep enough treasury would turn
+every fight into an attrition the enemy cannot win, which is the opposite of
+§1's fleet that only ever shrinks.
+
+Wrecks not counting is load-bearing again rather than tidy: the **derelict is
+ACTIVE and ENEMY for the whole of missions 4 to 6**, so counting it would mean
+no repair at all in three missions of the eight. Fourth time that bit has
+earned its place in a mask.
+
+**Once a mission**, and `mis_setup` clears `eco_repaired` — so "once per
+mission" is true by construction rather than by anyone remembering to reset
+it, exactly as `mis_timer`'s two minutes are.
+
+> **The flag is set where a hull moves, not at the top of the routine.** A
+> press that found nothing damaged, or nothing it could afford, has used
+> nothing up. Setting it on entry would let a stray `E` silently spend the
+> mission's one repair, and there is nothing on screen that would tell the
+> player it had happened.
+
+`R` was the station order and `F` the formation, so both obvious initials were
+gone; **`E`** is the letter left in the word, on the same matrix row 7 as the
+`D` and `C` the squadron commands already use.
+
+> **The orders menu is sixteen rows now and the step is NINE.** `MENU_STEP` 10
+> put the sixteenth row at 176 against `HUD_TOP` 168 and the build stopped —
+> the second time those asserts have caught this, and this time there was
+> nothing left above the title to move. The glyphs are eight tall, so nine is a
+> one-pixel gutter and the list is visibly tighter. The choice was a cramped
+> list or a command the player cannot find: **the help page's right column IS
+> `menu_entries`**, so a row that is not there is not anywhere. `HELP_LINE_STEP`
+> came down with it. Seventeen orders will need a second column.
+
+> **And the menu tests indexed rows by NUMBER.** Inserting REPAIR beside BUILD
+> moved nine of the eleven constants at the top of `tests/test_menu.py`, every
+> one of them written down. A row index is a fact about a table in bank 4, so
+> `row_of("SENSORS")` looks it up in that table now — the same lesson as
+> reading `ENT_MAX` out of the symbol file.
+
+#### `Y` breaks ships up, at half the price rising to seven tenths
+
+    refund = eco_class_cost[class] * (0.5 + 0.2 * hull / full)
+
+"50% to 70%" was the ask and **the range had to be given a driver**. It is the
+HULL and not a die roll, for the reason `game/salvage.asm` gives about wrecks:
+a coin toss is not something a player can act on, and *"a ship in good order is
+worth more broken up than a hulk is"* is a rule they can. It is also the one
+number the player is already watching — the `I` page prints it per class.
+
+**The squadron IS the selection**, which is what makes a destructive command
+safe enough to sit on one key: `O` splits the whole fleet by class in a single
+press, so *"scrap the scouts"* is two keystrokes and cannot touch anything
+else. **The Mothership is never broken up** — §8 makes losing it the end of the
+campaign — and the test is the CLASS, not `moth_slot`, because `fleet_restore`
+moves what that points at.
+
+> **REPAIR AND RECYCLE COMPOSE, AND THE CROSSOVER IS THE THING TO KNOW.**
+> Repair costs `2·P·d` for damage `d`; scrapping and rebuilding costs
+> `P − refund = P·(0.3 + 0.2·d)`. Repair is the cheaper of the two only while
+> `1.8·d < 0.3` — **below about one sixth damage**. So the pair says: mend a
+> scratch, recycle a hulk. That is a real decision and it is narrower than it
+> looks; if repair is meant to be the usual answer rather than the exceptional
+> one, it is those two constants that move, not the code.
+
+`SCRAP` and `DECOMMISSION` have no free letter between them — S, C, R, A, P, D,
+E, O, M, I and N are all bound — so the word is **RECYCLE** and the key is its
+`Y`, on the same matrix row 5 as the `H` and `J` it sits beside in the menu.
+
+#### A jump costs a thousand RU
+
+`MIS_JUMP_COST`, spent out of the same treasury the yard spends, and it is the
+**fourth thing `mis_gate` asks** — checked there rather than at the key, so the
+HUD's `JUMP` never offers what ENTER would refuse. `mis_jump` takes it after
+both refusals and before anything else moves, so a refused jump is never
+charged for.
+
+> **It makes the economy compulsory rather than optional, and that is a bigger
+> change than the number looks.** `ECO_START_RU` is 120, so a fleet that never
+> mines cannot leave mission 1 — and with the harvester rule above, the first
+> forty of those 120 have to go on a harvester before anything can be earned at
+> all. **`tools/balance.py`'s DEFAULT tactic can no longer finish the
+> campaign**: it never spends a unit and never sends a harvester anywhere. The
+> `--rebuild` tactic is the one that measures this game now, which is the same
+> point that tactic was added to make.
+
 #### With no harvester, only harvesters can be built
 
 **It is a soft-lock guard and not a difficulty rule**, and that is the whole
@@ -1306,7 +1436,7 @@ yard delivering twice.
 
 ### Attack waves, and the price of staying
 
-Stay in a mission more than **two** minutes and the Vekhar start arriving, in
+Stay in a mission more than **one** minute and the Vekhar start arriving, in
 waves of random size at random spacing, and they never stop. `src/game/waves.asm`,
 in the **low 16K** with the rest of the frame loop's simulation.
 
@@ -1442,7 +1572,7 @@ waves have to be MEASURED.
 |---|---|---|
 | orders outstanding | 1 | **10**, mixed classes |
 | resource stock a patch | 900 / 400 | **×6** |
-| first wave | 900 frames (3 min) | **600** (2 min) |
+| first wave | 900 frames (3 min) | **600** (2 min), and **426** (1 min) since |
 | spacing | `300 + 3.5r`, mean 746 | **`100 + 1.125r`, mean 243** |
 
 The spacing is a factor of **3.07**, and `1.125` is three shifts and an add
@@ -1519,12 +1649,21 @@ SPACE stops the clock along with the battle.
 > left to shoot at is precisely where it used to spend half the frame, so
 > loitering is the state that got fastest.
 >
-> **Nothing has been changed for it**, deliberately. The owner set "two
-> minutes" and "three times as often" as numbers, and `waverate.py` is the
-> measuring stick for whether the waves are still winnable; moving the
-> constant is a balance decision with a fresh baseline attached, not a
-> follow-on repair. What is recorded here is that 600 game frames now means
-> 87 seconds and not 120, and that restoring two minutes would be about 1100.
+> **And then the owner asked for one minute** — *"τα κύμματα επίθεσης να
+> αρχίζουν 1 λεπτό μετά την είσοδο στην πίστα"* — so the constant moved anyway
+> and the conversion was redone from a measurement rather than from the stale
+> 5.0. `DEMO_FRAMES` over 1000 emulator frames on this build is **7.10 fps**, so
+> a minute is 426 and that is what `WAVE_FIRST_FRAMES` is. (7.10 in mission 1
+> with a picket on screen; the 9.23 above is a cleared board, which is the
+> spread the paragraph above means by "honest to a few per cent".)
+>
+> **The lesson is the general one and it is worth stating on its own: a
+> constant in game frames is a constant in SECONDS only against a frame rate
+> somebody looked at.** This one has been silently wrong twice now. So
+> `tests/test_waves.py` **reads `WAVE_FIRST_FRAMES` out of the symbol file**
+> instead of mirroring it — a mirrored copy fails for a reason that has nothing
+> to do with waves — and the comment in `waves.asm` carries the measurement it
+> was derived from, not just the answer.
 
 #### And then the waves became the price of LEAVING instead
 
@@ -1583,6 +1722,23 @@ have to fight a siege. The rule itself is driven rather than arranged, in
 `tests/test_campaign.TestTheWayOut` — five tests, each withholding exactly one
 clause, because a gate tested by satisfying everything at once passes just as
 happily with two of its clauses deleted.
+
+> **AND AN INTERRUPTED BUILD LEAVES A SHORT ONE, which is the same trap with a
+> different cause.** The owner reported that the disc was not applying the jump
+> gate at all. It was not: the `.dsk` was **194816 bytes against 204544**, and
+> the game booted, reached the title and ran — the sprite banks and the fleet
+> track are RAW SECTORS added after `rasm` mints the image, so an image that
+> lost them is a perfectly good AMSDOS disc with `DISC.BIN` on it and nothing
+> else. `MIS_SAVED` came back **66**, which is `'B'`.
+>
+> `rm -f build/homeplanet.dsk && make` was tried and produces a correct image,
+> so the Makefile is not at fault — what produced the short one was a `make
+> test` **killed part way through**, between `rasm` writing the image and
+> `discbanks.py` putting the tracks on it. Make then sees a `.dsk` newer than
+> its prerequisites and leaves it alone. **`make clean` is the cure**, and the
+> symptom to recognise is every `test_persistence` test failing at once while
+> `boot_quick` is perfectly happy — those eight are the only ones that read
+> the real image, so they are the net, and they caught it.
 
 > **A STALE `.dsk` cost an hour of this, and the file above says so.** Eight
 > `test_persistence` failures all reading "the jump was refused", on a build
@@ -3015,8 +3171,11 @@ The geometry comes from `class_geom`, the blitter's own placement table, so a
 bar cannot walk somewhere its ship is not, and the entries `phase4_group`
 consolidated away are skipped because they draw no sprite. **One counter for
 the whole fleet**: position is `x0 + col`, so every bar moves at one speed and a
-tier A ship finishes four steps before a tier C one for free. Vanish 0.68 s,
-reveal 1.76 s — the reveal is bounded by the frame rate, not by the distance.
+tier A ship finishes four steps before a tier C one for free. **Vanish 7.2 s,
+reveal 4.6 s** — the reveal is bounded by the frame rate, not by the distance.
+The two are not symmetrical any more and cannot be: the reveal's run is the
+sprite alone, for the reason under "A ship may only blacken its own sprite
+rectangle".
 
 **The scenery gets no bar.** The Y=0 lattice, the resource fields and the
 Mothership marker are the place, not the fleet, so the vanish ends with two
@@ -3028,6 +3187,29 @@ full-playfield black passes, one per buffer.
 > same moment. At the default zoom a tight formation merges neighbouring bars
 > into two or three-column blocks — five or six moving edges instead of sixteen
 > — which is a loss of detail and not of the gesture.
+
+**The reveal is twice as fast as it was**, `JFX_REVEAL_DWELL` 6 → 3, and it
+was **measured rather than converted**: the dwell is in GAME frames and the
+frame rate is not a constant — which is the assumption that made an earlier
+attempt at this wrong, and two tests caught it then. 894 emulator frames at
+six, 468 at three, so 1.91× and not 2.00×, which is as close as a counter
+quantised to whole game frames gets.
+
+`snd_fx_jump_in` went with it through its **prescaler** and not its timer, and
+the difference is the whole point: 220 steps at slow 2 is the same sweep in
+half the time, where a timer of 110 at slow 4 would be half the sweep and the
+sound would stop in the middle of its own pitch range.
+
+> **Two tests were tied to the old numbers and both were asserting a figure
+> rather than a property.** `test_the_arrival_is_the_long_one` wanted the
+> arrival to be more than **twice** the departure — it was 880 against 300 and
+> is now 440 against 300, and what actually matters is that it is the longer
+> half and that each sound finishes inside its own half of the wipe.
+> `test_the_arrival_is_heard_falling_back_down` sampled at **300 ticks**,
+> chosen as a third of 880; at 440 that is two thirds of the way down a decay
+> that reaches zero, the amplitude read 3/15, and the test called the sound
+> inaudible. It computes the third from the descriptor now. **A sample point is
+> a fraction of a length, not a number of frames.**
 
 **Left to right both times, the reveal repeating the vanish rather than
 mirroring it** — a mirror reads as "you came back", and §10's campaign only
@@ -3085,6 +3267,55 @@ exist until the frame loop draws it — no arrangement of masks fixes that.
 
 Costs **76 T-states** on an ordinary playing frame: a flag test and a call that
 returns on a compare.
+
+#### A ship may only blacken its own sprite rectangle
+
+**Everything a ship blacks outside its own sprite is somewhere another ship may
+already have been uncovered.** The reveal used to black three lines above and
+three below its sprite *across the whole run*, plus the run-up and the run-out:
+a rectangle thirteen bytes wide and twelve lines tall for a sprite three by six.
+In a formation seen from the side — ships a byte or two apart and a line or two
+above each other — **every ship's mask lands on its neighbour**, so a ship the
+bars had already passed was blacked out again by the ship beside it and only
+the last one masked survived to be seen.
+
+Measured on mission 3: seven interceptors in a row, **one of them drawn**; 58
+lit bytes on the last frame of the reveal against 83 one frame later. The player
+reported it as *"δεν εμφανίζει σωστά αμέσως τα sprite — εμφανίζονται μετά με το
+που τελειώσει το effect"*, which is the exact symptom: the masks all come off
+together when `JFX_IN` ends, and only then is the fleet whole.
+
+The rule that makes it impossible rather than unlikely is the heading. Two ships
+whose rectangles do not overlap cannot interfere at all, and two whose
+rectangles do overlap are already one hiding the other under the painter's
+algorithm. So the reveal works in the **core** — the sprite's own rows and its
+own byte columns — and the bar travels the sprite's width instead of margin,
+sprite, margin. `JFX_REVEAL_TRAVEL` is 7 where `JFX_TRAVEL` is 13.
+
+Three things fall out of it, all of them wanted:
+
+- the bar no longer stands `JFX_VMARGIN` proud, so nothing is drawn outside the
+  dirty rectangle that erases it — and **the two masking strips that existed
+  only to clean that up are gone.** Four fills a ship became one;
+- the run is 7 rather than 13, so the reveal is 4.6 s where it was 9.4 — the
+  other half of "το jump in να είναι 2 φορές γρηγορότερο", arriving from the
+  geometry rather than from the dwell;
+- it is cheaper per frame than what it replaces.
+
+**The vanish keeps the long run and the proud bar.** It has the same overlap and
+it does not matter there: everything it touches is on its way to black, so a
+neighbour blacked early is a ship that vanished a step sooner, not a ship that
+failed to appear.
+
+> **Every test of the reveal passed throughout, and the reason is the one this
+> file keeps writing down.** `test_a_ship_is_hidden_until_its_own_bar_has_gone_by`
+> asserts one direction — nothing shows *early* — and a mask that erases the
+> whole fleet satisfies it perfectly. `test_the_mission_comes_out_from_behind_the_bars`
+> counts lit bytes and only asks that the last sample beat the first, which
+> 58 > 0 does. The test that says it is
+> `test_no_ship_is_waiting_for_the_effect_to_be_over`: the last frame of the
+> reveal must already be the picture, near enough. It was checked by putting the
+> old code back and watching it fail.
 
 #### The reveal masks the DIRTY RECTANGLES, not the screen
 
