@@ -1467,6 +1467,21 @@ place: **`mis_setup` zeroes it, so the three minutes are per mission by
 construction**, and `demo_update` skips `mis_update` while `order_paused`, so
 SPACE stops the clock along with the battle.
 
+> **AND THE CONVERSION HAS SINCE MOVED BY A THIRD, WHICH IS NOT A FEW PER
+> CENT.** `WAVE_FIRST_FRAMES` is 600 and its comment says "2 minutes at the
+> measured 5.0 fps". Measured on this build — mission 3, picket cleared, which
+> is the loitering case the clock is about — the first wave arrives after
+> **87 seconds**, at 9.23 fps. `cbt_find_enemy` is why: a mission with nothing
+> left to shoot at is precisely where it used to spend half the frame, so
+> loitering is the state that got fastest.
+>
+> **Nothing has been changed for it**, deliberately. The owner set "two
+> minutes" and "three times as often" as numbers, and `waverate.py` is the
+> measuring stick for whether the waves are still winnable; moving the
+> constant is a balance decision with a fresh baseline attached, not a
+> follow-on repair. What is recorded here is that 600 game frames now means
+> 87 seconds and not 120, and that restoring two minutes would be about 1100.
+
 #### Three decisions, written down
 
 - **A wave does not count towards the objective.** `ENT_F_WAVE` is a fourth
@@ -1959,20 +1974,33 @@ Mothership at mission 5. Neither was wrong -- they were different scripts. So
 run the tool rather than quoting prose, and treat any figure here as "that
 script, that build".
 
-Latest run, with all eight classes and the attack waves in, and with an attack
-order that spends itself:
+Latest run, after the fleet's ceiling doubled and `cbt_find_enemy` stopped
+sweeping the whole table:
 
 ```
 mis enemy  in out lost   hull  fleet
   3     4  16  16    0   3768  int=15 moth=1
-  4     8  16  15    1   3009  int=14 moth=1
-  5     8  14  13    1   2643  int=13  FAILED -- the Mothership was lost
+  4     9  16  15    1   3081  int=14 moth=1
+  5     9  15  15    0   2765  int=14 moth=1
+  6     7  15  13    2   2351  int=12 moth=1
+  7    12  13   0   13      0   FAILED -- the Mothership was lost
 ```
 
-The run before the fix reached mission 6 and the one before the waves reached
-8. The first of those two steps is explained under "It costs `tools/balance.py`
-a mission" below and is **not** a timing artefact — it is the only swing in
-this script that has ever survived its own control.
+**It reaches mission 7 again, and no control is needed to say why.** The run
+before it stopped at 5 and the one before that at 6; this build's frame is
+38-85% faster depending on whether anything is alive to shoot at, and the
+script's budgets are in emulator frames, so every mission buys more game
+frames than it used to. That is far outside what 520 T-states of `djnz` can
+move — the control exists for swings small enough to be a tick boundary, and
+this one is not. Mission 3's hull is byte for byte what it was, which is the
+other half of the same statement: the SEARCH returns the same answer as
+before, because only hostiles ever matched it. Only its cost changed.
+
+The previous figures, for comparison: mission 5 with the attack order that
+spends itself, mission 6 before the jump wipe, mission 8 before the waves. The
+step down to 5 is explained under "It costs `tools/balance.py` a mission"
+below and is **not** a timing artefact — it is the only swing in this script
+that has ever survived its own control.
 
 **Mission 7's cost is not a number, it is a coin toss, and this is worth
 knowing before anyone "fixes" a regression that is not one.** The zoom work
@@ -2946,7 +2974,15 @@ tick-boundary story: `dismiss_briefing` waits the sweep out, so the one to
 three game frames that used to run while the harness pressed ENTER no longer
 run. Missions 1-3 are identical, mission 4 comes out with MORE hull, and it
 lands on the 6/7 coin toss this file already documents.
-`tools/waverate.py 4` is **44/48 = 92%** against the 70% floor, from 45/48.
+`tools/waverate.py 4` was **44/48 = 92%** against the 70% floor, from 45/48.
+
+**Today's figure is 47/48 = 98%**, measured after the fleet's ceiling doubled
+and `cbt_find_enemy` stopped sweeping the whole table: 24/24 with the fleet
+each mission actually has, 23/24 with it crippled to half the ships at half
+hull, and the one loss is mission 6 halved. The floor is in no danger. Read it
+with "The clock, converted honestly" beside it, though — the waves arrive after
+**87 seconds** on this build rather than the two minutes the constant was
+calibrated for, because loitering is exactly the state that got fastest.
 
 ### The fleet and the enemy have separate ceilings
 

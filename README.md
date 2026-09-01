@@ -48,11 +48,11 @@ The build **prints the four numbers that matter** and you should watch all of
 them:
 
 ```
-hand-written code ends at #256F
+hand-written code ends at #2572
 code+tables: #40 .. #3100  image: 12480
   + entity arrays to #3CF4  free: 524
-bank 4: #4000 .. #7739  image: 10425  free: 2247
-DISC.BIN: 23291 bytes, exec at #9AAB
+bank 4: #4000 .. #773B  image: 10427  free: 2245
+DISC.BIN: 23297 bytes, exec at #9AB1
 ```
 
 - `free:` for the low 16K is **quantised to 256 bytes** because the generated
@@ -86,7 +86,7 @@ python3 -m unittest tests.test_phase0 -v   # one module
 python3 -m unittest discover -s tests -t . # the same as make test
 ```
 
-Around **630 tests**. They are slow for a specific reason: the sprite libraries
+Around **620 tests**. They are slow for a specific reason: the sprite libraries
 live on the disc as raw sectors, so every boot spins the drive up and reads
 them — a second and a half of emulated time per machine, and there are about a
 hundred machines. That is the price of testing the real loader instead of a
