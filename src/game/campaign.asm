@@ -239,15 +239,33 @@ patches_thin:
 ;  whole of the font, and short because the design asks for "λίγο κείμενο,
 ;  πολλή σιωπή". The tone is section 1's: lonely, quiet, and never explaining
 ;  more than it has to.
+;
+;  THE FIRST TWO SAID SOMETHING THE GAME STOPPED DOING, and that is what these
+;  three lines of it are about. mis_gate will not let a mission be left before
+;  its third wave, whatever the mission's own objective is -- so missions 1 and
+;  2, which field no picket at all and complete on their first frame, are three
+;  waves of Vekhar each. Mission 2's briefing said "THERE IS NOTHING HERE TO
+;  FIGHT", which was true when it was written and is now the opposite of what
+;  happens.
+;
+;  It is fixed in the FICTION rather than in the rule, because the rule is
+;  universal and a universal rule wants saying once. What the jump gate
+;  actually means is that arriving is heard: the Vekhar come to the noise, and
+;  a fleet leaves when they have stopped coming. Mission 1 is where a player
+;  meets that for the first time, so mission 1 is where it is said -- and
+;  mission 2 then only has to stop denying it.
+;
+;  BRIEF_X is 8 pixels and TXT_CHAR_W_BYTES is 2, so a line has 39 characters
+;  before txt_draw clips it at the edge of the screen. The longest here is 37.
 ; ----------------------------------------------------------------------------
 mission_text:
     defb "FIRST JUMP IN NINE GENERATIONS.",0
-    defb "THE MOTHERSHIP HOLDS SIXTY THOUSAND",0
-    defb "SLEEPERS. TAKE IT OUT AND BACK.",0
+    defb "SIXTY THOUSAND SLEEPERS ABOARD.",0
+    defb "THEY HEARD IT. HOLD UNTIL THEY STOP.",0
 
     defb "THE COLONY IS STILL BURNING.",0
-    defb "THERE IS NOTHING HERE TO FIGHT.",0
-    defb "GATHER WHAT IS LEFT.",0
+    defb "NOTHING OF THEIRS WAS WAITING HERE.",0
+    defb "GATHER WHAT IS LEFT. THEY WILL COME.",0
 
     defb "A DEBRIS FIELD, AND SOMETHING",0
     defb "SITTING IN IT THAT HAS NOT MOVED",0
