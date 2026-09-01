@@ -815,7 +815,8 @@ ENDIF
 ;  ...and both halves have to make enough passes for the last of them to be
 ;  past the end of the longest run, or the bars stop somewhere over the ships.
     assert (JFX_VANISH_PASSES - 1) * JFX_VANISH_STEP >= JFX_TRAVEL, "the vanish stops before its bars have crossed"
-    assert (JFX_REVEAL_PASSES - 2) * JFX_REVEAL_STEP >= JFX_TRAVEL, "the reveal's last two passes are not past the end of the run"
+    assert (JFX_REVEAL_PASSES - 2) * JFX_REVEAL_STEP >= JFX_REVEAL_TRAVEL, "the reveal's last two passes are not past the end of the run"
+    assert JFX_REVEAL_TRAVEL <= JFX_TRAVEL, "the reveal's run is not inside the vanish's"
 
 ;  Both dwells are counted DOWN with `dec (hl)`, and the vanish loads
 ;  DWELL - 1 before it waits at all -- so a dwell of 1 loads zero, wraps to 255

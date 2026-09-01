@@ -68,8 +68,13 @@ ALL_MUTED = 0x3F
 FIRE_TICKS = 8
 EXPLOSION_TICKS = 24
 HIT_TICKS = 6
+#  Read out of the descriptors rather than written down: a sound's length is
+#  its timer times its PRESCALER, and halving the reveal halved the prescaler.
+#  Written down, these two rot silently into a budget nothing is measured
+#  against -- 880 was the arrival's length until the reveal was made twice as
+#  fast, and a test asserting "under 880" would have passed for ever after.
 JUMP_OUT_TICKS = 300
-JUMP_IN_TICKS = 880
+JUMP_IN_TICKS = 440
 
 #  The vanish's shortest possible length is arithmetic now rather than a
 #  measurement, which is the one thing the slowdown made easier: every one of
@@ -716,7 +721,7 @@ class TestTheJump(SoundFixture):
                              f"{JUMP_OUT_TICKS}")
 
     def test_the_arrival_is_the_long_one(self):
-        """Vanish 7.2 s, reveal 17.1 s. The sounds are the same shape."""
+        """Vanish 7.2 s, reveal 9.4 s. The sounds are the same shape."""
         out_slow = self.slow_of("SND_FX_JUMP_OUT")
         in_slow = self.slow_of("SND_FX_JUMP_IN")
         self.jump_out()
@@ -725,8 +730,14 @@ class TestTheJump(SoundFixture):
         self.jump_in()
         long = self.ticks_until_silent(limit=JUMP_IN_TICKS + 40, every=in_slow)
         self.assertIsNotNone(long, "the arrival never stopped")
-        self.assertGreater(long, short * 2,
-                           f"the arrival ({long} ticks) is not the long half "
+        #  LONGER, and not "more than twice as long". The ratio was 300 against
+        #  880 and is now 300 against 440, because the reveal was made twice as
+        #  fast and the sound went with it -- the property is that the arrival
+        #  is the longer half and that each sound finishes inside its own half
+        #  of the wipe, which is what the budget below says. A ratio is a
+        #  figure from the day it was written.
+        self.assertGreater(long, short,
+                           f"the arrival ({long} ticks) is not the longer half "
                            f"against the departure ({short})")
         self.assertLessEqual(long, JUMP_IN_TICKS + in_slow,
                              f"the arrival ran {long} ticks, budget "
@@ -795,6 +806,18 @@ class TestThePrescaler(SoundFixture):
         Read against the descriptor's own `slow` rather than against 4, so it
         follows the sound if the constant is retuned -- and it fails if the
         prescaler is bypassed altogether, because then every tick moves.
+
+        IT ASKS FOR A PATTERN AND NOT FOR A PARTICULAR TICK, and that is the
+        repair rather than a flourish. It used to start counting at the first
+        tick after the sound was started and assert that ticks 2..slow held --
+        which is only true if no tick has gone by in between, and `jump_in`
+        does not promise that. At slow 4 the assumption landed inside the hold
+        window and the test passed; halving `slow` to make the sound twice as
+        fast moved the phase by one and it failed, saying "the prescaler is not
+        holding it" about a prescaler that was working perfectly.
+
+        The phase-free statement is the one that was meant all along: over a
+        long enough stretch, every run of equal periods is `slow` long.
         """
         slow = self.slow_of("SND_FX_JUMP_IN")
         self.assertGreater(slow, 1, "the in is not prescaled at all, so this "
@@ -802,18 +825,28 @@ class TestThePrescaler(SoundFixture):
         self.silence()
         self.jump_in()
 
-        self.tick()                             # the first tick IS a step
-        first = self.period_c()
-        for i in range(1, slow):
+        seen = []
+        for _ in range(slow * 5 + 1):
             self.tick()
+            seen.append(self.period_c())
+
+        runs = []
+        for p in seen:
+            if runs and runs[-1][0] == p:
+                runs[-1][1] += 1
+            else:
+                runs.append([p, 1])
+        self.assertGreater(len(runs), 2,
+                           f"the period never moved at all over {len(seen)} "
+                           f"ticks: {seen}")
+        #  The first and last runs are cut off by where the sampling started
+        #  and stopped, so only the whole ones in between can be measured.
+        for value, length in runs[1:-1]:
             self.assertEqual(
-                self.period_c(), first,
-                f"the period moved on tick {i + 1} of a voice that steps "
-                f"every {slow}: the prescaler is not holding it")
-        self.tick()
-        self.assertNotEqual(self.period_c(), first,
-                            f"the period did not move on tick {slow + 1}, so "
-                            f"the voice never steps at all")
+                length, slow,
+                f"period {value} was held for {length} ticks on a voice that "
+                f"steps every {slow}: the prescaler is not holding it. "
+                f"{seen}")
 
     def test_the_level_is_held_too_and_not_only_the_pitch(self):
         """Both halves of the envelope are behind the same counter.

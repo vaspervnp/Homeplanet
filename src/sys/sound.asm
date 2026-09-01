@@ -622,7 +622,8 @@ snd_fx_hit:
 ;  every note in the music by an octave and that is a decision for an ear.)
 ;
 ;  The out is audible over steps 1..92 -- 102 Hz to 919 Hz -- and the in over
-;  1..203, 1078 Hz back down to 94 Hz. Both are read off the chip's own
+;  1..203, 1078 Hz back down to 94 Hz. The PITCHES are unchanged by the reveal
+;  being halved; only how fast they are walked is. Both are read off the chip's own
 ;  registers by tests/test_sound.TestTheJump, which samples one step at a time. Neither period ever wraps: 620 - 99*6 =
 ;  26 and 55 + 219*3 = 712, both well inside the 12 bits the registers have.
 snd_fx_jump_out:
@@ -633,7 +634,14 @@ snd_fx_jump_out:
 snd_fx_jump_in:
     defb 220, SND_PRI_JUMP, 220, 1
     defw 55, 3
-    defb 4, 1
+    ;  SLOW 2, NOT 4: the reveal was halved ("το jump in να είναι 2 φορές
+    ;  γρηγορότερο"), so this is too. It is the PRESCALER that halves and not
+    ;  the timer, and the difference is the whole point -- 220 steps at slow 2
+    ;  is the same sweep in half the time, where a timer of 110 at slow 4
+    ;  would be half the sweep and the sound would stop at the middle of its
+    ;  own pitch range. Measured: the reveal is 468 emulator frames, and 220
+    ;  steps x 2 is 440 ticks.
+    defb 2, 1
 
 ;  Priorities. Only ever compared with each other, and only within a channel.
 SND_PRI_HIT         equ 1

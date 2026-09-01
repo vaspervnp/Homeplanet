@@ -24,6 +24,11 @@
 ;  fit in it. Where the time actually goes is JFX_VANISH_DWELL, and the note
 ;  there is the one to read before changing any of this.
 ;
+;  ...and then "το jump in να είναι 2 φορές γρηγορότερο", which the reveal's
+;  dwell paid half of and its GEOMETRY the other half: it is 4.6 seconds now,
+;  and shorter than the vanish rather than longer. See JFX_REVEAL_TRAVEL, which
+;  is the fix for a bug and gave the speed away as change.
+;
 ;  WHAT THE TRAVEL IS, WHICH IS THE WHOLE OF THE GEOMETRY
 ;  -----------------------------------------------------
 ;  A ship's sprite is class_geom's (width, height) for its size tier, placed by
@@ -56,10 +61,12 @@
 ;                   bar and a ship that has only been half rubbed out; repainting
 ;                   the trail costs one fill either way because scr_fill_rect's
 ;                   per-row overhead dwarfs the bytes. One fill and a bar.
-;      appearing -- everything in the band EXCEPT the part of the sprite the bar
-;                   has already passed, which is precisely the part that is
-;                   meant to be showing. That is four fills, and it is four
-;                   rather than two because of the paragraph below.
+;      appearing -- the part of THE SPRITE the bar has not reached yet, and
+;                   nothing else at all: one fill, inside the sprite's own
+;                   rectangle. It used to be four, across the band and the two
+;                   margins, and that is the bug described at JFX_REVEAL_TRAVEL
+;                   -- the paragraph below is what it was for and no longer
+;                   applies to this half.
 ;
 ;  Proportional to the ships on the screen rather than to the screen, which is
 ;  the point: a full-width fill every frame cost four 50 Hz ticks and took 5.0
@@ -81,10 +88,19 @@
 ;  mark_store was fixed for -- drawing outside the rectangle you recorded --
 ;  arriving from the other side.
 ;
-;  The reveal therefore blacks the rows ABOVE and BELOW the sprite across the
-;  whole run, every step, and only the sprite's own rows are left to the
-;  ordinary erase. Those two strips are JFX_VMARGIN lines each, so they cost
-;  less than the band did.
+;  The reveal therefore blacked the rows ABOVE and BELOW the sprite across the
+;  whole run, every step, and left only the sprite's own rows to the ordinary
+;  erase.
+;
+;  THAT REPAIR IS GONE AND SO IS THE PROBLEM IT REPAIRED. Those two strips are
+;  exactly what landed on the neighbouring ship, and the reveal's bar no longer
+;  stands proud at all -- it is the sprite's height, inside the sprite's own
+;  rectangle, so the ordinary erase covers every pixel of it. One fill and one
+;  bar, and nothing to clean up afterwards. See JFX_REVEAL_TRAVEL.
+;
+;  It still applies to the VANISH, which keeps the proud bar: there the trail is
+;  taken by the band fill that follows the bar across, and everything the fill
+;  touches is on its way to black anyway.
 ;
 ;  WHAT IS NOT A SHIP
 ;  ------------------
@@ -194,6 +210,52 @@ JFX_VMARGIN         equ 3
 JFX_SPRITE_W_MAX    equ 7
 JFX_TRAVEL          equ JFX_SPRITE_W_MAX + 2 * JFX_MARGIN
 
+;  THE REVEAL'S RUN IS THE SPRITE AND NOTHING MORE, and that is not a shorter
+;  version of the same idea -- it is the fix for a bug that only shows itself
+;  when the fleet is SPREAD OUT.
+;
+;  Everything a ship blacks outside its own sprite is a place another ship may
+;  already have been uncovered in. The reveal used to black three lines above
+;  and three below its sprite ACROSS THE WHOLE RUN, plus the run-up and the
+;  run-out: a rectangle thirteen bytes wide and twelve lines tall for a sprite
+;  three by six. In a formation seen from the side, where the ships sit a byte
+;  or two apart and a line or two above each other, every ship's mask lands on
+;  its neighbour -- so a ship the bars had already passed was blacked out again
+;  by the ship beside it, and only the LAST one masked survived to be seen.
+;  Measured on mission 3: seven interceptors in a row, one of them drawn.
+;
+;  The player reported it as "δεν εμφανίζει σωστά αμέσως τα sprite -- εμφανίζονται
+;  μετά με το που τελειώσει το effect", which is exactly right: the picture is
+;  only correct on the frame after the last mask comes off.
+;
+;  The rule that makes it impossible rather than unlikely:
+;
+;      A SHIP MAY ONLY BLACKEN ITS OWN SPRITE RECTANGLE.
+;
+;  Two ships whose rectangles do not overlap cannot then interfere at all, and
+;  two whose rectangles DO overlap are already one hiding the other under the
+;  painter's algorithm. So the reveal works in the CORE -- the sprite's own rows
+;  from jfx_band, and its own byte columns -- and the bar travels the sprite's
+;  width instead of the margin, the sprite and the margin again.
+;
+;  Three things fall out of it, all of them wanted:
+;
+;    - the bar no longer stands JFX_VMARGIN proud, so nothing is left drawn
+;      outside the dirty rectangle that erases it, and the two masking strips
+;      that existed only to clean that up are gone. Four fills a ship became
+;      one.
+;    - the run is 7 rather than 13, so the reveal is a little over half as long
+;      again -- which is the other half of "το jump in να είναι 2 φορές
+;      γρηγορότερο", arriving from the geometry rather than from the dwell.
+;    - it is cheaper per frame than what it replaces.
+;
+;  THE VANISH KEEPS THE LONG RUN AND THE PROUD BAR. It has the same overlap and
+;  it does not matter there: everything it touches is on its way to black, so a
+;  neighbour blacked early is a ship that vanished a step sooner, not a ship
+;  that failed to appear. The gesture is the one worth having and this is the
+;  one place it is free.
+JFX_REVEAL_TRAVEL   equ JFX_SPRITE_W_MAX
+
 ;  How far the bars move in one step, in byte columns -- ONE, both halves, the
 ;  finest step the screen has.
 ;
@@ -232,8 +294,17 @@ JFX_REVEAL_STEP     equ 1
 ;  round numbers, and they had to be: the vanish counts vertical blanks and the
 ;  reveal counts game frames, which are about nine blanks each and not a fixed
 ;  number of them, and the reveal also spends two frames on mis_wipe that no
-;  dwell covers. 23 and 6 measure 359 ticks and 856 against the 35 and 88 they
-;  replace -- 10.3 and 9.7 times, on mission 1.
+;  dwell covers. 23 and 6 measured 359 ticks and 856 against the 35 and 88 they
+;  replaced -- 10.3 and 9.7 times, on mission 1.
+;
+;  THE REVEAL'S DWELL IS THREE NOW, not six: "το jump in να είναι 2 φορές
+;  γρηγορότερο". Measured rather than converted, because its dwell is in GAME
+;  frames and the frame rate is not a constant -- that assumption is what made
+;  an earlier attempt at this wrong, and two tests caught it. 894 emulator
+;  frames at six, 468 at three: 1.91x, which is as close to twice as a counter
+;  quantised to whole game frames can be. snd_fx_jump_in went with it, through
+;  its PRESCALER rather than its timer, so the sweep is the same and only its
+;  speed changed.
 ;
 ;  The vanish's floor is what the disc write depends on and it is arithmetic,
 ;  not a measurement -- every pass costs JFX_VANISH_DWELL whole vertical
@@ -241,7 +312,7 @@ JFX_REVEAL_STEP     equ 1
 ;  JFX_VANISH_PASSES * JFX_VANISH_DWELL + 2 = 324 ticks. snd_fx_jump_out is
 ;  300 and silent from 279; see its own note in sys/sound.asm.
 JFX_VANISH_DWELL    equ 23
-JFX_REVEAL_DWELL    equ 6
+JFX_REVEAL_DWELL    equ 3
 
 ;  Passes each half makes, rounded UP so the last one is past the end of the
 ;  longest run whether or not the step divides it.
@@ -254,7 +325,7 @@ JFX_REVEAL_DWELL    equ 6
 ;  them. It is the far end of the run that needs it -- a bar the sprite's own
 ;  rectangle does not cover.
 JFX_VANISH_PASSES   equ (JFX_TRAVEL + JFX_VANISH_STEP - 1) / JFX_VANISH_STEP + 1
-JFX_REVEAL_PASSES   equ (JFX_TRAVEL + JFX_REVEAL_STEP - 1) / JFX_REVEAL_STEP + 2
+JFX_REVEAL_PASSES   equ (JFX_REVEAL_TRAVEL + JFX_REVEAL_STEP - 1) / JFX_REVEAL_STEP + 2
 
 ;  The bar is drawn as a PEN through gfx_vline rather than as a solid byte
 ;  through scr_fill_rect, because it is ONE PIXEL wide and a Mode 1 fill can
@@ -714,64 +785,50 @@ jfx_bars:
     jp jfx_the_bar
 
     ;  --- the reveal -------------------------------------------------------
+    ;  ONE fill, inside the sprite's own rectangle and nowhere else: the part of
+    ;  the ship the bar has not reached yet. Everything to the left of the bar is
+    ;  the ship, showing, and is not painted at all -- the ordinary dirty
+    ;  rectangle is what erases the bar out of it a step later.
+    ;
+    ;  Nothing outside the core is touched, and that is the whole of the fix
+    ;  described at JFX_REVEAL_TRAVEL: a mask that stays inside its own sprite
+    ;  cannot black out the neighbour that has already been uncovered.
 @jfx_in:
-    ;  The rows the sprite does not occupy, across the whole run. They are
-    ;  never anything but black, and they are the one place a bar can be left
-    ;  standing that nothing else would take out: what erases a bar in the
-    ;  columns the bar has already passed is the SPRITE's dirty rectangle, and
-    ;  a bar is taller than its sprite. See the header of this file.
-    ld a,(jfx_by)
-    ld (jfx_fy),a
-    ld a,(jfx_cy)
-    ld hl,jfx_by
-    sub (hl)
-    ld (jfx_fh),a                        ; ...above the sprite
-    call jfx_mask_run
-
-    ld a,(jfx_cy)
-    ld hl,jfx_ch
-    add a,(hl)
-    ld (jfx_fy),a
-    ld c,a
-    ld a,(jfx_by)
-    ld hl,jfx_bh
-    add a,(hl)
-    sub c
-    ld (jfx_fh),a                        ; ...and below it
-    call jfx_mask_run
-
-    ;  Across the sprite's own rows: the run-up, which never has a ship in it
-    ;  and is where a bar in the near margin is taken out...
     call jfx_rows_core
-    ld d,JFX_MARGIN
-    ld a,(jfx_bx0)
-    ld e,a
-    xor a
-    call jfx_fill
 
-    ;  ...and everything the bar has not reached, which is the rest of the ship
-    ;  plus the run-out past it. Clamped at MARGIN + width, so that once the bar
-    ;  is out beyond the ship this is the far margin and the ship is whole.
     ld a,(jfx_reach)
+    sub JFX_MARGIN * 2                   ; A = the sprite's width, alone
     ld c,a
-    sub JFX_MARGIN                       ; A = MARGIN + the sprite's width
-    ld b,a
     ld a,(jfx_col)
-    cp b
+    cp c
     jr c,@jfx_in_ahead
-    ld a,b
-@jfx_in_ahead:
-    ld b,a                               ; B = min(col, MARGIN + width)
     ld a,c
-    sub b                                ; ...which is never the whole reach
-    ld d,a
+@jfx_in_ahead:
+    ld b,a                               ; B = min(col, width)
+    ld a,c
+    sub b
+    ld d,a                               ; D = what is still hidden
     ld a,(jfx_bx0)
+    add a,JFX_MARGIN                     ; ...from the sprite's own left edge
     add a,b
     ld e,a
     xor a
     call jfx_fill
 
-    call jfx_rows_band
+    ;  The bar, at the leading edge of that black and in the sprite's own rows.
+    ;  It stops at the far edge rather than running out past it: past there the
+    ;  ship is whole and a bar standing beyond it is a mark in empty space with
+    ;  no rectangle to rub it out.
+    ld a,(jfx_bar_off)
+    or a
+    ret nz
+    ld a,(jfx_col)
+    cp c
+    ret nc
+    add a,JFX_MARGIN
+    ld hl,jfx_bx0
+    add a,(hl)
+    jp jfx_bar_at
 
 ;  The bar itself, at x0 + col, until it has run off the far end of its own
 ;  ship. jfx_bar_off is the two mis_wipe frames, where the sweep is held.
@@ -808,6 +865,11 @@ jfx_the_bar:
     ;  jfx_fill was cutting both ends of every fill and this had been riding on
     ;  it; a byte column of 254 taken as an x would be 1016, which is not on
     ;  this screen at all but IS on some other scanline of it.
+    ;
+    ;  The reveal enters HERE, with its own column already worked out and its
+    ;  own rows already in jfx_fy/jfx_fh: its bar runs the sprite's width from
+    ;  the sprite's left edge, not the whole band from the run-up.
+jfx_bar_at:
     bit 7,a
     ret nz
     cp JFX_WIDTH
@@ -825,15 +887,6 @@ jfx_the_bar:
     ld a,JFX_PEN
     jp gfx_vline                         ; ...which clips to the playfield too
 
-
-;  Black across the whole of this ship's run, in whatever rows are set.
-jfx_mask_run:
-    ld a,(jfx_reach)
-    ld d,a
-    ld a,(jfx_bx0)
-    ld e,a
-    xor a
-    jp jfx_fill
 
 ;  Which rows the next fills cover: the bar's, or the sprite's.
 jfx_rows_band:

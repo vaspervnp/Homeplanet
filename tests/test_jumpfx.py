@@ -194,7 +194,7 @@ class WipeFixture(unittest.TestCase):
                      for y in range(0, CTX_BAR_H) for x in range(WIDTH))
 
     # -- driving -------------------------------------------------------------
-    def offsets_that_explain(self, cols, runs):
+    def offsets_that_explain(self, cols, runs, reveal=False):
         """How far along their runs every bar on screen would have to be.
 
         All the bars share one counter, so at any instant they stand at the
@@ -202,9 +202,22 @@ class WipeFixture(unittest.TestCase):
         between this effect and the one it replaced, and is exactly what a set
         of columns can be asked about without having to decide which column
         belongs to which ship.
+
+        THE TWO HALVES RUN DIFFERENT DISTANCES FROM DIFFERENT PLACES, and that
+        is the point of `reveal` rather than a convenience. The vanish's bar
+        starts JFX_MARGIN before the ship and crosses the whole band; the
+        reveal's starts on the sprite's own left edge and stops on its right
+        one, because a reveal may not blacken a byte outside its own sprite --
+        see JFX_REVEAL_TRAVEL in game/jumpfx.asm.
         """
-        return {k for k in range(self.sym["JFX_TRAVEL"] + 1)
-                if all(any(r["x0"] + k == x and k < r["reach"] for r in runs)
+        if reveal:
+            base, travel = self.sym["JFX_MARGIN"], self.sym["JFX_REVEAL_TRAVEL"]
+            far = lambda r: r["w"]
+        else:
+            base, travel = 0, self.sym["JFX_TRAVEL"]
+            far = lambda r: r["reach"]
+        return {k for k in range(travel + 1)
+                if all(any(r["x0"] + base + k == x and k < far(r) for r in runs)
                        for x in cols)}
 
     #  How often a running sweep is looked at, in emulator frames.
@@ -564,6 +577,66 @@ class TestTheReveal(WipeFixture):
         self.assertGreater(lit[-1], lit[0],
                            f"nothing came out from behind the bars: {lit}")
 
+    def test_no_ship_is_waiting_for_the_effect_to_be_over(self):
+        """The last frame of the reveal is already the picture, near enough.
+
+        THE BUG THIS IS FOR, reported as "δεν εμφανίζει σωστά αμέσως τα sprite --
+        εμφανίζονται μετά με το που τελειώσει το effect". Every ship used to
+        blacken three lines above and below its sprite ACROSS ITS WHOLE RUN, so
+        in a formation seen from the side each ship's mask landed on the
+        neighbour beside it and blacked out a ship the bars had already
+        uncovered. The masks all come off together when JFX_IN ends, and only
+        then was the fleet whole -- which is precisely what the player saw.
+
+        Measured on mission 3 against the build that had it: 80 lit bytes on the
+        last pass of the reveal against 112 one frame later, seven interceptors
+        in a row and one of them drawn. The fix is that a ship may only blacken
+        its own sprite rectangle; see JFX_REVEAL_TRAVEL.
+
+        A few bytes of slack, not none: the world runs underneath the reveal --
+        that is what makes it a reveal and not a freeze -- so the fleet has
+        moved a pixel or two between the two readings.
+        """
+        self.dismiss()
+        for _ in range(120):
+            if self.mode() == JFX_IN:
+                break
+            self.c.run_frames(1)
+        else:
+            self.fail("the reveal never started")
+
+        last = {}
+        for _ in range(1400):
+            if self.mode() != JFX_IN:
+                break
+            base = h.front_buffer(self.c)
+            last[base] = self.lit_bytes(self.buffer(base))
+            self.c.run_frames(1)
+        else:
+            self.fail("the reveal never ended")
+        self.assertEqual(len(last), 2, "only one buffer was ever seen in front")
+
+        #  ...and the same two buffers once the masks are gone for good.
+        after, frames = {}, 0
+        while len(after) < 2 and frames < 200:
+            after[h.front_buffer(self.c)] = self.lit_bytes(
+                self.buffer(h.front_buffer(self.c)))
+            self.c.run_frames(1)
+            frames += 1
+        self.assertEqual(len(after), 2, "the reveal ended into one buffer only")
+
+        for base in last:
+            self.assertGreater(
+                last[base] * 1.15 + 4, after[base],
+                f"buffer {base:#06x} was carrying {last[base]} lit bytes on the "
+                f"last frame of the reveal and {after[base]} once it was over: "
+                "ships were being held back by their neighbours' masks")
+
+    @staticmethod
+    def lit_bytes(ram):
+        return sum(1 for y in range(CTX_BAR_H, HUD_TOP) for x in range(WIDTH)
+                   if ram[h.screen_offset(y, x)])
+
     def test_a_ship_is_hidden_until_its_own_bar_has_gone_by(self):
         """Ahead of a ship's bar, that ship is not on the screen.
 
@@ -597,7 +670,7 @@ class TestTheReveal(WipeFixture):
         for col, base, bars, _, _ in seen:
             if not bars:
                 continue
-            ks = self.offsets_that_explain(bars, runs)
+            ks = self.offsets_that_explain(bars, runs, reveal=True)
             if not ks:
                 continue
             k = min(ks)
@@ -610,11 +683,14 @@ class TestTheReveal(WipeFixture):
                 continue
             if base not in scenery:
                 continue
+            #  The sprite's own rows and columns, because that is now the whole
+            #  of what the reveal touches: left is x0 + MARGIN and the run ends
+            #  on the sprite's right edge.
             for r in runs:
-                start = max(0, r["x0"] + max(k, self.sym["JFX_MARGIN"]) + 1)
-                for x in range(start, min(WIDTH, r["x0"] + r["reach"])):
-                    lit = [y for y in range(max(CTX_BAR_H, r["band_top"]),
-                                            min(HUD_TOP, r["band_top"] + r["band_h"]))
+                start = max(0, r["left"] + k + 1)
+                for x in range(start, min(WIDTH, r["left"] + r["w"])):
+                    lit = [y for y in range(max(CTX_BAR_H, r["top"]),
+                                            min(HUD_TOP, r["top"] + r["h"]))
                            if ram[h.screen_offset(y, x)]
                            and (x, y) not in scenery[base]]
                     self.assertFalse(
@@ -691,9 +767,9 @@ class TestTheReveal(WipeFixture):
 
         This was worth a paragraph when the reveal was 1.76 s -- an overlay
         with the battle live behind it cost tools/balance.py two ships in
-        mission 4 -- and it is worth a test now that it is 17.1. Seven jumps
-        times seventeen seconds of unattended battle would not be a cosmetic
-        change, it would be most of a campaign.
+        mission 4 -- and it is worth a test now that it is several. Seven jumps
+        times five seconds of unattended battle would not be a cosmetic change,
+        it would be a slice of a campaign.
 
         mis_timer is the clock the attack waves are on and mis_setup zeroes it,
         so "the mission has not started yet" is the literal reading of a zero
@@ -715,9 +791,9 @@ class TestTheReveal(WipeFixture):
         samples, frames = [], 0
         while self.mode() == JFX_IN and frames < 1400:
             samples.append(timer())
-            self.c.run_frames(20)
-            frames += 20
-        self.assertGreater(len(samples), 20,
+            self.c.run_frames(10)
+            frames += 10
+        self.assertGreater(len(samples), 15,
                            "the reveal was over before it was watched")
         self.assertEqual(set(samples), {0},
                          f"the mission clock ran during the reveal: {samples}")
@@ -1047,10 +1123,18 @@ class TestTheJumpIsHeard(WipeFixture):
         #  sweep and indistinguishable from the departure's own last note. It
         #  was read immediately when the sound was 88 ticks long, and that was
         #  a quarter of the way down it.
-        self.c.run_frames(300)
+        #  A THIRD OF THE SOUND, computed from the descriptor rather than
+        #  written down. 300 was a third when the arrival was 880 ticks; the
+        #  reveal was then made twice as fast and the sound with it, and 300
+        #  became two thirds of the way down a decay that reaches zero at the
+        #  end -- the amplitude read 3/15 and the test called it inaudible.
+        #  A sample point is a fraction of a length, not a number of frames.
+        desc = self.c.read_ram(self.sym["SND_FX_JUMP_IN"], 10)
+        third = desc[0] * desc[8] // 3          # timer x prescaler
+        self.c.run_frames(third)
         self.assertEqual(self.mode(), JFX_IN,
-                         "the reveal was over 300 ticks in, so the sound and "
-                         "the picture are no longer the same length")
+                         f"the reveal was over {third} ticks in, so the sound "
+                         "and the picture are no longer the same length")
         period, amp = self.tone_c("a third of the way into the reveal")
         self.assertTrue(
             start < period <= end,
