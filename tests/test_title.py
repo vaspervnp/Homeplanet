@@ -28,6 +28,7 @@ TITLE_Y = 20
 TITLE_H = 32
 CREDIT_Y = 186
 PROMPT_Y = 160
+HUD_TOP = h.symbols()["HUD_TOP"]
 
 
 class TitleFixture(unittest.TestCase):
@@ -175,6 +176,301 @@ class TestTheGraphics(TitleFixture):
             self.c.run_frames(1)
             self.assertGreater(self.row_ink(TITLE_Y + 16), 0,
                                "the title flickered -- one buffer has it and the other does not")
+
+
+class TestThePlanet(TitleFixture):
+    """The game is named after it, and now it is on the screen.
+
+    A dark disc with a lit limb, in ink 2, between the starfield and the
+    flight -- so the ships cross in front of it and the stars do not show
+    through it.
+    """
+
+    def geometry(self):
+        s = self.sym
+        return (s["TITLE_PLANET_CX"], s["TITLE_PLANET_CY"],
+                s["TITLE_PLANET_RX"], s["TITLE_PLANET_RY"])
+
+    def pen_at(self, ram, x, y):
+        byte = ram[h.screen_offset(y, x >> 2)]
+        shift = x & 3
+        return ((byte >> (7 - shift)) & 1) | (((byte >> (3 - shift)) & 1) << 1)
+
+    def test_the_half_width_table_is_the_ellipse_it_claims_to_be(self):
+        """hw[dy] = round(RX * sqrt(1 - (dy / RY)^2)), re-derived.
+
+        The table is hand-written -- thirty-five bytes, which is less than a
+        third generated file would cost to carry -- so the formula in the
+        comment above it is the specification and this is what holds the two
+        together. Same arrangement as gen/tables.asm, which the tests also
+        re-derive from tools/gentables.py rather than trust.
+        """
+        import math
+        _, _, rx, ry = self.geometry()
+        table = self.banked("TITLE_PLANET_HW", ry + 1)
+        want = [round(rx * math.sqrt(max(0.0, 1 - (dy / ry) ** 2)))
+                for dy in range(ry + 1)]
+        self.assertEqual(list(table), want)
+        self.assertEqual(table[0], rx, "the equator is not the full radius")
+        self.assertEqual(table[ry], 0, "the pole is not a point")
+
+    def test_it_is_a_disc_of_the_right_size_in_the_right_ink(self):
+        """Read off the screen, along the equator and down the meridian.
+
+        Not a pixel count: a starfield has plenty of ink 2 in it. The claim is
+        that the two extreme points of the ellipse are lit and that four
+        pixels beyond each of them is not -- which is a statement about a
+        SHAPE, and the stars cannot satisfy it by accident because the disc's
+        own interior is blacked before it is drawn.
+        """
+        cx, cy, rx, ry = self.geometry()
+        ram = self.c.read_ram(h.front_buffer(self.c), 0x4000)
+
+        for x in (cx - rx, cx + rx):
+            self.assertEqual(self.pen_at(ram, x, cy), 2,
+                             f"the limb is not lit at x={x} on the equator")
+        for y in (cy - ry, cy + ry):
+            self.assertEqual(self.pen_at(ram, cx, y), 2,
+                             f"the limb is not lit at y={y} on the meridian")
+
+        #  ...and it stops. Four pixels out is outside the disc on every one
+        #  of the four, and the fill rounds outward, so anything lit there is
+        #  the planet spilling rather than a star: the black spill has just
+        #  cleared the stars from exactly that band.
+        for x in (cx - rx - 4, cx + rx + 4):
+            self.assertEqual(self.pen_at(ram, x, cy), 0,
+                             f"something is lit outside the limb at x={x}")
+
+    def test_the_stars_do_not_show_through_it(self):
+        """A planet you can see through is not a planet.
+
+        WHAT THIS TEST IS AND IS NOT WORTH, because the difference matters.
+        The starfield is forty stars over the whole 320x200 screen, laid down
+        by a xorshift from a fixed seed -- so it is deterministic, but it is
+        also SPARSE: about three and a half stars fall inside the disc and
+        about a tenth of one inside the three-pixel band an inward-rounded
+        fill would leave against the limb. Rounding the night side inward and
+        running this does NOT fail, and that was checked rather than assumed.
+
+        So this is a regression net over the whole night side -- it would
+        catch the fill being dropped, mispositioned or made too small, which
+        are the ways this actually breaks -- and it is not evidence for the
+        outward rounding, which is argued on its own terms in
+        title_planet_fill: black outside the disc is free, so spilling costs
+        nothing and removes a whole class of luck.
+
+        The starlight that WAS on the screen and was fixed is on the day side,
+        between the lit fill and the limb, and test_it_is_a_disc... covers the
+        run that closes it.
+
+        Sampled well inside the night side, where the day side's ink cannot
+        reach: the terminator is at cx + hw/2, so everything past it on a row
+        is night.
+
+        IT ASKS ABOUT INK 2 AND NOT ABOUT LIT PIXELS, and that is not a
+        loosening -- it is the difference between the two things that can be
+        there. A star is ink 2 and must not be; a SHIP is ink 1 and must,
+        because the flight is drawn over the planet on purpose. The first
+        version of this asked for black and failed on the interceptor at
+        (275, 127), which is the picture being right.
+
+        ...and then a SHIP'S OWN SHADING is ink 2 as well -- section 2 gives
+        that ink to the stars, the grid and the shading alike -- so the flight
+        has to be cut out of the sample rather than argued away by a pen
+        number. The boxes come out of title_ship_table, so the day the flight
+        is rearranged this follows it instead of failing.
+        """
+        cx, cy, rx, ry = self.geometry()
+        ram = self.c.read_ram(h.front_buffer(self.c), 0x4000)
+        table = self.banked("TITLE_PLANET_HW", ry + 1)
+        ships = self.ship_boxes()
+
+        looked = 0
+        for dy in range(0, ry - 6):
+            hw = table[dy]
+            #  From past the terminator up to the pixel BEFORE the limb -- the
+            #  limb itself is ink 2 and is meant to be. Right up to it, and not
+            #  two pixels short: an inward-rounded fill leaves its starlight in
+            #  exactly the last three pixels of the row, so a sample that
+            #  avoids them cannot see the thing this is about.
+            lo, hi = cx + (hw >> 1) + 5, cx + hw
+            if hi <= lo:
+                continue
+            for y in (cy - dy, cy + dy):
+                for x in range(lo, hi):
+                    if any(x0 <= x < x1 and y0 <= y < y1
+                           for x0, y0, x1, y1 in ships):
+                        continue
+                    self.assertNotEqual(
+                        self.pen_at(ram, x, y), 2,
+                        f"({x}, {y}) is ink 2 inside the planet's night side: "
+                        "a star is showing through")
+                    looked += 1
+        self.assertGreater(looked, 200, "the night side was never sampled")
+
+    def ship_boxes(self):
+        """Where the flight is, out of title_ship_table in bank 4.
+
+        Eight bytes an entry: x in BYTE columns as a signed word, y, the
+        sprite, its width in bytes, its height, and its bank.
+        """
+        n = self.sym["TITLE_SHIPS"]
+        raw = self.banked("TITLE_SHIP_TABLE", n * 8)
+        out = []
+        for i in range(n):
+            e = raw[i * 8:i * 8 + 8]
+            x = int.from_bytes(e[0:2], "little", signed=True) * 4
+            y, w, hgt = e[2], e[5] * 4, e[6]
+            out.append((x, y, x + w, y + hgt))
+        return out
+
+    def test_the_day_side_is_solid_right_up_to_the_limb(self):
+        """No gap between the lit face and the edge of the world.
+
+        THIS IS THE ONE THAT WAS ON THE SCREEN. The day side's fill stops at
+        the last whole byte inside the disc -- it must, because three pixels of
+        blue OUTSIDE the limb is three pixels of ragged silhouette -- so it
+        leaves nought to three pixels of nothing between itself and the limb,
+        and what showed through them was black and the odd star. The planet
+        read as a ring standing off a slightly-too-small disc. The run at the
+        end of title_planet_rim fills them, and this is what says so: it fails
+        with that run removed, which was checked.
+
+        Every pixel from the limb inward to short of the terminator, so the
+        byte-quantised terminator itself is never the thing under test.
+        """
+        cx, cy, rx, ry = self.geometry()
+        ram = self.c.read_ram(h.front_buffer(self.c), 0x4000)
+        table = self.banked("TITLE_PLANET_HW", ry + 1)
+        ships = self.ship_boxes()
+
+        looked = 0
+        for dy in range(0, ry - 6):
+            hw = table[dy]
+            lo, hi = cx - hw, cx + (hw >> 1) - 2
+            if hi <= lo:
+                continue
+            for y in (cy - dy, cy + dy):
+                for x in range(lo, hi):
+                    if any(x0 <= x < x1 and y0 <= y < y1
+                           for x0, y0, x1, y1 in ships):
+                        continue
+                    self.assertEqual(
+                        self.pen_at(ram, x, y), 2,
+                        f"({x}, {y}) is not lit on the planet's day side: "
+                        "there is a hole between the fill and the limb")
+                    looked += 1
+        self.assertGreater(looked, 400, "the day side was never sampled")
+
+    def test_the_flight_crosses_in_front_of_it(self):
+        """Drawn between the stars and the ships, and the order is the point.
+
+        After the stars because it blacks its own interior and has to take the
+        ones inside it; before the ships so a hull is never rubbed out by the
+        world behind it. Ink 1 inside the disc is a ship, because nothing else
+        on this screen is ink 1 below the big letters.
+        """
+        cx, cy, rx, ry = self.geometry()
+        ram = self.c.read_ram(h.front_buffer(self.c), 0x4000)
+        hull = sum(1
+                   for y in range(cy - ry, cy + ry + 1)
+                   for x in range(cx - rx, cx + rx + 1)
+                   if self.pen_at(ram, x, y) == 1)
+        self.assertGreater(hull, 20,
+                           "no ship is drawn over the planet -- either the "
+                           "flight moved off it or the planet is drawn last")
+
+
+class TestWhatItLeavesBehind(TitleFixture):
+    """SPACE goes on to the first briefing, and nothing of this screen may
+    survive under it.
+
+    Reported as "στο κείμενο της πρώτης πίστας μένει από κάτω μέρος κειμένων
+    του μενού" -- and what was down there is this screen's own last two lines,
+    T FOR THE TUTORIAL at 172 and the credit at 186. Both sit in the strip the
+    HUD normally owns, and a briefing's static_wipe deliberately stops short of
+    it: every OTHER time a briefing is up, the fleet counts are down there and
+    they are what the player is about to give an order about. The first time,
+    nothing was ever going to take the title's lines off -- the HUD does not
+    clear its strip, it draws labels onto it.
+
+    title_key has always scheduled the wipe for exactly this and says so in a
+    comment. What was missing is that mis_wipe_screen is called from
+    demo_update's PLAYING path only, and the briefing goes up before the game
+    reaches it, so the two frames sat unspent. mis_brief_draw spends them now.
+    """
+
+    def test_the_first_briefing_has_nothing_of_the_title_under_it(self):
+        self.c.key_down(cpc.KEY_SPACE)
+        self.c.run_frames(10)
+        self.c.key_up(cpc.KEY_SPACE)
+        for _ in range(120):
+            #  read_ram, not read_bank4: mis_briefing is one of the bytes that
+            #  deliberately stayed in the low 16K, and the test above reads it
+            #  the same way.
+            if self.c.read_ram(self.sym["MIS_BRIEFING"], 1)[0]:
+                break
+            self.c.run_frames(1)
+        else:
+            self.fail("SPACE did not open the first briefing")
+        self.c.run_frames(200)
+
+        #  BOTH buffers, and it has to be: the display page-flips, so a line
+        #  cleared out of one and left in the other is on screen every other
+        #  frame -- which is what this looked like on the machine.
+        for base in (0x8000, 0xC000):
+            ram = self.c.read_ram(base, 0x4000)
+            lit = [y for y in range(HUD_TOP, 200)
+                   if any(ram[h.screen_offset(y, x)] for x in range(80))]
+            self.assertFalse(
+                lit, f"buffer {base:#06x} is still carrying the title screen's "
+                     f"last lines at {lit} under the first briefing")
+
+    def test_and_the_briefing_is_gone_from_BOTH_buffers_once_it_is_dismissed(self):
+        """The other end of the same debt, and the bug the fix above caused.
+
+        A page closes by clearing its own flag inside its `_key` routine, and
+        demo_update then draws it ONE MORE TIME in the same frame. So a
+        mis_wipe_screen call placed in mis_brief_draw without a guard spends
+        one of the two frames mis_brief_key has just scheduled for erasing the
+        briefing itself -- one buffer is cleared, the other is not, and the
+        display page-flips. The mission text was then on screen every OTHER
+        frame for the rest of the mission: "αναβοσβήνει συνέχεια μπροστά".
+
+        READING ONE BUFFER CANNOT SEE THIS AT ALL, which is why it is worth a
+        test of its own rather than a line in the one above. Whichever buffer
+        happened to be in front would look perfect half the time.
+        """
+        self.c.key_down(cpc.KEY_SPACE)
+        self.c.run_frames(10)
+        self.c.key_up(cpc.KEY_SPACE)
+        for _ in range(120):
+            if self.c.read_ram(self.sym["MIS_BRIEFING"], 1)[0]:
+                break
+            self.c.run_frames(1)
+        self.c.run_frames(120)
+
+        self.c.key_down(cpc.KEY_ENTER)
+        self.c.run_frames(6)
+        self.c.key_up(cpc.KEY_ENTER)
+        self.c.run_frames(400)
+
+        #  The briefing's own body rows. The tactical view draws there too, so
+        #  this compares the two buffers against EACH OTHER rather than against
+        #  zero: a fleet is in both, three lines of text are in one.
+        top = self.sym["BRIEF_TEXT_Y"]
+        counts = {}
+        for base in (0x8000, 0xC000):
+            ram = self.c.read_ram(base, 0x4000)
+            counts[base] = sum(1 for y in range(top, top + 30)
+                               for x in range(80)
+                               if ram[h.screen_offset(y, x)])
+        lo, hi = min(counts.values()), max(counts.values())
+        self.assertLess(
+            hi, lo + 200,
+            f"one buffer is carrying far more than the other ({counts}): the "
+            "briefing was wiped out of one of them and left in the other, so "
+            "it is on screen every other frame")
 
 
 if __name__ == "__main__":

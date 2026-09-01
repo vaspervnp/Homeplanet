@@ -22,6 +22,16 @@ TXT_BIG_INK         equ #F0             ; four pixels of pen 1
 
 
 ; ----------------------------------------------------------------------------
+;  txt_big_set_ink -- which solid ink the next big string is drawn in
+;  In : A = a SOLID_INK_* byte
+;  Uses: AF
+; ----------------------------------------------------------------------------
+txt_big_set_ink:
+    ld (@txt_big_ink),a
+    ret
+
+
+; ----------------------------------------------------------------------------
 ;  txt_big -- draw a string at 4x from the left edge of the back buffer
 ;  In : HL = zero-terminated string, C = top scanline
 ;  Uses: everything
@@ -31,6 +41,15 @@ TXT_BIG_INK         equ #F0             ; four pixels of pen 1
 ; ----------------------------------------------------------------------------
 txt_big:
     ld b,0                              ; x, in bytes
+
+; ----------------------------------------------------------------------------
+;  txt_big_at -- the same, with B already holding the x in bytes
+;
+;  The title is ten glyphs and IS the eighty-byte line, so it never needed an
+;  x. The game-over screen is nine and would sit a glyph off centre without
+;  one. Costs nothing: it is a label on the instruction after the `ld b,0`.
+; ----------------------------------------------------------------------------
+txt_big_at:
 @txt_big_char:
     ld a,(hl)
     or a
@@ -97,6 +116,12 @@ txt_big_char:
     ld d,a
     ld a,0                              ; NOT xor: it would clear the carry
     jr nc,@txt_big_dark
+;  SELF-MODIFYING: the ink is patched by txt_big_set_ink. The title is white
+;  and GAME OVER is red -- section 2's ink for the thing that demands
+;  attention -- and there is no pen register to thread through a routine that
+;  writes a whole byte per source pixel. Whoever changes it puts it back to 1,
+;  the same contract txt_set_pen has.
+@txt_big_ink equ $+1
     ld a,TXT_BIG_INK
 @txt_big_dark:
     ld (hl),a

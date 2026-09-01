@@ -292,12 +292,26 @@ class TestTheTitleScreen(TutFixture):
         #  buffers are sampled over several frames: a line drawn into one
         #  buffer and not the other is on screen every OTHER frame, which is
         #  the bug the context bar shipped with.
+        #
+        #  SAMPLED UNTIL IT HAS SEEN ENOUGH, NOT FOR A FIXED NUMBER OF FRAMES.
+        #  The blink is counted in GAME frames -- TITLE_BLINK_BIT of them each
+        #  way -- and run_frames counts 50 Hz ones, and the ratio is not a
+        #  constant: the planet took this screen from 3.45 fps to 2.30, so the
+        #  56 emulator frames this used to watch stopped covering even one
+        #  blink period and the prompt was simply never caught alight. That is
+        #  the same trap four tests fell into when the frame rate went the
+        #  other way; CLAUDE.md calls it "a test whose setup is a fixed number
+        #  of emulator frames is asserting on the frame rate".
+        want = ("T FOR THE TUTORIAL", "PRESS SPACE TO START")
         seen = {0x8000: set(), 0xC000: set()}
-        for _ in range(14):
+        for _ in range(120):
             for base in (0x8000, 0xC000):
                 seen[base].add(self.r.row(self.c, base, self.sym["TITLE_TUT_Y"]))
                 seen[base].add(
                     self.r.row(self.c, base, self.sym["TITLE_PROMPT_Y"]))
+            if all(w in "".join(rows)
+                   for rows in seen.values() for w in want):
+                break
             self.c.run_frames(4)
         for base, rows in seen.items():
             self.assertIn("T FOR THE TUTORIAL", "".join(rows),
