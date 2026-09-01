@@ -256,7 +256,12 @@ JFX_REVEAL_DWELL    equ 6
 JFX_VANISH_PASSES   equ (JFX_TRAVEL + JFX_VANISH_STEP - 1) / JFX_VANISH_STEP + 1
 JFX_REVEAL_PASSES   equ (JFX_TRAVEL + JFX_REVEAL_STEP - 1) / JFX_REVEAL_STEP + 2
 
+;  The bar is drawn as a PEN through gfx_vline rather than as a solid byte
+;  through scr_fill_rect, because it is ONE PIXEL wide and a Mode 1 fill can
+;  only ever write four. JFX_INK is what the black behind it is measured
+;  against and what src/main.asm still asserts; nothing fills with it.
 JFX_INK             equ SOLID_INK_1
+JFX_PEN             equ 1
 
 
 ; ----------------------------------------------------------------------------
@@ -770,6 +775,24 @@ jfx_bars:
 
 ;  The bar itself, at x0 + col, until it has run off the far end of its own
 ;  ship. jfx_bar_off is the two mis_wipe frames, where the sweep is held.
+;
+;  ONE PIXEL, NOT FOUR, and it is drawn through gfx_vline rather than as a
+;  byte fill. Mode 1 packs four pixels into a byte and scr_fill_rect writes
+;  whole ones, so the bar was as fat as the quantum of the thing that erases
+;  it -- which is not a reason for it to be that fat, only the reason nobody
+;  had separated the two.
+;
+;  THE STEP STAYS BYTE-GRANULAR ON PURPOSE. The bar sits at the LEADING EDGE
+;  of the black, so its pixel is exactly the boundary the mask ends on, and
+;  mask and bar go on agreeing to the pixel. Stepping in pixels instead would
+;  need a read-modify-write mask -- the fill ahead of the bar would otherwise
+;  erase the part of the ship inside the bar's own byte -- and it is the
+;  motion that would get finer, not the line. The line is what was fat.
+;
+;  What it buys beyond thinness: gfx_vline ORs one pixel, so during the vanish
+;  the other three pixels of that byte still show the ship. The bar used to
+;  black them out four at a time, which took a column of the ship with it a
+;  step before the erasure was meant to reach it.
 jfx_the_bar:
     ld a,(jfx_bar_off)
     or a
@@ -780,10 +803,27 @@ jfx_the_bar:
     ret nc
     ld hl,jfx_bx0
     add a,(hl)                           ; x0 is signed; the wrap is the answer
-    ld e,a
-    ld d,1
-    ld a,JFX_INK
-    jp jfx_fill
+
+    ;  ...so the column can be off either end, and gfx_vline clips only in Y.
+    ;  jfx_fill was cutting both ends of every fill and this had been riding on
+    ;  it; a byte column of 254 taken as an x would be 1016, which is not on
+    ;  this screen at all but IS on some other scanline of it.
+    bit 7,a
+    ret nz
+    cp JFX_WIDTH
+    ret nc
+
+    ;  x in PIXELS: the leftmost of that byte, four to a byte.
+    ld l,a
+    ld h,0
+    add hl,hl
+    add hl,hl
+    ld a,(jfx_fy)
+    ld c,a
+    ld a,(jfx_fh)
+    ld b,a
+    ld a,JFX_PEN
+    jp gfx_vline                         ; ...which clips to the playfield too
 
 
 ;  Black across the whole of this ship's run, in whatever rows are set.

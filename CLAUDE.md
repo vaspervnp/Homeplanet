@@ -2884,8 +2884,8 @@ tests that counted and the combat tests that counted kills.
 
 ### The jump wipe
 
-`J` erases the fleet with **one small bar per ship** — each starting a little
-before its own ship and ending a little after it — and the next mission reveals
+`J` erases the fleet with **one small bar per ship**, one pixel wide — each
+starting a little before its own ship and ending a little after it — and the next mission reveals
 it the same way. `src/game/jumpfx.asm`, bank 4.
 
 The geometry comes from `class_geom`, the blitter's own placement table, so a
@@ -2911,6 +2911,48 @@ mirroring it** — a mirror reads as "you came back", and §10's campaign only
 goes one way. **Ink 1**: ink 3 is the alarm ink and a jump is not an alarm,
 ink 2 is scenery and the line is not part of the world. **Playfield only**
 (`CTX_BAR_H`..`HUD_TOP`) — the strips are instruments, not the view.
+
+#### The bar is ONE PIXEL wide, and the step is still a byte
+
+It was four, because Mode 1 packs four pixels into a byte and `scr_fill_rect`
+writes whole ones — so the line was as fat as the quantum of the thing that
+erases it. That is not a reason for it to be that fat; it is the reason nobody
+had separated the two. `gfx_vline` has been sitting there the whole time doing
+exactly this, one pixel, clipped to the playfield, and every marker and the
+move disc already draw through it.
+
+**The step stays byte-granular on purpose**, which is `improvements.md` §2's
+option (1). The bar sits at the **leading edge of the black**, so its pixel is
+exactly the boundary the mask ends on and the two go on agreeing to the pixel.
+Stepping in pixels instead needs a read-modify-write mask — the fill ahead of
+the bar would otherwise erase the part of the ship inside the bar's own byte —
+and it is the MOTION that would get finer. The line is what was fat.
+
+There is a second thing it buys, which was not asked for. `gfx_vline` **ORs**
+one pixel, so during the vanish the other three pixels of that byte still show
+the ship. The old bar blacked them out four at a time, taking a column of the
+ship with it a step before the erasure was meant to reach it.
+
+**`jfx_fill` was cutting both ends of every fill and the bar had been riding on
+it.** `gfx_vline` clips only in Y, so the byte column has to be range-checked
+here: `jfx_bx0` is signed, and a column of 254 taken as an x is 1016 — not on
+this screen at all, but very much on some other scanline of it.
+
+> **Looked at, both halves, `build/shots/bar-*.png`.** §2 warned that one pixel
+> of ink 1 at 320×200 "may read as a scratch rather than as an edge, and it may
+> disappear entirely against the blue lattice". It does neither: a Mode 1 pixel
+> is wide, the bars read as clean thin edges, and against the lattice they are
+> white on blue dots rather than lost in them. That was the one question no
+> test could answer.
+
+**Eight tests in `test_jumpfx.py` went red at once and every one of them was
+`bar_columns`.** It compared a whole byte against `#F0`, which was right for a
+four-pixel fill and finds nothing at all now — so the file reported "no bars on
+screen at once" for a bar that was on the screen. It asks about the leftmost
+PIXEL now: `b & 0x88` is that pixel's two bit planes and nothing else, so #80
+is pen 1, #08 is pen 2, #88 is pen 3. That is **sharper** than the byte compare
+it replaces, not looser — during the vanish the bar's own byte still carries
+three pixels of a ship, which a whole-byte compare could never have matched.
 
 The vanish runs inside `mis_jump` *before* a byte of state moves, so what it
 erases is the mission being left and `mis_jump` stays atomic, which a dozen

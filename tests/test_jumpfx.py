@@ -44,6 +44,9 @@ import cpc
 JFX_NONE, JFX_OUT, JFX_IN = 0, 1, 2
 CTX_BAR_H, HUD_TOP = 10, 168
 SOLID_INK_1 = 0xF0
+#  A pixel's two bit planes, for the LEFTMOST pixel of a Mode 1 byte: plane 0
+#  is bit 7 and plane 1 is bit 3. Mirrored from gfx_pen_mask in gfx/line.asm.
+PEN_AT_PIXEL_0 = {0: 0x00, 1: 0x80, 2: 0x08, 3: 0x88}
 WIDTH = 80
 
 #  A bar is the sprite's height with JFX_VMARGIN proud at each end, so the
@@ -129,13 +132,28 @@ class WipeFixture(unittest.TestCase):
         return self.buffer(h.front_buffer(self.c))
 
     @staticmethod
-    def bar_columns(ram, ink=SOLID_INK_1):
-        """Byte columns holding a run of BAR_MIN_RUN solid rows: the bars."""
+    def bar_columns(ram, pen=1):
+        """Byte columns holding a run of BAR_MIN_RUN rows of bar: the bars.
+
+        A BAR IS ONE PIXEL WIDE, so this asks about the LEFTMOST PIXEL of the
+        byte and not about the byte. It used to compare the whole byte against
+        #F0, which was right while the bar was a four-pixel fill and finds
+        nothing at all now -- every test here goes through this, so the whole
+        file reported "no bars on screen" for a bar that was on the screen.
+
+        Mode 1 packs a pixel's two planes into bit 7 and bit 3 of its byte, so
+        `b & 0x88` is the leftmost pixel's PEN and nothing else: #80 is pen 1,
+        #08 is pen 2, #88 is pen 3. That makes this SHARPER than the byte
+        compare it replaces rather than looser -- during the vanish the bar's
+        own byte still carries three pixels of the ship it has not reached
+        yet, which a whole-byte compare could never have matched.
+        """
+        want = PEN_AT_PIXEL_0[pen]
         found = []
         for x in range(WIDTH):
             run = 0
             for y in range(CTX_BAR_H, HUD_TOP):
-                run = run + 1 if ram[h.screen_offset(y, x)] == ink else 0
+                run = run + 1 if ram[h.screen_offset(y, x)] & 0x88 == want else 0
                 if run >= BAR_MIN_RUN:
                     found.append(x)
                     break
@@ -143,9 +161,10 @@ class WipeFixture(unittest.TestCase):
 
     @staticmethod
     def full_height_columns(ram):
-        """Columns lit from the context bar to the HUD -- the OLD effect."""
+        """Columns barred from the context bar to the HUD -- the OLD effect."""
+        want = PEN_AT_PIXEL_0[1]
         return [x for x in range(WIDTH)
-                if all(ram[h.screen_offset(y, x)] == SOLID_INK_1
+                if all(ram[h.screen_offset(y, x)] & 0x88 == want
                        for y in range(CTX_BAR_H, HUD_TOP))]
 
     @staticmethod
@@ -356,9 +375,11 @@ class TestTheVanish(WipeFixture):
         """Section 2's ink for the fleet itself. Not 3, which is the alarm ink.
 
         Read WHILE the sweep is running and off the screen: every other test
-        here finds a bar by looking for a run of SOLID_INK_1, so this is the
-        one that says what that byte means. #F0 is pen 1, #0F is pen 2 and #FF
-        is pen 3, and the three are the same pixels in different planes.
+        here finds a bar by asking bar_columns, which is told which pen to look
+        for, so this is the one that says the answer is 1. The three pens are
+        the same pixel in different bit planes -- #80, #08 and #88 at the
+        leftmost pixel of a byte -- so a bar in the wrong ink would be found
+        here and nowhere else.
         """
         self.press_jump()
         found = {1: 0, 2: 0, 3: 0}
@@ -368,8 +389,8 @@ class TestTheVanish(WipeFixture):
                     break
             else:
                 ram = self.front()
-                for pen, ink in ((1, 0xF0), (2, 0x0F), (3, 0xFF)):
-                    found[pen] += len(self.bar_columns(ram, ink))
+                for pen in (1, 2, 3):
+                    found[pen] += len(self.bar_columns(ram, pen))
             self.c.run_frames(self.SAMPLE_EVERY)
         self.c.key_up("j")
         self.assertGreater(found[1], 0, "no ink 1 bars were ever on the screen")
@@ -639,11 +660,11 @@ class TestTheReveal(WipeFixture):
             ram = self.buffer(base)
             stray = [(x, y)
                      for y in range(CTX_BAR_H, HUD_TOP) for x in range(WIDTH)
-                     if ram[h.screen_offset(y, x)] == SOLID_INK_1
+                     if ram[h.screen_offset(y, x)] & 0x88 == PEN_AT_PIXEL_0[1]
                      and not any(x0 <= x < x1 and y0 <= y < y1
                                  for x0, x1, y0, y1 in boxes)]
             self.assertFalse(
-                stray, f"buffer #{base:04X} holds solid white at {stray[:8]}, "
+                stray, f"buffer #{base:04X} holds a bar pixel at {stray[:8]}, "
                        "outside every sprite: the bars left a trail")
 
     def test_both_buffers_carry_the_sweep(self):

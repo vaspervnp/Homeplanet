@@ -163,10 +163,27 @@ answer it.
 
 ---
 
-# 2. The jump bar should be one pixel wide, always
+# 2. The jump bar should be one pixel wide, always — BUILT
 
 **Asked for:** the bar that erases and reveals each ship on a jump should be
 **1 pixel** wide, in and out, at every zoom.
+
+> **Built as option (1) below, and this section was right about all of it** —
+> which is worth saying, because §1, §5 and §7 were each wrong somewhere. The
+> primitive was `gfx_vline` and it was exactly right; the awkward half was the
+> mask, and keeping the STEP byte-granular is what makes bar and mask go on
+> agreeing to the pixel.
+>
+> Two things it did not predict. `gfx_vline` clips only in Y, and the bar had
+> been riding on `jfx_fill` cutting both ends of every fill — a signed byte
+> column of 254 taken as an x is 1016. And ORing one pixel means the vanish
+> leaves the other three pixels of that byte showing the ship, so the old bar
+> had been taking a column of the ship a step early.
+>
+> The "what to check" list paid for itself: eight tests went red at once, all
+> of them `bar_columns` comparing a whole byte against `#F0`. And it WAS
+> looked at — `build/shots/bar-*.png`, both halves. One pixel does not read as
+> a scratch and does not vanish against the lattice.
 
 It is 4 pixels today — `JFX_WIDTH` is a whole byte, because Mode 1 packs four
 pixels into one and the bar is drawn with byte fills.
