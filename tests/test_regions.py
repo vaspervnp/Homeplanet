@@ -163,9 +163,8 @@ class RegionFixture(unittest.TestCase):
 
     def jump_once(self):
         """Clear the objective the crude way and press J."""
-        for slot in self.hostile():
-            self.poke_ent(slot, ENT_FLAGS, 0)
-        self.c.write_ram(self.sym["MIS_COMPLETE"], bytes([1]))
+        #  All three of mis_gate's conditions; see test_campaign.TestTheWayOut.
+        h.clear_the_way_out(self.c)
         was = self.byte("MIS_INDEX")
         self.hold("j", frames=40, release=40)
         h.dismiss_briefing(self.c)

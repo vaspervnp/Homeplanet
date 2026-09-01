@@ -205,9 +205,11 @@ class TestObjectives(CampaignFixture):
                          "mission 1 has nothing to do and did not complete")
 
     def test_a_clearance_mission_needs_the_enemy_dead(self):
-        self.hold("j", frames=25)                 # into mission 2
-        self.c.run_frames(120)
-        self.hold("j", frames=25)                 # into mission 3, which has enemies
+        #  Through jump_mission, which arranges what mis_gate asks for. Two
+        #  bare presses of J used to be enough; a mission cannot be walked out
+        #  of any more -- see TestTheWayOut for the rule itself.
+        h.jump_mission(self.c)                    # into mission 2
+        h.jump_mission(self.c)                    # into mission 3, which has enemies
         self.assertEqual(self.mission(), 2)
         self.assertEqual(self.descriptor(2)[18], MIS_OBJ_CLEAR)
 
@@ -219,29 +221,126 @@ class TestObjectives(CampaignFixture):
         self.assertEqual(self.fleet()[1], 0)
 
 
+class TestTheWayOut(CampaignFixture):
+    """mis_gate: what a mission asks before it will let the player leave.
+
+    Three things, and the objective is only the first -- WAVE_BEFORE_JUMP
+    waves have to have come and nothing hostile may still be flying. Each test
+    below withholds exactly ONE of the three and presses J, which is the only
+    way to know that all three are load-bearing: a gate tested by satisfying
+    everything at once passes just as happily with two of its clauses deleted.
+    """
+
+    def waves_seen(self, n):
+        self.c.write_ram(self.sym["WAVE_COUNT"], bytes([n]))
+
+    def hostiles(self):
+        return [s for s in range(self.sym["ENT_PLAYER_MAX"], ENT_MAX)
+                if self.ent(s, ENT_FLAGS) & F_ACTIVE]
+
+    def clear_the_board(self):
+        for slot in self.hostiles():
+            self.c.write_ram(
+                self.sym["ENTITIES"] + slot * ENT_SIZE + ENT_FLAGS, b"\x00")
+
+    def to_a_mission_with_a_picket(self):
+        """Mission 3, which is the first with anything in it to kill."""
+        for _ in range(2):
+            h.jump_mission(self.c)
+        self.assertEqual(self.mission(), 2)
+        self.assertGreater(len(self.hostiles()), 0, "nothing to clear")
+
+    def press_j(self):
+        was = self.mission()
+        self.hold("j", frames=25)
+        self.c.run_frames(20)
+        return self.mission() != was
+
+    def test_three_waves_are_not_enough_with_the_picket_alive(self):
+        self.to_a_mission_with_a_picket()
+        self.waves_seen(self.sym["WAVE_BEFORE_JUMP"])
+        self.c.run_frames(12)
+        self.assertEqual(self.byte("MIS_LEAVE_OK"), 0)
+        self.assertFalse(self.press_j(), "left a mission with the picket flying")
+
+    def test_a_cleared_board_is_not_enough_before_the_third_wave(self):
+        self.to_a_mission_with_a_picket()
+        self.clear_the_board()
+        self.waves_seen(self.sym["WAVE_BEFORE_JUMP"] - 1)
+        self.c.run_frames(24)
+        self.assertEqual(self.byte("MIS_COMPLETE"), 1,
+                         "the objective was not met by clearing the board")
+        self.assertEqual(self.byte("MIS_LEAVE_OK"), 0)
+        self.assertFalse(self.press_j(), "left before the third wave")
+
+    def test_and_with_both_it_goes(self):
+        self.to_a_mission_with_a_picket()
+        self.clear_the_board()
+        self.waves_seen(self.sym["WAVE_BEFORE_JUMP"])
+        self.c.run_frames(24)
+        self.assertEqual(self.byte("MIS_LEAVE_OK"), 1)
+        self.assertTrue(self.press_j(), "the way out was closed with both met")
+
+    def test_a_wave_that_lands_afterwards_shuts_it_again(self):
+        """THE REASON IT IS NOT LATCHED INTO mis_complete. The objective stays
+        met; the way out does not. A flag folded into mis_complete could not
+        express this and would offer JUMP over the top of a live wave."""
+        self.to_a_mission_with_a_picket()
+        self.clear_the_board()
+        self.waves_seen(self.sym["WAVE_BEFORE_JUMP"])
+        self.c.run_frames(24)
+        self.assertEqual(self.byte("MIS_LEAVE_OK"), 1)
+
+        h.force_wave(self.c, self.sym)
+        self.c.run_frames(60)
+        self.assertGreater(len(self.hostiles()), 0, "no wave arrived")
+        self.assertEqual(self.byte("MIS_COMPLETE"), 1, "the objective was undone")
+        self.assertEqual(self.byte("MIS_LEAVE_OK"), 0,
+                         "a wave landed and the jump was still on offer")
+        self.assertFalse(self.press_j(), "left with a wave on the screen")
+
+    def test_a_wreck_does_not_hold_the_player_in(self):
+        """A crippled hull carries ACTIVE and ENEMY and is going nowhere, and
+        the DERELICT is one for the whole of missions 4 to 6 -- counting it
+        would make those three impossible to leave. Third time this trap has
+        been avoided by one bit in a mask; see mis_count_enemies."""
+        self.to_a_mission_with_a_picket()
+        self.clear_the_board()
+        slot = self.sym["ENT_PLAYER_MAX"]
+        base = self.sym["ENTITIES"] + slot * ENT_SIZE
+        self.c.write_ram(base + ENT_FLAGS, bytes([F_ACTIVE | F_ENEMY | 0x04]))
+        self.waves_seen(self.sym["WAVE_BEFORE_JUMP"])
+        self.c.run_frames(24)
+        self.assertEqual(self.byte("MIS_LEAVE_OK"), 1,
+                         "a wreck closed the way out")
+
+
 class TestJump(CampaignFixture):
 
     def test_j_is_refused_until_the_objective_is_met(self):
-        self.hold("j", frames=25)
-        self.c.run_frames(120)
-        self.hold("j", frames=25)                 # now on mission 3
+        h.jump_mission(self.c)
+        h.jump_mission(self.c)                    # now on mission 3
         self.assertEqual(self.mission(), 2)
         self.assertEqual(self.byte("MIS_COMPLETE"), 0)
 
+        #  Everything the gate asks for EXCEPT the objective, so that what
+        #  refuses this is the objective and not one of the other two.
+        self.c.write_ram(self.sym["WAVE_COUNT"],
+                         bytes([self.sym["WAVE_BEFORE_JUMP"]]))
+        self.c.run_frames(12)
         self.hold("j", frames=25)
         self.assertEqual(self.mission(), 2, "jumped away from an unfinished mission")
 
     def test_j_advances_and_lays_out_the_next_mission(self):
         self.c.run_frames(120)
         self.assertEqual(self.byte("MIS_COMPLETE"), 1)
-        self.hold("j", frames=25)
+        h.jump_mission(self.c)
         self.assertEqual(self.mission(), 1)
 
         #  Jump on to mission 3, which has a picket, and THAT one must start
         #  incomplete -- the check is that mis_setup resets the flag, and an
         #  ARRIVE mission cannot show it because it completes immediately.
-        self.c.run_frames(120)
-        self.hold("j", frames=25)
+        h.jump_mission(self.c)
         self.assertEqual(self.mission(), 2)
         self.assertEqual(self.byte("MIS_COMPLETE"), 0, "the new mission started complete")
 
@@ -290,10 +389,8 @@ class TestFleetPersistence(CampaignFixture):
                          "losses did not survive the jump -- the fleet healed")
 
     def test_the_enemy_does_not_come_with_you(self):
-        self.c.run_frames(120)
-        self.hold("j", frames=25)
-        self.c.run_frames(120)
-        self.hold("j", frames=25)                 # mission 3 has a picket
+        h.jump_mission(self.c)
+        h.jump_mission(self.c)                    # mission 3 has a picket
         self.assertGreater(self.fleet()[1], 0)
 
         #  Wipe them and jump: the next mission's enemy must be its own.
@@ -309,7 +406,7 @@ class TestFleetPersistence(CampaignFixture):
         #  tests/test_derelict.py -- so it belongs in this figure rather than
         #  being filtered out of it.
         expected = self.descriptor(3)[12] + 1
-        self.hold("j", frames=25)
+        h.jump_mission(self.c)
         self.assertEqual(self.fleet()[1], expected,
                          "the wrong number of enemies crossed into mission 4")
 

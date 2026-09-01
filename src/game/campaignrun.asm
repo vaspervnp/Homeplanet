@@ -26,6 +26,7 @@ mis_init:
     xor a
     ld (mis_index),a
     ld (mis_complete),a
+    ld (mis_leave_ok),a
     ld (mis_failed),a
     ld (mis_saved),a                    ; nothing banked yet
     ld (campaign_unlocks),a             ; ...and nothing reverse-engineered
@@ -139,8 +140,13 @@ mis_descriptor:
 ;  Uses: everything
 ; ----------------------------------------------------------------------------
 mis_setup:
+    ;  mis_leave_ok as well, and it matters: mis_update recomputes it every
+    ;  frame, but the first frame of a new mission comes after a briefing and
+    ;  a screen wipe, and a stale 1 carried across from the mission just left
+    ;  would offer JUMP over the top of a picket that has only just spawned.
     xor a
     ld (mis_complete),a
+    ld (mis_leave_ok),a
     ld (mis_failed),a
     ld hl,0
     ld (mis_timer),hl
@@ -393,6 +399,12 @@ mis_update:
     ret
 @mis_alive:
 
+    ;  EVERY FRAME, and before the exit below. Whether the jump is available
+    ;  is not a property of having won -- a wave landing after the objective
+    ;  was met takes it away again -- so it cannot be folded into
+    ;  mis_complete, which is latched.
+    call mis_gate
+
     ld a,(mis_complete)
     or a
     ret nz                              ; already won; waiting for the jump
@@ -428,6 +440,76 @@ mis_update:
 @mis_won:
     ld a,1
     ld (mis_complete),a
+    ret
+
+
+; ----------------------------------------------------------------------------
+;  mis_gate -- may the player leave right now?
+;  Out: (mis_leave_ok) = 0 or 1
+;  Uses: everything
+;
+;  Three things, and the first is the mission's own objective:
+;
+;      the objective is met                  (mis_complete)
+;      WAVE_BEFORE_JUMP waves have come      (wave_count)
+;      nothing hostile is still flying       (mis_count_hostiles)
+;
+;  The second and third are the rule the owner asked for: a mission cannot be
+;  left before its third wave, and cannot be left with an enemy on the board.
+;
+;  WRECKS DO NOT COUNT AND THAT IS NOT A DETAIL. A crippled hull carries
+;  ACTIVE and ENEMY and is not going anywhere, and the DERELICT is one of them
+;  for the whole of missions 4 to 6 -- counting it would make those three
+;  missions impossible to leave at all, which is the same trap ENT_F_WAVE and
+;  ENT_F_DISABLED have each been folded into mis_count_enemies' mask to avoid.
+;  Third time. See game/salvage.asm.
+; ----------------------------------------------------------------------------
+mis_gate:
+    xor a
+    ld (mis_leave_ok),a
+
+    ld a,(mis_complete)
+    or a
+    ret z
+
+    ld a,(wave_count)
+    cp WAVE_BEFORE_JUMP
+    ret c
+
+    call mis_count_hostiles
+    or a
+    ret nz
+
+    ld a,1
+    ld (mis_leave_ok),a
+    ret
+
+
+; ----------------------------------------------------------------------------
+;  mis_count_hostiles -- everything of theirs that is still FLYING
+;  Out: A = how many
+;  Uses: everything
+;
+;  The twin of mis_count_enemies below, and the difference is one bit: this
+;  one counts WAVE ships as well. That routine answers "is the mission's own
+;  picket dead", which is what a CLEAR objective asks; this one answers "is
+;  there an enemy on the board", which is what leaving asks.
+; ----------------------------------------------------------------------------
+mis_count_hostiles:
+    ld hl,entities + ENT_PLAYER_MAX * ENT_SIZE + ENT_FLAGS
+    ld de,ENT_SIZE
+    ld b,ENT_ENEMY_MAX
+    ld c,0
+@mis_hostile_one:
+    ld a,(hl)
+    and ENT_F_ACTIVE + ENT_F_ENEMY + ENT_F_DISABLED
+    cp ENT_F_ACTIVE + ENT_F_ENEMY
+    jr nz,@mis_hostile_next
+    inc c
+@mis_hostile_next:
+    add hl,de
+    djnz @mis_hostile_one
+    ld a,c
     ret
 
 
@@ -499,7 +581,10 @@ mis_jump:
     or a
     jp nz,tut_jump
 
-    ld a,(mis_complete)
+    ;  mis_leave_ok, not mis_complete: the objective being met is only the
+    ;  first of the three things mis_gate asks. It is recomputed every frame,
+    ;  so a wave that lands after the objective was met closes this again.
+    ld a,(mis_leave_ok)
     or a
     jr z,@mis_no_jump
 

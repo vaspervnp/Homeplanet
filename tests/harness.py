@@ -412,6 +412,48 @@ def close(c) -> None:
         c.__del__()
 
 
+def clear_the_way_out(c: cpc.CPC) -> None:
+    """Arrange the three things mis_gate asks for, so that `J` will work.
+
+    A mission may not be left before its WAVE_BEFORE_JUMP'th wave, and may not
+    be left with anything hostile still flying (mis_gate, game/campaignrun.asm)
+    -- so pressing J is no longer one keypress, it is a siege. Every test that
+    jumps in order to get SOMEWHERE ELSE would otherwise have to fight one.
+
+    This is the only place that shortcut lives. The rule itself is tested by
+    driving it rather than by arranging it: tests/test_campaign.TestTheWayOut.
+    """
+    sym = symbols()
+    if "MIS_LEAVE_OK" not in sym:
+        return
+    c.write_ram(sym["WAVE_COUNT"], bytes([sym["WAVE_BEFORE_JUMP"]]))
+    #  Everything of theirs that is still flying. Wrecks are left alone: they
+    #  do not count against the gate, and the derelict is one of them.
+    for slot in range(sym["ENT_PLAYER_MAX"], sym["ENT_MAX"]):
+        addr = sym["ENTITIES"] + slot * ENT_SIZE + ENT_FLAGS
+        flags = c.read_ram(addr, 1)[0]
+        if flags & 0x03 == 0x03 and not flags & 0x04:
+            c.write_ram(addr, b"\x00")
+    c.write_ram(sym["MIS_COMPLETE"], b"\x01")
+
+    #  AND THE ANSWER ITSELF, not just the three things it is computed from.
+    #
+    #  mis_gate runs once per GAME frame from inside mis_update, so waiting
+    #  for it means waiting an unknown number of emulator frames -- and worse,
+    #  it does not run AT ALL while the game is paused or while a jump wipe
+    #  owns the frame, which is exactly where some callers are (test_regions
+    #  walks the campaign with the battle frozen). Setting the conditions and
+    #  then poking the answer works in both: while playing, the next
+    #  mis_update recomputes the same 1 from what is written above; while
+    #  stopped, nothing overwrites it.
+    #
+    #  The first version counted twelve frames and it was not one game frame
+    #  at boot -- the flag was still 0 when J was pressed, the press was
+    #  ignored, and it became 1 a moment later, so the state LOOKED right to
+    #  whatever read it next.
+    c.write_ram(sym["MIS_LEAVE_OK"], b"\x01")
+
+
 def jump_mission(c: cpc.CPC, frames: int = 25) -> None:
     """Press J and clear the briefing the next mission opens on.
 
@@ -419,6 +461,7 @@ def jump_mission(c: cpc.CPC, frames: int = 25) -> None:
     that then called run_frames would sit watching a briefing and conclude
     that nothing works.
     """
+    clear_the_way_out(c)
     c.key_down("j")
     c.run_frames(frames)
     c.key_up("j")

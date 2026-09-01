@@ -233,7 +233,17 @@ class TestDiscImage(unittest.TestCase):
         self.assertIn(h.crtc_page(c), (h.SCREEN_A, h.SCREEN_B))
 
         #  And it really is up: the title is the first thing a user sees.
-        self.assertEqual(h.read_cpu(c, sym["TITLE_SHOWN"], 1)[0], 1,
+        #
+        #  read_bank4 AND NOT read_cpu. title_shown is a BANK-4 symbol and the
+        #  title screen itself pages banks 5 and 6 in -- title_draw_ships blits
+        #  real libraries through spr_blit_banked -- so a peek at an arbitrary
+        #  emulator-frame boundary reads a SPRITE BYTE at that address. It read
+        #  as luck for a long time and the luck is per-address: this came back
+        #  255 the day bank 4 grew by eighty bytes and moved title_shown onto a
+        #  different sprite byte. That is the third time this exact mistake has
+        #  surfaced in this project, and the second time it was a test rather
+        #  than the game.
+        self.assertEqual(h.read_bank4(c, sym["TITLE_SHOWN"], 1)[0], 1,
                          "booted from disc but never reached the title screen")
 
         ram = c.read_ram(0x0040, 8)

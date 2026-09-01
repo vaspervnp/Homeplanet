@@ -102,6 +102,20 @@ BRIEF_LINE_STEP     equ 12
 ; ============================================================================
 mis_index:          defb 0              ; 0-based; the HUD shows it plus one
 mis_complete:       defb 0
+
+;  WHETHER `J` WOULD WORK RIGHT NOW, recomputed every frame by mis_update.
+;
+;  It is not the same thing as mis_complete and it must not be latched into
+;  it. mis_complete means "this mission's own objective is met" and stays set;
+;  leaving also asks that three waves have come and that nothing hostile is
+;  still flying, and a wave landing AFTER the objective was met takes the jump
+;  away again. A flag folded into mis_complete could not do that -- it would
+;  say the jump was available while a wave was on the screen.
+;
+;  A byte rather than a routine the HUD calls, because phase4_hud_changed
+;  compares a shadow to decide whether to repaint: one byte compare a frame
+;  against counting the hostile region twice.
+mis_leave_ok:       defb 0
 mis_failed:         defb 0
 mis_saved:          defb 0
 mis_timer:          defw 0

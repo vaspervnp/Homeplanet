@@ -1526,6 +1526,85 @@ SPACE stops the clock along with the battle.
 > follow-on repair. What is recorded here is that 600 game frames now means
 > 87 seconds and not 120, and that restoring two minutes would be about 1100.
 
+#### And then the waves became the price of LEAVING instead
+
+**A mission may not be left before its third wave, and may not be left with
+anything hostile still flying.** `mis_gate` in `game/campaignrun.asm`, asked on
+every frame, answering into `mis_leave_ok`.
+
+**That inverts what everything above this line was for.** The waves were the
+price of STAYING — "loitering costs you", so that `J` was a decision rather
+than a formality. They are the price of LEAVING now, and a mission is a siege:
+clear what the mission put there, hold the ground while three waves come at
+it, and only then go.
+
+What it costs is the decision, and it is worth being plain about that. There
+is nothing to weigh any more — you jump when you are allowed to, and you are
+allowed when the board is clear and the third wave is dead. What it buys is
+that no mission can be walked out of.
+
+> **Missions 1 and 2 have no enemies and complete on their first frame**, so
+> they are now three waves of waiting each. Mission 2's own briefing says
+> *"καμία μάχη· μόνο περισυλλογή επιζώντων και σιωπή"* — no battle, only
+> collecting survivors, and silence. The play and the text now disagree, and
+> that is a content decision rather than an engineering one: either those two
+> rows want a different objective, or the briefing wants rewriting.
+
+**`mis_leave_ok` is NOT folded into `mis_complete`, and that is the whole
+design of it.** `mis_complete` means "this mission's own objective is met" and
+is latched; leaving also asks for three waves and an empty board, and **a wave
+landing after the objective was met takes the jump away again**. A latched
+flag could not express that — it would go on offering `JUMP` over the top of a
+live wave. So it is recomputed every frame, before `mis_update`'s "already
+won" exit, and both `mis_jump` and the HUD's `JUMP` label read the same byte.
+
+A byte rather than a routine the HUD calls, because `phase4_hud_changed`
+compares a shadow to decide whether to repaint: one byte compare a frame
+against counting the hostile region twice. **The shadow had to move to it
+too**, or the label would not repaint on the frame a wave closed the way out.
+
+**Wrecks do not count, and that is the third time this trap has been avoided
+by one bit in a mask.** A crippled hull carries ACTIVE and ENEMY and is going
+nowhere, and the **derelict is one for the whole of missions 4 to 6** — count
+it and those three become impossible to leave at all. `ENT_F_WAVE` went into
+`mis_count_enemies`' mask for the same reason, and `ENT_F_DISABLED` after it.
+`mis_count_hostiles` is the twin that *does* count wave ships, because
+"is the mission's picket dead" and "is there an enemy on the board" are
+different questions.
+
+**The tutorial writes both bytes by hand.** It skips `mis_update` entirely, so
+`mis_gate` never runs there and nothing would ever set `mis_leave_ok`; the
+stage has no waves and never will, and the rule it teaches is which KEY leaves
+rather than what a real mission charges for leaving.
+
+**`harness.clear_the_way_out` is the only shortcut**, and `jump_mission` goes
+through it: a test that jumps in order to get SOMEWHERE ELSE would otherwise
+have to fight a siege. The rule itself is driven rather than arranged, in
+`tests/test_campaign.TestTheWayOut` — five tests, each withholding exactly one
+clause, because a gate tested by satisfying everything at once passes just as
+happily with two of its clauses deleted.
+
+> **A STALE `.dsk` cost an hour of this, and the file above says so.** Eight
+> `test_persistence` failures all reading "the jump was refused", on a build
+> where `boot_quick` jumped perfectly. Everything pointed at the new gate: it
+> is the thing that refuses jumps, it had just landed, and the failures were
+> all about jumping. What it actually was is the first paragraph of "Memory
+> map" — *"if a `boot_disc` test disagrees with a `boot_quick` one, suspect
+> the image before the code"* — and the proof took one command: `rm -f
+> build/homeplanet.dsk && make`. The probe that finally showed it was
+> `DEMO_FRAMES`, which was **0** on the disc-booted machine and 18 on a quick
+> one: the game was not running at all, so `J` could not have done anything
+> whatever the gate said.
+
+> **It counted frames where it should have polled, and that is this project's
+> oldest mistake.** `clear_the_way_out` ran twelve emulator frames after
+> setting the flags, which looked like plenty and is **not one game frame at
+> boot** — the game runs at five to ten emulator frames per game frame and more
+> right after a briefing, which is where most callers are. `mis_leave_ok` was
+> still 0 when `J` was pressed, the press was simply ignored, and the flag
+> became 1 a moment later — so the state LOOKED right to whatever read it next
+> and the mission index had not moved. It polls now.
+
 #### Three decisions, written down
 
 - **A wave does not count towards the objective.** `ENT_F_WAVE` is a fourth

@@ -169,9 +169,10 @@ class DerelictFixture(unittest.TestCase):
 
     def jump_once(self):
         """Clear the objective the crude way and press J."""
-        for slot in self.hostiles():
-            self.set_ent(slot, ENT_FLAGS, 0)
-        self.c.write_ram(self.sym["MIS_COMPLETE"], b"\x01")
+        #  All three of mis_gate's conditions, not just the objective: a
+        #  mission cannot be left before its third wave or with anything
+        #  hostile flying. tests/test_campaign.TestTheWayOut is the rule.
+        h.clear_the_way_out(self.c)
         was = self.byte("MIS_INDEX")
         self.hold("j", frames=40, release=40)
         h.dismiss_briefing(self.c)
@@ -353,6 +354,16 @@ class TestItDoesNotTrapThePlayer(DerelictFixture):
             self.set_ent(slot, ENT_FLAGS, 0)
         self.c.run_frames(60)
         self.assertEqual(len(self.derelicts()), 1)
+
+        #  ...and the OTHER two things mis_gate asks, because this test is
+        #  about the derelict and not about the waves. Without it the refusal
+        #  would come from the wave count and the assertion below would be
+        #  true for a reason that has nothing to do with a hull on the board.
+        self.c.write_ram(self.sym["WAVE_COUNT"],
+                         bytes([self.sym["WAVE_BEFORE_JUMP"]]))
+        self.c.run_frames(24)
+        self.assertEqual(self.byte("MIS_LEAVE_OK"), 1,
+                         "the derelict closed the way out")
 
         self.hold("j", frames=40, release=40)
         h.dismiss_briefing(self.c)
@@ -786,11 +797,7 @@ class TestTheBriefingSaysSo(BarFixture):
         The last jump of the walk does NOT dismiss what comes up, because the
         briefing is the thing being read.
         """
-        for slot in range(self.sym["ENT_MAX"]):
-            addr = self.sym["ENTITIES"] + slot * ENT_SIZE + ENT_FLAGS
-            if self.c.read_ram(addr, 1)[0] & F_ENEMY:
-                self.c.write_ram(addr, b"\x00")
-        self.c.write_ram(self.sym["MIS_COMPLETE"], b"\x01")
+        h.clear_the_way_out(self.c)
         was = self.byte("MIS_INDEX")
         self.hold("j", frames=40, release=40)
         h.wait_for_briefing(self.c)

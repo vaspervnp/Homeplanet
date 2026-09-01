@@ -2058,7 +2058,10 @@ phase4_hud:
     ld d,1
     call txt_draw_num
 
-    ld a,(mis_complete)
+    ;  mis_leave_ok and not mis_complete. The label is a promise that the key
+    ;  works, so it has to track the same byte mis_jump reads -- an objective
+    ;  met with a wave still on the screen is not a jump.
+    ld a,(mis_leave_ok)
     or a
     ld hl,phase4_hud_blank + 1          ; four spaces: no jump yet
     jr z,@p4_mis_show
@@ -2184,7 +2187,7 @@ phase4_hud_changed:
     jr nz,@p4_hud_diff
     ld a,(mis_index)
     add a,a
-    ld hl,mis_complete
+    ld hl,mis_leave_ok
     add a,(hl)
     ld hl,phase4_hud_shadow_mis
     cp (hl)
@@ -2205,7 +2208,7 @@ phase4_hud_changed:
     ld (phase4_hud_shadow_pick),a
     ld a,(mis_index)
     add a,a
-    ld hl,mis_complete
+    ld hl,mis_leave_ok
     add a,(hl)
     ld (phase4_hud_shadow_mis),a
     ld a,2

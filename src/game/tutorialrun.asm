@@ -86,6 +86,7 @@ tut_enter:
     xor a
     ld (mis_briefing),a
     ld (mis_complete),a
+    ld (mis_leave_ok),a
     ld (mis_failed),a
     ld hl,0
     ld (mis_timer),hl
@@ -756,12 +757,20 @@ tut_a_enemy:
     ret
 
 
-;  The last step. mis_complete is what the HUD reads to put JUMP up in ink 3,
+;  The last step. mis_leave_ok is what the HUD reads to put JUMP up in ink 3,
 ;  so the key the player is about to be told about announces itself in exactly
 ;  the place a real mission announces it.
+;
+;  BOTH BYTES, and the tutorial is the one place they have to be written by
+;  hand. mis_gate computes mis_leave_ok every frame from three things -- the
+;  objective, three waves, and an empty board -- and the tutorial skips
+;  mis_update entirely, so nothing here would ever set it. The stage has no
+;  waves and never will; the rule it is teaching is which KEY leaves, not what
+;  a real mission charges for leaving.
 tut_a_ready:
     ld a,1
     ld (mis_complete),a
+    ld (mis_leave_ok),a
     ret
 
 

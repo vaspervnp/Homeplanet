@@ -86,6 +86,20 @@
 ;  the next arrived. See the note on wave_next below.
 ; ----------------------------------------------------------------------------
 WAVE_FIRST_FRAMES   equ 600             ; 2 minutes at the measured 5.0 fps
+
+;  HOW MANY WAVES A MISSION HAS TO SEE BEFORE IT MAY BE LEFT.
+;
+;  This inverts what the waves were for and the inversion is deliberate. They
+;  were the price of STAYING -- "loitering costs you", so that `J` was a
+;  decision rather than a formality. They are now the price of LEAVING, which
+;  makes a mission a siege: clear what the mission put there, hold the ground
+;  while three waves come at it, and only then go.
+;
+;  What it costs is the decision. There is nothing to weigh any more: you jump
+;  when you are allowed to, and you are allowed when the board is clear and
+;  the third wave is dead. What it buys is that no mission can be walked out
+;  of -- see mis_gate in game/campaignrun.asm for the other half of the rule.
+WAVE_BEFORE_JUMP    equ 3
 WAVE_GAP_MIN        equ 100             ; ...and 20 to about 77 seconds after
 
 ;  The spacing is WAVE_GAP_MIN + 1.125 * a random byte, which reaches 386. It

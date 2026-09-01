@@ -273,8 +273,12 @@ class TestTheVanish(WipeFixture):
 
     def press_jump(self):
         #  Mission 1's objective is ARRIVE, so it is complete from the first
-        #  frame and `J` is live immediately.
+        #  frame -- but the objective is only the first of the three things
+        #  mis_gate asks, and a mission may not be left before its third wave.
+        #  This file is about the WIPE, so the way out is arranged rather than
+        #  fought for; the gate is tests/test_campaign.TestTheWayOut.
         self.assertEqual(self.c.read_ram(self.sym["MIS_COMPLETE"], 1)[0], 1)
+        h.clear_the_way_out(self.c)
         self.c.key_down("j")
 
     def test_one_bar_per_ship_and_none_of_them_crosses_the_screen(self):
@@ -440,6 +444,13 @@ class TestTheVanish(WipeFixture):
         put it back. scr_fill_rect honours no clip of its own -- jfx_band is
         the only thing standing between the bars and the strips.
         """
+        #  Arrange the way out BEFORE the baseline, not inside press_jump.
+        #  mis_leave_ok is what the HUD reads to put JUMP up in ink 3, so
+        #  opening the way out repaints the strip -- and a baseline taken
+        #  before that would see the repaint and call it "the sweep changed
+        #  the strips".
+        h.clear_the_way_out(self.c)
+
         #  Settle first: the bar and the HUD are painted into a buffer only
         #  when what they say changes, so a baseline taken at boot can be a
         #  buffer that has not had them yet.
@@ -504,6 +515,7 @@ class TestTheReveal(WipeFixture):
         #  no jump brought the player to it -- and then jump, so the briefing
         #  this fixture is holding is the one a sweep belongs to.
         self.c = h.boot_quick(frames=300)
+        h.clear_the_way_out(self.c)     # ...mis_gate's other two conditions
         self.c.key_down("j")
         self.c.run_frames(25)
         self.c.key_up("j")
@@ -922,6 +934,7 @@ class TestTheJumpIsHeard(WipeFixture):
     def press_jump(self):
         self.assertEqual(self.c.read_ram(self.sym["MIS_COMPLETE"], 1)[0], 1,
                          "mission 1's ARRIVE objective is not met")
+        h.clear_the_way_out(self.c)     # ...and the other two of mis_gate's
         self.c.key_down("j")
         for _ in range(60):
             if self.mode() == JFX_OUT:
@@ -1017,6 +1030,7 @@ class TestTheJumpIsHeard(WipeFixture):
 
         #  A jump, and out through the briefing by hand: harness.jump_mission
         #  waits the whole reveal out, which is exactly the thing to be inside.
+        h.clear_the_way_out(self.c)     # ...mis_gate's other two conditions
         self.c.key_down("j")
         self.c.run_frames(25)
         self.c.key_up("j")
