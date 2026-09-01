@@ -20,7 +20,8 @@ TITLE_STARS         equ 40
 TITLE_CREDIT_Y      equ 186
 TITLE_PROMPT_Y      equ 160
 ;  THE BLINK IS COUNTED IN GAME FRAMES AND A GAME FRAME IS NOT A FIXED LENGTH,
-;  which is the same trap WAVE_FIRST_FRAMES has now fallen into twice. This bit
+;  which is the trap the attack waves fell into three times before their
+;  clock was moved onto sys_tick_50hz altogether. This bit
 ;  was %100 -- four game frames each way -- and the comment said "a little under
 ;  a second", which it was at the 5 fps the screen ran at when it was written.
 ;

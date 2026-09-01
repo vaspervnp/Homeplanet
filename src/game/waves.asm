@@ -65,37 +65,29 @@
 ; ----------------------------------------------------------------------------
 
 ; ----------------------------------------------------------------------------
-;  The clock, in GAME frames, because that is what mis_timer counts.
+;  The clock, in 50 Hz TICKS, because that is what mis_timer counts now.
 ;
-;  The design targets 12.5 fps and the game measures 7.1 (see the frame budget
-;  in CLAUDE.md), so a wall-clock figure has to be converted at the rate the
-;  machine actually runs at, not the one it aims at.
+;  IT USED TO BE GAME FRAMES AND THAT IS THE WHOLE STORY OF THIS BLOCK. A game
+;  frame is not a fixed length -- the rate moves with the entity count, the
+;  zoom and whatever the last performance change did -- so every figure here
+;  was a conversion against a frame rate somebody had measured once, and every
+;  one went silently wrong the next time it moved. Three minutes became two on
+;  an instruction; two quietly became a minute and a half when the fleet's
+;  ceiling doubled and nobody touched this file; a minute had to be re-derived
+;  from a fresh measurement of 7.10 fps. The design owner asked whether it
+;  could be measured in something else. It can, and this is it.
 ;
-;  THE RATE IS RE-MEASURED EVERY TIME ONE OF THESE MOVES, and it has to be: it
-;  was 5.0 when this file was written and 600 meant two minutes, and the work
-;  that doubled the fleet took it to 7.1 -- so the same 600 had quietly become
-;  a minute and a half without a line of this file changing. A constant in
-;  game frames is a constant in SECONDS only against a rate somebody looked at.
-;
-;      DEMO_FRAMES over 1000 emulator frames, mission 1, this build: 7.10 fps
-;
-;  ONE MINUTE, on the design owner's instruction: "τα κύμματα επίθεσης να
-;  αρχίζουν 1 λεπτό μετά την είσοδο στην πίστα". 60 * 7.1 = 426.
-;
-;  It is honest to a few per cent and no better: the frame rate falls as the
-;  entity count rises, so a minute with a wave already on screen is nearer a
-;  minute and a quarter. Making it exact would mean a second counter on
-;  sys_tick_50hz, and mis_timer is already a word that already resets in
-;  exactly the right place.
-;
-;  This is the third cut. It was three minutes, then two on the design owner's
-;  instruction, and one now -- and the ones after the first are three times as
-;  often as they first were. What that buys is that the loiter is no longer a
-;  sequence of separate fights: the old spacing was 60 to 238 seconds and a
-;  wave takes 20 to 40 to resolve, so one was always dead before the next
-;  arrived. See the note on wave_next below.
+;  A tick is a fiftieth of a second, always. So these are wall-clock numbers
+;  written as wall-clock arithmetic -- 50 * 60 is a minute and will still be a
+;  minute the day the frame rate halves. Nothing here needs re-measuring
+;  again. See the note over MIS_SURVIVE_TICKS in game/mission.asm for how
+;  mis_update accumulates them and why it is a delta rather than the raw
+;  counter.
 ; ----------------------------------------------------------------------------
-WAVE_FIRST_FRAMES   equ 426             ; 1 minute at the measured 7.1 fps
+
+;  ONE MINUTE, on the design owner's instruction: "τα κύμματα επίθεσης να
+;  αρχίζουν 1 λεπτό μετά την είσοδο στην πίστα".
+WAVE_FIRST_TICKS    equ 50 * 60
 
 ;  HOW MANY WAVES A MISSION HAS TO SEE BEFORE IT MAY BE LEFT.
 ;
@@ -112,33 +104,31 @@ WAVE_FIRST_FRAMES   equ 426             ; 1 minute at the measured 7.1 fps
 WAVE_BEFORE_JUMP    equ 3
 ;  ...and then one to two minutes between them, on the design owner's
 ;  instruction: "οι επιθέσεις να είναι συνεχής με διαφορά 1 ως 2 λεπτά η μία
-;  από την άλλη". So the floor is a minute, which is WAVE_FIRST_FRAMES again --
+;  από την άλλη". The floor is a minute, which is WAVE_FIRST_TICKS again --
 ;  the first wave and the gap between waves are the same interval, and that is
 ;  the rule in one number rather than two.
-WAVE_GAP_MIN        equ 426             ; 1 minute at the measured 7.1 fps
+WAVE_GAP_MIN        equ 50 * 60
 
-;  The spacing is WAVE_GAP_MIN + 1.625 * a random byte, which reaches 839 --
-;  118 seconds. See wave_send for why 1.625 and not the 1.664 that would land
-;  exactly on two minutes.
+;  The spread is WAVE_GAP_MIN + 12 * a random byte, so 60.0 to 121.2 seconds.
+;  Twelve is (r << 3) + (r << 2), three adds of HL; the exact figure for a
+;  sixty-second spread would be 11.76, and rounding it to 12 puts the far end
+;  a second and a fifth past two minutes rather than four seconds short of it.
 ;
-;  THIS IS THE THIRD SETTING AND IT REVERSES THE SECOND. It was 300 + 3.5r,
-;  then 100 + 1.125r on an instruction to make the waves three times as
-;  frequent, and it is 426 + 1.625r now. The middle one put waves on top of
-;  each other on purpose; this one deliberately does not, because a minute is
-;  longer than any fight.
+;  THE SPACING HAS NOW BEEN SET THREE TIMES and this is the first setting that
+;  cannot drift. It was 300 + 3.5r game frames, then 100 + 1.125r on an
+;  instruction to make the waves three times as frequent, and it is a minute
+;  to two minutes of REAL TIME now. The middle one put waves on top of each
+;  other on purpose; this one deliberately does not, because a minute is
+;  longer than any fight -- which also makes tools/waverate.py's default
+;  protocol the honest measurement of this build again.
 ;
 ;  WHAT IT COSTS IS THE LENGTH OF A MISSION, and that is worth knowing before
-;  changing it again. WAVE_BEFORE_JUMP is 3 and mis_gate will not let a
-;  mission be left before its third wave, so the floor on a mission is now
-;  1 + 1 + 1 = three minutes of waiting at the very least and nearer five on
-;  an average roll. It was about a minute and a half. If that turns out to be
-;  too long the number to move is WAVE_BEFORE_JUMP, not this one -- this one
-;  is what was asked for.
+;  changing it. WAVE_BEFORE_JUMP is 3 and mis_gate will not let a mission be
+;  left before its third wave, so the floor on a mission is three minutes of
+;  waiting at the very least and nearer five on an average roll. If that turns
+;  out to be too long the number to move is WAVE_BEFORE_JUMP, not this one --
+;  this one is what was asked for.
 
-;  How many ships one wave may ever field, whatever the arithmetic says. The
-;  entity table is 48 slots and the later missions already field twelve
-;  hostiles; a wave that filled the table would cost the frame rate far more
-;  than it cost the fleet.
 WAVE_MAX            equ 8
 
 ;  Where they arrive. cam_sin returns +/-127, so the radius is 127 * this in
@@ -170,7 +160,7 @@ WAVE_READ_EVERY     equ 4
 ;  -- demo_init for the first and mis_jump for the rest.
 ; ----------------------------------------------------------------------------
 wave_init:
-    ld hl,WAVE_FIRST_FRAMES
+    ld hl,WAVE_FIRST_TICKS
     ld (wave_next),hl
     xor a
     ld (wave_count),a
@@ -503,34 +493,22 @@ wave_frac_bits:
 ;  Uses: everything
 ; ----------------------------------------------------------------------------
 wave_send:
-    ;  When the next one comes. WAVE_GAP_MIN + 1.625 * a random byte, which at
-    ;  the measured 7.10 fps is ONE TO TWO MINUTES -- 60 s to 118 -- drawn
-    ;  afresh every time, so the player cannot learn the rhythm and hold
-    ;  station until just before the next one.
+    ;  When the next one comes: WAVE_GAP_MIN + 12 * a random byte, which is
+    ;  one to two minutes of REAL TIME -- 60.0 to 121.2 seconds -- drawn afresh
+    ;  every time, so the player cannot learn the rhythm and hold station until
+    ;  just before the next one.
     ;
-    ;  1.625 is r + (r >> 1) + (r >> 3): three shifts and two adds, against the
-    ;  1.664 that would put the far end exactly on two minutes. The difference
-    ;  is a second and a half at the extreme of a range that is random anyway,
-    ;  and it rounds the right way -- inside the two minutes that were asked
-    ;  for rather than past them.
-    ;
-    ;  IT WAS 100 + 1.125r, fourteen to fifty-four seconds, and at that spacing
-    ;  a wave landed while the last was still flying. That was deliberate then
-    ;  and it is gone now: the waves are a minute apart, so each one is its own
-    ;  fight again. tools/waverate.py's DEFAULT protocol -- force a wave, kill
-    ;  it, wait for the fleet to come home, force the next -- is once more the
-    ;  honest measurement of this, and --overlap is measuring a spacing the
-    ;  game no longer has.
+    ;  Twelve is three adds of HL and no multiply. See WAVE_GAP_MIN for why 12
+    ;  and not the 11.76 that would land the far end exactly on two minutes.
     call sys_rand
     ld l,a
     ld h,0
+    add hl,hl
+    add hl,hl                           ; 4r
     ld d,h
-    ld e,l                              ; DE = r
-    srl e                               ; DE = r >> 1, D being zero
-    add hl,de                           ; 1.5r
-    srl e
-    srl e                               ; DE = r >> 3
-    add hl,de                           ; 1.625r
+    ld e,l
+    add hl,hl                           ; 8r
+    add hl,de                           ; 12r
     ld de,WAVE_GAP_MIN
     add hl,de
     ld de,(mis_timer)
@@ -759,7 +737,7 @@ wave_offset:
 ;  the reason CLAUDE.md gives -- having the per-frame simulation in one place is
 ;  worth more than the bytes, and the low 16K has them now while bank 4 has 299.
 ; ----------------------------------------------------------------------------
-wave_next:          defw WAVE_FIRST_FRAMES
+wave_next:          defw WAVE_FIRST_TICKS
 wave_count:         defb 0              ; waves sent this mission
 wave_size:          defb 0              ; ships in the last one
 wave_say:           defb 0              ; frames of INCOMING left

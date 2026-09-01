@@ -90,6 +90,10 @@ tut_enter:
     ld (mis_failed),a
     ld hl,0
     ld (mis_timer),hl
+    ;  ...and the mark the delta is measured from, or the first frame of the
+    ;  mission adds up to five seconds of somebody else's time.
+    ld a,(sys_tick_50hz)
+    ld (mis_tick_last),a
 
     ld a,1
     ld (tut_active),a

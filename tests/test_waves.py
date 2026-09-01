@@ -56,18 +56,18 @@ CHAR_H, CHAR_W_BYTES = 8, 2
 #  Mirrored from src/game/waves.asm. Anything here that drifts from the source
 #  is a test that has stopped describing the game.
 #
-#  ...which is why BOTH CLOCKS are read rather than copied. They are
-#  conversions of wall-clock minutes at whatever frame rate the build measures,
-#  so they move whenever the frame rate does -- and they have been set three
-#  times each on top of that. A mirrored copy fails for a reason that has
-#  nothing to do with waves.
-WAVE_FIRST_FRAMES = h.symbols()["WAVE_FIRST_FRAMES"]
+#  ...which is why BOTH CLOCKS are read rather than copied. They are wall-clock
+#  figures now -- mis_timer counts 50 Hz TICKS, not game frames -- so they no
+#  longer drift when the frame rate does, and that is the point of the change.
+#  They are still read rather than mirrored because they have been set three
+#  times and may be again.
+WAVE_FIRST_TICKS = h.symbols()["WAVE_FIRST_TICKS"]
 WAVE_GAP_MIN = h.symbols()["WAVE_GAP_MIN"]
 
-#  The spread is 1.625 * a random byte: r + (r >> 1) + (r >> 3), which is the
-#  one thing here that has to be mirrored, because it is the SHAPE of the
-#  arithmetic and not a number the build exports.
-WAVE_GAP_MAX = WAVE_GAP_MIN + 255 + 127 + 31
+#  The spread is 12 * a random byte, which is the one thing here that has to be
+#  mirrored: it is the SHAPE of the arithmetic and not a number the build
+#  exports.
+WAVE_GAP_MAX = WAVE_GAP_MIN + 255 * 12
 WAVE_MAX = 8
 WAVE_HULL_MIN, WAVE_HULL_MAX = 120, 247
 SYS_RAND_SEED = 0x7C4D
@@ -263,21 +263,32 @@ class TestTheGenerator(WaveFixture):
 
 
 class TestTheClock(WaveFixture):
-    """Two minutes, then twenty seconds to a little over a minute between
-    waves -- in game frames, because that is what mis_timer counts and the game
-    runs at 5 fps, not the 12.5 it targets."""
+    """A minute, then one to two minutes between waves -- in 50 Hz TICKS,
+    because that is what mis_timer counts now.
 
-    def test_nothing_arrives_before_the_two_minutes(self):
+    THE UNIT IS THE POINT. It counted game frames, and a game frame is not a
+    fixed length, so every figure derived from it was a conversion against a
+    frame rate somebody had measured once -- and drifted three times without a
+    line of the source changing. A tick is a fiftieth of a second, always.
+
+    Which also fixes the arithmetic in here: a margin and a run_frames are in
+    the SAME unit now, because run_frames counts 50 Hz frames and so does the
+    clock. The margins below used to be game frames against an emulator-frame
+    run, which is a factor of ten -- and the first of these failed the moment
+    the unit changed, on twenty ticks of margin it read as twenty frames.
+    """
+
+    def test_nothing_arrives_before_the_minute_is_up(self):
         """The whole design is that the FIRST stretch of a mission is quiet.
-        A wave one frame early is a wave in the middle of the picket fight."""
-        self.set_timer(WAVE_FIRST_FRAMES - 20)
-        self.c.run_frames(10 * TICKS_PER_GAME_FRAME)
+        A wave one tick early is a wave in the middle of the picket fight."""
+        self.set_timer(WAVE_FIRST_TICKS - 200)
+        self.c.run_frames(100)                  # ...still a hundred ticks short
         self.assertEqual(self.byte("WAVE_COUNT"), 0)
         self.assertEqual(self.riders(), [])
 
     def test_the_wave_lands_when_the_clock_reaches_it(self):
-        self.set_timer(WAVE_FIRST_FRAMES - 2)
-        self.c.run_frames(10 * TICKS_PER_GAME_FRAME)
+        self.set_timer(WAVE_FIRST_TICKS - 2)
+        self.c.run_frames(100)
         self.assertEqual(self.byte("WAVE_COUNT"), 1)
         self.assertGreater(len(self.riders()), 0)
 
@@ -302,7 +313,7 @@ class TestTheClock(WaveFixture):
         immediate wave."""
         self.force_wave()
         self.assertEqual(self.byte("WAVE_COUNT"), 1)
-        self.assertNotEqual(self.word("WAVE_NEXT"), WAVE_FIRST_FRAMES)
+        self.assertNotEqual(self.word("WAVE_NEXT"), WAVE_FIRST_TICKS)
 
         self.kill_the_picket()
         self.c.run_frames(60)
@@ -310,7 +321,7 @@ class TestTheClock(WaveFixture):
 
         self.assertEqual(self.byte("MIS_INDEX"), 1)
         self.assertEqual(self.byte("WAVE_COUNT"), 0)
-        self.assertEqual(self.word("WAVE_NEXT"), WAVE_FIRST_FRAMES)
+        self.assertEqual(self.word("WAVE_NEXT"), WAVE_FIRST_TICKS)
         self.assertEqual(self.riders(), [],
                          "the last mission's wave came through the jump")
 
@@ -318,7 +329,7 @@ class TestTheClock(WaveFixture):
         """SPACE freezes the battle (section 9), and a clock that kept running
         would mean the safest thing a cornered player can do is also the thing
         that brings the next wave forward."""
-        self.set_timer(WAVE_FIRST_FRAMES - 20)
+        self.set_timer(WAVE_FIRST_TICKS - 20)
         self.hold(" ")
         self.assertEqual(self.byte("ORDER_PAUSED"), 1)
         frozen = self.word("MIS_TIMER")

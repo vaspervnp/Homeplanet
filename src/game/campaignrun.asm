@@ -32,6 +32,10 @@ mis_init:
     ld (campaign_unlocks),a             ; ...and nothing reverse-engineered
     ld hl,0
     ld (mis_timer),hl
+    ;  ...and the mark the delta is measured from, or the first frame of the
+    ;  mission adds up to five seconds of somebody else's time.
+    ld a,(sys_tick_50hz)
+    ld (mis_tick_last),a
     jp mis_brief_open
 
 
@@ -151,6 +155,10 @@ mis_setup:
     ld (eco_repaired),a                 ; one repair per mission
     ld hl,0
     ld (mis_timer),hl
+    ;  ...and the mark the delta is measured from, or the first frame of the
+    ;  mission adds up to five seconds of somebody else's time.
+    ld a,(sys_tick_50hz)
+    ld (mis_tick_last),a
 
     ;  The attack-wave clock runs off mis_timer, which has just gone back to
     ;  zero, so the minute is per MISSION by construction. wave_init is
@@ -387,8 +395,18 @@ mis_clear_enemies:
 ;  Uses: everything
 ; ----------------------------------------------------------------------------
 mis_update:
+    ;  REAL TIME, not frames: how many 50 Hz ticks have gone by since the last
+    ;  game frame. See the note over MIS_SURVIVE_TICKS in game/mission.asm for
+    ;  why, and for why it is the DELTA rather than sys_tick_50hz itself.
+    ld a,(sys_tick_50hz)
+    ld hl,mis_tick_last
+    ld c,(hl)
+    ld (hl),a
+    sub c                               ; ticks elapsed, and the wrap is right
+    ld e,a
+    ld d,0
     ld hl,(mis_timer)
-    inc hl
+    add hl,de
     ld (mis_timer),hl
 
     ;  Lost?

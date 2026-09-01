@@ -1769,13 +1769,23 @@ happily with two of its clauses deleted.
 > suite onwards**, because `$(DSK)` depends on `$(MUSIC_BIN)` which depends on
 > those files. (It has to: see "The `.dsk` depends on the music binaries".)
 >
-> Observed repeatedly: the gen files get a fresh timestamp part way through a
-> run and `build/homeplanet.dsk` is **194816** by the end of it — which is what
-> `rasm` mints before `tools/discbanks.py` adds the raw sector tracks. What
-> invokes the rebuild has not been identified; no test calls `harness.build()`,
-> there is no hook, no watcher and no cron. What IS established is the trigger
-> and the cure: **run `make` and check the size before believing any
-> measurement taken after a suite.** 204544 is a whole image.
+> Observed on four consecutive full runs: the gen files get a fresh timestamp
+> part way through, and `build/homeplanet.dsk` is **194816** by the end — which
+> is exactly what `rasm` mints before `tools/discbanks.py` adds the raw sector
+> tracks. The victim is always `test_persistence`, which runs immediately after
+> `test_music` alphabetically and is the only module that reads the real image.
+>
+> **What invokes the rebuild is NOT identified**, and these have been ruled
+> out: no test calls `harness.build()`; there is no hook, watcher or cron; the
+> other Claude sessions on this machine are in other repositories; the
+> `.claude/worktrees` checkout has its own `build/` and has not been touched
+> for days; and cpcemu does **not** write the image back — `boot_disc` leaves
+> it at 204544, measured.
+>
+> What IS established is the trigger, the victim and the cure. **Run `make`,
+> check the size, and re-run `test_persistence` before believing a failure in
+> it.** On a whole image it passes — three times, including immediately after
+> `test_music`. 204544 is a whole image; 194816 is half a build.
 
 > **A STALE `.dsk` cost an hour of this, and the file above says so.** Eight
 > `test_persistence` failures all reading "the jump was refused", on a build

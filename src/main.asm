@@ -256,25 +256,21 @@ low_end:
 ;  mis_timer the waves run off. If the first wave could land before that
 ;  countdown expired, the last mission of the campaign would be a different
 ;  game from the one it was authored as -- and nothing at run time would say so.
-    assert WAVE_FIRST_FRAMES > MIS_SURVIVE_TICKS, "the first wave lands before a SURVIVE objective can be met"
+    assert WAVE_FIRST_TICKS > MIS_SURVIVE_TICKS, "the first wave lands before a SURVIVE objective can be met"
 
-;  The spacing is WAVE_GAP_MIN + 1.625 * a byte, and it has now been set three
-;  times: 300 + 3.5r, then 100 + 1.125r on an instruction to make the waves
-;  three times as frequent, and 426 + 1.625r on one to put them "1 ως 2 λεπτά"
-;  apart. At the measured 7.10 fps that is 60 to 118 seconds.
+;  The spacing is WAVE_GAP_MIN + 12 * a byte, and BOTH ENDS ARE NOW IN 50 Hz
+;  TICKS rather than in game frames -- so they are wall-clock seconds that
+;  cannot drift when the frame rate does. It has been set three times; the
+;  first two were frames and both went silently wrong. See game/mission.asm.
 ;
-;  The lower bound is the one worth guarding, and it guards a different thing
-;  now. A gap shorter than the time it takes to kill a wave is not "more
-;  often", it is a queue that never empties -- the entity table fills and the
-;  frame rate collapses, which reads as a fault rather than as a difficulty
-;  setting. A wave takes 100 to 200 game frames to resolve. The floor was 100,
-;  right on that edge and deliberately so; it is a whole minute now, so the
-;  assert is the ASK rather than the safety margin.
-    assert WAVE_GAP_MIN >= 200, "the shortest gap between waves is under half a minute"
-    assert WAVE_GAP_MIN + 255 + 127 + 31 <= 900, "the longest gap between waves is over two minutes"
+;  The lower bound guards the thing it always guarded: a gap shorter than the
+;  time it takes to kill a wave is not "more often", it is a queue that never
+;  empties -- the entity table fills and the frame rate collapses, which reads
+;  as a fault rather than as a difficulty setting. A wave takes twenty to forty
+;  seconds to resolve, so half a minute is the floor and a minute is the ask.
+    assert WAVE_GAP_MIN >= 50 * 30, "the shortest gap between waves is under half a minute"
+    assert WAVE_GAP_MIN + 255 * 12 <= 50 * 122, "the longest gap between waves is over two minutes"
 
-;  A wave ship's hull is WAVE_HULL_MIN + (a byte AND WAVE_HULL_SPAN), and it is
-;  written into one byte. Overflow would wrap a tough ship into a paper one.
     assert WAVE_HULL_MIN + WAVE_HULL_SPAN <= 255, "a wave ship's hull does not fit a byte"
 
 ;  wave_health walks a pointer along the ENT_FLAGS byte and reaches the other

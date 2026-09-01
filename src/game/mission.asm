@@ -48,7 +48,46 @@ MIS_OBJ_CLEAR       equ 0               ; destroy every enemy
 MIS_OBJ_SURVIVE     equ 1               ; still have a Mothership after a while
 MIS_OBJ_ARRIVE      equ 2               ; nothing to fight; just be there
 
-MIS_SURVIVE_TICKS   equ 200             ; game frames for MIS_OBJ_SURVIVE
+; ----------------------------------------------------------------------------
+;  MIS_TIMER IS IN 50 Hz TICKS, NOT IN GAME FRAMES, and that is the point of
+;  this comment rather than a detail of it.
+;
+;  It counted game frames for the whole life of the campaign, and a game frame
+;  is not a fixed length: the rate depends on how many entities are alive, how
+;  far out the zoom is, and on whatever the last performance change did. So
+;  every wall-clock figure derived from it was a conversion against a frame
+;  rate somebody had looked at once -- and every one of them went silently
+;  wrong the next time the frame rate moved. It happened THREE TIMES to the
+;  attack waves: three minutes became two, two became a minute and a half
+;  without a line changing, and a minute had to be re-derived from a fresh
+;  measurement. The design owner asked the obvious question -- can it not be
+;  measured in something else -- and the answer is yes.
+;
+;  A tick is 1/50th of a second on a PAL 6128, always. sys_tick_50hz is the
+;  free-running counter the interrupt already keeps, so the cost is one
+;  subtraction: mis_update adds the number of ticks that have gone by since
+;  the last game frame rather than adding one. A word of ticks reaches 21
+;  minutes, which is far longer than any mission.
+;
+;  WHY THE DELTA AND NOT THE COUNTER ITSELF. sys_tick_50hz runs through
+;  everything -- the pause, the briefing, the help page, the jump wipe -- and
+;  the mission clock must not. mis_update is called only from demo_update's
+;  playing path, so accumulating there keeps every one of those exclusions
+;  exactly as it was: SPACE still stops the clock along with the battle, which
+;  is what a tactical pause is for.
+;
+;  sys_tick_50hz is a byte and wraps every 5.12 seconds; a game frame is seven
+;  to fourteen ticks, so the modulo-256 subtraction is exact by a wide margin.
+;  It would take a game frame five seconds long to lose time here, and a game
+;  that slow has worse problems.
+; ----------------------------------------------------------------------------
+
+;  THIRTY SECONDS for MIS_OBJ_SURVIVE. It was 200 game frames, which was forty
+;  seconds at the 5 fps of the day it was written and is twenty-eight at
+;  today's 7.1 -- the same drift, in the one constant that already had "TICKS"
+;  in its name. Thirty is the round number nearest what mission 8 has actually
+;  been asking for lately.
+MIS_SURVIVE_TICKS   equ 50 * 30
 
 ;  WHAT A JUMP COSTS. The drive is fuelled out of the same treasury the yard
 ;  spends, so leaving is a purchase and not a formality.
@@ -132,7 +171,13 @@ mis_complete:       defb 0
 mis_leave_ok:       defb 0
 mis_failed:         defb 0
 mis_saved:          defb 0
-mis_timer:          defw 0
+mis_timer:          defw 0              ; 50 Hz TICKS since mis_setup; see above
+
+;  What sys_tick_50hz read on the last game frame, so the next one knows how
+;  much real time has gone by. Primed wherever mis_timer is zeroed -- without
+;  that, the first frame of a mission adds whatever the counter happened to
+;  hold, which is up to five seconds of wave clock nobody asked for.
+mis_tick_last:      defb 0
 mis_desc:           defw 0
 mis_src:            defw 0
 mis_scan:           defb 0
