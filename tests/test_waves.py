@@ -56,13 +56,18 @@ CHAR_H, CHAR_W_BYTES = 8, 2
 #  Mirrored from src/game/waves.asm. Anything here that drifts from the source
 #  is a test that has stopped describing the game.
 #
-#  ...which is why the first wave's clock is READ rather than copied. It is a
-#  conversion of a wall-clock minute at whatever frame rate the build measures,
-#  so it moves whenever the frame rate does -- three times now -- and a
-#  mirrored copy of it fails for a reason that has nothing to do with waves.
+#  ...which is why BOTH CLOCKS are read rather than copied. They are
+#  conversions of wall-clock minutes at whatever frame rate the build measures,
+#  so they move whenever the frame rate does -- and they have been set three
+#  times each on top of that. A mirrored copy fails for a reason that has
+#  nothing to do with waves.
 WAVE_FIRST_FRAMES = h.symbols()["WAVE_FIRST_FRAMES"]
-WAVE_GAP_MIN = 100
-WAVE_GAP_MAX = 100 + 255 + 31
+WAVE_GAP_MIN = h.symbols()["WAVE_GAP_MIN"]
+
+#  The spread is 1.625 * a random byte: r + (r >> 1) + (r >> 3), which is the
+#  one thing here that has to be mirrored, because it is the SHAPE of the
+#  arithmetic and not a number the build exports.
+WAVE_GAP_MAX = WAVE_GAP_MIN + 255 + 127 + 31
 WAVE_MAX = 8
 WAVE_HULL_MIN, WAVE_HULL_MAX = 120, 247
 SYS_RAND_SEED = 0x7C4D
@@ -631,6 +636,134 @@ class TestWhatItCosts(WaveFixture):
         self.assertLess(t, self.BUDGET_T / 2,
                         f"a quiet frame costs {t:.0f} T")
         print(f"\n    wave_update, averaged over four: {t:.0f} T-states")
+
+
+class TestTheMothershipsOwnFigure(WaveFixture):
+    """BASE nnn%, at the other end of row C from the fleet's HULL nnn%.
+
+    "Να φαίνεται κάπου ξεχωριστά η υγεία του mothership" -- and the reason it
+    has to be separate is the whole of this class. Section 8 makes losing the
+    Mothership the end of the campaign, and the fleet's figure is an AVERAGE
+    over seventeen ships: it can read 94% with the one ship that matters at a
+    tenth of its hull.
+    """
+
+    def moth_slot(self):
+        return self.byte("MOTH_SLOT")
+
+    def moth_full(self):
+        return h.read_bank4(self.c, self.sym["CLASS_HULL"], 8)[CLASS_MOTHERSHIP]
+
+    def test_a_whole_mothership_reads_a_hundred_per_cent(self):
+        self.c.run_frames(60)
+        self.assertEqual(self.byte("WAVE_MOTH_PCT"), 100)
+        self.assertIn("BASE 100%", self.hull_row())
+
+    def test_it_is_in_both_screen_buffers(self):
+        self.c.run_frames(60)
+        for base in (0x8000, 0xC000):
+            self.assertIn("BASE 100%", self.hull_row(base=base),
+                          f"the Mothership's hull is missing from "
+                          f"buffer {base:#06x}")
+
+    def test_it_is_the_mothership_and_not_the_fleet(self):
+        """THE POINT, and it fails against a readout that shows the average.
+
+        One ship of seventeen at a tenth of its hull moves the fleet's figure
+        by a few points and the Mothership's by ninety. Both are read off the
+        SCREEN, so this is also a statement about which of the two is drawn
+        where -- a swapped pair of x positions would pass every assertion on
+        the variables.
+        """
+        full = self.moth_full()
+        self.poke_ent(self.moth_slot(), ENT_HULL, full // 10)
+        self.c.run_frames(80)
+
+        fleet, moth = self.byte("WAVE_PCT"), self.byte("WAVE_MOTH_PCT")
+        self.assertGreater(fleet, 80,
+                           "one damaged ship should barely move the fleet's "
+                           f"average, and it read {fleet}%")
+        self.assertLess(moth, 20,
+                        f"the Mothership is at a tenth and BASE reads {moth}%")
+
+        row = self.hull_row()
+        self.assertIn(f"HULL {fleet:>3}%", row, f"row C reads {row!r}")
+        self.assertIn(f"BASE {moth:>3}%", row, f"row C reads {row!r}")
+
+    def test_it_repaints_when_only_the_mothership_moves(self):
+        """wave_changed compares a shadow per figure, and the Mothership needs
+        its own: a wave that goes straight for it can take a fifth of its hull
+        without the fleet's average moving a whole point, and the row would
+        then sit there showing the old number.
+        """
+        self.c.run_frames(60)
+        before = self.hull_row()
+        self.assertIn("BASE 100%", before)
+
+        full = self.moth_full()
+        self.poke_ent(self.moth_slot(), ENT_HULL, full * 3 // 4)
+        self.c.run_frames(80)
+        self.assertNotEqual(self.hull_row(), before,
+                            "row C never repainted, so the Mothership's "
+                            "figure is still the old one")
+        self.assertIn(f"BASE {self.byte('WAVE_MOTH_PCT'):>3}%", self.hull_row())
+
+    def test_a_vacated_slot_reads_zero_and_not_its_stale_hull(self):
+        """The flags byte is what is asked, not the hull.
+
+        fleet_restore packs survivors down and mis_setup spawns into the freed
+        slots, so moth_slot can be left pointing at a vacated record that still
+        holds somebody else's hull -- "Never trust a slot index", which this
+        project has been caught by twice. An inactive slot reads 0 whatever is
+        in ENT_HULL.
+
+        DRIVEN DIRECTLY RATHER THAN THROUGH THE GAME, and the reason is worth
+        writing down. The obvious version -- clear the Mothership's flags and
+        wait -- does not work and its failure is the game being RIGHT: killing
+        the Mothership sets mis_failed, the game-over screen takes over, and
+        wave_update is on the playing path and stops running. So the readout
+        keeps the last value it had, which was 100. There is no arrangement of
+        keys that reaches this branch, so it is poked and CALLed: a stub, a
+        set_pc and three frames, which is what CLAUDE.md calls the cheapest
+        real unit test of real Z80 code.
+        """
+        slot = self.moth_slot()
+        self.poke_ent(slot, ENT_HULL, 200)
+        self.poke_ent(slot, ENT_FLAGS, 0)
+
+        addr = self.sym["WAVE_MOTH_PERCENT"]
+        self.c.write_ram(h.STUB, bytes([
+            0xCD, addr & 0xFF, addr >> 8,       # call wave_moth_percent
+            0x18, 0xFE,                         # jr $
+        ]))
+        self.c.set_pc(h.STUB)
+        self.c.run_frames(3)
+        self.assertEqual(self.byte("WAVE_MOTH_PCT"), 0)
+
+    def test_and_the_same_stub_reads_a_live_one_correctly(self):
+        """...which is what stops the test above passing on a routine that
+        always writes zero.
+
+        The expected figure is the machine's OWN arithmetic rather than a
+        rounded half: wave_pct_of is eight steps of a restoring divide into
+        256ths and then a quarter-square multiply by 100, so half of an odd
+        hull comes back as 49 and not 50. Writing 50 here and calling 49 a bug
+        would have been asserting on Python's idea of division.
+        """
+        slot = self.moth_slot()
+        full = self.moth_full()
+        hull = full // 2
+        self.poke_ent(slot, ENT_HULL, hull)
+
+        addr = self.sym["WAVE_MOTH_PERCENT"]
+        self.c.write_ram(h.STUB, bytes([
+            0xCD, addr & 0xFF, addr >> 8,
+            0x18, 0xFE,
+        ]))
+        self.c.set_pc(h.STUB)
+        self.c.run_frames(3)
+        self.assertEqual(self.byte("WAVE_MOTH_PCT"),
+                         ((256 * hull // full) * 100) >> 8)
 
 
 class TestTheReadout(WaveFixture):

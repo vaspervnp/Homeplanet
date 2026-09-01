@@ -258,18 +258,20 @@ low_end:
 ;  game from the one it was authored as -- and nothing at run time would say so.
     assert WAVE_FIRST_FRAMES > MIS_SURVIVE_TICKS, "the first wave lands before a SURVIVE objective can be met"
 
-;  The spacing is WAVE_GAP_MIN + 1.125 * a byte. It used to be 300 + 3.5r --
-;  one to four minutes -- and the design owner asked for waves three times as
-;  often, so both ends are a third of what they were: 100..386 game frames,
-;  twenty seconds to a little over a minute at the measured 5.0 fps.
+;  The spacing is WAVE_GAP_MIN + 1.625 * a byte, and it has now been set three
+;  times: 300 + 3.5r, then 100 + 1.125r on an instruction to make the waves
+;  three times as frequent, and 426 + 1.625r on one to put them "1 ως 2 λεπτά"
+;  apart. At the measured 7.10 fps that is 60 to 118 seconds.
 ;
-;  The lower bound is the one worth guarding. A gap shorter than the time it
-;  takes to kill a wave is not "more often", it is a queue that never empties
-;  and grows without limit -- and the entity table would fill, which reads as
-;  the frame rate collapsing rather than as a difficulty setting. A wave takes
-;  100 to 200 game frames to resolve, so 100 is the floor and not a margin.
-    assert WAVE_GAP_MIN >= 100, "the shortest gap between waves is under twenty seconds"
-    assert WAVE_GAP_MIN + 255 + 31 <= 400, "the longest gap between waves is over 400 game frames"
+;  The lower bound is the one worth guarding, and it guards a different thing
+;  now. A gap shorter than the time it takes to kill a wave is not "more
+;  often", it is a queue that never empties -- the entity table fills and the
+;  frame rate collapses, which reads as a fault rather than as a difficulty
+;  setting. A wave takes 100 to 200 game frames to resolve. The floor was 100,
+;  right on that edge and deliberately so; it is a whole minute now, so the
+;  assert is the ASK rather than the safety margin.
+    assert WAVE_GAP_MIN >= 200, "the shortest gap between waves is under half a minute"
+    assert WAVE_GAP_MIN + 255 + 127 + 31 <= 900, "the longest gap between waves is over two minutes"
 
 ;  A wave ship's hull is WAVE_HULL_MIN + (a byte AND WAVE_HULL_SPAN), and it is
 ;  written into one byte. Overflow would wrap a tough ship into a paper one.
@@ -292,7 +294,10 @@ low_end:
 ;  ...and its two fields against each other and against the screen edge.
 ;  txt_draw clips at the edge and says nothing, so these are the only guard.
     assert HUD_HP_X + HUD_HP_CHARS * TXT_CHAR_W_BYTES <= HUD_SAY_X, "the hull figure runs into INCOMING"
-    assert HUD_SAY_X + (wave_say_text_end - wave_say_text - 1) * TXT_CHAR_W_BYTES <= SCR_BYTES_PER_LINE, "INCOMING runs off the screen"
+
+;  The two that measure a STRING are further down, after the bank-4 includes:
+;  the hull row's words went across when the Mothership's own figure pushed the
+;  low 16K past its floor, and an ASSERT is evaluated where it stands.
     assert HUD_HP_ALARM < 100, "the hull alarm threshold is not a percentage"
 
 ;  Row B, for the same reason. The yard grew a fifth character when the build
@@ -407,6 +412,9 @@ bank4_start:
     include "game/title.asm"
     include "game/titletext.asm"
     include "game/menutext.asm"
+    include "game/gameover.asm"
+    include "game/wavesdraw.asm"
+    include "game/overtext.asm"
     include "game/staticscreens.asm"
 ;  The context bar. It runs once a GAME FRAME rather than only while the game
 ;  is stopped, which makes it the second thing here reached from inside the
@@ -552,6 +560,69 @@ bank4_limit:
 ;  txt_big because ASSERT is evaluated where it stands and the strings are in
 ;  the bank, which is included further down than the code that draws them.
     assert (title_credit - title_text - 1) * TXT_BIG_W_BYTES == SCR_BYTES_PER_LINE, "the title no longer spans the screen"
+
+;  THE PLANET IS THE ONLY THING ON THIS SCREEN THAT IS NOT CLIPPED BY ANYTHING.
+;  Its interior goes down through scr_fill_rect, which honours no clip at all
+;  and will happily write a byte column past 79 into the scanline eight rows
+;  down; its limb goes through gfx_vline, which clips in Y and not in X. So the
+;  disc has to be inside the screen by ARITHMETIC, and it has to stay clear of
+;  the two things on this screen that own their own lines -- the big title
+;  above it and the prompt below.
+;  THE HULL ROW's two string measurements. They live down here rather than
+;  beside HUD_HP_X because wave_say_text moved into bank 4 with the rest of the
+;  row's drawing, and RASM evaluates an ASSERT where it stands -- it cannot see
+;  an include that has not happened yet. Same reason the table invariants are
+;  at the bottom of this file.
+    assert HUD_SAY_X + (wave_say_text_end - wave_say_text - 1) * TXT_CHAR_W_BYTES <= HUD_MOTH_X, "INCOMING runs into the Mothership's hull"
+    assert HUD_MOTH_X + HUD_HP_CHARS * TXT_CHAR_W_BYTES <= SCR_BYTES_PER_LINE, "the Mothership's hull runs off the screen"
+
+;  THE GAME-OVER SCREEN. Its four lines are centred by hand -- there is no
+;  centring in txt_draw and one screen does not justify inventing it -- so the
+;  arithmetic that centred them is checked here against the strings themselves.
+;  Reword a line without moving its x and the build stops instead of the line
+;  sitting a character off.
+    assert OVER_LINE_1_X * 2 + (over_line_2 - over_line_1 - 1) * TXT_CHAR_W_BYTES == SCR_BYTES_PER_LINE, "the game-over screen's first line is not centred"
+    assert OVER_LINE_2_X * 2 + (over_line_3 - over_line_2 - 1) * TXT_CHAR_W_BYTES == SCR_BYTES_PER_LINE, "the game-over screen's second line is not centred"
+    assert OVER_LINE_3_X * 2 + (over_prompt - over_line_3 - 1) * TXT_CHAR_W_BYTES == SCR_BYTES_PER_LINE, "the game-over screen's third line is not centred"
+    assert OVER_PROMPT_X * 2 + (over_prompt_end - over_prompt - 1) * TXT_CHAR_W_BYTES == SCR_BYTES_PER_LINE, "the game-over screen's prompt is not centred"
+
+;  ...and the big word, whose glyphs are five pixels in an eight-pixel cell --
+;  so the drawn width is three bytes short of the cells it occupies, and that
+;  is what OVER_TITLE_X halves. It is a different sum from the four above, not
+;  the same one with a different font.
+;  Two-sided, because this one cannot come out exact: the drawn width is odd
+;  (72 cells less 3 blank columns is 69) and the margin either side of it is
+;  therefore a half byte. The four lines above ARE exact -- n characters at two
+;  bytes each is always even -- so they are asserted as equalities.
+    assert OVER_TITLE_X * 2 + (over_line_1 - over_title - 1) * TXT_BIG_W_BYTES - 3 <= SCR_BYTES_PER_LINE, "GAME OVER sits right of centre"
+    assert OVER_TITLE_X * 2 + (over_line_1 - over_title - 1) * TXT_BIG_W_BYTES - 3 >= SCR_BYTES_PER_LINE - 1, "GAME OVER sits left of centre"
+    assert (over_line_1 - over_title - 1) * TXT_BIG_W_BYTES <= SCR_BYTES_PER_LINE, "GAME OVER is wider than the screen"
+
+;  Nothing on it may reach the strip, which it clears itself and does not
+;  redraw -- it is the one full-screen page that takes all 200 lines.
+    assert OVER_TITLE_Y + TXT_BIG_H <= OVER_BODY_Y, "GAME OVER runs into the line below it"
+    assert OVER_PROMPT_Y + TXT_CHAR_H < SCR_HEIGHT_PX, "the game-over prompt runs off the bottom of the screen"
+
+;  ...and the burning world sits between the body and the prompt. NOTHING in
+;  this drawing clips: scr_fill_rect writes the bytes it is handed and
+;  gfx_vline clips only in Y, so an overlap here is not a layout choice, it is
+;  a fill walking through the glyphs.
+    assert OVER_BODY_Y + 2 * OVER_LINE_STEP + TXT_CHAR_H <= OVER_PLANET_CY - TITLE_PLANET_RY, "the game-over screen's body runs into the planet"
+    assert OVER_PLANET_CY + TITLE_PLANET_RY < OVER_PROMPT_Y, "the game-over screen's planet runs into its prompt"
+    assert OVER_PLANET_CX >= TITLE_PLANET_RX + 4, "the game-over planet's fill runs off the left of the screen"
+    assert OVER_PLANET_CX + TITLE_PLANET_RX + 4 < SCR_WIDTH_PX, "the game-over planet's fill runs off the right of the screen"
+
+;  Three bytes a fire, and the count is a literal because RASM cannot resolve
+;  an equate derived from two bank-4 labels at symbol-export time.
+    assert over_fire_table_end - over_fire_table == OVER_FIRE_COUNT * 3, "the fire table is not OVER_FIRE_COUNT entries long"
+
+;  Four pixels of margin each side, not none: the night side's fill rounds
+;  OUTWARD -- see title_planet_fill for why it has to -- so it writes up to a
+;  whole byte past the limb.
+    assert TITLE_PLANET_CX >= TITLE_PLANET_RX + 4, "the planet's fill runs off the left of the screen"
+    assert TITLE_PLANET_CX + TITLE_PLANET_RX + 4 < SCR_WIDTH_PX, "the planet's fill runs off the right of the screen"
+    assert TITLE_PLANET_CY - TITLE_PLANET_RY >= TITLE_Y + 32, "the planet runs into the big title"
+    assert TITLE_PLANET_CY + TITLE_PLANET_RY < TITLE_PROMPT_Y, "the planet runs into the title prompt"
 
     save "build/sprites.raw", BANK_WINDOW, bank4_end - BANK_WINDOW
 

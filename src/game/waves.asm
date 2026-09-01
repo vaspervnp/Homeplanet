@@ -110,19 +110,30 @@ WAVE_FIRST_FRAMES   equ 426             ; 1 minute at the measured 7.1 fps
 ;  the third wave is dead. What it buys is that no mission can be walked out
 ;  of -- see mis_gate in game/campaignrun.asm for the other half of the rule.
 WAVE_BEFORE_JUMP    equ 3
-WAVE_GAP_MIN        equ 100             ; ...and 14 to about 54 seconds after
+;  ...and then one to two minutes between them, on the design owner's
+;  instruction: "οι επιθέσεις να είναι συνεχής με διαφορά 1 ως 2 λεπτά η μία
+;  από την άλλη". So the floor is a minute, which is WAVE_FIRST_FRAMES again --
+;  the first wave and the gap between waves are the same interval, and that is
+;  the rule in one number rather than two.
+WAVE_GAP_MIN        equ 426             ; 1 minute at the measured 7.1 fps
 
-;  The spacing is WAVE_GAP_MIN + 1.125 * a random byte, which reaches 386. It
-;  was WAVE_GAP_MIN 300 + 3.5r, reaching 1192, and both ends are a third of
-;  what they were: 300 -> 100 and 1192 -> 397, which 386 is within three per
-;  cent of. The MEAN is the number that matters for "three times as often" and
-;  it goes 746 -> 243, a factor of 3.07.
+;  The spacing is WAVE_GAP_MIN + 1.625 * a random byte, which reaches 839 --
+;  118 seconds. See wave_send for why 1.625 and not the 1.664 that would land
+;  exactly on two minutes.
 ;
-;  1.125 is three shifts and an add, against 3.5's two adds, a shift and an
-;  add -- so the replacement is no dearer than the thing it replaces, which is
-;  the whole reason 3.5 was picked over a multiply in the first place. A plain
-;  r would have been cheaper still and gives a mean of 227, a factor of 3.3,
-;  which is further from the three that was asked for than an `srl` is worth.
+;  THIS IS THE THIRD SETTING AND IT REVERSES THE SECOND. It was 300 + 3.5r,
+;  then 100 + 1.125r on an instruction to make the waves three times as
+;  frequent, and it is 426 + 1.625r now. The middle one put waves on top of
+;  each other on purpose; this one deliberately does not, because a minute is
+;  longer than any fight.
+;
+;  WHAT IT COSTS IS THE LENGTH OF A MISSION, and that is worth knowing before
+;  changing it again. WAVE_BEFORE_JUMP is 3 and mis_gate will not let a
+;  mission be left before its third wave, so the floor on a mission is now
+;  1 + 1 + 1 = three minutes of waiting at the very least and nearer five on
+;  an average roll. It was about a minute and a half. If that turns out to be
+;  too long the number to move is WAVE_BEFORE_JUMP, not this one -- this one
+;  is what was asked for.
 
 ;  How many ships one wave may ever field, whatever the arithmetic says. The
 ;  entity table is 48 slots and the later missions already field twelve
@@ -338,6 +349,59 @@ wave_percent:
     ld de,(wave_full)
     call wave_pct_of
     ld (wave_pct),a
+    ;  ...falls through
+
+
+; ----------------------------------------------------------------------------
+;  wave_moth_percent -- (wave_moth_pct) = the Mothership's own hull, 0..100
+;  Uses: everything
+;
+;  IT IS NOT THE FLEET'S FIGURE AND IT MUST NOT BE READ AS ONE. wave_pct is the
+;  whole fleet averaged, and averaging is exactly what hides this: sixteen
+;  ships at full hull and a Mothership at a tenth still reads 94%, and the one
+;  number the player cannot afford to be wrong about is the one that ends the
+;  campaign. Section 8 makes losing it the end of the game -- so it gets its
+;  own readout, at the other end of the same row.
+;
+;  It is summed into nothing: this is one entity's byte over one constant, so
+;  it costs a record walk of nought slots. It rides wave_percent because that
+;  is the routine that already runs on the one-reading-in-four schedule and
+;  already owns the row's other figure.
+;
+;  A DEAD MOTHERSHIP READS ZERO rather than whatever ENT_HULL was left at.
+;  fleet_restore packs survivors down and mis_setup spawns into freed slots, so
+;  moth_slot can be pointing at something that is not a Mothership at all for a
+;  frame or two -- "Never trust a slot index" twice over. The flags byte is
+;  next door to the hull, which ENT_HULL's own assert in src/main.asm
+;  guarantees, so asking costs one INC.
+; ----------------------------------------------------------------------------
+wave_moth_percent:
+    ld a,(moth_slot)
+    call ent_addr
+    ld de,ENT_HULL
+    add hl,de
+    ld e,(hl)                           ; its hull now
+    inc hl
+    ld a,(hl)                           ; ...and its flags, next door
+    and ENT_F_ACTIVE
+    jr nz,@wave_moth_alive
+    xor a
+    ld (wave_moth_pct),a
+    ret
+
+@wave_moth_alive:
+    ld h,0
+    ld l,e                              ; HL = the part
+
+    ;  DE = what a Mothership has when whole, out of class_hull. In bank 4, and
+    ;  read here with the window at rest: wave_update runs from demo_update and
+    ;  never from between class_tier_addr and class_blit_done.
+    ld de,class_hull + CLASS_MOTHERSHIP
+    ld a,(de)
+    ld e,a
+    ld d,0
+    call wave_pct_of
+    ld (wave_moth_pct),a
     ret
 
 
@@ -439,26 +503,34 @@ wave_frac_bits:
 ;  Uses: everything
 ; ----------------------------------------------------------------------------
 wave_send:
-    ;  When the next one comes. WAVE_GAP_MIN + 1.125 * a random byte: twenty
-    ;  seconds to a little over a minute, drawn afresh every time, so the
-    ;  player cannot learn the rhythm and hold station until just before the
-    ;  next one.
+    ;  When the next one comes. WAVE_GAP_MIN + 1.625 * a random byte, which at
+    ;  the measured 7.10 fps is ONE TO TWO MINUTES -- 60 s to 118 -- drawn
+    ;  afresh every time, so the player cannot learn the rhythm and hold
+    ;  station until just before the next one.
     ;
-    ;  At this spacing a wave can land while the last one is still flying, and
-    ;  that is the substance of the change rather than a side effect: the old
-    ;  gap was longer than any fight, so three waves were three separate
-    ;  fights. tools/waverate.py's default protocol forces each wave and waits
-    ;  for the fleet to come home, so it measures the old shape whatever this
-    ;  number says -- its --overlap mode is the one that sees this.
+    ;  1.625 is r + (r >> 1) + (r >> 3): three shifts and two adds, against the
+    ;  1.664 that would put the far end exactly on two minutes. The difference
+    ;  is a second and a half at the extreme of a range that is random anyway,
+    ;  and it rounds the right way -- inside the two minutes that were asked
+    ;  for rather than past them.
+    ;
+    ;  IT WAS 100 + 1.125r, fourteen to fifty-four seconds, and at that spacing
+    ;  a wave landed while the last was still flying. That was deliberate then
+    ;  and it is gone now: the waves are a minute apart, so each one is its own
+    ;  fight again. tools/waverate.py's DEFAULT protocol -- force a wave, kill
+    ;  it, wait for the fleet to come home, force the next -- is once more the
+    ;  honest measurement of this, and --overlap is measuring a spacing the
+    ;  game no longer has.
     call sys_rand
     ld l,a
     ld h,0
     ld d,h
     ld e,l                              ; DE = r
+    srl e                               ; DE = r >> 1, D being zero
+    add hl,de                           ; 1.5r
     srl e
-    srl e
-    srl e                               ; DE = r >> 3, D being zero
-    add hl,de                           ; 1.125r
+    srl e                               ; DE = r >> 3
+    add hl,de                           ; 1.625r
     ld de,WAVE_GAP_MIN
     add hl,de
     ld de,(mis_timer)
@@ -679,123 +751,6 @@ wave_offset:
 ;  that makes the HUD affordable. This is nine characters.
 ; ----------------------------------------------------------------------------
 
-; ----------------------------------------------------------------------------
-;  wave_draw -- one frame of the hull readout
-;  Uses: everything
-; ----------------------------------------------------------------------------
-wave_draw:
-    ;  The tutorial owns this row outright while it is running, and wave_dirty
-    ;  goes with it -- one dirty flag for row C whoever is drawing there, which
-    ;  is what makes the coupling with phase4_hud and mis_wipe free. The row is
-    ;  eighty BYTES, which is forty characters, and HULL nnn% and INCOMING
-    ;  already take the first twenty of them; there is no sharing it with a line
-    ;  of instruction. See game/tutorialrun.asm.
-    ld a,(tut_active)
-    or a
-    jp nz,tut_draw
-
-    call wave_changed
-    ld hl,wave_dirty
-    ld a,(hl)
-    or a
-    ret z
-    dec (hl)
-
-    ;  Blank the row first. This is the only thing that ever writes here -- the
-    ;  tactical view is clipped out at spr_clip_bottom and the other two HUD
-    ;  rows are below it -- so this is the whole erase, with no dirty rectangle
-    ;  to record and nothing to co-ordinate with.
-    ld b,0
-    ld c,HUD_ROW_C_Y
-    ld d,SCR_BYTES_PER_LINE
-    ld e,TXT_CHAR_H
-    xor a
-    call scr_fill_rect
-
-    ld hl,wave_hp_label
-    ld b,HUD_HP_X
-    ld c,HUD_ROW_C_Y
-    call phase4_hud_label               ; chrome is ink 2, and puts the pen back
-
-    ;  The figure, and its ink. Section 2 keeps ink 3 for the thing that wants
-    ;  attention, and a fleet down to a third of its hull is the clearest case
-    ;  of that in the game: it is the moment the answer to "one more wave or
-    ;  jump now" changes.
-    ld a,(wave_pct)
-    cp HUD_HP_ALARM
-    ld a,PEN_WHITE
-    jr nc,@wave_hp_pen
-    ld a,PEN_RED
-@wave_hp_pen:
-    call txt_set_pen
-
-    ld a,(wave_pct)
-    ld b,HUD_HP_X + 5 * TXT_CHAR_W_BYTES
-    ld c,HUD_ROW_C_Y
-    ld d,3
-    call txt_draw_num
-    ld hl,wave_hp_sign
-    ld b,HUD_HP_X + 8 * TXT_CHAR_W_BYTES
-    ld c,HUD_ROW_C_Y
-    call txt_draw
-    ld a,PEN_WHITE                      ; nothing inherits an ink
-    call txt_set_pen
-
-    ;  ...and, for a few seconds after one lands, why the shooting started. A
-    ;  wave arrives six thousand units out and the player may be looking the
-    ;  other way; without this the first they know of it is a hull figure
-    ;  falling for no reason they can see.
-    ld a,(wave_say)
-    or a
-    ret z
-    ld a,PEN_RED
-    call txt_set_pen
-    ld hl,wave_say_text
-    ld b,HUD_SAY_X
-    ld c,HUD_ROW_C_Y
-    call txt_draw
-    ld a,PEN_WHITE
-    jp txt_set_pen
-
-
-; ----------------------------------------------------------------------------
-;  wave_changed -- has anything in the row moved?
-;  Uses: everything
-;
-;  Two shadows and the same shape as phase4_hud_changed, for the same reason:
-;  hull falls with nobody pressing anything. The INCOMING countdown is compared
-;  as a yes/no rather than as a number, because it ticks every frame and only
-;  its two transitions are worth a repaint.
-; ----------------------------------------------------------------------------
-wave_changed:
-    ld a,(wave_pct)
-    ld hl,wave_pct_shadow
-    cp (hl)
-    jr nz,@wave_hp_diff
-
-    ld a,(wave_say)
-    or a
-    jr z,@wave_hp_quiet
-    ld a,1
-@wave_hp_quiet:
-    ld hl,wave_say_shadow
-    cp (hl)
-    ret z
-
-@wave_hp_diff:
-    ld a,(wave_pct)
-    ld (wave_pct_shadow),a
-    ld a,(wave_say)
-    or a
-    jr z,@wave_hp_quiet2
-    ld a,1
-@wave_hp_quiet2:
-    ld (wave_say_shadow),a
-    ld a,2                              ; once into each screen buffer
-    ld (wave_dirty),a
-    ret
-
-
 ; ============================================================================
 ;  State
 ; ============================================================================
@@ -821,12 +776,14 @@ wave_hull:          defw 0
 wave_full:          defw 0
 wave_pct:           defb 100
 
+;  ...and the Mothership on its own, which is a different question. See
+;  wave_moth_percent: an average over seventeen ships hides the one whose loss
+;  ends the campaign.
+wave_moth_pct:      defb 100
+
 wave_dirty:         defb 0
 ;  #FF so the first frame is always a change and demo_init has nothing to do.
 wave_pct_shadow:    defb #FF
+wave_moth_shadow:   defb #FF
 wave_say_shadow:    defb #FF
 
-wave_hp_label:      defb "HULL",0
-wave_hp_sign:       defb "%",0
-wave_say_text:      defb "INCOMING",0
-wave_say_text_end:

@@ -73,13 +73,20 @@ wave_next to bring each arrival forward: it moves WHEN a wave lands and touches
 nothing about what lands or how big it is. tests/test_waves.TestTheClock is
 what checks the clock itself.
 
-AND THAT MAKES THE DEFAULT MODE BLIND TO THE SPACING, WHICH --overlap FIXES
----------------------------------------------------------------------------
+AND THAT MADE THE DEFAULT MODE BLIND TO THE SPACING, WHICH --overlap FIXED
+--------------------------------------------------------------------------
 The default forces a wave, fights it until nothing of it is flying, waits for
 the fleet to come home, and only then forces the next. So it measures three
 SEPARATE fights however far apart the game would really have put them -- which
 was honest while WAVE_GAP_MIN was 300 game frames, longer than any fight, and
 stopped being honest the moment the spacing was cut to a third of that.
+
+IT IS HONEST AGAIN. WAVE_GAP_MIN is 426 -- a minute, on the design owner's
+instruction that the waves be one to two minutes apart -- and a minute is
+longer than any fight, so the default protocol once more measures the shape the
+game actually has. --overlap now measures a spacing this build does not use;
+keep it, because the spacing has been set three times and may be again, but do
+not read it as this build's number.
 
     python3 tools/waverate.py 4 --overlap
 
