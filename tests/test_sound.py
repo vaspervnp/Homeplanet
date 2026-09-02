@@ -1453,5 +1453,106 @@ class TestLayout(unittest.TestCase):
 #  --------------------------------------------------------------------------
 
 
+class TestTheMusicUnderTheGame(unittest.TestCase):
+    """The tune plays under a mission too, on ONE voice.
+
+    WHICH VOICE IS NOT A TASTE DECISION, which is what todo.md thought it was.
+    The battle's effects already own two of the three: snd_fire is on A,
+    snd_explosion and snd_hit are on B -- B is the noise voice, which is where
+    section 12 puts them -- and C is used by nothing but the jump, which stops
+    the world anyway. One voice is free and the question answers itself.
+    """
+
+    #  ITS OWN MACHINE PER TEST, unlike the rest of this file. SoundFixture
+    #  shares one across the whole class, and half of these press `M` -- a mute
+    #  left on would be the next test's starting state, and it would surface as
+    #  "the mission came up silent" in whichever ran next.
+    @classmethod
+    def setUpClass(cls):
+        cls.sym = h.symbols()
+
+    def setUp(self):
+        self.c = h.boot_quick(frames=300)
+
+    def tearDown(self):
+        h.close(getattr(self, "c", None))
+
+    def on(self):
+        return self.c.read_ram(self.sym["SND_MUSIC_ON"], 1)[0]
+
+    def tap(self, key, frames=30):
+        self.c.key_down(key)
+        self.c.run_frames(frames)
+        self.c.key_up(key)
+        self.c.run_frames(frames)
+
+    def test_a_mission_has_music_and_it_is_the_solo_mode(self):
+        self.assertEqual(self.on(), 1, "the mission came up silent")
+        self.assertEqual(self.c.read_ram(self.sym["MUS_SOLO"], 1)[0], 1,
+                         "the game is running the menu's three-voice mode")
+
+    def test_only_channel_C_is_filled(self):
+        """A and B are the shots and the explosions. Filling them would not
+        share the chip, it would fight for it: an effect takes a channel by
+        priority and the music only rewrites a block at a NOTE boundary, so a
+        shot would silence a voice for whole seconds.
+
+        Followed by the STREAM POINTERS, which is the only place the answer is
+        unambiguous: voice A's block is written by snd_fire as well, so a live
+        timer there says nothing about who put it in.
+        """
+        v0, v1, v2 = (int.from_bytes(self.c.read_ram(self.sym[n], 2), "little")
+                      for n in ("MUS_V0", "MUS_V1", "MUS_V2"))
+        self.c.run_frames(600)
+        after = tuple(int.from_bytes(self.c.read_ram(self.sym[n], 2), "little")
+                      for n in ("MUS_V0", "MUS_V1", "MUS_V2"))
+        self.assertNotEqual(after[0], v0, "the bass stream never advanced")
+        self.assertEqual(after[1], v1, "the harmony stream advanced in game")
+        self.assertEqual(after[2], v2, "the lead stream advanced in game")
+
+    def test_the_noise_generator_is_still_open_for_explosions(self):
+        """The menu's mode makes B a TONE voice, because the tune's harmony is
+        on it. In the game the music is on C, B is the noise voice again, and
+        taking the noise bit away would silence every ship that dies.
+
+        read_psg last and once: it leaves interrupts off.
+        """
+        from tests.test_music import read_psg
+
+        #  MAKE SOMETHING EXPLODE FIRST. snd_update only clears a channel's
+        #  mixer bit while that channel is LIVE, so reading R7 with nothing
+        #  dying says "noise B is muted" on a perfectly healthy build -- which
+        #  is what the first version of this asserted was a bug.
+        addr = self.sym["SND_EXPLOSION"]
+        self.c.write_ram(h.STUB, bytes([
+            0xCD, addr & 0xFF, addr >> 8,       # call snd_explosion
+            0x18, 0xFE,                         # jr $
+        ]))
+        pc = self.c.pc
+        self.c.set_pc(h.STUB)
+        self.c.run_frames(2)
+        mixer = read_psg(self.c)[7]
+        self.c.set_pc(pc)
+        self.assertEqual(mixer & 0b010000, 0,
+                         f"a ship died and the noise voice is muted: "
+                         f"R7 = {mixer:08b}")
+
+    def test_M_mutes_it_in_the_game_too(self):
+        self.tap("m")
+        self.assertEqual(self.on(), 0, "M did not silence the mission's music")
+        self.assertEqual(self.c.read_ram(self.sym["MUS_MUTED"], 1)[0], 1)
+        self.tap("m")
+        self.assertEqual(self.on(), 1, "M did not bring it back")
+
+    def test_M_no_longer_moves_a_ship_between_squadrons(self):
+        """It used to, and that is why the pair moved to K and L: one key with
+        one meaning everywhere is worth more than the mnemonic."""
+        counts = list(self.c.read_ram(self.sym["SQUAD_COUNT"], 10))
+        self.tap("m")
+        self.assertEqual(list(self.c.read_ram(self.sym["SQUAD_COUNT"], 10)),
+                         counts,
+                         "M reshaped a squadron as well as muting the music")
+
+
 if __name__ == "__main__":
     unittest.main()

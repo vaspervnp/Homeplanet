@@ -110,8 +110,20 @@ KEY_G               equ 6*8 + 4
 KEY_H               equ 5*8 + 4
 KEY_I               equ 4*8 + 3         ; squadron info; same line 4 as O below
 KEY_J               equ 5*8 + 5
-KEY_M               equ 4*8 + 6
-KEY_N               equ 5*8 + 6
+KEY_K               equ 4*8 + 5         ; move one ship BACK a squadron
+KEY_L               equ 4*8 + 4         ; ...and on a squadron; see below
+KEY_M               equ 4*8 + 6         ; MUTE, everywhere -- see below
+KEY_N               equ 5*8 + 6         ; free again; see K and L above
+
+;  M AND N USED TO MOVE A SHIP BETWEEN SQUADRONS AND DO NOT ANY MORE. `M` is
+;  the mute, on the title screen and in the game alike, and one key for one
+;  meaning everywhere is worth more than the mnemonic: a player who has
+;  learned it on the menu must not silence the wrong thing -- or reshape a
+;  squadron -- by pressing it in a battle.
+;
+;  K and L take the squadron pair, and they keep its SHAPE. N was left of M on
+;  the keyboard and meant "back a number"; K is left of L and means the same.
+;  Both are on line 4, which the comment over KEY_O already spells out.
 KEY_O               equ 4*8 + 2         ; split by class; line 4 is 0 9 O I L K M ,
 ;  Tow: the Salvage Corvettes go and fetch the wrecks. Row 6 is 6 5 R T G F B V,
 ;  and T was the only unclaimed letter in the game with the right initial --

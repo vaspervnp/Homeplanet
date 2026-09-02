@@ -76,6 +76,10 @@ SND_CH_C            equ 2
 SND_VOICE_SIZE      equ 10
 
 SND_V_SLOW          equ 8
+;  The three the music needs by name; the rest it writes in order.
+SND_V_TIMER         equ 0
+SND_V_PRI           equ 1
+SND_V_VOL           equ 2
 SND_V_SLOWC         equ 9
 
 ;  ---------------------------------------------------------------------------
@@ -219,18 +223,7 @@ snd_update:
 
 @snd_ch_mix:
     ;  Unmute this channel: tone for A and C, noise for B.
-    ;  WHILE THE MUSIC IS PLAYING, CHANNEL B IS A TONE VOICE. Section 12 gives
-    ;  B to the noise generator -- explosions and hull breach -- and that is
-    ;  where the channel assignment actually lives, in this table. The tune has
-    ;  no percussion in it, so with the noise bit open its harmony comes out as
-    ;  a hiss. One table or the other; nothing else in the loop changes, and
-    ;  snd_music_on is clear for the whole of a mission.
     ld hl,snd_mix_mask
-    ld a,(snd_music_on)
-    or a
-    jr z,@snd_ch_mask_chosen
-    ld hl,snd_mix_mask_music
-@snd_ch_mask_chosen:
     ld b,0
     add hl,bc
     ld a,(snd_mixer)
@@ -663,17 +656,31 @@ SND_PRI_JUMP        equ 4
 ;  Mixer AND masks, indexed by channel number: each clears the one bit that
 ;  lets its channel through. Channel B's is the NOISE bit, not the tone bit --
 ;  that is where section 12's channel assignment actually lives.
+;
+;  B'S ENTRY IS PATCHED, and that is a measured decision rather than a trick.
+;  While the MENU's three-voice music is playing, channel B carries the tune's
+;  harmony and has to be a TONE voice; the rest of the time it is the noise
+;  voice, which is where the explosions and the hull hits are.
+;
+;  It was written first as two tables with the choice made in the loop -- and
+;  that loop runs three times per 50 Hz TICK, so a load, an OR and a jump each
+;  way cost about 320 T-states of every tick. Sixteen thousand a second, and
+;  test_sound's "the whole tick fits between two interrupts" caught it at once:
+;  6,946 T against a 6,667 margin.
+;
+;  So the mode is written into the byte instead, by mus_start, mus_start_solo
+;  and mus_stop -- keypresses and screen changes. The interrupt is not asked
+;  anything at all and the cost is nil. src/main.asm asserts the byte is
+;  channel B's and that the table is assembled in its RESTING state, or a
+;  machine that never plays the menu's music would come up with the noise
+;  voice muted.
+SND_MIX_B_NOISE     equ %11101111       ; noise B on, tone B stays muted
+SND_MIX_B_TONE      equ %11111101       ; tone B on -- the music's harmony
+
 snd_mix_mask:
     defb %11111110                      ; A: tone A on
-    defb %11101111                      ; B: noise B on, tone B stays muted
-    defb %11111011                      ; C: tone C on
-
-;  ...and the same three with B as a TONE voice, for while sys/music.asm has
-;  it. Two tables rather than a patched byte: the choice is read once per
-;  channel in the interrupt and a table lookup is what the loop already does.
-snd_mix_mask_music:
-    defb %11111110                      ; A: tone A on
-    defb %11111101                      ; B: TONE B on -- the music's harmony
+snd_mix_mask_b:
+    defb SND_MIX_B_NOISE                ; B: patched; see above
     defb %11111011                      ; C: tone C on
 
 
@@ -690,6 +697,7 @@ snd_voice_c:        defs SND_VOICE_SIZE, 0
     assert snd_voice_b == snd_voice_a + SND_CH_B * SND_VOICE_SIZE, "voice B is not where the channel loop expects it"
     assert snd_voice_c == snd_voice_a + SND_CH_C * SND_VOICE_SIZE, "voice C is not where the channel loop expects it"
     assert (SND_MIXER_OFF & %01000000) == 0, "mixer bit 6 would make the PSG port A an output and kill the keyboard"
+    assert snd_mix_mask_b == snd_mix_mask + SND_CH_B, "the patched mixer byte is not channel B's"
 
 ;  Mixer register R7 as it will be sent this tick, built up across the channel
 ;  loop. It lives in RAM rather than a register because every register is
@@ -713,6 +721,24 @@ snd_music_on:       defb 0
 ;  a bank window that was thirteen bytes over; and a variable in the bank has
 ;  to be read with read_bank4, where one down here is read with read_ram,
 ;  which is what a test that follows a note stream wants to do.
+;  Which mode the player is in: three voices on the menu, ONE on channel C in
+;  the game. It also decides the mixer table above -- B is only a tone voice
+;  while the music is actually using it.
+mus_solo:           defb 0
+
+;  ...and whether the player has asked for silence. Separate from
+;  snd_music_on, and it has to be: snd_music_on is "is a tune filling voice
+;  blocks right now", which every screen change rewrites, and this is "the
+;  player pressed M", which must outlive them all.
+mus_muted:          defb 0
+
+;  DUCKING: the music is silenced while an effect is sounding and comes back
+;  when it stops. mus_ducked says whether it is down; mus_duck_vol is the level
+;  to put back. See mus_duck in sys/music.asm for why it is a level and not a
+;  pause of the stream.
+mus_ducked:         defb 0
+mus_duck_vol:       defb 0
+
 mus_v0:             defw 0
 mus_v1:             defw 0
 mus_v2:             defw 0

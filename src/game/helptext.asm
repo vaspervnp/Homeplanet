@@ -37,6 +37,7 @@ help_col_left:
     defb "SHIFT+UP/DN HEIGHT",0
     defb ", . PICK TARGET",0
     defb "D C DIVIDE/COMBINE",0
-    defb "M N MOVE ONE SHIP",0
+    defb "K L MOVE ONE SHIP",0
+    defb "M   MUSIC ON/OFF",0
 
 ;  --- Right: menu_entries, in game/menutext.asm ---------------------------

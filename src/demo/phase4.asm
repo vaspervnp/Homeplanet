@@ -399,6 +399,14 @@ demo_update:
     call eco_update
 @p4_frozen:
 
+    ;  The tune, one call a game frame. It costs nothing on a frame that does
+    ;  not cross a note boundary -- a tick subtraction and a countdown -- and
+    ;  it advances by however many 50 Hz TICKS have gone by, so the tempo is
+    ;  the same at two frames a second as at ten. In the game it fills ONE
+    ;  voice block, on channel C, which is the only one the battle's effects
+    ;  do not own; see mus_start_solo.
+    call mus_update
+
     call phase4_select_list
     call phase4_erase
     call mis_wipe_screen
@@ -539,13 +547,21 @@ phase4_commands:
     call key_hit
     call c,squad_split
 
-    ld a,KEY_M
+    ;  L and K, not M and N: `M` is the mute now, in the game as well as on
+    ;  the title screen. K is left of L exactly as N was left of M, so "back a
+    ;  number" is still the left-hand key of the pair.
+    ld a,KEY_L
     call key_hit
     call c,squad_move_next
 
-    ld a,KEY_N
+    ld a,KEY_K
     call key_hit
     call c,squad_move_prev
+
+    ;  ...and the mute itself, which is live for the whole of a mission.
+    ld a,KEY_M
+    call key_hit
+    call c,mus_toggle
 
     ld a,KEY_C
     call key_hit

@@ -87,14 +87,14 @@ title_key:
     ld a,KEY_T
     call key_hit
     jr nc,@title_no_tut
-    call mus_stop                       ; the tutorial is not this screen
+    call mus_start_solo                 ; the game's mode: one voice, channel C
     jp tut_enter
 @title_no_tut:
 
     ld a,KEY_SPACE
     call key_hit
     ret nc
-    call mus_stop                       ; ...and neither is the campaign
+    call mus_start_solo                 ; ...and the campaign gets the same
     xor a
     ld (title_shown),a
 

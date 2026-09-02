@@ -537,18 +537,36 @@ class TestTheMusic(TitleFixture):
         self.assertEqual(self.banked("TITLE_SHOWN")[0], 1,
                          "M started the game")
 
-    def test_the_game_starts_in_silence(self):
-        """"Όχι στο παιχνίδι". The battle has the AY to itself: snd_update's
-        three voices are for shots, kills and the jump, and a tune underneath
-        them is section 12's channel assignment being spent twice."""
+    def test_the_game_gets_the_tune_too_but_on_one_voice(self):
+        """It used to stop dead at SPACE, and these two tests said so -- "the
+        music followed the fleet into the game" was the failure message. The
+        game has it now, on channel C alone: A and B are the shots and the
+        explosions, and C is what section 12 keeps for alerts and the jump.
+        """
         self.tap(cpc.KEY_SPACE, frames=25)
         self.c.run_frames(60)
-        self.assertEqual(self.on(), 0, "the music followed the fleet into the game")
+        self.assertEqual(self.on(), 1, "the game came up silent")
+        self.assertEqual(self.c.read_ram(self.sym["MUS_SOLO"], 1)[0], 1,
+                         "the game is running the menu's three-voice mode")
 
     def test_and_the_tutorial_does_too(self):
         self.tap("t", frames=25)
         self.c.run_frames(60)
-        self.assertEqual(self.on(), 0, "the music followed T into the tutorial")
+        self.assertEqual(self.c.read_ram(self.sym["MUS_SOLO"], 1)[0], 1,
+                         "the tutorial kept the menu's three-voice mode")
+
+    def test_a_mute_on_the_menu_survives_into_the_game(self):
+        """One key with one meaning, and one ANSWER: a player who asked for
+        silence on the menu must not have it come back when a mission starts.
+        That is why mus_muted is a separate byte from snd_music_on -- the
+        second is "is a tune filling voice blocks right now", which every
+        screen change rewrites."""
+        self.tap("m")
+        self.assertEqual(self.on(), 0)
+        self.tap(cpc.KEY_SPACE, frames=25)
+        self.c.run_frames(60)
+        self.assertEqual(self.on(), 0,
+                         "the music came back by itself when the game started")
 
     def test_channel_B_is_a_tone_voice_while_the_music_has_it(self):
         """The ONE change in sound.asm, and the subtle one.

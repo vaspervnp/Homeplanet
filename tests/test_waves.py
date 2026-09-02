@@ -885,9 +885,18 @@ class TestTheReadout(WaveFixture):
         before = self.byte("WAVE_PCT")
 
         self.poke_ent(self.friendly()[0], ENT_HULL, 40)
-        self.c.run_frames(2 * TICKS_PER_GAME_FRAME)
 
-        self.assertNotEqual(self.byte("WAVE_PCT"), before)
+        #  POLLED, not counted. wave_health reads the fleet on one game frame
+        #  in WAVE_READ_EVERY, and a game frame is seven to fourteen 50 Hz
+        #  ones -- so "two game frames" of emulator frames is a bet on the
+        #  frame rate, and it lost the day the title screen got music. The
+        #  failure was "100 == 100", which reads as the figure being stuck.
+        for _ in range(200):
+            if self.byte("WAVE_PCT") != before:
+                break
+            self.c.run_frames(2)
+        self.assertNotEqual(self.byte("WAVE_PCT"), before,
+                            "the hull figure never noticed the damage")
         self.assertEqual(self.byte("PHASE4_HUD_DIRTY"), 0,
                          "a hull change is repainting the squadron list")
 

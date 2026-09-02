@@ -957,7 +957,24 @@ class TestTheJumpIsHeard(WipeFixture):
     Every assertion is on the AY's own registers and every expectation is
     derived from the descriptor bytes in the build -- not from numbers copied
     into this file, which would only say that Python can read a constant twice.
+
+    THE MUSIC IS MUTED FIRST, and that is not sweeping anything under a rug.
+    The game's tune plays on channel C, which is exactly the voice the jump
+    uses -- section 12 keeps C for alerts and the jump is the only thing that
+    had ever used it. These four tests are about the JUMP's own sound, and with
+    a drone underneath it "channel C is sounding" stops distinguishing
+    anything. The interaction between the two has its own test below, and it
+    fails on the build where mus_write_block walked over a live effect.
     """
+
+    def setUp(self):
+        super().setUp()
+        self.c.key_down("m")
+        self.c.run_frames(30)
+        self.c.key_up("m")
+        self.c.run_frames(30)
+        self.assertEqual(self.c.read_ram(self.sym["SND_MUSIC_ON"], 1)[0], 0,
+                         "M did not silence the music for these tests")
 
     def descriptor(self, name):
         """(timer, pri, vol, dvol, period, dstep, slow) out of the low 16K.
@@ -1148,6 +1165,54 @@ class TestTheJumpIsHeard(WipeFixture):
         self.assertGreater(amp, 4,
                            f"the arrival is nearly inaudible at {amp}/15 while "
                            f"the reveal is still running")
+
+
+class TestTheMusicGetsOutOfTheJumpsWay(WipeFixture):
+    """The tune and the jump share channel C, and the jump wins.
+
+    Section 12 keeps C for alerts, the jump was the only thing that ever used
+    it, and the game's music is on it now because A and B belong to the shots
+    and the explosions. So the two meet, and the first build that put music in
+    the game had the tune walk straight over the arrival: mus_write_block wrote
+    its block unconditionally, and the jump-in is 4.6 seconds -- longer than a
+    note.
+
+    It fails on that build with the BASS's period where the sweep should be.
+    """
+
+    def test_the_arrival_is_the_jumps_sound_and_not_a_note(self):
+        from tests.test_music import read_psg
+
+        self.assertEqual(self.c.read_ram(self.sym["SND_MUSIC_ON"], 1)[0], 1,
+                         "this test needs the music playing")
+        h.clear_the_way_out(self.c)
+        self.c.key_down("j")
+        self.c.run_frames(25)
+        self.c.key_up("j")
+        self.assertTrue(h.wait_for_briefing(self.c, frames=800),
+                        "the jump never put a briefing up")
+        self.c.key_down(cpc.KEY_ENTER)
+        self.c.run_frames(6)
+        self.c.key_up(cpc.KEY_ENTER)
+
+        #  Well inside the arrival: JFX_IN is a few hundred frames and the
+        #  sound is longer than a note, which is the whole hazard.
+        for _ in range(120):
+            if self.mode() == JFX_IN:
+                break
+            self.c.run_frames(1)
+        else:
+            self.fail("the reveal never started")
+        self.c.run_frames(80)
+
+        #  read_psg last: it leaves interrupts off.
+        r = read_psg(self.c)
+        period = r[4] | (r[5] << 8)
+        lo, hi = 55, 715                # what snd_fx_jump_in's own sweep spans
+        self.assertTrue(
+            lo <= period <= hi,
+            f"channel C reads period {period}, outside the {lo}..{hi} the "
+            "arrival's descriptor can reach -- the music wrote over it")
 
 
 if __name__ == "__main__":

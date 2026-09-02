@@ -27,7 +27,7 @@ HELP_BODY_Y         equ 14
 ;  and there is nothing below it -- seventeen orders will need this column
 ;  split, which is what this page already does with the left one.
 HELP_LINE_STEP      equ 9
-HELP_ROWS           equ 10              ; the left column; the right one is
+HELP_ROWS           equ 11              ; the left column; the right one is
                                         ; MENU_COUNT long
 HELP_COL1_X         equ 1               ; x is in BYTES: 4 pixels each
 HELP_COL2_X         equ 40

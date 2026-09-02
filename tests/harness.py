@@ -554,12 +554,20 @@ def let_the_game_draw(c: cpc.CPC, sym: dict[str, int], frames: int = 8) -> None:
 
     Polled in GAME frames, so it follows the rate instead of guessing at it.
     """
+    #  ONE BYTE, and counted as a DELTA. demo_frames is `defb`, so it wraps
+    #  every 256 game frames -- read as a word it picks up whatever variable
+    #  follows it, and compared with `>=` it would spin to the timeout across
+    #  a wrap. Neither shows up until the machine has been running a while,
+    #  which is the worst way for it to show up.
     def played() -> int:
-        return int.from_bytes(c.read_ram(sym["DEMO_FRAMES"], 2), "little")
+        return c.read_ram(sym["DEMO_FRAMES"], 1)[0]
 
-    target = played() + frames
+    was, gone = played(), 0
     for _ in range(400):
-        if played() >= target:
+        now = played()
+        gone += (now - was) & 0xFF
+        was = now
+        if gone >= frames:
             return
         c.run_frames(2)
     raise RuntimeError("the game never drew: demo_frames is not advancing")

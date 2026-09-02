@@ -41,6 +41,14 @@ class TextFixture(unittest.TestCase):
     def setUpClass(cls):
         cls.c = h.boot_quick(frames=30)
         cls.sym = h.symbols()
+        #  ...and let the game finish PAINTING before any stub is poked in.
+        #  txt_set_pen is not sticky by convention -- whoever changes the ink
+        #  puts it back -- so a machine caught in the middle of the HUD, which
+        #  draws its chrome in ink 2, hands these tests a pen that is not 1.
+        #  Every glyph then comes back as pen 2 and eleven tests here fail
+        #  saying the font is wrong. Thirty frames used to land after the
+        #  paint; the title screen's music made the boot a shade slower.
+        h.let_the_game_draw(cls.c, cls.sym)
         cls.font = bytes(cls.c.read_ram(cls.sym["TXT_FONT"],
                                         (LAST_CHAR - FIRST_CHAR + 1) * CHAR_H))
 

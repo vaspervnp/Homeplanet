@@ -15,6 +15,12 @@ The spec being tested:
     c    combine the selection with the next active squadron
     o    one squadron per ship class
          a squadron left with no ships is deactivated
+
+THE MOVE-ONE-SHIP PAIR IS `K` AND `L`, NOT `M` AND `N`. `M` is the mute now --
+one key with one meaning on the title screen and in the game alike -- and a
+player who learned it on the menu must not reshape a squadron by pressing it in
+a battle. K keeps N's place in the pair: it is left of L exactly as N was left
+of M, so the left-hand key is still "back a number".
 """
 
 from __future__ import annotations
@@ -157,7 +163,7 @@ class TestDivide(SquadFixture):
     def test_a_single_ship_cannot_be_divided(self):
         #  Strip squadron 1 down to one ship, then try.
         for _ in range(self.counts()[0] - 1):
-            self.tap("m")
+            self.tap("l")
         self.assertEqual(self.counts()[0], 1, self.counts())
         before = self.counts()
         self.tap("d")
@@ -168,7 +174,7 @@ class TestMoveOne(SquadFixture):
 
     def test_m_moves_exactly_one_ship_to_the_next_number(self):
         before = self.counts()
-        self.tap("m")
+        self.tap("l")
         after = self.counts()
         self.assertEqual(after[0], before[0] - 1, f"{before} -> {after}")
         self.assertEqual(after[1], before[1] + 1, f"{before} -> {after}")
@@ -176,20 +182,20 @@ class TestMoveOne(SquadFixture):
 
     def test_m_creates_the_target_squadron(self):
         self.assertEqual(self.counts()[1], 0)
-        self.tap("m")
+        self.tap("l")
         self.assertEqual(self.counts()[1], 1, "squadron 2 was not created")
 
     def test_n_moves_to_the_previous_number_and_1_wraps_to_9(self):
         """'For squadron 1 the previous one is the last.'"""
         before = self.counts()
-        self.tap("n")
+        self.tap("k")
         after = self.counts()
         self.assertEqual(after[0], before[0] - 1, f"{before} -> {after}")
         self.assertEqual(after[8], 1, f"squadron 9 did not receive it: {after}")
 
     def test_m_is_edge_triggered(self):
         before = self.counts()
-        self.hold("m")
+        self.hold("l")
         after = self.counts()
         self.assertEqual(after[1], 1,
                          f"holding m moved {after[1]} ships, not 1: {after}")
@@ -205,7 +211,7 @@ class TestDeactivation(SquadFixture):
 
         #  Empty squadron 2 one ship at a time; 'm' sends them on to 3.
         for _ in range(self.counts()[1]):
-            self.tap("m")
+            self.tap("l")
 
         self.assertEqual(self.counts()[1], 0, f"squadron 2 still has ships: {self.counts()}")
         self.assertNotEqual(self.selected(), 2,
@@ -367,7 +373,7 @@ class TestSplitByClass(SquadFixture):
         self.tap("o")
         first = self.counts()
         self.tap("d")                               # scramble it
-        self.tap("m")
+        self.tap("l")
         self.tap("o")
         self.assertEqual(self.counts(), first, "the numbering moved under the player")
 
@@ -407,12 +413,12 @@ class TestWhichShipsEndUpWhere(SquadFixture):
                      for slot in before if before[slot][0] != after[slot][0]}
 
     def test_m_moves_one_named_ship_and_touches_nothing_else(self):
-        sel, moved = self.step("m")
+        sel, moved = self.step("l")
         self.assertEqual(len(moved), 1, f"'m' moved {len(moved)} ships: {moved}")
         self.assertEqual(list(moved.values())[0], (sel, sel + 1), moved)
 
     def test_n_moves_one_named_ship_and_1_wraps_to_9(self):
-        sel, moved = self.step("n")
+        sel, moved = self.step("k")
         self.assertEqual(len(moved), 1, f"'n' moved {len(moved)} ships: {moved}")
         self.assertEqual(list(moved.values())[0], (1, 9), moved)
 
@@ -516,9 +522,9 @@ class TestANewSquadronIsBornWhereItsShipsAre(SquadFixture):
         """One ship, alone. 'm' creates squadron 2 and 'n' creates squadron 9,
         whose fixed stations were 4500 and 6000 units away in opposite
         directions -- so the ship left the screen on its own."""
-        self.tap("m")
+        self.tap("l")
         self.assert_stationed_on_its_own_ships(2)
-        self.tap("n")
+        self.tap("k")
         self.assert_stationed_on_its_own_ships(9)
 
     def test_a_squadron_made_by_O_is_stationed_where_its_ships_are(self):
