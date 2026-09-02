@@ -129,6 +129,22 @@ F_ACTIVE, F_ENEMY, F_WAVE = 1, 2, 8
 MISSIONS = h.symbols()["MIS_COUNT"]
 WAVES_PER_MISSION = 3
 
+#  THE REBUILDING TACTIC, and it is what makes the late campaign measurable at
+#  all. Without it this tool never spends a unit of RU -- and since a jump has
+#  a fare, a fleet that never mines cannot go far: both campaigns of the first
+#  twenty-mission run stopped at mission 6 with "lost before any wave", which
+#  left FIFTEEN OF TWENTY MISSIONS with no wave sample in them. balance.py's
+#  rebuilding tactic walks the same campaign losing one ship in that mission.
+#
+#  So the stop was the measuring stick's tactic and not the game's balance, and
+#  a tool that cannot reach three quarters of the content cannot be used to
+#  tune it. Same numbers as balance.py's, deliberately: the two tools should
+#  disagree about what they ASK, not about how the campaign is played.
+CLASS_INTERCEPTOR, CLASS_HARVESTER = 0, 2
+COST = {CLASS_INTERCEPTOR: 35, CLASS_HARVESTER: 40}
+WANT_HARVESTERS = 2
+REBUILD_FRAMES = 6000
+
 #  Emulator frames, not game frames: about ten of the first to one of the
 #  second at the rate this game runs at.
 WAVE_FIGHT_FRAMES = 1500
@@ -233,7 +249,49 @@ def regroup(c):
     c.run_frames(REGROUP_FRAMES)
 
 
-def win_the_mission(c, s, E):
+def treasury(c, s):
+    return int.from_bytes(c.read_ram(s["ECO_RU"], 2), "little")
+
+
+def by_class(c, E):
+    """How many of each class are FLYING -- wrecks are active and are not."""
+    out = {}
+    for slot in range(ENT_MAX):
+        r = c.read_ram(E + slot * 20, 20)
+        f = r[ENT_FLAGS]
+        if f & F_ACTIVE and not f & F_ENEMY and not f & 4:
+            out[r[ENT_CLASS]] = out.get(r[ENT_CLASS], 0) + 1
+    return out
+
+
+def order_one(c, s, ship_class, pick_of):
+    """Queue one ship, the way balance.py does.
+
+    The pick is POKED and not walked with `,`/`.`: the panel steps over the
+    classes that are not unlocked yet, so which key reaches which class is a
+    function of how far the campaign has got. eco_queue re-checks it, so a poke
+    cannot buy something the yard would refuse.
+    """
+    import cpc
+    press(c, "b")
+    c.write_ram(s["ECO_BUILD_PICK"], bytes([pick_of[ship_class]]))
+    press(c, cpc.KEY_ENTER)
+    press(c, "b")
+
+
+def spend(c, s, E, pick_of):
+    """The dullest policy there is: two harvesters, then interceptors."""
+    live = by_class(c, E)
+    want = (CLASS_HARVESTER if live.get(CLASS_HARVESTER, 0) < WANT_HARVESTERS
+            else CLASS_INTERCEPTOR)
+    if treasury(c, s) < COST[want]:
+        return
+    if c.read_ram(s["ECO_QUEUE_LEN"], 1)[0] >= 9:
+        return
+    order_one(c, s, want, pick_of)
+
+
+def win_the_mission(c, s, E, pick_of=None):
     """Play the mission as balance.py would, and stop when it is decided."""
     c.write_ram(s["SQUAD_DEST"], struct.pack("<hhh", 0, 0, 0))
     press(c, "a")
@@ -243,8 +301,24 @@ def win_the_mission(c, s, E):
         spent += 60
         if c.read_ram(s["MIS_COMPLETE"], 1)[0] or c.read_ram(s["MIS_FAILED"], 1)[0]:
             break
-    if not c.read_ram(s["MIS_FAILED"], 1)[0]:
-        regroup(c)
+    if c.read_ram(s["MIS_FAILED"], 1)[0]:
+        return
+
+    #  ...and then MINE AND BUILD, which is the half of the tactic that makes
+    #  the fleet the player would really have here. It happens before the
+    #  photograph trial() takes, so what the waves are measured against is a
+    #  rebuilt fleet and not a shrinking one.
+    if pick_of is not None:
+        press(c, "h")
+        spent = 0
+        while spent < REBUILD_FRAMES:
+            c.run_frames(120)
+            spent += 120
+            spend(c, s, E, pick_of)
+            press(c, "h")               # ...including anything just delivered
+            if c.read_ram(s["MIS_FAILED"], 1)[0]:
+                return
+    regroup(c)
 
 
 def loiter(c, s, E):
@@ -329,16 +403,22 @@ def trial(c, s, E, verbose, mission, label, damage, overlap=False):
     return won
 
 
-def campaign(seed, verbose, overlap=False):
+def campaign(seed, verbose, overlap=False, rebuild=True):
     """One playthrough. Returns [(mission, label, won)] -- two trials a mission."""
     s = h.symbols()
     E = s["ENTITIES"]
     c = h.boot_quick(frames=300)
     h.pin_rng(c, seed)
+    #  eco_build_pick is an INDEX INTO eco_build_order -- the buildable classes
+    #  cheapest first -- and not a class number. Read out of the machine,
+    #  because the order is a function of the prices.
+    pick_of = ({cls: i for i, cls in
+                enumerate(h.read_bank4(c, s["ECO_BUILD_ORDER"], 7))}
+               if rebuild else None)
     out = []
     try:
         for mission in range(MISSIONS):
-            win_the_mission(c, s, E)
+            win_the_mission(c, s, E, pick_of)
             if c.read_ram(s["MIS_FAILED"], 1)[0]:
                 #  The mission was lost with no wave in it. That is
                 #  balance.py's campaign failing, not this one's question, so
@@ -364,6 +444,10 @@ def main():
     runs = int(args[0]) if args else 8
     verbose = "-q" not in sys.argv
     overlap = "--overlap" in sys.argv
+    #  Rebuilding is the DEFAULT and --no-rebuild is the odd one out, because a
+    #  tactic that never spends cannot reach mission 6 of twenty. See the note
+    #  by REBUILD_FRAMES.
+    rebuild = "--no-rebuild" not in sys.argv
 
     #  Seeds spread across the word. sys_rand's first draw is the high byte, so
     #  seeds that agree up there start alike.
@@ -374,8 +458,9 @@ def main():
     for n, seed in enumerate(seeds):
         if verbose:
             print(f"campaign {n + 1}/{runs}, seed #{seed:04X}"
-                  f"{'  (overlapping waves)' if overlap else ''}")
-        for mission, label, won in campaign(seed, verbose, overlap):
+                  f"{'  (overlapping waves)' if overlap else ''}"
+                  f"{'' if rebuild else '  (no rebuilding)'}")
+        for mission, label, won in campaign(seed, verbose, overlap, rebuild):
             tally[(mission, label)][0] += 1
             tally[(mission, label)][1] += int(won)
 
