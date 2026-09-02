@@ -94,6 +94,12 @@ eco_rep_cost:       defw 0
 ;  it on a no-op would be a rule the player could trip over without ever
 ;  seeing why.
 eco_repaired:       defb 0
+;  Mending the Mothership with `0` selected is the ONE piece of economy state
+;  that is not here. It went in bank 4 -- see moth_fixing in src/main.asm --
+;  because these four bytes took the low 16K over a page boundary and `free:`
+;  from 484 to 228, well under the ~450 the tests need for their scratch. The
+;  usual reason for keeping state down here is that half the suite reads it
+;  with read_ram; this state is NEW, so there were no call sites to cost.
 
 eco_build_open:     defb 0              ; the panel is showing
 eco_build_pick:     defb 0              ; which class the panel is offering

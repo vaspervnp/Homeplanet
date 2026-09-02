@@ -153,6 +153,10 @@ mis_setup:
     ld (mis_leave_ok),a
     ld (mis_failed),a
     ld (eco_repaired),a                 ; one repair per mission
+    ;  ...and the base is not left half-mended across a jump with the yard shut.
+    ;  moth_fixing halts production, so a flag carried into the next mission
+    ;  would quietly stop the slipway there and nothing would say why.
+    ld (moth_fixing),a
     ld hl,0
     ld (mis_timer),hl
     ;  ...and the mark the delta is measured from, or the first frame of the

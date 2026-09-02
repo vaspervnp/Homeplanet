@@ -28,6 +28,10 @@ ENT_PLAYER_MAX = h.symbols()["ENT_PLAYER_MAX"]
 #  what a slot can be carrying when the yard reaches it.
 ENT_ORDER_IDLE, ENT_ORDER_ATTACK = 0, 2
 ENT_CLASS, ENT_FLAGS, ENT_SQUAD, ENT_ORDER, ENT_LOAD = 9, 11, 12, 13, 15
+ENT_HULL = 10
+#  Read rather than mirrored: the panel's own ceiling, and the marker
+#  eco_build_class carries when the slipway is empty is anything >= it.
+CLASS_COUNT = h.symbols()["CLASS_COUNT"]
 F_ACTIVE, F_ENEMY = 1, 2
 CLASS_INTERCEPTOR, CLASS_MOTHERSHIP, CLASS_HARVESTER = 0, 1, 2
 CLASS_SCOUT, CLASS_BOMBER = 3, 4
@@ -1641,3 +1645,127 @@ class TestTheHarvesterWithNothingToDo(EconomyFixture):
                 f"harvester in slot {s} is {away(s)} from its station and was "
                 f"{started[s]} -- being IDLE is only half the fix; phase4_fly "
                 "has to fly it home")
+
+
+class TestMendingTheBase(EconomyFixture):
+    """`0` selects the Mothership and `E` mends it, slowly, with the yard shut.
+
+    "Να μπορώ να επιλέξω το 0 και να αποεπιλέγονται όλα τα άλλα. Όταν κάνω
+    repair με το 0 να σταματάει η παραγωγή πλοίων και να διορθώνεται το hull
+    του mothership σταδιακά. Να ανακτά 1% ανά δευτερόλεπτο."
+
+    THE RATE IS MEASURED AGAINST THE 50 Hz TICK and not against run_frames.
+    A tick is a fiftieth of a second on a PAL 6128 whatever the frame rate is
+    doing; a game frame is not, and this file already records three separate
+    occasions when a constant in game frames turned out to be a constant in
+    seconds only against a frame rate somebody had looked at once.
+    """
+
+    def moth(self):
+        return self.byte("MOTH_SLOT")
+
+    def hull(self):
+        return self.ent(self.moth(), ENT_HULL)
+
+    def fixing(self):
+        #  Bank 4: these four bytes went there because they took the low 16K
+        #  over a page boundary. read_ram would hand back a sprite library.
+        return h.read_bank4(self.c, self.sym["MOTH_FIXING"], 1)[0]
+
+    def select_the_base(self):
+        self.hold("0")
+        self.assertEqual(self.byte("SEL_MOTHERSHIP"), 1, "`0` did not select the base")
+
+    def damage_it(self, to=100):
+        self.c.write_ram(
+            self.sym["ENTITIES"] + self.moth() * ENT_SIZE + ENT_HULL, bytes([to]))
+
+    def ticks_since(self, prev):
+        now = self.byte("SYS_TICK_50HZ")
+        return (now - prev) & 0xFF, now
+
+    def test_selecting_the_base_deselects_every_squadron(self):
+        self.assertNotEqual(self.byte("SQUAD_SEL"), 0,
+                            "no squadron was selected to begin with, so this "
+                            "says nothing")
+        self.select_the_base()
+        self.assertEqual(self.byte("SQUAD_SEL"), 0,
+                         "a squadron is still selected alongside the base")
+
+        #  ...and picking a squadron again gives the selection back, or `0`
+        #  would be a one-way door.
+        self.hold("1")
+        self.assertEqual(self.byte("SQUAD_SEL"), 1)
+        self.assertEqual(self.byte("SEL_MOTHERSHIP"), 0,
+                         "the base is still selected after picking squadron 1")
+
+    def test_it_mends_at_one_percent_a_second(self):
+        self.select_the_base()
+        self.damage_it(100)
+        self.hold("e")
+        self.assertEqual(self.fixing(), 1, "`E` did not start mending the base")
+
+        start, prev, ticks = self.hull(), self.byte("SYS_TICK_50HZ"), 0
+        for _ in range(80):
+            self.c.run_frames(25)
+            step, prev = self.ticks_since(prev)
+            ticks += step
+            if ticks >= 50 * 15:
+                break
+        self.assertGreaterEqual(ticks, 50 * 15, "the clock never advanced")
+
+        seconds = ticks / 50.0
+        #  A full hull is 255, so one per cent of it is 2.55 -- which is why
+        #  eco_moth_fix carries a fraction rather than rounding to 2 or 3.
+        want = 2.55 * seconds
+        got = self.hull() - start
+        self.assertAlmostEqual(
+            got / want, 1.0, delta=0.10,
+            msg=f"gained {got} hull in {seconds:.1f}s, wanted about {want:.0f} "
+                f"(1% a second of a 255 hull)")
+
+    def test_the_yard_stops_while_it_runs(self):
+        """The whole price of it. No RU changes hands, so what the player
+        spends is the ships that are not built meanwhile."""
+        self.open_the_whole_list()
+        self.c.write_ram(self.sym["ECO_RU"], (900).to_bytes(2, "little"))
+        self.hold("b")
+        self.hold(cpc.KEY_ENTER)
+        self.assertLess(self.byte("ECO_BUILD_CLASS"), CLASS_COUNT,
+                        "nothing went on the slipway, so there is no "
+                        "production to stop")
+
+        self.select_the_base()
+        self.damage_it(100)
+        self.hold("e")
+        self.assertEqual(self.fixing(), 1)
+
+        was = self.byte("ECO_BUILD_TIMER")
+        self.c.run_frames(200)
+        self.assertEqual(self.byte("ECO_BUILD_TIMER"), was,
+                         "the slipway kept working while the base was mending")
+        #  ...and it is PAUSED, not cancelled: the hull is still on the slipway.
+        self.assertLess(self.byte("ECO_BUILD_CLASS"), CLASS_COUNT,
+                        "the half-built ship was thrown away")
+
+        self.hold("e")
+        self.assertEqual(self.fixing(), 0, "`E` did not stop it again")
+        self.c.run_frames(200)
+        self.assertLess(self.byte("ECO_BUILD_TIMER"), was,
+                        "the slipway did not pick up again afterwards")
+
+    def test_it_stops_by_itself_when_the_hull_is_whole(self):
+        """A flag left set would shut the yard for the rest of the mission and
+        nothing on the screen would say why."""
+        self.select_the_base()
+        self.damage_it(250)
+        self.hold("e")
+        self.assertEqual(self.fixing(), 1)
+
+        for _ in range(200):
+            self.c.run_frames(25)
+            if self.fixing() == 0:
+                break
+        else:
+            self.fail("it never stopped")
+        self.assertEqual(self.hull(), 255, "it stopped short of a whole hull")

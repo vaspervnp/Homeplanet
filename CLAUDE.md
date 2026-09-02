@@ -959,7 +959,7 @@ not needed and should stay unspent.
 | Key | Effect |
 |---|---|
 | `1`-`9` | select a squadron (see below) |
-| `0` | centre on the Mothership, clearing any pan |
+| `0` | **select** the Mothership — every squadron is deselected — and centre on it, clearing any pan |
 | cursor keys | orbit the camera; drive the move disc while it is open |
 | `Z` / `X` or `+` / `-` | zoom in / out, **twelve** steps |
 | `P` | pan: the cursor keys drag the view instead of orbiting |
@@ -974,7 +974,7 @@ not needed and should stay unspent.
 | `,` / `.` | step the target through live entities |
 | `A` / `G` | attack / guard. `A` closes the squadron on its target and **spends itself** when there is nothing left to shoot at, so the fleet re-forms on its station by itself |
 | `H` | send the selected squadron's **harvesters** to work |
-| `E` | **repair** the selected squadron — once a mission, and not under fire |
+| `E` | **repair** the selected squadron — once a mission, and not under fire. With `0` selected it instead mends the **Mothership** at 1% a second with the yard stopped; press again to stop |
 | `Y` | **recycle**: break the selected squadron up for RU |
 | `B` | open the build panel; `,`/`.` pick a class, ENTER orders it |
 | `ESC` | the orders menu — cursor keys pick, `ENTER` runs it |
@@ -1367,6 +1367,69 @@ region most of the time and is the whole performance story of that file — is
 untouched. It is 96 and not larger because `cbt_distance` saturates at 255: a
 penalty near that flattens every unarmed ship to "infinitely far" and they stop
 being targets at all rather than being poor ones.
+
+#### ...and with `0` selected it mends the BASE instead, at 1% a second
+
+*"Να μπορώ να επιλέξω το 0 και να αποεπιλέγονται όλα τα άλλα. Όταν κάνω repair
+με το 0 να σταματάει η παραγωγή πλοίων και να διορθώνεται το hull του mothership
+σταδιακά. Να ανακτά 1% ανά δευτερόλεπτο."*
+
+**`0` is a SELECTION now, not only a camera.** `order_select_mothership` writes
+`squad_sel = SQUAD_NONE` beside `sel_mothership`, so the HUD shows no squadron
+in white — which is what "all the others deselected" looks like on the screen —
+and because the Mothership's own `ENT_SQUAD` *is* `SQUAD_NONE`, every order that
+walks the selection by comparing `ENT_SQUAD` now finds exactly it. One store.
+
+> **`order_have_squadron` is not tidiness, it is a memory bug avoided.**
+> `order_dest_addr` is `squad_dest[squad_sel - 1]`, so at `SQUAD_NONE` it
+> computes 255 × 6 and writes six bytes **fifteen hundred past the end of the
+> table**. `R`, `F` and the move disc refuse while the base is selected, and
+> the rule that says why is the honest one: *the Mothership is not a squadron;
+> it holds station, and the orders that tell a squadron where to BE do not
+> apply to it.* `order_home` has no row for squadron 0 either.
+
+**The price is production and not RU**, and that is the whole design of it.
+`eco_run_yard` returns early while `moth_fixing` is set — the queue is not
+cancelled and the half-built hull keeps its timer exactly where it was, so the
+player is choosing a delay rather than paying a forfeit. It is a **toggle**,
+because a full mend is a hundred seconds and they have to be able to change
+their mind when a wave arrives and they would rather have the interceptor.
+
+**Neither once-a-mission nor refused under fire**, unlike the squadron repair
+directly above, and the difference is not inconsistency. That one is instant
+and paid for in RU, so under fire a deep enough treasury turns every fight into
+an attrition the enemy cannot win; this one is rate-limited and costs
+production, so the fight decides it either way. And forbidding it under fire
+would make it **useless rather than balanced**: waves arrive about every minute
+and a full mend takes a hundred seconds, so it could essentially never run.
+
+> **The arithmetic is exact and it cost one byte.** A full hull is 255, so one
+> per cent is **2.55** — not a whole number, and rounding either way is out by
+> a fifth over the hundred seconds a full mend takes. So: two a second, plus
+> 55/100 carried in `moth_fix_frac`. Over a hundred seconds that is
+> 200 + 55 = 255, the whole hull. Measured on the machine against the 50 Hz
+> tick: **+51 hull in 20.0 s = 0.998% a second**.
+
+> **It counts TICKS, not frames**, the way `mis_timer` does — a tick is a
+> fiftieth of a second on a PAL 6128 whatever the frame rate is doing, and this
+> file records three separate occasions when a constant in game frames turned
+> out to be a constant in seconds only against a frame rate somebody once
+> looked at.
+
+> **It stops by itself, and that matters more than it looks.** Production is
+> halted while it runs, so a flag left set after the hull was full would
+> quietly shut the yard for the rest of the mission with nothing on screen to
+> say why. Whole, gone, or not a Mothership at all — `moth_slot` is an index
+> and `fleet_restore` moves what it points at, so the CLASS is what says this
+> is a Mothership — all three stop it. `mis_setup` clears the flag too, so it
+> cannot be carried across a jump.
+
+> **Its four bytes of state are in BANK 4, and that is the page quantum rather
+> than a principle.** In `game/economy.asm` with the rest of the economy they
+> took the low 16K over a page boundary and `free:` from 484 to **228**, well
+> under the ~450 the tests need for scratch. The usual reason economy state
+> stays down there is that half the suite reads it with `read_ram`; this state
+> is NEW, so there were no call sites to cost. Read it with `read_bank4`.
 
 #### `E` puts RU back into hull, at twice the price for the damage
 

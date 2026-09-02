@@ -252,6 +252,8 @@ order_update:
 ;  Uses: everything
 ; ----------------------------------------------------------------------------
 order_dock:
+    call order_have_squadron
+    ret nc                              ; the Mothership is already home
     ld a,(moth_slot)
     call ent_addr                       ; ENT_X is offset 0
     push hl
@@ -546,9 +548,44 @@ order_focus:
 ;  order_select_mothership -- the `0` key
 ;  Uses: AF
 ; ----------------------------------------------------------------------------
+;  IT IS A SELECTION NOW, not only a camera. "Να μπορώ να επιλέξω το 0 και να
+;  αποεπιλέγονται όλα τα άλλα" -- so squad_sel goes to SQUAD_NONE and the HUD
+;  shows no squadron in white, which is what "all the others deselected" looks
+;  like on the screen. squad_select clears sel_mothership on the way back, so
+;  the two are never both true.
+;
+;  The Mothership's own ENT_SQUAD is SQUAD_NONE, so every order that walks the
+;  selection by comparing ENT_SQUAD now finds exactly the Mothership and
+;  nothing else -- which is the whole of what was asked, for one store.
 order_select_mothership:
     ld a,1
     ld (sel_mothership),a
+    xor a
+    ld (squad_sel),a
+    ret
+
+
+; ----------------------------------------------------------------------------
+;  order_have_squadron -- CF set if a real squadron is selected
+;  Uses: AF
+;
+;  THE MOTHERSHIP IS NOT A SQUADRON, and the orders that tell a squadron where
+;  to BE do not apply to it: it holds station, that is what it is for, and
+;  order_home has no row for squadron 0.
+;
+;  That last part is not a matter of taste. order_dest_addr is
+;  `squad_dest[squad_sel - 1]`, so at SQUAD_NONE it computes 255 * 6 and writes
+;  six bytes fifteen hundred past the end of the table -- a move order given
+;  with `0` selected would corrupt whatever happens to follow it. The guard is
+;  here rather than inside order_dest_addr because the callers have to do
+;  something sensible with the answer, and "do nothing" is only sensible where
+;  the player can see why.
+; ----------------------------------------------------------------------------
+order_have_squadron:
+    ld a,(squad_sel)
+    or a
+    ret z                               ; CF clear: nothing to send anywhere
+    scf
     ret
 
 
@@ -721,6 +758,10 @@ order_apply_zoom:
 ;  Uses: everything
 ; ----------------------------------------------------------------------------
 order_disc_open:
+    ;  Refused rather than opened-and-unconfirmable: a disc the player can
+    ;  drive and not confirm reads as a broken ENTER key.
+    call order_have_squadron
+    ret nc
     call order_dest_addr                ; HL -> squad_dest[selection]
     ld de,disc_pos
     ld bc,6
@@ -735,6 +776,8 @@ order_disc_open:
 ;  Uses: everything
 ; ----------------------------------------------------------------------------
 order_disc_confirm:
+    call order_have_squadron
+    ret nc
     call order_dest_addr
     ex de,hl                            ; DE -> squad_dest[selection]
     ld hl,disc_pos

@@ -48,6 +48,10 @@ eco_init:
 ; ----------------------------------------------------------------------------
 eco_update:
     call eco_run_workers
+    ;  Before the yard, because it is what decides whether the yard runs at
+    ;  all this frame -- and because a mend that finishes here lets the
+    ;  slipway pick up again in the same frame rather than the next one.
+    call eco_moth_fix
     jp eco_run_yard
 
 
@@ -346,6 +350,16 @@ eco_nearest_patch:
 ;  is the shape of every "two systems writing the same thing" bug in this file.
 ; ----------------------------------------------------------------------------
 eco_run_yard:
+    ;  THE YARD CANNOT DO TWO THINGS AT ONCE, and that IS the price of mending
+    ;  the Mothership: no RU changes hands, the cost is the ships that are not
+    ;  being built while it happens. The queue is not cancelled and the
+    ;  half-built hull on the slipway keeps its timer exactly where it was --
+    ;  it is paused, not thrown away, so the player is choosing a delay rather
+    ;  than paying a forfeit.
+    ld a,(moth_fixing)
+    or a
+    ret nz
+
     ld a,(eco_build_class)
     cp CLASS_COUNT
     jr nc,eco_queue_pop                 ; the slipway is free: take the next one
@@ -927,6 +941,16 @@ eco_repair_cost:
 ;  its squadron, and it is the most expensive thing in the game to mend.
 ; ----------------------------------------------------------------------------
 eco_repair:
+    ;  WITH `0` SELECTED IT IS A DIFFERENT REPAIR ENTIRELY -- see eco_moth_fix.
+    ;  The Mothership is one ship whose loss ends the campaign, it is the only
+    ;  thing the yard could work on without flying anywhere, and the design
+    ;  owner asked for it to mend gradually with production stopped rather than
+    ;  instantly for RU. Same key, and the selection decides which, exactly as
+    ;  `,` and `.` mean two things depending on whether the build panel is open.
+    ld a,(sel_mothership)
+    or a
+    jp nz,eco_moth_fix_toggle
+
     ;  ONCE A MISSION. mis_setup clears the flag, so "once per mission" is
     ;  true by construction rather than by anyone remembering to reset it.
     ld a,(eco_repaired)
@@ -1120,6 +1144,132 @@ eco_scrap_value:
 ;
 ;  Zero means not armed, which is why it is the squadron PLUS ONE: squadron 0
 ;  is the Mothership's and is a real number.
+; ----------------------------------------------------------------------------
+;  eco_moth_fix_toggle -- `E` with `0` selected: start or stop mending the base
+;  Uses: everything
+;
+;  A TOGGLE, because the yard is stopped while it runs. A full mend is a
+;  hundred seconds and the player has to be able to change their mind when a
+;  wave arrives and they would rather have the interceptor.
+;
+;  NOT once a mission and NOT refused under fire, which are both rules the
+;  squadron repair keeps. The squadron one is instant and paid for in RU, so
+;  under fire a deep treasury would turn every fight into an attrition the
+;  enemy cannot win; this one is rate-limited to 1% a second and costs
+;  production, so the fight decides it either way. And forbidding it under fire
+;  would make it useless rather than balanced: waves arrive about every minute
+;  and a full mend takes a hundred seconds, so it could essentially never run.
+; ----------------------------------------------------------------------------
+eco_moth_fix_toggle:
+    ld hl,moth_fixing
+    ld a,(hl)
+    xor 1
+    ld (hl),a
+    or a
+    ret z
+    ;  Starting: take the tick reference now, and clear the fraction so the
+    ;  first percent is a whole second away rather than however far through one
+    ;  the keypress happened to land.
+    xor a
+    ld (moth_fix_frac),a
+    ld (moth_fix_ticks),a
+    ld a,(sys_tick_50hz)
+    ld (moth_fix_last),a
+    ret
+
+
+; ----------------------------------------------------------------------------
+;  eco_moth_fix -- one game frame of it. Called from eco_update.
+;  Uses: everything
+;
+;  ONE PERCENT A SECOND, and the second is a REAL one: it counts 50 Hz ticks
+;  the way mis_timer does, by the DELTA since the last game frame, so the rate
+;  does not change with the frame rate. A constant in game frames is a constant
+;  in seconds only against a frame rate somebody looked at, and this file has
+;  three separate paragraphs about the times that has bitten.
+;
+;  THE ARITHMETIC IS EXACT AND THAT TOOK ONE BYTE. A Mothership's full hull is
+;  255, so one per cent of it is 2.55 -- not a whole number, and rounding
+;  either way is out by a fifth over the hundred seconds a full mend takes.
+;  So: two per second, plus 55/100 carried in moth_fix_frac. Over one hundred
+;  seconds that is 200 + 55 = 255 exactly, which is the whole hull.
+; ----------------------------------------------------------------------------
+eco_moth_fix:
+    ld a,(moth_fixing)
+    or a
+    ret z
+
+    ;  Ticks since the last game frame, and the byte wrap is right: 5 - 250 is
+    ;  11 in eight bits, which is the eleven ticks that really went by.
+    ld a,(sys_tick_50hz)
+    ld hl,moth_fix_last
+    ld c,(hl)
+    ld (hl),a
+    sub c
+    ld hl,moth_fix_ticks
+    add a,(hl)
+    ld (hl),a
+    cp 50
+    ret c                               ; not a whole second yet
+    sub 50
+    ld (hl),a                           ; ...and keep the remainder
+
+    ;  A second has gone by. Two hull points, and a third every other second or
+    ;  so, which is 2.55 averaged exactly.
+    ld c,2
+    ld hl,moth_fix_frac
+    ld a,(hl)
+    add a,55
+    cp 100
+    jr c,@eco_moth_frac
+    sub 100
+    inc c
+@eco_moth_frac:
+    ld (hl),a
+
+    ;  ...into the Mothership, if it is still there. moth_slot is an index and
+    ;  fleet_restore moves what it points at, so the CLASS is what says this is
+    ;  a Mothership -- "never trust a slot index", and this runs every frame of
+    ;  a mission where the slot may have been recycled.
+    ld a,(moth_slot)
+    call ent_addr
+    push hl
+    ld de,ENT_CLASS
+    add hl,de
+    ld a,(hl)
+    pop hl
+    cp CLASS_MOTHERSHIP
+    jr nz,@eco_moth_stop
+
+    push hl
+    ld de,ENT_FLAGS
+    add hl,de
+    ld a,(hl)
+    and ENT_F_ACTIVE
+    pop hl
+    jr z,@eco_moth_stop                 ; it is gone; there is nothing to mend
+
+    ld de,ENT_HULL
+    add hl,de
+    ld a,(hl)
+    add a,c
+    jr c,@eco_moth_full                 ; past 255: clamp and stop
+    ld (hl),a
+    cp 255
+    ret nz
+@eco_moth_full:
+    ld (hl),255
+@eco_moth_stop:
+    ;  WHOLE, OR GONE, OR NOT A MOTHERSHIP -- all three mean the same thing to
+    ;  the yard, which is that it can go back to building ships. Stopping by
+    ;  itself matters more than it looks: production is halted while this runs,
+    ;  so a flag left set after the hull was full would quietly shut the yard
+    ;  for the rest of the mission and nothing on the screen would say why.
+    xor a
+    ld (moth_fixing),a
+    ret
+
+
 eco_recycle_key:
     ld a,(squad_sel)
     inc a

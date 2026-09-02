@@ -529,6 +529,30 @@ class_standin:
     defs CLASS_STANDIN_SIZE, 0
 
 ; ----------------------------------------------------------------------------
+;  Mending the Mothership with `0` selected -- game/economyrun.asm's state.
+;
+;  UP HERE, NOT WITH THE REST OF THE ECONOMY, and that is the page quantum
+;  rather than a principle. Four bytes in game/economy.asm took the low 16K
+;  over a page boundary and `free:` from 484 to 228, well under the ~450 the
+;  tests need for their scratch -- so a dozen classes with nothing to do with
+;  the Mothership would have failed. The usual reason economy state stays in
+;  the low 16K is that half the suite reads it with read_ram; this state is
+;  NEW, so there were no call sites to cost. Read it with read_bank4.
+;
+;  UNINITIALISED, like everything after bank4_end, so it costs DISC.BIN
+;  nothing -- and that is safe here only because every one of the four is
+;  written before it is read. mis_setup zeroes moth_fixing on the way into
+;  EVERY mission, including the first, and eco_moth_fix_toggle writes the other
+;  three the instant it sets the flag. That is the trap the campaign_unlocks
+;  pad walked into: "a zeroed pad gives it for free" was wrong, because nothing
+;  had ever written those bytes.
+; ----------------------------------------------------------------------------
+moth_fixing:        defs 1              ; the yard is on the base, not on ships
+moth_fix_frac:      defs 1              ; hundredths of a hull point carried
+moth_fix_ticks:     defs 1              ; 50 Hz ticks towards the next second
+moth_fix_last:      defs 1              ; sys_tick_50hz when we last looked
+
+; ----------------------------------------------------------------------------
 ;  The fleet between missions -- section 10 calls it FLEET.DAT. It has no
 ;  starting contents, so putting it inside the saved image would add its 960
 ;  bytes to DISC.BIN for nothing, and DISC.BIN has to finish below #A700

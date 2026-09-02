@@ -70,6 +70,12 @@ form_init:
 ;  Uses: everything
 ; ----------------------------------------------------------------------------
 form_cycle:
+    ;  The Mothership has no formation: it is one ship and it holds station.
+    ;  squad_form has a row 0 so this would not corrupt anything, but a key
+    ;  that silently changes a shape nothing is drawn in is worse than one
+    ;  that does nothing.
+    call order_have_squadron
+    ret nc
     ld a,(squad_sel)
     ld l,a
     ld h,0
