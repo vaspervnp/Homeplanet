@@ -418,6 +418,7 @@ bank4_start:
     include "gen/zoom.asm"
     include "game/classdata.asm"
     include "game/formdata.asm"
+    include "game/homeplanet.asm"
     include "game/campaign.asm"
     include "game/helptext.asm"
 ;  The title screen RUNS from the bank. Nothing pages bank 4 out, so #4000
@@ -1040,3 +1041,9 @@ ENDIF
     assert info_form_names_end - info_form_names >= FORM_COUNT * 2, "there are fewer formation names than FORM_COUNT"
     assert INFO_NUM_X + 2 * TXT_CHAR_W_BYTES <= INFO_FORM_X, "the squadron number would run into the formation name"
     assert INFO_FORM_X + 6 * TXT_CHAR_W_BYTES <= INFO_PROMPT_X, "the formation name would run into the ESC prompt"
+
+;  The horizon has to cross the playfield and not sit above or below it. Here
+;  rather than in game/homeplanet.asm because ASSERT is evaluated where it
+;  stands and TITLE_PLANET_RY comes from an include further down.
+    assert PLANET_HORIZON_Y - PLANET_RY > CTX_BAR_H, "the horizon's apex is above the context bar"
+    assert PLANET_HORIZON_Y - PLANET_RY < HUD_TOP, "the horizon never reaches the playfield"

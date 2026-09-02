@@ -354,6 +354,12 @@ title_planet_hw:
     defb  40,  39,  39,  38,  38,  37,  37,  36,  36
     defb  35,  34,  33,  32,  31,  30,  29,  28,  26
     defb  25,  23,  21,  19,  17,  14,  10,   0
+;  ONE ENTRY PAST THE POLE, and it is not padding. game/homeplanet.asm reads
+;  this table at four times the size -- one entry every four rows -- and
+;  INTERPOLATES between an entry and the one after it, so the last row of the
+;  shape asks for the entry after the last. It is zero because the pole is, so
+;  the curve closes on it rather than on whatever byte follows the table.
+    defb   0
 
 title_draw_planet:
     ld hl,TITLE_PLANET_CX
@@ -366,6 +372,9 @@ title_draw_planet:
 ;  flying towards and is the point of sharing the routine rather than a saving.
 ;  The radii and the half-width table are shared too; only the centre moves.
 planet_draw:
+    ld a,TITLE_PLANET_PEN
+    ld (planet_pen),a
+
     ;  gfx_vline clips against the viewport, and the viewport is the game's
     ;  rather than this screen's. Opened here and PUT BACK before returning,
     ;  for the reason spelled out over title_draw_ships -- which does the same
@@ -579,6 +588,13 @@ title_planet_span:
 ;  costs two hundred T-states once and saves a special case.
 ; ----------------------------------------------------------------------------
 title_planet_rim:
+    call planet_rim_run
+    jr @tp_rim_repairs
+
+;  planet_rim_run -- one row's worth of limb, all four quadrants
+;  In : title_planet_prev, title_planet_hw_now, title_planet_dy, planet_cx/cy
+;  Uses: everything
+planet_rim_run:
     ld a,(title_planet_prev)
     ld hl,title_planet_hw_now
     sub (hl)
@@ -607,7 +623,13 @@ title_planet_rim:
     pop bc
     inc c
     djnz @tp_col
+    ret
 
+;  The repairs below belong to the LIT planet and read title_planet_x0/x1,
+;  which only title_planet_fill sets -- so the in-game limb calls
+;  planet_rim_run above and never gets here. Splitting them is what stops
+;  game/homeplanet.asm being a second copy of that loop.
+@tp_rim_repairs:
     ;  ...and then close the gap the day side leaves against the limb. Its fill
     ;  stops at the last WHOLE byte inside the disc, so between that byte and
     ;  the limb there are nought to three pixels of nothing -- which read as a
@@ -694,6 +716,21 @@ title_planet_term:
 ;  One column of the rim, both sides of the equator. gfx_vline uses every
 ;  register, so the x goes through memory rather than being held.
 title_planet_dot:
+    ;  OFF THE SIDE OF THE SCREEN IS NOT NOTHING. gfx_vline clips in Y only, so
+    ;  an x past 319 lands on the next scanline down and an x below zero on the
+    ;  previous one -- the limb wraps round and a planet sitting at the right
+    ;  edge draws a second arc down the LEFT of the screen, which nothing then
+    ;  erases because the erase box is over on the right where the planet is.
+    ;  Found by looking; the counts said the right edge was clean.
+    ;
+    ;  One unsigned compare does both ends: a negative x is a very large one.
+    ld de,SCR_WIDTH_PX
+    push hl
+    or a
+    sbc hl,de
+    pop hl
+    ret nc
+
     ld (title_planet_x),hl
 
     ld a,(planet_cy)
@@ -702,7 +739,7 @@ title_planet_dot:
     ld c,a
     ld hl,(title_planet_x)
     ld b,1
-    ld a,TITLE_PLANET_PEN
+    ld a,(planet_pen)
     call gfx_vline
 
     ld a,(planet_cy)
@@ -711,7 +748,7 @@ title_planet_dot:
     ld c,a
     ld hl,(title_planet_x)
     ld b,1
-    ld a,TITLE_PLANET_PEN
+    ld a,(planet_pen)
     jp gfx_vline
 
 
@@ -806,6 +843,16 @@ planet_cy:              defb 0
 ;  One row of the planet. All of it belongs to a single pass of
 ;  planet_draw and none of it survives the call.
 title_planet_dy:        defb 0
+;  THE PEN IS A VARIABLE because game/homeplanet.asm draws this same limb in
+;  black to rub out where it was last frame. Whoever changes it puts it back,
+;  the same contract txt_set_pen has -- and planet_draw is the one that does.
+;
+;  DOWN HERE WITH THE REST OF THE STATE, and not next to planet_draw where it
+;  was written first: title_draw_planet FALLS THROUGH into planet_draw, so a
+;  defb between them is not a variable, it is an instruction. #02 is LD (BC),A,
+;  and the title screen never came up again.
+planet_pen:         defb TITLE_PLANET_PEN
+
 title_planet_hw_now:    defb 0
 title_planet_prev:      defb 0
 title_planet_x0:        defb 0

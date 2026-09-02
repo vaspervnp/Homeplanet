@@ -193,6 +193,7 @@ demo_reset:
     call mark_init
     call cbt_init
     call eco_init
+    call planet_init
     call mis_init
     call ent_clear_all
     call phase4_spawn_fleet
@@ -409,6 +410,12 @@ demo_update:
 
     call phase4_select_list
     call phase4_erase
+
+    ;  The world the campaign is travelling to, on the mission that arrives at
+    ;  it. FIRST, straight after the erase, so everything else this frame is
+    ;  drawn in front of it -- and after the erase rather than before, because
+    ;  that is what closes the holes the last frame's ships punched in it.
+    call planet_scene
     call mis_wipe_screen
     call order_focus
     call cam_build_matrix

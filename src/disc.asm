@@ -115,10 +115,29 @@ disc_stub:
     ld bc,GA_PORT * 256 + GA_BANK_4
     out (c),c
 
+    ;  THE FIRST BYTE SAYS WHETHER IT IS PACKED. tools/packsprites.py takes
+    ;  the shorter of the two every build, and since the 3+3+2 repack left no
+    ;  sprites in this bank at all the shorter one is the RAW image: what is
+    ;  here now is the mission table, the menus and the campaign's code, and
+    ;  code has no runs of #FF and #00 in it. Measured, the packer was making
+    ;  DISC.BIN 366 bytes bigger and had pushed it over its #A700 ceiling.
+    ld hl,SPRITE_STAGE
+    ld a,(hl)
+    inc hl
+    or a
+    jr nz,@disc_packed
+
+    ;  Stored: it is already in the interleaved form the blitter reads, so it
+    ;  is one copy.
+    ld de,BANK_WINDOW
+    ld bc,sprite_image_end - sprite_image - 1
+    ldir
+    jp CODE_START
+
+@disc_packed:
     ;  Masks to the even addresses, data to the odd: the decoder re-weaves
     ;  the two streams as it writes them, so the library lands in exactly the
     ;  interleaved form the blitter reads.
-    ld hl,SPRITE_STAGE
     ld de,BANK_WINDOW
     call unrle_stride2                  ; masks; HL is left on the second stream
     ld de,BANK_WINDOW + 1

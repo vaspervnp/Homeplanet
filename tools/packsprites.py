@@ -47,6 +47,28 @@ import sys
 RUN_MARK = 0xFE
 MAX_LITERAL = 253
 
+#  HOW LONG A RUN HAS TO BE BEFORE IT IS WORTH BREAKING A LITERAL FOR.
+#
+#  Three was the obvious answer and it was the wrong one. A run of three costs
+#  three bytes and so do three literals, so on its own it is a wash -- but
+#  emitting it ENDS the literal block either side of it, and each of those
+#  costs a length byte. So every three-in-a-row in the middle of dense data
+#  made the output two bytes LONGER.
+#
+#  That did not matter while this bank was mostly sprites, which have runs
+#  measured in dozens. It matters now that six yaw views and the 3+3+2 repack
+#  have left bank 4 holding almost nothing but code and text: the packer had
+#  become a net loss of 388 bytes, and DISC.BIN went over its #A700 ceiling
+#  because of it.
+#
+#  Five is the first length that pays for the two headers it costs, and it
+#  leaves the format and the Z80 decoder in src/disc.asm untouched.
+RUN_MIN = 5
+
+#  The first byte of the output says which of the two follows. See main().
+STORED = 0
+PACKED = 1
+
 
 def pack_stream(data: bytes) -> bytes:
     out = bytearray()
@@ -57,9 +79,8 @@ def pack_stream(data: bytes) -> bytes:
         while i + run < len(data) and data[i + run] == b and run < 255:
             run += 1
 
-        #  A run of three pays for itself; a literal #FE must be escaped
-        #  whatever its length.
-        if run >= 3 or b == RUN_MARK:
+        #  See RUN_MIN. A literal #FE must be escaped whatever its length.
+        if run >= RUN_MIN or b == RUN_MARK:
             out += bytes([RUN_MARK, run, b])
             i += run
             continue
@@ -79,7 +100,7 @@ def pack_stream(data: bytes) -> bytes:
             run2 = 1
             while j + run2 < len(data) and data[j + run2] == b2 and run2 < 255:
                 run2 += 1
-            if run2 >= 3 or b2 == RUN_MARK:
+            if run2 >= RUN_MIN or b2 == RUN_MARK:
                 break
             literal += data[j:j + run2]
             j += run2
@@ -163,9 +184,32 @@ def main(argv: list[str]) -> int:
         print("error: the packer does not round-trip", file=sys.stderr)
         return 1
 
-    open(argv[1], "wb").write(packed)
-    print(f"{argv[1]}: {len(raw)} -> {len(packed)} bytes "
-          f"({100 * len(packed) // len(raw)}%)")
+    #  ...AND THEN TAKE THE SHORTER OF THE TWO, WHICH IS NOW THE RAW ONE.
+    #
+    #  This was written when bank 4 held two sprite libraries and packed them
+    #  15000 -> 10793. It holds none since the 3+3+2 repack: what is there now
+    #  is the mission table, the menus, the campaign's code and the context bar
+    #  -- code and text, which have no runs of #FF and #00 in them. Measured on
+    #  the bank this note was written against: 13463 in, 13829 out. The packer
+    #  was making DISC.BIN 366 bytes BIGGER, and DISC.BIN went over its #A700
+    #  ceiling because of it.
+    #
+    #  Raising the run threshold to RUN_MIN recovered 22 of those 366, which is
+    #  what said the overhead is the literal headers themselves and not the
+    #  choice of when to emit a run. There is no threshold that fixes that.
+    #
+    #  So the format grew a one-byte header saying which it is, and the Z80
+    #  decoder in src/disc.asm reads it. Packing stays because it is right the
+    #  moment anything with real runs goes back into this bank -- and it is now
+    #  measured per build rather than assumed.
+    if len(packed) < len(raw):
+        out, how = bytes([PACKED]) + packed, "packed"
+    else:
+        out, how = bytes([STORED]) + raw, "stored"
+
+    open(argv[1], "wb").write(out)
+    print(f"{argv[1]}: {len(raw)} -> {len(out)} bytes "
+          f"({100 * len(out) // len(raw)}%, {how})")
     return 0
 
 
