@@ -1102,6 +1102,38 @@ eco_scrap_value:
 ;  accident -- and moth_slot is not the test, because fleet_restore moves what
 ;  that points at. The CLASS is.
 ; ----------------------------------------------------------------------------
+;  eco_recycle_key -- the `Y` key: arm, then do it
+;  Uses: everything
+;
+;  DESTRUCTIVE AND ON ONE KEY, so it asks twice. `Y` breaks the whole selected
+;  squadron up for RU and there is nothing in this game that puts a ship back;
+;  section 1's fleet only ever shrinks, and a mis-hit next to `T` on the same
+;  matrix row is a mission's worth of ships.
+;
+;  IT REMEMBERS WHICH SQUADRON IT WAS ARMED FOR, and that is the whole of the
+;  safety rather than a timeout or a hook in every other command. An arm that
+;  merely said "yes" would sit there across a squadron change -- press `Y` over
+;  the interceptors, think better of it, select the destroyers, press `Y` for
+;  something else entirely and scrap them. Storing squad_sel + 1 means a second
+;  `Y` on a DIFFERENT squadron re-arms for that one instead of confirming the
+;  old one, and nothing else in the game has to know this flag exists.
+;
+;  Zero means not armed, which is why it is the squadron PLUS ONE: squadron 0
+;  is the Mothership's and is a real number.
+eco_recycle_key:
+    ld a,(squad_sel)
+    inc a
+    ld hl,eco_recycle_armed
+    cp (hl)
+    jr z,@eco_recycle_go                ; armed, and for this squadron
+    ld (hl),a                           ; ...otherwise arm for this one
+    ret
+
+@eco_recycle_go:
+    ld (hl),0
+    ;  ...and fall into the thing itself
+
+
 eco_decommission:
     ld hl,entities + ENT_FLAGS
     ld (eco_walk),hl

@@ -80,6 +80,7 @@ CTX_PLAYING         equ 1
 CTX_PAUSED          equ 2
 CTX_DISC            equ 3
 CTX_BUILD           equ 4
+CTX_RECYCLE         equ 5               ; `Y` is armed and asking again
 
 ;  How many characters fit on one line, which is the only real constraint on
 ;  the words below -- txt_draw clips at the screen edge rather than wrapping,
@@ -97,6 +98,9 @@ CTX_STAT_X          equ 56
 
 ;  ...and where the word PAUSED stops and the rest of the line starts.
 CTX_PAUSE_TAIL_X    equ 16
+
+;  ...and the same for RECYCLE?, which is two characters longer.
+CTX_RECYCLE_TAIL_X  equ 20
 
 ;  Why the yard will not take an order. Encoded into ctx_sub beside the pick,
 ;  so the shadow notices the moment the answer flips -- and NOT the RU figure
@@ -147,6 +151,8 @@ ctx_bar:
     jr z,ctx_line
     cp CTX_PAUSED
     jr z,ctx_draw_paused
+    cp CTX_RECYCLE
+    jr z,ctx_draw_recycle
     ld hl,ctx_text_play
     ;  ...and fall through
 
@@ -232,6 +238,29 @@ ctx_run:
 ;  the ink is what says so. Its tail is an ordinary run.
 ;  Uses: everything
 ; ----------------------------------------------------------------------------
+;  ----------------------------------------------------------------------------
+;  ctx_draw_recycle -- `Y` is armed and wants to be told again
+;
+;  RECYCLE? in ink 3 for the reason PAUSED has it and ENTER BUY has it: section
+;  2 gives ink 3 to the thing that wants attention, and a question that is
+;  about to break ships up for scrap is the only thing on the screen. Without
+;  this line the first `Y` does nothing a player can see, and a key that does
+;  nothing visible is a key that is broken -- which is the exact failure this
+;  whole file was built to end.
+; ----------------------------------------------------------------------------
+ctx_draw_recycle:
+    ld a,PEN_RED
+    call txt_set_pen
+    ld hl,ctx_text_recycle
+    ld b,CTX_NAME_X
+    ld c,CTX_Y
+    call txt_draw                       ; ctx_run puts the pen back
+
+    ld hl,ctx_text_recycle_tail
+    ld b,CTX_RECYCLE_TAIL_X
+    jr ctx_run
+
+
 ctx_draw_paused:
     ld a,PEN_RED
     call txt_set_pen
@@ -509,6 +538,13 @@ ctx_classify:
     jr @ctx_set
 
 @ctx_no_build:
+    ;  ...and the armed RECYCLE, which outranks both PLAYING and PAUSED: it is
+    ;  a question the player has to answer and the other two are states.
+    ld a,(eco_recycle_armed)
+    or a
+    ld a,CTX_RECYCLE
+    jr nz,@ctx_set
+
     ld a,(order_paused)
     or a
     ld a,CTX_PLAYING
@@ -550,6 +586,14 @@ ctx_text_pause_tail:
     defb "ESC",0,"MENU",0
     defb 0
 ctx_text_pause_end:
+
+ctx_text_recycle:
+    defb "RECYCLE?",0
+ctx_text_recycle_tail:
+    defb "Y",0,"CONFIRM",0
+    defb "ESC",0,"CANCEL",0
+    defb 0
+ctx_text_recycle_end:
 
 ;  SHIFT and the arrows raise and lower the disc rather than sliding it, which
 ;  the old line said as "SHIFT UP/DN" -- eleven characters naming a key with

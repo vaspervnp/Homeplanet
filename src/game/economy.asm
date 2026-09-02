@@ -131,7 +131,13 @@ eco_queue_buf:      defs ECO_QUEUE_WAIT, 0
 ;  are the same length by construction and there is nothing here for an assert
 ;  to catch -- one was written and taken out again, because an assert that
 ;  cannot fail is a comment pretending to be a check.
-eco_build_squad:    defb 0              ; ...for the one ON the slipway
+eco_build_squad:    defb 0
+
+;  Which squadron `Y` is armed to break up, PLUS ONE; zero is "not armed". In
+;  the low 16K with the rest of the economy's state, because the context bar
+;  reads it every frame to decide what the strip says and half the suite reads
+;  it with read_ram. See eco_recycle_key.
+eco_recycle_armed:  defb 0              ; ...for the one ON the slipway
 eco_queue_squad:    defs ECO_QUEUE_WAIT, 0
 
 ;  Where the fields are and how much is left in them. Written only by

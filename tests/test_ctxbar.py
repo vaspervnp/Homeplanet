@@ -209,6 +209,31 @@ class TestWhatItSays(BarFixture):
         self.assertEqual(self.byte("ORDER_PAUSED"), 0)
         self.assertNotIn("PAUSED", self.strip_text())
 
+    def test_an_armed_recycle_asks_on_the_bar(self):
+        """`Y` arms and asks again, and the asking has to be VISIBLE.
+
+        Without a line here the first `Y` does nothing a player can see, and a
+        key that does nothing visible is a key that is broken -- which is the
+        exact failure this whole strip was built to end: a player who had been
+        told the build panel was `B`, then `,`/`.`, then ENTER asked twice how
+        to choose what to build.
+        """
+        self.hold("y")
+        self.assertNotEqual(self.byte("ECO_RECYCLE_ARMED"), 0, "`Y` did not arm")
+        text = self.strip_text()
+        self.assertTrue(text.startswith("RECYCLE?"), f"the bar reads {text!r}")
+        self.assert_reads([("RECYCLE?", 3), ("Y", 2), ("CONFIRM", 1),
+                           ("ESC", 2), ("CANCEL", 1)])
+
+    def test_and_the_question_goes_away_when_it_is_answered(self):
+        """A caption that outlived the state would be worse than none -- the
+        same rule PAUSED follows."""
+        self.hold("y")
+        self.assertIn("RECYCLE?", self.strip_text())
+        self.hold(cpc.KEY_ESC)
+        self.assertEqual(self.byte("ECO_RECYCLE_ARMED"), 0)
+        self.assertNotIn("RECYCLE?", self.strip_text())
+
     def test_the_move_disc_takes_the_bar_over(self):
         """The arrows drive the disc rather than the camera while it is open,
         and ESC means cancel rather than menu. Both are invisible otherwise."""

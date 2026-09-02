@@ -517,6 +517,12 @@ phase4_commands:
     ld a,(eco_build_open)
     or a
     jr nz,@p4_no_menu
+    ;  ...and an armed RECYCLE, for the same reason as those two: while ESC
+    ;  means "cancel this" it does not also mean "open the menu", or cancelling
+    ;  a scrap order drops the player into a screen they did not ask for.
+    ld a,(eco_recycle_armed)
+    or a
+    jr nz,@p4_no_menu
     call menu_open
     ret
 @p4_no_menu:

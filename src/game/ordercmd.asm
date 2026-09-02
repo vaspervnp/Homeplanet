@@ -146,7 +146,7 @@ order_update:
     ;  in one press, so "scrap the scouts" is two keystrokes.
     ld a,KEY_Y
     call key_hit
-    call c,eco_decommission
+    call c,eco_recycle_key
 
     ;  ...and its sibling: the corvettes go and fetch the wrecks. Two work
     ;  orders, two keys, for the reason section 9 gives H its "(harvesters)" --
@@ -238,6 +238,7 @@ order_update:
     xor a
     ld (disc_active),a
     ld (eco_build_open),a
+    ld (eco_recycle_armed),a            ; ...and the armed RECYCLE, same as both
 @ord_no_esc:
     jp order_focus
 

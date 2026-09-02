@@ -553,7 +553,9 @@ class TestBreakingShipsUp(EconomyFixture):
         self.c.run_frames(2)
 
     def recycle(self, purse=0):
+        """TWICE. `Y` arms and a second `Y` confirms -- see TestItAsksTwice."""
         self.c.write_ram(self.sym["ECO_RU"], struct.pack("<H", purse))
+        self.hold("y")
         self.hold("y")
         self.c.run_frames(20)
         return self.ru() - purse
@@ -617,8 +619,85 @@ class TestBreakingShipsUp(EconomyFixture):
             self.put(slot, CLASS_INTERCEPTOR, 1.0)
         self.c.write_ram(self.sym["ECO_RU"], struct.pack("<H", 9990))
         self.hold("y")
+        self.hold("y")                  # armed, then confirmed
         self.c.run_frames(20)
         self.assertLessEqual(self.ru(), 9999, "the treasury went past its ceiling")
+
+
+class TestItAsksTwice(EconomyFixture):
+    """`Y` arms and a second `Y` confirms.
+
+    It is destructive, it is on one key, and there is nothing in this game that
+    puts a ship back -- section 1's fleet only ever shrinks. `T` is on the same
+    matrix row.
+    """
+
+    def setUp(self):
+        super().setUp()
+        h.let_the_game_draw(self.c, self.sym, 8)
+
+    def fleet(self):
+        return [s for s in range(self.sym["ENT_PLAYER_MAX"])
+                if self.c.read_ram(self.sym["ENTITIES"] + s * ENT_SIZE
+                                   + ENT_FLAGS, 1)[0] & 1]
+
+    def armed(self):
+        return self.byte("ECO_RECYCLE_ARMED")
+
+    def test_one_press_arms_and_scraps_nothing(self):
+        before = self.fleet()
+        self.hold("y")
+        self.assertNotEqual(self.armed(), 0, "`Y` did not arm")
+        self.assertEqual(self.fleet(), before, "one `Y` broke ships up")
+
+    def test_a_second_press_does_it(self):
+        before = len(self.fleet())
+        self.hold("y")
+        self.hold("y")
+        self.assertEqual(self.armed(), 0, "the arm was not spent")
+        self.assertLess(len(self.fleet()), before, "the second `Y` did nothing")
+
+    def test_escape_cancels_it_without_opening_the_menu(self):
+        """ESC means cancel while something is armed, and NOT `open the orders
+        menu` -- the same rule disc_active and eco_build_open already have.
+        Cancelling a scrap order must not drop the player into a screen."""
+        before = self.fleet()
+        self.hold("y")
+        self.hold(cpc.KEY_ESC)
+        self.assertEqual(self.armed(), 0, "ESC did not cancel the arm")
+        #  read_bank4 and not read_ram: menu_shown is at #4BE3, in the window,
+        #  and read_ram would hand back whichever sprite library happens to be
+        #  paged in. It came back as 19.
+        self.assertEqual(h.read_bank4(self.c, self.sym["MENU_SHOWN"], 1)[0], 0,
+                         "cancelling the arm opened the orders menu")
+        self.hold("y")
+        self.assertNotEqual(self.armed(), 0, "the next `Y` should re-arm")
+        self.assertEqual(self.fleet(), before, "it scrapped after a cancel")
+
+    def test_arming_one_squadron_does_not_confirm_another(self):
+        """The arm remembers WHICH squadron it was armed for.
+
+        An arm that merely said yes would sit across a squadron change: press
+        `Y` over the interceptors, think better of it, select something else,
+        press `Y` for another reason and scrap those instead.
+        """
+        self.c.key_down("d")            # divide, so there are two to pick from
+        self.c.run_frames(30)
+        self.c.key_up("d")
+        self.c.run_frames(30)
+        self.hold("y")
+        first = self.armed()
+        self.assertNotEqual(first, 0)
+
+        before = self.fleet()
+        self.hold("2")
+        if self.byte("SQUAD_SEL") == 1:
+            self.skipTest("the divide left nothing in squadron 2 to select")
+        self.hold("y")
+        self.assertEqual(self.fleet(), before,
+                         "a `Y` armed for one squadron scrapped another")
+        self.assertNotEqual(self.armed(), first,
+                            "the arm did not move to the new squadron")
 
 
 class TestWhenTheYardWillNotWork(EconomyFixture):

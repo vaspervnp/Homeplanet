@@ -878,6 +878,8 @@ ENDIF
     assert ctx_text_disc_end - ctx_text_disc <= CTX_BAR_CHARS + 2, "the move disc line is wider than the screen"
     assert (ctx_text_pause_tail - ctx_text_paused - 1) * TXT_CHAR_W_BYTES <= CTX_PAUSE_TAIL_X, "PAUSED runs into the rest of its line"
     assert CTX_PAUSE_TAIL_X + (ctx_text_pause_end - ctx_text_pause_tail - 2) * TXT_CHAR_W_BYTES <= SCR_BYTES_PER_LINE, "the paused line is wider than the screen"
+    assert (ctx_text_recycle_tail - ctx_text_recycle - 1) * TXT_CHAR_W_BYTES <= CTX_RECYCLE_TAIL_X, "RECYCLE? runs into the rest of its line"
+    assert CTX_RECYCLE_TAIL_X + (ctx_text_recycle_end - ctx_text_recycle_tail - 2) * TXT_CHAR_W_BYTES <= SCR_BYTES_PER_LINE, "the recycle line is wider than the screen"
 
 ;  The build panel's four fields, each against the start of the next one.
     assert CTX_NAME_X + CTX_NAME_CHARS * TXT_CHAR_W_BYTES <= CTX_COST_X, "a class name would run into the cost"

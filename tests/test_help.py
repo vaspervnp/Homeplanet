@@ -8,6 +8,7 @@ has to actually stop.
 
 from __future__ import annotations
 
+import struct
 import sys
 import unittest
 
@@ -99,6 +100,25 @@ class TestOpeningAndClosing(HelpFixture):
 
 
 class TestItStopsTheWorld(HelpFixture):
+    """BOTH of these need the fleet to have somewhere to go, and for a long
+    time neither said so.
+
+    They were written when the fleet was still flying out to its station on
+    its own -- so "nothing moved" and "something moved" were both statements
+    about how far along that flight the game happened to be. The day the boot
+    got faster the fleet was already parked, and the pair inverted: the second
+    failed, and the FIRST would have passed against a build where the help page
+    did not stop the world at all.
+
+    So the station is moved first. Now the fleet has a reason to fly and the
+    two claims are about the page rather than about the frame rate.
+    """
+
+    STATION = (4000, 0, 4000)
+
+    def give_the_fleet_somewhere_to_go(self):
+        self.c.write_ram(self.sym["SQUAD_DEST"], struct.pack("<hhh", *self.STATION))
+        self.c.run_frames(2)
 
     def positions(self):
         return [self.c.read_ram(self.sym["ENTITIES"] + s * ENT_SIZE + ENT_X, 6)
@@ -111,6 +131,7 @@ class TestItStopsTheWorld(HelpFixture):
         Reading the keys is not a pause the player asked for, so it must not
         be one they pay for either: no flying, no shooting, no mining.
         """
+        self.give_the_fleet_somewhere_to_go()
         self.open_help()
         self.c.run_frames(10)                   # let it settle on the page
 
@@ -122,6 +143,7 @@ class TestItStopsTheWorld(HelpFixture):
         self.assertEqual(self.byte("CBT_SHOTS"), shots, "the battle carried on")
 
     def test_the_game_runs_again_once_it_is_closed(self):
+        self.give_the_fleet_somewhere_to_go()
         self.open_help()
         self.c.run_frames(30)
         self.press(cpc.KEY_ESC)
