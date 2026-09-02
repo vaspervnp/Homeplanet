@@ -121,7 +121,12 @@ ENT_MAX = h.symbols()["ENT_MAX"]
 ENT_HULL, ENT_FLAGS, ENT_CLASS = 10, 11, 9
 F_ACTIVE, F_ENEMY, F_WAVE = 1, 2, 8
 
-MISSIONS = 8
+#  READ, NOT WRITTEN DOWN, for the same reason ENT_MAX above it is. The
+#  campaign was eight missions when this was a literal and is twenty now, and a
+#  measuring tool with a stale count does not fail -- it prints a plausible
+#  table with the late campaign silently missing from it, which is worse than
+#  an error because somebody will quote it.
+MISSIONS = h.symbols()["MIS_COUNT"]
 WAVES_PER_MISSION = 3
 
 #  Emulator frames, not game frames: about ten of the first to one of the
