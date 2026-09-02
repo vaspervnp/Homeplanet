@@ -31,7 +31,7 @@
 ;  good. src/sys/fdc.asm drives the uPD765 itself instead.
 ; ----------------------------------------------------------------------------
 
-MIS_COUNT           equ 8
+MIS_COUNT           equ 20
 
 ;  Descriptor layout, all of it in bank 4.
 MIS_NAME            equ 0               ; 12 bytes, zero-terminated
@@ -142,7 +142,7 @@ MIS_SURVIVE_TICKS   equ 50 * 30
 ;  tests/harness.clear_the_way_out top a purse up to when they want to be sure
 ;  a jump is affordable, and src/main.asm asserts no row of the curve exceeds
 ;  it. A value that is merely "big enough" would stop being so silently.
-MIS_JUMP_COST       equ 800
+MIS_JUMP_COST       equ 2800
 
 ; ----------------------------------------------------------------------------
 ;  THE DERELICT, and what the campaign can unlock

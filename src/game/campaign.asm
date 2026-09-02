@@ -20,7 +20,7 @@ mission_table:
     defb 3
     defw patches_rich
     defb MIS_OBJ_ARRIVE
-    defb 0                              ; briefing text
+    defb 0                             ; briefing text
 
     ; 2. ΤΕΦΡΑ -- back to the burned colony. No battle; only silence.
     defb "ASH",0,0,0,0,0,0,0,0,0
@@ -29,7 +29,7 @@ mission_table:
     defb 3
     defw patches_thin
     defb MIS_OBJ_ARRIVE
-    defb 1                              ; briefing text
+    defb 1                             ; briefing text
 
     ; 3. ΤΟ ΝΑΥΑΓΙΟ -- a debris field with a picket sitting in it.
     defb "THE WRECK",0,0,0
@@ -38,7 +38,7 @@ mission_table:
     defb 4
     defw patches_rich
     defb MIS_OBJ_CLEAR
-    defb 2                              ; briefing text
+    defb 2                             ; briefing text
 
     ; 4. Ο ΣΤΑΘΜΟΣ -- the first attack on a static defence.
     defb "THE DEPOT",0,0,0
@@ -47,7 +47,7 @@ mission_table:
     defb 3
     defw patches_rich
     defb MIS_OBJ_CLEAR
-    defb 3                              ; briefing text
+    defb 3                             ; briefing text
 
     ; 5. ΤΟ ΝΕΦΕΛΩΜΑ -- sensors are down; they are already close.
     defb "THE NEBULA",0,0
@@ -56,7 +56,7 @@ mission_table:
     defb 2
     defw patches_rich
     defb MIS_OBJ_CLEAR
-    defb 4                              ; briefing text
+    defb 4                             ; briefing text
 
     ; 6. ΤΟ ΚΟΙΜΗΤΗΡΙΟ -- a dead fleet, and it is theirs.
     defb "THE GRAVES",0,0
@@ -65,7 +65,7 @@ mission_table:
     defb 3
     defw patches_deep
     defb MIS_OBJ_CLEAR
-    defb 5                              ; briefing text
+    defb 5                             ; briefing text
 
     ; 7. Η ΠΥΛΗ -- a Vekhar jump point, and the biggest fight so far.
     defb "THE GATE",0,0,0,0
@@ -74,20 +74,128 @@ mission_table:
     defb 3
     defw patches_deep
     defb MIS_OBJ_CLEAR
-    defb 6                              ; briefing text
+    defb 6                             ; briefing text
 
-    ; 8. HOMEPLANET -- arrival. Hold long enough to see it.
+    ; 8. ΤΟ ΣΚΟΤΑΔΙ -- empty space. The waves are the whole mission.
+    defb "THE DARK",0,0,0,0
+    defb 0
+    defw mis_none
+    defb 2
+    defw patches_thin
+    defb MIS_OBJ_ARRIVE
+    defb 7                             ; briefing text
+
+    ; 9. ΨΥΧΡΟ ΣΙΔΕΡΟ -- three frigates. Fighters cannot pay for this.
+    defb "COLD IRON",0,0,0
+    defb 6
+    defw enemies_core
+    defb 3
+    defw patches_deep
+    defb MIS_OBJ_CLEAR
+    defb 8                             ; briefing text
+
+    ; 10. Ο ΑΝΑΜΕΤΑΔΟΤΗΣ -- they are calling ahead of us now.
+    defb "THE RELAY",0,0,0
+    defb 8
+    defw enemies_line
+    defb 3
+    defw patches_rich
+    defb MIS_OBJ_CLEAR
+    defb 9                             ; briefing text
+
+    ; 11. ΚΕΡΑ -- whoever they were, this is as far as they got.
+    defb "KERA",0,0,0,0,0,0,0,0
+    defb 6
+    defw enemies_scatter
+    defb 2
+    defw patches_thin
+    defb MIS_OBJ_CLEAR
+    defb 10                             ; briefing text
+
+    ; 12. ΤΑ ΡΗΧΑ -- a debris shoal, and it hides them as well as it hides us.
+    defb "THE SHOALS",0,0
+    defb 8
+    defw enemies_close
+    defb 3
+    defw patches_deep
+    defb MIS_OBJ_CLEAR
+    defb 11                             ; briefing text
+
+    ; 13. ΤΟ ΧΥΤΗΡΙΟ -- where the bombers are built. They come out to meet us.
+    defb "THE FOUNDRY",0
+    defb 10
+    defw enemies_hammer
+    defb 3
+    defw patches_deep
+    defb MIS_OBJ_CLEAR
+    defb 12                             ; briefing text
+
+    ; 14. Η ΠΑΡΑΣΥΡΣΗ -- nothing here at all. Hold, and let them find us.
+    defb "THE DRIFT",0,0,0
+    defb 0
+    defw mis_none
+    defb 2
+    defw patches_thin
+    defb MIS_OBJ_SURVIVE
+    defb 13                             ; briefing text
+
+    ; 15. ΤΟ ΑΜΟΝΙ -- the same hammer, and this time they know we are coming.
+    defb "THE ANVIL",0,0,0
+    defb 10
+    defw enemies_hammer
+    defb 3
+    defw patches_deep
+    defb MIS_OBJ_CLEAR
+    defb 14                             ; briefing text
+
+    ; 16. ΤΟ ΠΕΡΑΣΜΑ -- a lance of frigates across the only lane.
+    defb "THE CROSS",0,0,0
+    defb 12
+    defw enemies_lance
+    defb 3
+    defw patches_deep
+    defb MIS_OBJ_CLEAR
+    defb 15                             ; briefing text
+
+    ; 17. Η ΣΚΟΠΙΑ -- a small watch post, and every ship in it is heavy.
+    defb "THE WATCH",0,0,0
+    defb 8
+    defw enemies_core
+    defb 2
+    defw patches_rich
+    defb MIS_OBJ_CLEAR
+    defb 16                             ; briefing text
+
+    ; 18. ΤΟ ΚΑΤΩΦΛΙ -- the last of their outer line.
+    defb "THRESHOLD",0,0,0
+    defb 12
+    defw enemies_lance
+    defb 3
+    defw patches_deep
+    defb MIS_OBJ_CLEAR
+    defb 17                             ; briefing text
+
+    ; 19. Η ΤΕΛΕΥΤΑΙΑ ΠΥΛΗ -- everything they have left, in one place.
+    defb "LAST GATE",0,0,0
+    defb 12
+    defw enemies_wall
+    defb 3
+    defw patches_deep
+    defb MIS_OBJ_CLEAR
+    defb 18                             ; briefing text
+
+    ; 20. HOMEPLANET -- arrival. Hold long enough to see it.
     defb "HOMEPLANET",0,0
     defb 10
-    defw enemies_wall
+    defw enemies_lance
     defb 2
     defw patches_deep
     defb MIS_OBJ_SURVIVE
-    defb 7                              ; briefing text
+    defb 19                             ; briefing text
 
 mission_table_end:
 
-    assert (mission_table_end - mission_table) / MIS_SIZE == MIS_COUNT, "the campaign is not eight missions"
+    assert (mission_table_end - mission_table) / MIS_SIZE == MIS_COUNT, "the campaign is not MIS_COUNT missions"
 
 
 ; ----------------------------------------------------------------------------
@@ -215,6 +323,87 @@ enemies_wall:
     defb  CLASS_BOMBER
 enemies_wall_end:
 
+;  COLD IRON and THE WATCH: a small picket that is nearly all capital. Six
+;  ships, three of them frigates -- an interceptor does TEN to a frigate, so
+;  this is the fight that cannot be won by out-trading and is the campaign
+;  saying, in the only language it has, buy a bomber.
+enemies_core:
+    defw  -2000,   500,  4500
+    defb  CLASS_FRIGATE
+    defw   2000,  -500,  4500
+    defb  CLASS_FRIGATE
+    defw      0,     0,  5250
+    defb  CLASS_FRIGATE
+    defw  -3250,     0,  3750
+    defb  CLASS_INTERCEPTOR
+    defw   3250,     0,  3750
+    defb  CLASS_INTERCEPTOR
+    defw      0,  1000,  3000
+    defb  CLASS_BOMBER
+    defw  -1000, -1000,  6000
+    defb  CLASS_INTERCEPTOR
+    defw   1000,  1000,  6000
+    defb  CLASS_INTERCEPTOR
+
+;  THE FOUNDRY and THE ANVIL: four bombers, and they are not here for the
+;  fleet. A bomber does 8 to a fighter and 44 to a Mothership, so an escort
+;  that stays in formation watches them go past it. The interceptors are the
+;  screen the bombers hide behind.
+enemies_hammer:
+    defw  -1500,   750,  5500
+    defb  CLASS_BOMBER
+    defw   -500,   750,  5500
+    defb  CLASS_BOMBER
+    defw    500,   750,  5500
+    defb  CLASS_BOMBER
+    defw   1500,   750,  5500
+    defb  CLASS_BOMBER
+    defw  -3000,  -250,  4000
+    defb  CLASS_INTERCEPTOR
+    defw  -1750,  -250,  4000
+    defb  CLASS_INTERCEPTOR
+    defw   -500,  -250,  4000
+    defb  CLASS_INTERCEPTOR
+    defw    750,  -250,  4000
+    defb  CLASS_INTERCEPTOR
+    defw   2000,  -250,  4000
+    defb  CLASS_INTERCEPTOR
+    defw   3250,  -250,  4000
+    defb  CLASS_FRIGATE
+
+;  THE CROSS, THRESHOLD and HOMEPLANET: the hardest thing the campaign fields,
+;  and it is twelve ships because ENT_ENEMY_MAX is the largest picket plus one
+;  whole wave and there is no room for a thirteenth. So the late campaign gets
+;  harder by COMPOSITION rather than by count -- five frigates and three
+;  bombers against the wall's two and two -- which is also the only way it
+;  could get harder without the frame rate paying for it.
+enemies_lance:
+    defw  -2500,   750,  5000
+    defb  CLASS_FRIGATE
+    defw  -1250,   750,  5000
+    defb  CLASS_FRIGATE
+    defw      0,   750,  5000
+    defb  CLASS_FRIGATE
+    defw   1250,   750,  5000
+    defb  CLASS_FRIGATE
+    defw   2500,   750,  5000
+    defb  CLASS_FRIGATE
+    defw  -1750,  -750,  4000
+    defb  CLASS_BOMBER
+    defw      0,  -750,  4000
+    defb  CLASS_BOMBER
+    defw   1750,  -750,  4000
+    defb  CLASS_BOMBER
+    defw  -3500,     0,  5750
+    defb  CLASS_INTERCEPTOR
+    defw   3500,     0,  5750
+    defb  CLASS_INTERCEPTOR
+    defw  -1000, -1500,  6500
+    defb  CLASS_INTERCEPTOR
+    defw   1000,  1500,  6500
+    defb  CLASS_INTERCEPTOR
+enemies_lance_end:
+
 ;  A FORGOTTEN CLASS BYTE IS THE FAILURE THIS FILE IS SHAPED TO HAVE, and it
 ;  would not look like one: the stride is seven, so one missing defb slides
 ;  every ship after it half a row along and the picket comes out at coordinates
@@ -226,6 +415,9 @@ enemies_wall_end:
     assert enemies_scatter - enemies_close   ==  8 * MIS_ENEMY_SIZE, "enemies_close is not eight ships"
     assert enemies_wall    - enemies_scatter ==  6 * MIS_ENEMY_SIZE, "enemies_scatter is not six ships"
     assert enemies_wall_end - enemies_wall   == 12 * MIS_ENEMY_SIZE, "enemies_wall is not twelve ships"
+    assert enemies_hammer  - enemies_core    ==  8 * MIS_ENEMY_SIZE, "enemies_core is not eight ships"
+    assert enemies_lance   - enemies_hammer  == 10 * MIS_ENEMY_SIZE, "enemies_hammer is not ten ships"
+    assert enemies_lance_end - enemies_lance == 12 * MIS_ENEMY_SIZE, "enemies_lance is not twelve ships"
 
 
 ; ----------------------------------------------------------------------------
@@ -245,14 +437,26 @@ enemies_wall_end:
 ;  measurement that killed the flat number.
 ; ----------------------------------------------------------------------------
 mission_fare:
-    defw 200                            ; 1. THE TEST
-    defw 300                            ; 2. ASH
-    defw 400                            ; 3. THE WRECK
-    defw 500                            ; 4. THE DEPOT
-    defw 600                            ; 5. THE NEBULA
-    defw 700                            ; 6. THE GRAVES
-    defw MIS_JUMP_COST                  ; 7. THE GATE -- the dearest
-    defw MIS_JUMP_COST                  ; 8. HOMEPLANET -- never charged
+    defw 200            ;  1. THE TEST
+    defw 300            ;  2. ASH
+    defw 400            ;  3. THE WRECK
+    defw 500            ;  4. THE DEPOT
+    defw 600            ;  5. THE NEBULA
+    defw 700            ;  6. THE GRAVES
+    defw 800            ;  7. THE GATE
+    defw 900            ;  8. THE DARK
+    defw 1000           ;  9. COLD IRON
+    defw 1100           ; 10. THE RELAY
+    defw 1250           ; 11. KERA
+    defw 1400           ; 12. THE SHOALS
+    defw 1550           ; 13. THE FOUNDRY
+    defw 1700           ; 14. THE DRIFT
+    defw 1900           ; 15. THE ANVIL
+    defw 2100           ; 16. THE CROSS
+    defw 2300           ; 17. THE WATCH
+    defw 2500           ; 18. THRESHOLD
+    defw MIS_JUMP_COST  ; 19. LAST GATE
+    defw MIS_JUMP_COST  ; 20. HOMEPLANET
 mission_fare_end:
 
     assert (mission_fare_end - mission_fare) / 2 == MIS_COUNT, "the fare curve is not one word a mission"

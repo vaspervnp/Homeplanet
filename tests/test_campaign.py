@@ -622,6 +622,31 @@ class TestTheBriefingComesOutOfBankSeven(unittest.TestCase):
                 return chr(code)
         return "?"
 
+    def test_every_briefing_line_fits_the_screen(self):
+        """txt_draw clips at the edge of the SCREEN, not at a column.
+
+        So a line one character too long does not fail, it silently loses its
+        last character -- and "THE PLANET IS THERE, AND SO ARE THEY." had been
+        losing its full stop since it was written. Nothing looked at a briefing
+        closely enough to notice.
+
+        The limit is arithmetic: the strip is 80 bytes, a character cell is
+        TXT_CHAR_W_BYTES of them, and the text starts at BRIEF_X.
+        """
+        room = (80 - self.sym["BRIEF_X"]) // self.CHAR_W_BYTES
+        at, n, over = self.sym["MISSION_TEXT"] - 0x4000, 0, []
+        for mission in range(self.sym["MIS_COUNT"]):
+            for line in range(self.sym["BRIEF_LINES"]):
+                end = self.bank7.index(b"\0", at)
+                text = self.bank7[at:end].decode("ascii")
+                if len(text) > room:
+                    over.append((mission + 1, line, len(text), text))
+                at, n = end + 1, n + 1
+        self.assertEqual(over, [],
+                         f"briefing lines longer than the {room} characters "
+                         f"the screen holds at BRIEF_X")
+        self.assertEqual(n, self.sym["MIS_COUNT"] * self.sym["BRIEF_LINES"])
+
     def test_a_briefing_is_on_the_screen_word_for_word(self):
         #  boot_quick has already pressed past the first one, so jump into the
         #  next and read it while it is still up.
