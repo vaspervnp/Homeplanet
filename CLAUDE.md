@@ -982,7 +982,7 @@ not needed and should stay unspent.
 | `?` | the key list; `ESC` goes back |
 | `SPACE` | on the title screen, start the game |
 
-`J` **lands** rather than jumping on the last mission, and landing opens the victory screen — see "The end of the journey". Otherwise it jumps when `mis_gate` allows it — the objective met, three waves seen, no
+`J` **announces** the jump and the drive spools for ten seconds of live battle before it happens; `ESC` calls it off — see "The jump counts down". It **lands** rather than jumping on the last mission, and landing opens the victory screen — see "The end of the journey". Otherwise it jumps when `mis_gate` allows it — the objective met, three waves seen, no
 enemy flying and **`MIS_JUMP_COST` in the treasury** — and writes the save on
 its way out.
 
@@ -5344,6 +5344,74 @@ into both buffers, the bar does the same), two of them cross a tick boundary,
 and `demo_frames` is an integer — so 19.8 game frames counted as 19.
 `test_frame_rate_does_not_regress` now settles for 100 frames and measures
 over 400.
+
+### The jump counts down, and the world keeps running
+
+`J` does not jump. It **announces** that the fleet is leaving, the drive spools
+for `JUMP_COUNT_SECS` — ten seconds — and `ESC` calls it off.
+
+**The world keeping running is the whole mechanic and not a detail.** A
+countdown that froze the battle the way the briefing and the jump wipe do could
+contain nothing that would make anyone press `ESC`, and a cancel nobody would
+ever use is decoration. Ten seconds of live battle makes pressing `J`
+*announcing that you are leaving, and then surviving the announcement.*
+
+- **It lives in `mis_update`**, which buys two behaviours for nothing:
+  `demo_update` skips `mis_update` while `order_paused`, so SPACE stops the
+  countdown along with the battle — a pause that let it run would be a pause
+  that jumps you out of the mission — and `mis_gate` has just been re-asked, so
+  `mis_leave_ok` is this frame's answer.
+- **It counts 50 Hz TICKS**, seconds plus a tick accumulator, so ten seconds
+  are ten real seconds whatever the frame rate does. Seconds rather than a word
+  of ticks because the bar draws the number and this game has one divide.
+- **It cancels itself if the way out closes.** A wave landing mid-spool shuts
+  `mis_gate`, and counting down to a refusal would spend ten seconds and then
+  say nothing. `mis_jump_now` does not re-check the gate — the cancel is what
+  enforces it.
+- **A second `J` does nothing** rather than restarting the count. A key that
+  resets its own timer is one a panicking player can hold down for ever.
+- **`ESC` is FOURTH in the chain** — after the move disc, the build panel and
+  an armed `RECYCLE`. Get the order wrong and aborting a jump opens the orders
+  menu, which is the exact class of bug the context bar was built to make
+  visible. `ctx_classify` re-derives the same order.
+
+**The bar says `JUMPING nn  ESC CANCEL`**, `PAUSED`'s shape exactly because it
+is the same kind of thing: a STATE, not a key, in §2's attention ink. The HUD's
+`JUMP` label says the jump is *available*; the bar says it is *happening*, and
+both statements are wanted. The number is **right-aligned in two digits** so
+`ESC` does not jitter every second.
+
+> **The seconds go in `ctx_sub`, which is what makes the number free.** The
+> shadow already compares that byte, so the repaint happens on the tick and
+> only on the tick. Without it the bar would draw `10` and then sit there
+> saying `10` for ten seconds. This is the first thing on the bar that
+> repaints on a timer.
+
+#### It is a balance change wearing a UI change's clothes, and it was measured
+
+Ten seconds of unattended battle per jump, twenty jumps. `tools/balance.py`,
+both tactics:
+
+| tactic | before | after |
+|---|---|---|
+| station + `A` (never mines) | Mothership lost at **7** | lost at **6** |
+| station + `A` + rebuild | all 20, ending **27 ships / 5864 hull** | all 20, ending **33 ships / 7378 hull** |
+
+**It taxes the player who runs and pays the player who works**, and that fell
+out rather than being designed. The default tactic never mines, so ten seconds
+a jump is ten seconds of pure attrition; the rebuilding tactic has three
+harvesters working through every one of them, so the same ten seconds are
+income. That is a *better* shape than a flat cost and it is worth keeping in
+mind before anyone "fixes" the default tactic's lost mission.
+
+> **`clear_the_way_out` had to grow to cover the spool**, and the reason is the
+> auto-cancel. `mis_gate` recomputes `mis_leave_ok` every frame, so poking it
+> once before pressing `J` is true only for that frame — over ten seconds of a
+> twenty-mission walk a wave lands and the jump silently never happens.
+> `harness.wait_out_the_countdown` re-asserts it each poll, and **lifts a
+> tactical pause across the spool and puts it back**, because `test_regions`
+> walks the campaign with the battle frozen and a paused game can never finish
+> a countdown that lives in `mis_update`.
 
 ### The end of the journey
 

@@ -207,10 +207,17 @@ def wait_for_briefing(c: cpc.CPC, frames: int = 600) -> bool:
 
     Bounded, because a refused jump never puts a briefing up at all and that
     is a legitimate thing for a test to check.
+
+    ...AND `J` NO LONGER JUMPS, IT ANNOUNCES. The drive spools for
+    JUMP_COUNT_SECS of live battle before any of the above starts, so this
+    waits that out first -- polled on jump_secs rather than counted in frames,
+    because the countdown is in 50 Hz ticks and how many emulator frames ten
+    real seconds take is not a constant.
     """
     sym = symbols()
     if "MIS_BRIEFING" not in sym:
         return False
+    wait_out_the_countdown(c)
     for _ in range(frames // 5):
         if c.read_ram(sym["MIS_BRIEFING"], 1)[0]:
             return True
@@ -475,7 +482,59 @@ def jump_mission(c: cpc.CPC, frames: int = 25) -> None:
     c.run_frames(frames)
     c.key_up("j")
     c.run_frames(20)
+    wait_out_the_countdown(c)
     dismiss_briefing(c)
+
+
+def wait_out_the_countdown(c: cpc.CPC, tries: int = 400) -> None:
+    """`J` announces the jump; the drive spools for JUMP_COUNT_SECS first.
+
+    POLLED, not counted. The countdown is in 50 Hz TICKS, so it is ten real
+    seconds however fast the game is drawing -- but the emulator frames those
+    ten seconds take is not a constant, and this project has a section on
+    tests whose setup is a fixed number of emulator frames turning out to be
+    an assertion about the frame rate.
+
+    It gives up quietly rather than failing: a jump that was legitimately
+    refused never starts a countdown, and jump_mission is called from places
+    that expect nothing to happen.
+
+    ...and it HOLDS THE WAY OPEN while it waits, which is not laziness. The
+    countdown cancels itself if mis_leave_ok goes false -- a wave landing
+    mid-spool shuts the gate, and counting down to a refusal would spend ten
+    seconds and say nothing. mis_gate recomputes that byte every frame, so a
+    single clear_the_way_out before pressing J is only true for the frame it
+    was written in. Over ten seconds of a twenty-mission walk a wave will
+    land, and the jump the test asked for simply will not happen.
+
+    clear_the_way_out exists so that a test wanting to get SOMEWHERE ELSE does
+    not have to fight a siege; that promise now has to cover the spool as well
+    as the keypress.
+
+    ...AND IT LIFTS A TACTICAL PAUSE ACROSS THE SPOOL, for the same kind of
+    reason. The countdown lives in mis_update, which demo_update skips while
+    order_paused -- so SPACE stops the countdown along with the battle, which
+    is right (a pause that jumped you out of the mission would not be a pause)
+    and which means a paused game NEVER finishes the spool. test_regions walks
+    the whole campaign with the battle frozen so that its placement check is
+    not racing the fleet; without this it deadlocks on the first jump and
+    reports "the jump was refused".
+
+    The pause is put back afterwards, so the caller gets the machine it set up.
+    """
+    sym = symbols()
+    was_paused = c.read_ram(sym["ORDER_PAUSED"], 1)[0]
+    if was_paused:
+        c.write_ram(sym["ORDER_PAUSED"], bytes([0]))
+    try:
+        for _ in range(tries):
+            if not read_bank4(c, sym["JUMP_SECS"], 1)[0]:
+                return
+            clear_the_way_out(c)
+            c.run_frames(10)
+    finally:
+        if was_paused:
+            c.write_ram(sym["ORDER_PAUSED"], bytes([1]))
 
 
 def boot_disc(frames: int = 400) -> cpc.CPC:

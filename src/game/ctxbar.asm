@@ -81,6 +81,7 @@ CTX_PAUSED          equ 2
 CTX_DISC            equ 3
 CTX_BUILD           equ 4
 CTX_RECYCLE         equ 5               ; `Y` is armed and asking again
+CTX_JUMPING         equ 6               ; the drive is spooling, ESC calls it off
 
 ;  How many characters fit on one line, which is the only real constraint on
 ;  the words below -- txt_draw clips at the screen edge rather than wrapping,
@@ -101,6 +102,10 @@ CTX_PAUSE_TAIL_X    equ 16
 
 ;  ...and the same for RECYCLE?, which is two characters longer.
 CTX_RECYCLE_TAIL_X  equ 20
+;  "JUMPING nn" is ten characters at CTX_NAME_X, so the tail starts one clear
+;  cell after it. src/main.asm asserts the whole line against CTX_BAR_CHARS.
+CTX_JUMP_NUM_X      equ CTX_NAME_X + 8 * TXT_CHAR_W_BYTES
+CTX_JUMP_TAIL_X     equ CTX_NAME_X + 11 * TXT_CHAR_W_BYTES
 
 ;  Why the yard will not take an order. Encoded into ctx_sub beside the pick,
 ;  so the shadow notices the moment the answer flips -- and NOT the RU figure
@@ -153,6 +158,8 @@ ctx_bar:
     jr z,ctx_draw_paused
     cp CTX_RECYCLE
     jr z,ctx_draw_recycle
+    cp CTX_JUMPING
+    jr z,ctx_draw_jumping
     ld hl,ctx_text_play
     ;  ...and fall through
 
@@ -261,6 +268,32 @@ ctx_draw_recycle:
     jr ctx_run
 
 
+;  The drive spooling. PAUSED's shape exactly, because it is the same kind of
+;  thing: a STATE and not a key, in section 2's attention ink -- and this one
+;  has a number in it that moves every second, which is why ctx_changed folds
+;  jump_secs into its shadow. The HUD's JUMP label says the jump is AVAILABLE;
+;  this says it is HAPPENING, and both statements are wanted.
+ctx_draw_jumping:
+    ld a,PEN_RED
+    call txt_set_pen
+    ld hl,ctx_text_jumping
+    ld b,CTX_NAME_X
+    ld c,CTX_Y
+    call txt_draw
+
+    ld a,(jump_secs)
+    ld b,CTX_JUMP_NUM_X
+    ld c,CTX_Y
+    ld d,2                              ; right-aligned, so ESC does not jitter
+    call txt_draw_num
+    ld a,PEN_WHITE
+    call txt_set_pen
+
+    ld hl,ctx_text_jump_tail
+    ld b,CTX_JUMP_TAIL_X
+    jr ctx_run
+
+
 ctx_draw_paused:
     ld a,PEN_RED
     call txt_set_pen
@@ -271,7 +304,7 @@ ctx_draw_paused:
 
     ld hl,ctx_text_pause_tail
     ld b,CTX_PAUSE_TAIL_X
-    jr ctx_run
+    jp ctx_run
 
 
 ; ----------------------------------------------------------------------------
@@ -545,6 +578,22 @@ ctx_classify:
     ld a,CTX_RECYCLE
     jr nz,@ctx_set
 
+    ;  ...and a jump spooling, which outranks PLAYING for the same reason and
+    ;  is BELOW the disc, the panel and the armed RECYCLE, because ESC means
+    ;  "cancel the innermost thing" and the bar has to name the key the player
+    ;  is most likely to press. Same order as the chain in phase4_commands.
+    ld a,(jump_secs)
+    or a
+    jr z,@ctx_no_jump
+    ;  THE SECONDS GO IN ctx_sub, which is what makes the number on the bar
+    ;  cost nothing: the shadow already compares that byte, so the repaint
+    ;  happens on the tick and only on the tick. Without it the bar would draw
+    ;  10 and then sit there saying 10 for ten seconds.
+    ld (ctx_sub),a
+    ld a,CTX_JUMPING
+    jr @ctx_set
+@ctx_no_jump:
+
     ld a,(order_paused)
     or a
     ld a,CTX_PLAYING
@@ -578,6 +627,16 @@ ctx_text_play:
     defb ", .",0,"TARGET",0
     defb 0
 ctx_text_play_end:
+
+;  "JUMPING" and then the seconds, drawn separately because a number cannot be
+;  a run. The tail is a run like every other, so ESC is blue and CANCEL white.
+ctx_text_jumping:
+    defb "JUMPING",0
+ctx_text_jumping_end:
+ctx_text_jump_tail:
+    defb "ESC",0,"CANCEL",0
+    defb 0
+ctx_text_jump_tail_end:
 
 ctx_text_paused:
     defb "PAUSED",0

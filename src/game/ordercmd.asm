@@ -239,6 +239,12 @@ order_update:
     ld (disc_active),a
     ld (eco_build_open),a
     ld (eco_recycle_armed),a            ; ...and the armed RECYCLE, same as both
+    ;  ...AND IT CALLS OFF A JUMP. This is what makes the countdown a mechanic
+    ;  rather than a delay: ten seconds of live battle that you can still back
+    ;  out of, because something arrived. ESC and not `J` again, because you
+    ;  cancel in response to the board and ESC already means "get me out of
+    ;  this mode" for the disc and the panel.
+    ld (jump_secs),a
 @ord_no_esc:
     jp order_focus
 

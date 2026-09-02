@@ -29,6 +29,7 @@ mis_init:
     ld (mis_leave_ok),a
     ld (mis_failed),a
     ld (mis_won),a
+    ld (jump_secs),a                    ; ...and no jump is being counted down
     ld (jfx_no_arrival),a               ; uninitialised bank RAM until now
     ld (mis_saved),a                    ; nothing banked yet
     ld (campaign_unlocks),a             ; ...and nothing reverse-engineered
@@ -155,6 +156,7 @@ mis_setup:
     ld (mis_leave_ok),a
     ld (mis_failed),a
     ld (mis_won),a
+    ld (jump_secs),a                    ; the countdown that brought us here
     ld (eco_repaired),a                 ; one repair per mission
     ;  ...and the base is not left half-mended across a jump with the yard shut.
     ;  moth_fixing halts production, so a flag carried into the next mission
@@ -545,6 +547,11 @@ mis_update:
     ;  mis_complete, which is latched.
     call mis_gate
 
+    ;  ...and the spool, AFTER mis_gate so it sees this frame's answer, and
+    ;  before the "already won" exit below -- the countdown runs precisely in
+    ;  the state that exit returns from.
+    call mis_jump_tick
+
     ld a,(mis_complete)
     or a
     ret nz                              ; already won; waiting for the jump
@@ -828,6 +835,91 @@ mis_jump:
     or a
     jr z,@mis_no_jump
 
+    ;  ...AND `J` DOES NOT JUMP. IT ANNOUNCES. The drive spools for ten
+    ;  seconds with the battle still running, and ESC calls it off -- see
+    ;  mis_jump_tick. Pressing it again while it runs does nothing rather than
+    ;  restarting the count, because a key that resets its own timer is one a
+    ;  panicking player can hold down for ever.
+    ld a,(jump_secs)
+    or a
+    jr nz,@mis_no_jump                  ; already spooling
+    ld a,JUMP_COUNT_SECS
+    ld (jump_secs),a
+    xor a
+    ld (jump_ticks),a
+    ld a,(sys_tick_50hz)
+    ld (jump_last),a
+    ;  The sound belonged to the wipe, which is the moment the fleet is already
+    ;  gone. The spool is where a drive winding up actually goes.
+    call snd_jump_out
+    scf
+    ret
+
+@mis_no_jump:
+    or a
+    ret
+
+
+; ----------------------------------------------------------------------------
+;  mis_jump_cancel -- ESC, or the way out closing under the countdown
+;  Uses: AF
+; ----------------------------------------------------------------------------
+mis_jump_cancel:
+    xor a
+    ld (jump_secs),a
+    ret
+
+
+; ----------------------------------------------------------------------------
+;  mis_jump_tick -- one game frame of the spool. Called from mis_update.
+;  Uses: everything
+;
+;  IT IS IN mis_update, which is what buys two behaviours for nothing:
+;  demo_update skips mis_update while order_paused, so SPACE stops the
+;  countdown along with the battle -- a tactical pause that let it run would be
+;  a pause that jumps you out of the mission -- and mis_gate has just been
+;  re-asked this frame, so mis_leave_ok is current.
+;
+;  IT CANCELS ITSELF IF THE WAY OUT CLOSES. A wave landing mid-count shuts
+;  mis_gate, and counting down to a refusal would spend ten seconds and then
+;  say nothing. Stopping is the honest answer and the bar shows it happen.
+; ----------------------------------------------------------------------------
+mis_jump_tick:
+    ld a,(jump_secs)
+    or a
+    ret z
+
+    ld a,(mis_leave_ok)
+    or a
+    jr z,mis_jump_cancel                ; a wave closed the door
+
+    ;  Ticks since the last game frame; the byte wrap is right.
+    ld a,(sys_tick_50hz)
+    ld hl,jump_last
+    ld c,(hl)
+    ld (hl),a
+    sub c
+    ld hl,jump_ticks
+    add a,(hl)
+    ld (hl),a
+    cp 50
+    ret c                               ; not a whole second yet
+    sub 50
+    ld (hl),a
+
+    ld hl,jump_secs
+    dec (hl)
+    ret nz                              ; still counting
+
+    ;  Zero. The drive goes.
+    jp mis_jump_now
+
+
+; ----------------------------------------------------------------------------
+;  mis_jump_now -- the jump itself, once the countdown has run out
+;  Uses: everything
+; ----------------------------------------------------------------------------
+mis_jump_now:
     ;  THE LAST MISSION LANDS INSTEAD OF JUMPING. This used to refuse -- the
     ;  campaign simply had no twenty-first row -- so a player who fought
     ;  through all twenty was left flying around a cleared board with a key
@@ -890,10 +982,6 @@ mis_jump:
     ld a,1
     ld (mis_won),a
     scf
-    ret
-
-@mis_no_jump:
-    or a
     ret
 
 

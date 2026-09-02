@@ -770,7 +770,17 @@ is a measurement rather than a design decision.
 
 ---
 
-# 8. `J` starts a countdown from ten, and `ESC` cancels it
+# 8. `J` starts a countdown from ten, and `ESC` cancels it — BUILT
+
+**Built.** See "The jump counts down, and the world keeps running" in
+CLAUDE.md for what it cost and what `tools/balance.py` measured. The design
+below is kept because it was right about every decision that mattered — the
+world running, `ESC` rather than `J` again, the bar being the place, and the
+seconds having to be in the shadow. The one thing it did not anticipate is the
+auto-cancel, and what that does to every test that walks the campaign.
+
+---
+
 
 **Asked for:** pressing `J` begins a countdown from 10. `ESC` cancels it. If it
 reaches 0, the jump happens.

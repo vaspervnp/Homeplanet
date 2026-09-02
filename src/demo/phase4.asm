@@ -545,6 +545,14 @@ phase4_commands:
     ld a,(eco_recycle_armed)
     or a
     jr nz,@p4_no_menu
+    ;  ...and a jump being counted down. FOURTH in this chain and it has to be
+    ;  in it: ESC aborting the spool must not also drop the player into the
+    ;  orders menu, which is the exact class of bug the context bar exists to
+    ;  make visible. order_update does the cancelling; this only declines to
+    ;  open the menu over the top of it.
+    ld a,(jump_secs)
+    or a
+    jr nz,@p4_no_menu
     call menu_open
     ret
 @p4_no_menu:

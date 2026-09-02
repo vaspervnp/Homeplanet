@@ -553,6 +553,24 @@ class_standin:
 ;  to clear a second byte. Up here for the same page-quantum reason as the four
 ;  below it, and mis_init writes both before anything reads them, which is what
 ;  makes uninitialised bank RAM safe for them.
+;  THE JUMP'S TEN-SECOND COUNTDOWN. `J` announces that the fleet is leaving and
+;  the world KEEPS RUNNING for ten seconds -- which is the whole mechanic: a
+;  countdown that froze the battle could contain nothing that would make anyone
+;  press ESC, and a cancel nobody would use is decoration.
+;
+;  Seconds and a tick accumulator rather than one word of ticks, because the
+;  bar draws the seconds and this game has one divide for a reason. It counts
+;  50 Hz TICKS: a second is a fiftieth of a second on a PAL 6128 whatever the
+;  frame rate does, and this file records three separate times a constant in
+;  game frames turned out to be a constant in seconds only against a frame rate
+;  somebody once looked at.
+;
+;  In bank 4 for the page-quantum reason the flags below it give, and mis_init
+;  clears jump_secs before anything reads it.
+jump_secs:          defs 1              ; 0 = not counting, else seconds left
+jump_ticks:         defs 1              ; ticks towards the next second
+jump_last:          defs 1              ; sys_tick_50hz when we last looked
+
 mis_won:            defs 1
 jfx_no_arrival:     defs 1              ; this sweep is a LANDING, so no reveal
 
@@ -947,6 +965,14 @@ ENDIF
     assert CTX_PAUSE_TAIL_X + (ctx_text_pause_end - ctx_text_pause_tail - 2) * TXT_CHAR_W_BYTES <= SCR_BYTES_PER_LINE, "the paused line is wider than the screen"
     assert (ctx_text_recycle_tail - ctx_text_recycle - 1) * TXT_CHAR_W_BYTES <= CTX_RECYCLE_TAIL_X, "RECYCLE? runs into the rest of its line"
     assert CTX_RECYCLE_TAIL_X + (ctx_text_recycle_end - ctx_text_recycle_tail - 2) * TXT_CHAR_W_BYTES <= SCR_BYTES_PER_LINE, "the recycle line is wider than the screen"
+;  ...and the spool, which is the only line on the bar with a NUMBER in it:
+;  the word, then two right-aligned digits, then the run. Three measurements
+;  because there are three pieces and txt_draw would happily overlap them.
+    assert CTX_NAME_X + (ctx_text_jumping_end - ctx_text_jumping - 1) * TXT_CHAR_W_BYTES <= CTX_JUMP_NUM_X, "JUMPING runs into its own countdown"
+    assert CTX_JUMP_NUM_X + 2 * TXT_CHAR_W_BYTES <= CTX_JUMP_TAIL_X, "the countdown runs into ESC CANCEL"
+    assert CTX_JUMP_TAIL_X + (ctx_text_jump_tail_end - ctx_text_jump_tail - 2) * TXT_CHAR_W_BYTES <= SCR_BYTES_PER_LINE, "the jumping line is wider than the screen"
+;  Two digits is enough only while the countdown is under a hundred seconds.
+    assert JUMP_COUNT_SECS < 100, "the countdown needs more than two digits"
 
 ;  The build panel's four fields, each against the start of the next one.
     assert CTX_NAME_X + CTX_NAME_CHARS * TXT_CHAR_W_BYTES <= CTX_COST_X, "a class name would run into the cost"

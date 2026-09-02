@@ -14,6 +14,7 @@ import unittest
 sys.path.insert(0, __file__.rsplit("/", 2)[0])
 
 from tests import harness as h
+import cpc
 
 ENT_SIZE = 20
 #  Straight out of the build: the table got bigger when the fleet's
@@ -975,3 +976,118 @@ class TestTheEndOfTheJourney(unittest.TestCase):
             self.fail("SPACE did not put the victory page away")
         self.assertEqual(self.byte("MIS_INDEX"), 0,
                          "it did not begin again at the first mission")
+
+
+class TestTheJumpCountsDown(unittest.TestCase):
+    """`J` announces the jump; the drive spools for ten seconds first.
+
+    THE WORLD KEEPS RUNNING FOR ALL OF THEM, and that is the mechanic rather
+    than a delay. A countdown that froze the battle the way the briefing and
+    the jump wipe do could contain nothing that would make anyone press ESC,
+    and a cancel nobody would ever use is decoration. Pressing `J` is
+    announcing that you are leaving, and then surviving the announcement.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.sym = h.symbols()
+
+    def setUp(self):
+        self.c = h.boot_quick(frames=300)
+        h.clear_the_way_out(self.c)
+        h.let_the_game_draw(self.c, self.sym, 3)
+
+    def tearDown(self):
+        h.close(getattr(self, "c", None))
+
+    def byte(self, name):
+        return self.c.read_ram(self.sym[name], 1)[0]
+
+    def banked(self, name):
+        return h.read_bank4(self.c, self.sym[name], 1)[0]
+
+    def press(self, key, frames=30):
+        self.c.key_down(key)
+        self.c.run_frames(frames)
+        self.c.key_up(key)
+        self.c.run_frames(30)
+
+    def test_j_starts_a_countdown_instead_of_jumping(self):
+        was = self.byte("MIS_INDEX")
+        self.assertEqual(self.banked("JUMP_SECS"), 0)
+        self.press("j")
+        self.assertEqual(self.banked("JUMP_SECS"),
+                         self.sym["JUMP_COUNT_SECS"] - 1,
+                         "J did not start the countdown at JUMP_COUNT_SECS")
+        self.assertEqual(self.byte("MIS_INDEX"), was,
+                         "J jumped immediately instead of announcing")
+
+    def test_the_world_keeps_running_while_it_counts(self):
+        """The whole point. If the battle froze there would be nothing that
+        could happen during the ten seconds to make anyone press ESC."""
+        self.press("j")
+        self.assertGreater(self.banked("JUMP_SECS"), 0)
+        before = self.byte("DEMO_FRAMES")
+        self.c.run_frames(60)
+        self.assertGreater(self.byte("DEMO_FRAMES"), before,
+                           "the game stopped running during the countdown")
+
+    def test_it_reaches_zero_and_the_jump_happens(self):
+        was = self.byte("MIS_INDEX")
+        self.press("j")
+        for _ in range(400):
+            self.c.run_frames(10)
+            if not self.banked("JUMP_SECS"):
+                break
+        else:
+            self.fail("the countdown never ran out")
+        self.assertTrue(h.wait_for_briefing(self.c), "no briefing after the spool")
+        self.assertEqual(self.byte("MIS_INDEX"), was + 1,
+                         "the countdown ran out and nothing jumped")
+
+    def test_esc_calls_it_off(self):
+        was = self.byte("MIS_INDEX")
+        self.press("j")
+        self.assertGreater(self.banked("JUMP_SECS"), 0)
+        self.press(cpc.KEY_ESC)
+        self.assertEqual(self.banked("JUMP_SECS"), 0, "ESC did not cancel it")
+
+        #  ...and it stays cancelled: no jump arrives late.
+        self.c.run_frames(400)
+        self.assertEqual(self.byte("MIS_INDEX"), was,
+                         "the jump happened anyway after being cancelled")
+
+    def test_esc_cancelling_does_not_also_open_the_orders_menu(self):
+        """ESC is four-deep now -- the disc, the panel, an armed RECYCLE and
+        this. Getting the order wrong drops the player into a screen they did
+        not ask for, which is the exact class of bug the context bar exists to
+        make visible."""
+        self.press("j")
+        self.assertGreater(self.banked("JUMP_SECS"), 0)
+        self.press(cpc.KEY_ESC)
+        self.assertEqual(h.read_bank4(self.c, self.sym["MENU_SHOWN"], 1)[0], 0,
+                         "cancelling the jump opened the orders menu")
+
+    def test_a_tactical_pause_stops_the_countdown(self):
+        """order_paused stops mis_update, and the countdown lives there. A
+        pause that let it run would be a pause that jumps you out of the
+        mission."""
+        self.press("j")
+        self.press(cpc.KEY_SPACE)
+        self.assertEqual(self.byte("ORDER_PAUSED"), 1)
+        secs = self.banked("JUMP_SECS")
+        self.assertGreater(secs, 0)
+        self.c.run_frames(300)              # six seconds of ticks
+        self.assertEqual(self.banked("JUMP_SECS"), secs,
+                         "the countdown ran while the game was paused")
+
+    def test_pressing_j_again_does_not_restart_it(self):
+        """A key that resets its own timer is one a panicking player can hold
+        down for ever."""
+        self.press("j")
+        self.c.run_frames(150)              # three seconds
+        secs = self.banked("JUMP_SECS")
+        self.assertLess(secs, self.sym["JUMP_COUNT_SECS"] - 1)
+        self.press("j")
+        self.assertLessEqual(self.banked("JUMP_SECS"), secs,
+                             "a second J put the countdown back up")

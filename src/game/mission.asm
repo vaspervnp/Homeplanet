@@ -144,6 +144,13 @@ MIS_SURVIVE_TICKS   equ 50 * 30
 ;  it. A value that is merely "big enough" would stop being so silently.
 MIS_JUMP_COST       equ 2800
 
+;  How long the drive spools after `J`, in SECONDS. The world keeps running for
+;  all of them, which is the whole mechanic rather than a delay: a countdown
+;  that froze the battle could contain nothing that would make anyone press
+;  ESC, and a cancel nobody would use is decoration. Pressing `J` is announcing
+;  that you are leaving, and then surviving the announcement.
+JUMP_COUNT_SECS     equ 10
+
 ; ----------------------------------------------------------------------------
 ;  THE DERELICT, and what the campaign can unlock
 ; ----------------------------------------------------------------------------
