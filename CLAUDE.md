@@ -29,7 +29,7 @@ python3 -m unittest tests.test_phase0 -v     # one test module
 **Always `make test` before saying something works.** The emulator gives us
 the whole machine state; there is no reason to guess.
 
-433 tests, about **seven minutes**. It doubled when the sprite libraries moved
+710 tests, about **sixteen minutes**. It doubled when the sprite libraries moved
 onto the disc: every `boot_quick` spins the drive up and reads `LIB_SECTORS`
 per bank, which is a second and a half of emulated time per machine and there
 are about a hundred machines. That is the price of testing the real loader
@@ -183,8 +183,9 @@ and prints how many bytes are left in the low 16K and in every bank. Watch all
 of them, and watch the "hand-written code ends at" figure rather than `free:` —
 see "Where 700 bytes came from" for why the second one lies.
 
-**Today: low 16K 524, bank 4 2247, `DISC.BIN` 23303 of 26368 so 3065 of
-headroom.** The low 16K figure is the one to watch again — it went back to
+**Today: low 16K 484, bank 4 1420, `DISC.BIN` 26085 of 26368 so 283 of
+headroom.** `DISC.BIN` is the binding constraint again -- see "Twenty missions,
+and the two ceilings they hit". The low 16K figure is the one to watch too — it went back to
 being the binding constraint the day the fleet's ceiling doubled, and about 450
 of those 524 belong to the tests (see "The low 16K's real floor" below). It is
 also measured **above the entity arrays** now: `free:` is the gap between
@@ -199,8 +200,9 @@ default. The help text, the mission table, the formation shapes, the per-class
 data, the cached half of the marker pass, the context bar, the player's
 commands and the campaign's setup and teardown all live there.
 
-**`DISC.BIN`'s ceiling WAS the binding constraint and is not any more.** It is
-**23303 against 26368, so 3065 of headroom** — and it got there twice over: the
+**`DISC.BIN`'s ceiling IS the binding constraint again.** It is
+**26085 against 26368, so 283 of headroom** -- twenty missions and the
+homeplanet spent what follows — and it got there twice over: the
 sprite libraries repacked 3+3+2 ("The repack, and the three things it was
 expected to buy"), and then the six `ENT_MAX`-shaped arrays moved above
 `code_end`, which took 2 KB of zeros out of the file in one go. Note that
@@ -344,7 +346,9 @@ name". Do not distinguish an equate from a label by case alone — a routine
 a routine `title_stars` beside a count `TITLE_STARS`, and so is a variable
 `lib_track` beside a layout constant `LIB_TRACK`. It is an easy one to walk
 into because the two read as different kinds of thing — all three of those
-were written, and all three failed the build, after this paragraph existed.
+were written, and all three failed the build, after this paragraph existed. A
+FOURTH has since: a `cbt_prey_bias` table beside a `CBT_PREY_BIAS` equate. Read
+this paragraph before naming a constant after the thing it sizes.
 
 **`BANK n` gives each 16K image its own workspace, and labels are shared
 across them.** A second `org #4000` in one bank is an error ("located in a
@@ -807,12 +811,13 @@ Design document section 13 lists ten phases.
 - **Phase 4 — done.** The 20-byte entity record from section 7, keyboard
   matrix scanning, an 8×8 font and the HUD strip, squadrons, and formation
   flight. 20 ships at ~8 fps.
-- **Phases 8 and 9 — done.** Eight missions as data in bank 4, objectives
+- **Phases 8 and 9 — done.** **Twenty** missions as data in bank 4, objectives
   (clear / survive / arrive), `J` to jump when the objective is met, briefing
   screens, and the fleet carrying between them with losses permanent — now
   through `FLEET.DAT` on the disc, so it survives the power going off too.
-  Played as the design intends, missions 1-5 cost one ship. What is left is
-  authoring and taste, not engineering.
+  Measured with `tools/balance.py --rebuild`, the campaign completes all twenty
+  with the Mothership alive. What is left is authoring and taste, not
+  engineering. See "Twenty missions, and the two ceilings they hit".
 
   **Loitering now costs.** Three minutes into a mission the Vekhar start
   arriving in waves, so `J` is a decision rather than a formality — see
@@ -841,10 +846,17 @@ queue" below.
   "tougher" tops out at 255 and the interceptor is already there. What makes a
   capital ship hard to kill is the column under it being small.
 
-  Still **not** in: enemy composition. The Vekhar field interceptors and
-  nothing else, so the triangle is a thing the player's fleet has and the
-  enemy does not use. Giving `campaign.asm` a class per enemy row is the job,
-  and it is data, not engineering.
+  **Enemy composition is in.** Each row of an enemy layout carries a CLASS
+  now, so the triangle is something both sides have. Read the layouts beside
+  `cbt_damage_matrix` or they say nothing: an interceptor — which is nearly
+  all the player owns — does 24 to another interceptor, 30 to a bomber and
+  **ten** to a frigate, and a bomber does 8 back to a fighter and **44 to a
+  Mothership**. So the three classes are three different problems rather than
+  three pictures. Kept sparse: two frigates in a wall of twelve is a fight
+  with a problem in it, six is a wall a fighter fleet cannot get through.
+  The waves stay all-interceptor, because their difficulty is the one thing
+  that has been measured and mixing classes into them would move that number
+  without the mission table saying anything about it.
 - **Phase 5 — done, and §9 is closed** except for the three commands that
   need content from later phases (see the control table above). Camera, zoom,
   pause, move disc, formations, sensor view, Mothership, docking and target
@@ -1211,12 +1223,29 @@ and it moves with it: every byte added to the bank-4 image costs `DISC.BIN`
 whatever it packs down to. The context bar's 595 bytes cost the file 861,
 because code does not compress.
 
-The bank-4 image stays RLE-compressed (`tools/packsprites.py`, 15000 → 10793
-bytes); without it the file would not fit at all. It packs worse than it used
-to — 72% rather than 62% — because most of what six yaw views freed there was
-promptly filled with CODE, and code does not have runs of `#FF,#00` in it. Uninitialised bank data (the
-fleet buffer) is deliberately declared *after* `bank4_end` so it costs nothing
-in the file.
+**The bank-4 image is STORED, not packed, and the packer decides that per
+build.** It compressed 15000 → 10793 when this bank held two sprite libraries;
+it holds none since the 3+3+2 repack, and what is there now — the mission
+table, the menus, the campaign's code, the context bar — is code and text, with
+no runs of `#FF,#00` in it. Measured: **13508 in, 13829 out.** The packer was
+making `DISC.BIN` 366 bytes BIGGER, and that is what pushed the file over its
+`#A700` ceiling the day the homeplanet landed.
+
+`tools/packsprites.py` emits a one-byte header saying which it is and takes the
+shorter of the two every build; `src/disc.asm` reads that byte and either
+`LDIR`s the image or runs `unrle_stride2` on it. Packing stays because it is
+right again the moment anything with real runs goes back into this bank — and
+it is measured now rather than assumed.
+
+> **Raising the run threshold does not fix it, and trying is how you learn
+> what the overhead IS.** A run of three costs three bytes and so do three
+> literals, but emitting it ends the literal block either side and each of
+> those costs a length byte — so `RUN_MIN` went from 3 to 5. That recovered
+> **22 of the 366**. The rest is the literal headers themselves, and no
+> threshold reaches them.
+
+Uninitialised bank data (the fleet buffer) is deliberately declared *after*
+`bank4_end` so it costs nothing in the file.
 
 > **The packer had a latent bug in it and the bank's contents decide when you
 > meet it.** `pack_stream` checked "is the literal shorter than 253" before
@@ -1263,6 +1292,33 @@ same thing:
 `H` only orders **harvesters**, which §9 marks explicitly. Ordering the whole
 squadron out put fifteen interceptors on a patch and mined the map dry in
 seconds — the economy is meant to be a choice, not a free action.
+
+#### The harvesters were the economy, and they were free kills
+
+`cbt_find_enemy` takes the NEAREST target, and §8's harvester is "αργό, άοπλο,
+**χρειάζεται προστασία**" — so it flies out to a patch on its own by design and
+every picket in the campaign peeled off and killed the economy first. Measured
+with `tools/balance.py --rebuild`: the harvesters are gone by mission 3, the
+treasury reaches zero at mission 5, and the fleet cannot be replaced after
+that. **The ships were never the thing that lost.**
+
+`cbt_prey_bias` pushes an unarmed candidate `CBT_UNARMED_BIAS` — 96 — camera
+units further away, against a `CBT_RANGE` of 40, so an escort anywhere within a
+couple of weapons' reach takes the shot instead. The two entries that are not
+zero are the harvester and the corvette, whose damage rows in
+`cbt_damage_matrix` are 4/2/4 and 6/3/8 against an interceptor's 24.
+
+**A BIAS AND NOT AN EXCLUSION**, and that is the whole design of it. With
+nothing armed anywhere in the region every candidate carries the same penalty,
+so the miner is still picked and still dies — "needs protection" stays true and
+merely stops meaning "is the first thing shot at".
+
+**It is free**, and that took one attempt to get right: the test is on the
+CANDIDATE path, which is rare, and the empty-slot path — which is most of a
+region most of the time and is the whole performance story of that file — is
+untouched. It is 96 and not larger because `cbt_distance` saturates at 255: a
+penalty near that flattens every unarmed ship to "infinitely far" and they stop
+being targets at all rather than being poor ones.
 
 #### `E` puts RU back into hull, at twice the price for the damage
 
@@ -1373,22 +1429,36 @@ moves what that points at.
 E, O, M, I and N are all bound — so the word is **RECYCLE** and the key is its
 `Y`, on the same matrix row 5 as the `H` and `J` it sits beside in the menu.
 
-#### A jump costs a thousand RU
+#### A jump costs a CURVE, 200 rising to 2800
 
-`MIS_JUMP_COST`, spent out of the same treasury the yard spends, and it is the
-**fourth thing `mis_gate` asks** — checked there rather than at the key, so the
-HUD's `JUMP` never offers what ENTER would refuse. `mis_jump` takes it after
-both refusals and before anything else moves, so a refused jump is never
-charged for.
+`mission_fare` in `campaign.asm`, one word a mission, read by `mis_jump_fare`.
+It is the **fourth thing `mis_gate` asks** — checked there rather than at the
+key, so the HUD's `JUMP` never offers what ENTER would refuse. `mis_jump` takes
+it after both refusals and before anything else moves, so a refused jump is
+never charged for.
 
-> **It makes the economy compulsory rather than optional, and that is a bigger
-> change than the number looks.** `ECO_START_RU` is 120, so a fleet that never
-> mines cannot leave mission 1 — and with the harvester rule above, the first
-> forty of those 120 have to go on a harvester before anything can be earned at
-> all. **`tools/balance.py`'s DEFAULT tactic can no longer finish the
-> campaign**: it never spends a unit and never sends a harvester anywhere. The
-> `--rebuild` tactic is the one that measures this game now, which is the same
-> point that tactic was added to make.
+**A column and not a field in the mission row**, because the fare is a curve
+and a curve wants to be read as one while it is being tuned. `MIS_JUMP_COST`
+is the DEAREST fare rather than the fare: nothing in the game reads it, but it
+is what `harness.clear_the_way_out` tops a purse up to.
+
+> **IT WAS A FLAT THOUSAND AND THE CAMPAIGN WENT BANKRUPT AT MISSION 5.**
+> Measured with `tools/balance.py --rebuild`: mission 2 — no enemies at all,
+> harvesters alive, rich patches — earned **940 RU** against a fare of **1000**.
+> The income of a peaceful mission was approximately the price of leaving it,
+> so the economy funded travel and nothing else. The fleet GREW from 16 ships
+> to 29 over the first four missions and then fell to three by mission 7,
+> because from the moment the money runs out "rebuild" is the same tactic as
+> "do nothing". **The campaign was not being lost to the Vekhar.**
+
+The curve keeps the property the flat number existed for and drops the one it
+did not: mission 1's fare is still above `ECO_START_RU`'s 120, so the first
+jump cannot be made without buying a harvester and mining with it, and
+`tools/balance.py`'s DEFAULT tactic still cannot finish the campaign. What it
+stops doing is taxing the late campaign at a rate no fleet can both pay and
+grow under. Measured over twenty missions, the treasury peaks at 8095 in
+mission 10 and falls to 4135 by mission 20 — build in the first half, pay to
+travel in the second.
 
 #### With no harvester, only harvesters can be built
 
@@ -2364,6 +2434,49 @@ It goes UP while the workaround is taken AWAY. The two that flipped are
 mission 3 and mission 4 at half a fleet — the crippled column, which is the
 only one the waves ever win — and mission 4 halved is the one loss left.
 
+#### ...and a MOVEMENT order has to end one, which took longer to notice
+
+`phase4_fly` skips a ship under `ENT_ORDER_ATTACK` on purpose — so that
+`cbt_move_enemies` can close it on its target without the two of them stepping
+it by `PHASE4_STEP` in opposite directions. The consequence nobody had followed
+through is that while the order stands, **`R`, `F` and the move disc are not
+merely ineffective, they are SILENTLY ineffective.** The station is written,
+the formation changes, the disc is confirmed, and not one ship moves. Nothing
+on screen says why, and `G` was the only key that ever recalled a squadron.
+
+Reported as *"χάνω τυχαία τον στόλο ... τον βλέπω, τον επιλέγω, αλλά δεν
+απαντάει στις εντολές"*, and it was all three of those at once.
+
+**The "τυχαία" is the sharpest half.** `cbt_distance` saturates at 255 camera
+units, so at long range whether a *particular* ship finds the enemy at all
+turns on a few hundred world units of where its formation slot happened to put
+it. Measured: one hostile alive at 7500 units, press `A`, and **twelve of
+sixteen ships fly out to it while four stay behind** — the squadron spread from
+0 to 7500 units apart, and neither `R` nor `F` moved either group. One keypress
+tears a squadron in half and half of it is unrecallable by any key a player
+would try.
+
+So: **telling a squadron where to BE is a new order, and it replaces the old
+one.** `order_release_attack` in `game/ordercmd.asm`, called from `order_dock`,
+`form_cycle` and `order_disc_confirm`. IDLE and not GUARD, for the reason
+`cbt_fire_if_able` gives where it spends the order itself.
+
+**Only ATTACK, and that guard is not tidiness.** A harvester in the selection
+carries `ENT_ORDER_HARVEST`, and an `R` that cleared orders unconditionally
+would send every miner home and stop the economy each time the player docked.
+There is a test for exactly that, and it passes on both builds — which is what
+makes it a guard rather than a duplicate. The two recall tests fail against the
+old build with the reported signature, `[0, 0, 2, 2, 0, 2, ... 2, 0]`.
+
+**And `,`/`.` walked onto WRECKS**, because `ent_is_active` says yes to a hulk
+— right for "is this slot occupied", wrong for every question the player asks.
+Every kill leaves one now, so the target list fills up with them as a mission
+goes on; pressing `A` then aimed the fleet at something that cannot be attacked
+and it stopped dead until `cbt_fire_if_able` noticed. Reads exactly like the
+attack key not working. `ent_is_flying` is the answer, and it is next to
+`ent_is_active` rather than inside combat's `cbt_target_flying` because the
+order code should not have to write combat's scratch to ask.
+
 ##### The tests all counted, again
 
 Every combat test before this one asserted on shots, kills, hulls or
@@ -2383,20 +2496,16 @@ Mothership at mission 5. Neither was wrong -- they were different scripts. So
 run the tool rather than quoting prose, and treat any figure here as "that
 script, that build".
 
-Latest run, after the fleet's ceiling doubled and `cbt_find_enemy` stopped
-sweeping the whole table:
+Latest run: `tools/balance.py --rebuild` completes **all twenty missions** with
+the Mothership alive, ending with 27 ships and 5864 hull. The table and what it
+does and does not say are under "What the campaign measures at twenty" — read
+the note about mission 14 before quoting any single figure from the `lost`
+column.
 
-```
-mis enemy  in out lost   hull  fleet
-  3     4  16  16    0   3768  int=15 moth=1
-  4     9  16  15    1   3081  int=14 moth=1
-  5     9  15  15    0   2765  int=14 moth=1
-  6     7  15  13    2   2351  int=12 moth=1
-  7    12  13   0   13      0   FAILED -- the Mothership was lost
-```
 
-**It reaches mission 7 again, and no control is needed to say why.** The run
-before it stopped at 5 and the one before that at 6; this build's frame is
+**The eight-mission history below is kept for the METHOD and not the numbers.**
+It reached mission 7 again when the ceiling doubled; the run before it stopped
+at 5 and the one before that at 6; that build's frame was
 38-85% faster depending on whether anything is alive to shoot at, and the
 script's budgets are in emulator frames, so every mission buys more game
 frames than it used to. That is far outside what 520 T-states of `djnz` can
@@ -3775,7 +3884,8 @@ run. Missions 1-3 are identical, mission 4 comes out with MORE hull, and it
 lands on the 6/7 coin toss this file already documents.
 `tools/waverate.py 4` was **44/48 = 92%** against the 70% floor, from 45/48.
 
-**Today's figure is 47/48 = 98%**, measured after the fleet's ceiling doubled
+**Today's figure is 77/80 = 96% over all twenty missions**, and the older
+48-trial figures below are the eight-mission campaign. It was measured after the fleet's ceiling doubled
 and `cbt_find_enemy` stopped sweeping the whole table: 24/24 with the fleet
 each mission actually has, 23/24 with it crippled to half the ships at half
 hull, and the one loss is mission 6 halved. The floor is in no danger. Read it
@@ -4136,6 +4246,207 @@ failed three runs out of three with *"could not get past the mission briefing"*
 It was not: it was the third appearance of reading a bank-4 symbol with the
 wrong helper. Both callers use `read_bank4` now.
 
+### Twenty missions, and the two ceilings they hit
+
+`MIS_COUNT` is **20**. The rows were the easy part; what decided their shape is
+that `ENT_ENEMY_MAX` is 20, which is the largest picket **plus one whole
+`WAVE_MAX` wave**. So no picket can pass twelve without buying a thirteenth
+slot that every frame of every mission then pays for — and the late campaign
+has to get harder by changing WHO is there instead of how many.
+
+That is what the class column is for. Three new layouts:
+
+| | |
+|---|---|
+| `enemies_core` | six ships, three frigates. An interceptor does **ten** to a frigate, so this cannot be won by out-trading; it is the campaign saying "buy a bomber" in the only language it has |
+| `enemies_hammer` | four bombers behind a screen of fighters. A bomber does 8 to a fighter and **44 to a Mothership**, so an escort that holds formation watches them go past |
+| `enemies_lance` | five frigates and three bombers — the hardest thing the campaign fields, at the same twelve ships as mission 7's wall |
+
+**A forgotten class byte is the failure this data is shaped to have**, and it
+would not look like one: the stride is seven, so one missing `defb` slides
+every ship after it half a row along and the picket comes out at coordinates
+nobody wrote, with classes read out of somebody else's Z. Counting the bytes
+between the labels catches it at build time for nothing, and `campaign.asm`
+does.
+
+#### The briefings had to leave `DISC.BIN`, and there was room already read
+
+Twelve more missions cost about **1590 bytes** — 240 of rows, 24 of fares, ~224
+of layouts, and **eleven hundred of briefing text** — against **383** bytes of
+headroom. `improvements.md` estimated 900 for the whole job, which was wrong by
+four, and the text is two thirds of it.
+
+The text is also the part that need not travel in the file at all. `lib_load`
+reads `LIB_SECTORS` — twenty-six, 13312 bytes — into each of banks 5, 6 and 7
+at boot. Banks 5 and 6 hold three 4320-byte libraries each; **bank 7 holds
+two**. So 4672 bytes of every boot were already being read into bank 7 and
+thrown away, and raw sectors are not in the file.
+
+`game/briefings.asm` is assembled into bank 7 with the salvage and destroyer
+libraries. **There is no new FDC code**, which matters more than the bytes:
+this project's rule is that the controller is only believed after Retro Virtual
+Machine agrees, and `lib_load` is untouched.
+
+`mis_brief_draw` is bank 4 and **cannot page bank 7 in for itself** — the
+window would stop being the RAM it is executing from, which is the trap
+`title_draw_ships` fell into when the libraries repacked. `brief_fetch` does
+the paging from the low 16K, exactly as `spr_blit_banked` does.
+
+> **Two things learned the hard way, and both are general.**
+>
+> The buffer went into bank 4 first, on the reasoning that space after
+> `bank4_end` is free. **BANK 4 IS THE WINDOW.** The copy ran with bank 7 paged
+> in, so every byte went back into bank 7 on top of the text being read, and
+> the buffer was still zero when bank 4 returned. The briefing drew its title
+> and three blank lines.
+>
+> And three lines is 111 bytes, which took `free:` to **396**. The floor is
+> about 450 — `test_sound` puts 384 bytes of stub above `LOW_END` and `harness`
+> another `0x60` — so a dozen test classes with nothing to do with briefings
+> would have failed. **One line per call**: 484, and three bank flips a frame
+> on a screen where nothing else runs at all.
+
+#### `txt_draw` clips at the SCREEN, so a long line loses its last character
+
+The limit is arithmetic: the strip is 80 bytes, a character cell is
+`TXT_CHAR_W_BYTES` of them, and the text starts at `BRIEF_X` — so **36
+characters**. A line one over does not fail, it silently drops its last
+character, and **two lines of 37 had been doing it since they were written**:
+the full stops of `THE PLANET IS THERE, AND SO ARE THEY.` and `SALVAGE THE HULL
+AND WE CAN BUILD IT.`. There is a test that says so now instead of a comment
+that hoped so, and it reads the words back off `build/bank7.raw` — what the
+build put on the disc, not the source.
+
+#### What the campaign measures at twenty
+
+`tools/balance.py --rebuild`, all twenty missions, Mothership alive at the end:
+
+```
+mis enemy  in out lost   hull  fleet
+  1     0  16  25   -9   5826  int=21 harv=3  RU=1050
+  5     9  34  41   -7   8986  int=37 harv=3  RU=6070
+ 10     8  45  44    1   9591  int=40 harv=3  RU=8095
+ 13    10  47  47    0  10660  int=43 harv=3  RU=7715
+ 14     0  47  18   29   3633  int=14 harv=3  RU=7725
+ 20    10  29  27    2   5864  int=23 harv=3  RU=4135
+```
+
+The treasury peaks at 8095 in mission 10 and falls to 4135 by 20, which is the
+fare curve doing its job: build in the first half, pay to travel in the second.
+
+> **MISSION 14 COSTS 29 OF 47 SHIPS AND FIELDS NO ENEMIES, AND IT IS NOT THE
+> MISSION.** That was the obvious reading and it was wrong. Run beside the two
+> right controls — mission 8, the other picket-less one, and mission 20, the
+> other SURVIVE — with the same fleet and three seeds each: mission 14 loses
+> **9/7/12**, mission 8 loses **14/6/16**, mission 20 loses **13/10/7**. The
+> spread WITHIN one mission is larger than the difference between them.
+>
+> What the 29 is: THE DRIFT completes on a thirty-second clock rather than on
+> its first frame, so it takes more waves than mission 8 does before the linger
+> even starts — and it is **one draw**. The wave scaling is tuned for a 70% win
+> rate and not for a steady cost; **13% to 36% of a fleet** is the price of
+> that. A single number out of `balance.py`'s `lost` column is not the cost of
+> a mission and is not a reason to tune anything.
+
+#### `tools/waverate.py` rebuilds now, or it cannot reach the content
+
+It never spent a unit of RU, and since a jump has a fare a fleet that never
+mines cannot go far: both campaigns of the first twenty-mission run stopped at
+mission 6 with *"lost before any wave"*, leaving **fifteen of twenty missions
+with no wave sample in them at all**, while `balance.py`'s rebuilding tactic
+walks that same mission losing one ship. Rebuilding is the default and
+`--no-rebuild` is the odd one out. It uses `balance.py`'s own numbers on
+purpose: **the two tools should disagree about what they ASK, not about how the
+campaign is played.**
+
+Two campaigns, eighty trials, no stops:
+
+```
+     whole: 40/40 = 100%
+    halved: 37/40 =  92%
+       all: 77/80 =  96%   -- the floor is 70%
+```
+
+The three losses are missions 2, 4 and 20, all in the crippled column — the
+only column the waves have ever won.
+
+**`MISSIONS` was a literal 8 in that tool** while the table said twenty. A
+measuring tool with a stale count does not fail; it prints a plausible table
+with three quarters of the campaign silently missing, which is worse than an
+error because somebody will quote it. It reads `MIS_COUNT` out of the symbol
+file now, the way `ENT_MAX` above it already did.
+
+
+### The homeplanet, as a horizon under the last mission
+
+The campaign is a journey to a planet and the planet was never on the screen
+except as a word. `game/homeplanet.asm`, in bank 4, drawn straight after
+`phase4_erase` so everything else in the frame is in front of it.
+
+**IT WAS DRAWN AS A RING FIRST, AND LOOKING AT IT IS WHAT KILLED THAT.** A
+complete ellipse at the title screen's own size, and then at twice it, both
+read as an ARENA — a thin hoop with the fleet sitting inside it, which is a
+boundary and not a body. The title's planet works because it is filled, lit and
+off to one side, and none of that is available here: `phase4_erase` clears
+dirty rectangles to black, so anything filled behind the fleet is shredded by
+every ship that crosses it.
+
+So the centre is **below the playfield** and the radius is four times the
+table's. What is on the screen is the top of a very large sphere: one curve
+across the lower third with the fleet flying above it. It is also much cheaper,
+which was not the reason but is a real consequence — the rows outside the
+playfield are rejected before their columns are walked.
+
+**It is scenery at infinity**, as §5.4 describes the background stars: no
+translation and no perspective divide, because neither means anything at that
+distance. Turn and it slides across; PAN and it does not move, because panning
+does not change a bearing. The map from angle to pixels is linear rather than a
+tangent — `PROJ_K` gives a 45° half-field, which is 32 of the 256 units a turn
+is counted in, so a unit is five pixels and the error over that range is under
+two of them.
+
+#### Four bugs, and a screenshot found every one
+
+- **`gfx_vline` ORs its pixel**, deliberately, so that the jump wipe's bar does
+  not take the other three pixels of its byte with it. So "erase by drawing in
+  pen 0" changes nothing at all, and turning the camera left a ROW of planets
+  across the sky.
+- **`gfx_vline` does not clip in X either.** An x past 319 lands on the next
+  scanline down, so a limb near the edge drew a second arc down the opposite
+  side — which nothing erased, because the erase made the same mistake in the
+  same place. Same family as "`scr_fill_rect` clips NOTHING".
+- **The erase box took the LOW BYTE** of a coordinate that reaches 319, so an x
+  of 279 became 23 and the erase landed on the wrong edge of the screen.
+- **`planet_erase_last` draws through `planet_at_x/y`**, so writing the new
+  position there before calling it threw the new one away. The planet froze
+  wherever the camera happened to be pointing on the first frame.
+
+And the double buffer: **each buffer remembers where its own limb is**, the way
+`phase4_select_list` gives each one its own rectangle list. An erase that only
+cleans the buffer being drawn leaves the other holding a planet nobody will
+ever take off it.
+
+#### It cost half the frame and now costs a quarter
+
+**6.90 fps in mission 1 against 3.55 in the last, now 5.10.** The first version
+called `gfx_vline` per pixel — an unsigned range check, a shift, an add and a
+table lookup, about 250 T-states of which 240 were rediscovering what the
+previous pixel already knew. That is not something `gfx_vline` is bad at; it is
+what calling it six hundred times is.
+
+`planet_span_right`/`planet_span_left` walk instead: along a run the x moves by
+one, so **the mask is the last one rotated and the byte address moves every
+fourth pixel**, and the range check leaves the loop altogether because how much
+of a straight run is on screen is an arithmetic answer. **Erasing is the same
+loop with three bytes patched** — the complement rotates the same way and only
+the carry's polarity differs, so the opcode, the branch and the mask's restart
+value are self-modified once a pass.
+
+Two more: the half-width is **interpolated** between table entries (reading one
+every four rows and shifting it up twice gave a visible staircase — the same
+finding as the title planet's terminator), and the row loop **starts at the
+first row that can be seen** instead of walking 137 to reject 73 of them.
+
 ### The Salvage Corvette
 
 `T` sends the selected squadron's corvettes to fetch **wrecks**. §8's
@@ -4278,11 +4589,30 @@ changes, and `H`, `A`, `G`, `F`, `R` and `I` are not on it either.
 
 ### The tutorial, on `T` from the title screen
 
-Sixteen steps in five acts, in dependency order — you cannot command what you
+Seventeen steps in five acts, in dependency order — you cannot command what you
 cannot see, and you cannot fight before you can move. **Every step is gated on
 the player DOING the thing**, not on a key to continue, so a step is a
-*condition* rather than a prompt and `tut_table` is sixteen rows of (gate,
+*condition* rather than a prompt and `tut_table` is seventeen rows of (gate,
 entry act). Adding one is adding a row.
+
+**Step 16 is the salvage lesson**, after the fight and the pause: `T` sends a
+Salvage Corvette after the hull the fight left behind. Its gate watches the
+ORDER and not the key, which is the rule this section sets and which the fight
+one step above it cannot keep — `cbt_fire_if_able` spends an attack order in
+the frame it is given once the last hostile is dead, where a tow is a flight of
+several seconds and `ENT_ORDER_TOW` sits on the corvette for scores of frames.
+It was written with the key as a fallback and the fallback was thrown away.
+
+> **AND IT STALLED ON A KEY THE PLAYER HAD PRESSED CORRECTLY.** `T` orders the
+> SELECTED squadron's corvettes, and step 9 has the player divide a squadron
+> and combine it again — so squadron 1 ends up holding half of what it started
+> with plus the whole of squadron 2, and *which* half is `squad_split`'s
+> business rather than something a lesson four steps later may depend on. The
+> one corvette landed in squadron 3. **There is one in each squadron now**, and
+> that is step 16 paying for step 9.
+
+`tut_attacking` and `tut_towing` share `tut_fleet_has_order`: "did the player's
+order reach a ship" is one question and two keys ask it.
 
 **It is not a mission, and the proof is the exit path.** `tut_exit` restores no
 snapshot: it calls `demo_reset`, which does everything `demo_init` does bar
@@ -4810,11 +5140,6 @@ re-derives the ellipse and checks all of them, top and bottom.
   8-pixel bar — the widest thing in the game at 8×6 — became a 7-pixel
   three-quarter. It is still the widest, but the margin over the bomber is
   gone.
-- **The enemy is all interceptors**, so the §8 balance triangle only ever
-  applies to the player's own fleet. `campaign.asm`'s enemy rows are three
-  words of position each; a fourth byte for the class would make the Vekhar
-  field bombers and frigates, and that is the next thing worth doing to the
-  campaign.
 - **The Scout has its number but not its ROLE.** §8 gives it "μεγάλη εμβέλεια
   αισθητήρων" and it behaves like every other ship, because the sensor view is
   not range-limited — there is nothing for a longer range to extend. The
