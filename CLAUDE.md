@@ -1885,12 +1885,15 @@ is nothing to weigh any more — you jump when you are allowed to, and you are
 allowed when the board is clear and the third wave is dead. What it buys is
 that no mission can be walked out of.
 
-> **Missions 1 and 2 have no enemies and complete on their first frame**, so
-> they are now three waves of waiting each. Mission 2's own briefing says
-> *"καμία μάχη· μόνο περισυλλογή επιζώντων και σιωπή"* — no battle, only
-> collecting survivors, and silence. The play and the text now disagree, and
-> that is a content decision rather than an engineering one: either those two
-> rows want a different objective, or the briefing wants rewriting.
+> **The four missions with no picket are three waves of waiting each**, and
+> the briefings say so — this was a real contradiction and it is FIXED IN THE
+> FICTION rather than in the rule, because the rule is universal and a
+> universal rule wants saying once. Missions 1, 2, 8 and 14 close on *"HOLD
+> UNTIL THEY STOP"*, *"GATHER WHAT IS LEFT. THEY WILL COME."*, *"THEY WILL
+> COME ANYWAY."* and *"HOLD HERE, AND LET THEM FIND US."* The design
+> document's §10 still describes mission 2 as *"καμία μάχη· μόνο περισυλλογή
+> επιζώντων και σιωπή"*; the briefing is what the player reads, and it is the
+> one that was moved.
 
 **`mis_leave_ok` is NOT folded into `mis_complete`, and that is the whole
 design of it.** `mis_complete` means "this mission's own objective is met" and
@@ -4553,6 +4556,17 @@ the full stops of `THE PLANET IS THERE, AND SO ARE THEY.` and `SALVAGE THE HULL
 AND WE CAN BUILD IT.`. There is a test that says so now instead of a comment
 that hoped so, and it reads the words back off `build/bank7.raw` — what the
 build put on the disc, not the source.
+
+> **AND THE GUARD CANNOT SEE A LINE THAT WAS CUT TO FIT IT.** Mission 8's
+> third line read `THEY WILL COME ANYWAY. THEY ALWAYS D` on the screen:
+> somebody wanted `THEY ALWAYS DO.` — 38 characters — and got it under the
+> limit by deleting **letters rather than words**. The width test passes on
+> that perfectly, because 36 ≤ 36 is the whole of what it asks. *A guard
+> against overflow says nothing about what was done to satisfy it.*
+>
+> `test_no_line_was_cut_to_fit_rather_than_reworded` is the cheap rule that
+> catches exactly that shape: an English line does not end in a one-letter
+> word unless the word is A or I. Checked by putting the `D` back.
 
 #### ...and then the menu's and the help page's words followed them
 

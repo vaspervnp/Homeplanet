@@ -772,6 +772,33 @@ class TestTheBriefingComesOutOfBankSeven(unittest.TestCase):
                          f"the screen holds at BRIEF_X")
         self.assertEqual(n, self.sym["MIS_COUNT"] * self.sym["BRIEF_LINES"])
 
+    def test_no_line_was_cut_to_fit_rather_than_reworded(self):
+        """The width test above CANNOT catch this, and that is why this exists.
+
+        Mission 8's third line read "THEY WILL COME ANYWAY. THEY ALWAYS D" on
+        the screen. Somebody wanted "THEY ALWAYS DO." -- 38 characters against
+        the 36 the line holds -- and got it under the limit by deleting letters
+        instead of words. The width test passes on that perfectly: 36 <= 36 is
+        the whole of what it asks. A guard against overflow says nothing about
+        what was done to satisfy it.
+
+        The rule here is cheap and catches exactly that shape: an English line
+        does not end in a one-letter word unless the word is A or I. It would
+        have caught the D, and it is the only automatic thing that could have.
+        """
+        bad, at = [], self.sym["MISSION_TEXT"] - 0x4000
+        for mission in range(self.sym["MIS_COUNT"]):
+            for line in range(self.sym["BRIEF_LINES"]):
+                end = self.bank7.index(b"\0", at)
+                text = self.bank7[at:end].decode("ascii")
+                at = end + 1
+                last = text.rstrip(".,").split()[-1] if text.split() else ""
+                if len(last) == 1 and last not in ("A", "I"):
+                    bad.append((mission + 1, line + 1, text))
+        self.assertEqual(bad, [],
+                         "a briefing line ends in a one-letter word, which "
+                         "means it was cut to fit rather than reworded")
+
     def test_a_briefing_is_on_the_screen_word_for_word(self):
         #  boot_quick has already pressed past the first one, so jump into the
         #  next and read it while it is still up.

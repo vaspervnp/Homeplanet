@@ -104,7 +104,12 @@ mission_text:
 
     defb "THERE IS NOTHING IN THIS SYSTEM.",0
     defb "NO STAR WORTH THE NAME, NO ROCK.",0
-    defb "THEY WILL COME ANYWAY. THEY ALWAYS D",0
+    ;  It read "THEY ALWAYS D" on the screen: somebody wanted "THEY ALWAYS
+    ;  DO." -- 38 characters -- and cut it to the 36 the line holds by
+    ;  deleting letters rather than words. The terse version is better in
+    ;  section 1's voice anyway: "never explaining more than it has to", and
+    ;  "they always do" is exactly the explaining it does not have to do.
+    defb "THEY WILL COME ANYWAY.",0
     defb "THREE HULLS OUR GUNS BARELY MARK.",0
     defb "FIGHTERS WILL NOT PAY FOR THIS ONE.",0
     defb "BUILD SOMETHING THAT HURTS THEM.",0
