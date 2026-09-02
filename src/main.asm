@@ -795,8 +795,12 @@ ENDIF
 ;  path nobody tests on real hardware.
 ; ----------------------------------------------------------------------------
     assert CLASS_STANDIN_SIZE >= interceptor_a_frames * interceptor_a_shifts * interceptor_a_block_sz, "the stand-in is shorter than a tier A library"
-    assert CLASS_STANDIN_SIZE >= interceptor_b_frames * interceptor_b_shifts * interceptor_b_block_sz, "the stand-in is shorter than a tier B library"
-    assert CLASS_STANDIN_SIZE >= interceptor_c_frames * interceptor_c_shifts * interceptor_c_block_sz, "the stand-in is shorter than a tier C library"
+
+;  TIER A ONLY, and that is the point rather than a weakening. class_use_fallback
+;  flattens class_geom to tier A's row, so on a machine with no disc every tier
+;  reads a tier A library out of this block and the largest read is the one
+;  above. It used to have to hold a tier C library -- 2688 bytes of the bank
+;  window against 432 -- and that window is what the project ran out of.
 
 ;  ...and it is a sprite address like any other, so it has to be in the window.
     assert class_standin >= BANK_WINDOW, "the stand-in is below the bank window"

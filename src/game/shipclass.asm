@@ -75,10 +75,22 @@ CLASS_TIERS         equ 3               ; far, middle, near
 ;
 ;  Written out as a number rather than as the expression, because RASM
 ;  evaluates a `defs` where it stands and the sprite libraries are assembled in
-;  a LATER bank than the block. src/main.asm asserts the three tiers against it
-;  once everything is in scope -- the same arrangement gfx/mark.asm's patch
-;  cache uses.
-CLASS_STANDIN_SIZE  equ 2688
+;  a LATER bank than the block. src/main.asm asserts it once everything is in
+;  scope -- the same arrangement gfx/mark.asm's patch cache uses.
+;
+;  IT WAS 2688 AND IT IS 432, which is 2256 bytes of the bank WINDOW back --
+;  and that window, not the image and not DISC.BIN, is what the project ran out
+;  of when the title screen got music. The old figure was six views by two
+;  shifts by a TIER C block, because every tier pointed into one buffer and the
+;  largest read had to stay inside it.
+;
+;  class_use_fallback now flattens class_geom to tier A's row as well, so on a
+;  machine with no disc every ship draws a 3x6 rectangle instead of one that is
+;  3x6, 5x10 or 7x16 by distance. The largest read is a tier A library and the
+;  buffer is one. Eleven bytes of LDIR buys two kilobytes, and what it costs is
+;  that the stand-ins no longer change size with range -- on a screen that is
+;  already drawing solid blocks because there is no art at all.
+CLASS_STANDIN_SIZE  equ 432
 
 
 ; ----------------------------------------------------------------------------

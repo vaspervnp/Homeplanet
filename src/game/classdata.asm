@@ -271,6 +271,23 @@ class_use_fallback:
     ld (hl),d
     inc hl
     djnz @class_fb_addr
+
+    ;  ...and every tier draws at TIER A's size, which is what lets the block
+    ;  be a tier A library rather than a tier C one -- 432 bytes of the bank
+    ;  window instead of 2688. The largest read is view * shifts * block_sz and
+    ;  it is bounded by the geometry, so shrinking the geometry shrinks it.
+    ;
+    ;  A forward LDIR over itself is the whole of it: six bytes of tier A land
+    ;  on tier B, and tier B -- now A -- lands on tier C. class_geom is RAM in
+    ;  the low 16K and says so at its head, for exactly this.
+    ;
+    ;  What it costs on screen is that a stand-in no longer grows with range.
+    ;  On a machine that is drawing solid rectangles because it has no art at
+    ;  all, that is not the thing anyone will notice.
+    ld hl,class_geom
+    ld de,class_geom + CLASS_GEOM_SIZE
+    ld bc,CLASS_GEOM_SIZE * 2
+    ldir
     ret
 
 
