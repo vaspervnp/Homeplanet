@@ -114,6 +114,26 @@ eco_build_timer:    defb 0
 eco_queue_len:      defb 0
 eco_queue_buf:      defs ECO_QUEUE_WAIT, 0
 
+;  ...AND WHICH SQUADRON EACH ORDER WAS PLACED BY, one byte alongside each
+;  class. A ship used to join whatever squadron was selected when it FINISHED,
+;  which was already odd with a single slipway and is worse with a queue: the
+;  window between ordering and delivery is now ten build times, and a player
+;  who orders three interceptors for squadron 1 and then presses `3` to look
+;  at something gets them all in squadron 3.
+;
+;  The order is a plan, and a plan says who it is for. Paying for it is the
+;  moment the player expressed that -- the same moment eco_queue takes the RU,
+;  and for the same reason.
+;
+;  A PARALLEL ARRAY rather than a wider entry, because eco_queue_buf's shape is
+;  read by half a dozen tests and by ctx_build_state, and a stride of two would
+;  have to be learned by all of them. Both are `defs ECO_QUEUE_WAIT`, so they
+;  are the same length by construction and there is nothing here for an assert
+;  to catch -- one was written and taken out again, because an assert that
+;  cannot fail is a comment pretending to be a check.
+eco_build_squad:    defb 0              ; ...for the one ON the slipway
+eco_queue_squad:    defs ECO_QUEUE_WAIT, 0
+
 ;  Where the fields are and how much is left in them. Written only by
 ;  mis_setup, out of the mission descriptor in bank 4.
 eco_patches:        defs ECO_PATCH_COUNT * ECO_PATCH_SIZE, 0

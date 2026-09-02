@@ -2715,6 +2715,113 @@ squadron-page test polls until the percentage settles.
 > not to advance and `M` appears to do nothing, on a build where both work.
 > Read the player's state out of RAM, and the chip **once, last**.
 
+### ...and the game has it too, on one voice
+
+The same tune plays under a mission, on **channel C alone**, and `M` mutes both
+screens.
+
+**Which voice is not a taste decision, and `todo.md` §4 thought it was.** The
+battle's effects already own two of the three: `snd_fire` is on A,
+`snd_explosion` and `snd_hit` are on B — B is the noise voice, which is where
+§12 puts them — and C is used by **nothing but the jump**, which stops the
+world anyway. One voice is free and the question answers itself. The **bass**,
+because that is what is left when you have one: the lead is absent a third of
+the cycle and would come and go, and the harmony alone is two notes with
+nothing under them. It is also why MUSIC3 was composed quiet, flat and without
+tremolo — "the one meant to sit under something". This is the something.
+
+`todo.md` §4's *hard* problem was not hard either. It assumed the player had to
+tick at 50 Hz, i.e. in the interrupt, and that a bank-resident note stream
+therefore could not be read. `mus_update` runs once a **game** frame and
+advances by the difference in `sys_tick_50hz`, so the window is at rest for
+every read and the prefetch ring that entry recommends is not needed.
+
+**The music ducks while an effect sounds** — *"pause music on sound effects"* —
+and it is a LEVEL and not a pause of the stream. Stopping the tune's clock
+would make it drift by however long the battle lasted and come back in the
+wrong place; writing the voice's volume byte leaves the note sounding
+underneath at zero and puts it back untouched. A single `ld (nn),a` needs no
+`DI`: the worst case is one tick at the old level, 20 ms of a note that is
+seconds long. `snd_start` holds `DI` because it copies **eight** bytes and a
+half-copied descriptor is a real sound.
+
+Measured in a fight: with an effect live the music is down in **73%** of
+samples. The rest is a one-game-frame lag — the check runs once a frame, ~140
+ms, and a shot is 160. Making it exact means moving it into the interrupt,
+which is the one cost this feature was asked to avoid.
+
+#### It costs about 1.3%, and where that goes is worth knowing
+
+6.60 fps against 6.80 on the same 3000-frame window, two fresh machines. About
+half of that gap is `demo_wait_frame`'s quantum: **520 T-states of pure `djnz`
+move the same measurement by 0.18 fps**, which is nearly the whole difference.
+
+The real cost is the AY writing a note that is sounding: `test_sound` prints
+4,753 T for three live channels and 1,553 for none, so a live voice is ~1,070 T
+a tick — 53,000 a second, ~8,000 of a 597,000 T game frame. There is no way to
+have a note without it and every explosion pays the same. The floor
+`test_frame_rate_does_not_regress` holds is 4.75.
+
+> **The first version DID cost speed, in the worst place.** The mixer's
+> tone-B-or-noise-B choice went inside the channel loop — which runs three
+> times per 50 Hz TICK — at about 320 T-states of every tick, 16,000 a second.
+> `test_sound`'s "the whole tick fits between two interrupts" caught it
+> immediately: 6,946 T against a 6,667 margin. The mode is written into
+> `snd_mix_mask`'s B byte by `mus_start`, `mus_start_solo` and `mus_stop`
+> instead — keypresses and screen changes — and the interrupt is not asked
+> anything at all.
+
+> **And it walked over the jump.** Both live on channel C, `mus_write_block`
+> wrote unconditionally, and the jump-in is 4.6 seconds — longer than a note.
+> A block carrying a PRIORITY is left alone now, and the note is **dropped
+> rather than queued**, so the three voices stay in time with each other. The
+> test read the bass's period where it wanted the sweep: *"the period is 1703,
+> outside the 55..715 the in's own descriptor can reach"*.
+
+#### `M` is the mute everywhere, so the squadron pair moved to `K` and `L`
+
+One key with one meaning on the title screen and in the game alike: a player
+who learned it on the menu must not reshape a squadron by pressing it in a
+battle. `K` keeps `N`'s place in the pair — left of `L` exactly as `N` was left
+of `M` — so the left-hand key is still "back a number". Both are on matrix line
+4, which the comment over `KEY_O` already spells out.
+
+**The mute is a separate byte from `snd_music_on` and has to be.** The second
+means "a tune is filling voice blocks right now", which every screen change
+rewrites; the first means "the player pressed M", which must outlive them all.
+
+#### Where the room came from: the stand-in was sized for tier C
+
+Bank 4's **window** — image plus `class_standin` plus `fleet_block`, not the
+image and not `DISC.BIN` — was down to four bytes. `class_standin` was 2688 of
+it: six views by two shifts by a **tier C** block, because every tier pointed
+into one buffer and the largest read had to stay inside.
+
+`class_use_fallback` now flattens `class_geom` to tier A's row as well — a
+forward `LDIR` over itself, six bytes onto B and B-now-A onto C — so the buffer
+only has to hold a tier A library. **432 bytes instead of 2688: eleven bytes of
+LDIR bought 2,256.** What it costs is that on a machine with no disc the
+stand-ins no longer grow with range, on a screen that is already drawing solid
+rectangles because it has no art at all.
+
+#### An order remembers who placed it
+
+A built ship joins the squadron that **ordered** it, not the one selected when
+it happens to come off the slipway. That was already true of the single slipway
+and nobody minded, because the window was one build time; the queue takes ten.
+A parallel byte array beside `eco_queue_buf` carries it and `eco_start_build`
+takes it as an argument — two arrays rather than a wider entry, because
+`eco_queue_buf`'s shape is read by `ctx_build_state` and half a dozen tests.
+
+> **Both its tests were wrong before they were right, and in the same two
+> ways.** One scanned "every active slot above the first free one" and caught
+> the harvester the fixture pokes in — in squadron 0 — and reported a ship
+> nobody had ordered. The other assumed two orders would wait in the queue
+> together; measured, the first hull was **delivered during the two keypresses
+> that change the selection**. It presses SPACE first now, which is the trick
+> `TestTheBuildQueue` already uses: `eco_update` is skipped while paused and
+> `phase4_commands` is not.
+
 ### Panning
 
 `P` hands the cursor keys to the camera; `0` (and the menu's CENTRE ON BASE)

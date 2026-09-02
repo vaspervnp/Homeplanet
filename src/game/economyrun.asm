@@ -375,32 +375,48 @@ eco_queue_pop:
 
     dec a
     ld (eco_queue_len),a
+    ld a,(eco_queue_squad)              ; ...and who it was ordered for
+    ld c,a
     ld a,(eco_queue_buf)                ; the oldest order, and it goes first
     call eco_start_build
 
-    ;  Shuffle the rest down. Nine bytes at worst, once a ship, against a head
-    ;  index that every reader of the queue would then have to know about.
+    ;  Shuffle the rest down, both arrays. Nine bytes at worst, once a ship,
+    ;  against a head index that every reader of the queue would then have to
+    ;  know about.
     ld a,(eco_queue_len)
     or a
     ret z
     ld c,a
     ld b,0
+    push bc
     ld hl,eco_queue_buf + 1
     ld de,eco_queue_buf
+    ldir
+    pop bc
+    ld hl,eco_queue_squad + 1
+    ld de,eco_queue_squad
     ldir
     ret
 
 
 ; ----------------------------------------------------------------------------
 ;  eco_start_build -- class A goes on the slipway, with its own build time
-;  In : A = the class
+;  In : A = the class, C = the squadron that ordered it
 ;  Uses: everything
+;
+;  THE SQUADRON TRAVELS WITH THE ORDER and is not read from squad_sel here.
+;  That is the whole of what "a ship joins the squadron that ordered it" means:
+;  by the time a hull comes off the slipway the player may have selected
+;  something else four times over.
 ;
 ;  eco_class_frames is in bank 4, which is legal here for the reason
 ;  game/shipclass.asm gives: both callers run with the window at rest.
 ; ----------------------------------------------------------------------------
 eco_start_build:
     ld (eco_build_class),a
+    ld a,c
+    ld (eco_build_squad),a
+    ld a,(eco_build_class)
     ld l,a
     ld h,0
     ld de,eco_class_frames
@@ -481,11 +497,12 @@ eco_spawn_built:
     add hl,de
     ld (hl),0
 
-    ;  It joins the squadron that ordered it.
+    ;  It joins the squadron that ORDERED it, which is not necessarily the one
+    ;  selected now -- see eco_build_squad in game/economy.asm.
     ld hl,(eco_ent)
     ld de,ENT_SQUAD
     add hl,de
-    ld a,(squad_sel)
+    ld a,(eco_build_squad)
     ld (hl),a
 
     jp squad_refresh
@@ -577,6 +594,8 @@ eco_queue:
 
     ;  Paid for. Straight onto the slipway if it is free, otherwise onto the
     ;  end of the line.
+    ld a,(squad_sel)
+    ld c,a                              ; ...whoever is asking for it, NOW
     ld a,(eco_build_class)
     cp CLASS_COUNT
     ld a,(eco_pick_class)
@@ -586,9 +605,14 @@ eco_queue:
     ld e,(hl)
     ld d,0
     inc (hl)
+    push hl
     ld hl,eco_queue_buf
     add hl,de
     ld (hl),a
+    ld hl,eco_queue_squad
+    add hl,de
+    ld (hl),c
+    pop hl
     scf
     ret
 

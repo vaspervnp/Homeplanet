@@ -47,7 +47,11 @@ thing that says so.
 
 ---
 
-## 0. Harvesting does not stop when RU hits the ceiling
+## 0. Harvesting does not stop when RU hits the ceiling — DONE
+
+**Done, and this entry outlived the fix.** `eco_harvester_step` tests
+`eco_ru >= ECO_RU_MAX` and spends the order, exactly as described below.
+
 
 `eco_earn` saturates at `ECO_RU_MAX` 9999, so the RU stops rising — but the
 harvesters keep mining, draining a **finite** patch for income that is thrown
@@ -78,7 +82,15 @@ Left alone deliberately: `wait_for_jump_wipe`'s own docstring records that
 changes, so fixing it invalidates every measurement taken around it. Do it on
 its own, with the control run.
 
-## 0aa. The jump reveal is not the same SPEED as the vanish
+## 0aa. The jump reveal is not the same SPEED as the vanish — DONE
+
+**Done, and MEASURED rather than calculated**, which is what this entry insists
+on. `JFX_REVEAL_DWELL` came down 6 → 3 and then the geometry did the other
+half: the reveal's run is the sprite's own width now, not margin-sprite-margin,
+so it is 4.6 s where it was 9.4. `snd_fx_jump_in` went with it through its
+PRESCALER rather than its timer, so the sweep is the same and only its speed
+changed.
+
 
 Asked for and attempted and reverted. The vanish holds each column for
 `JFX_VANISH_DWELL` **vertical blanks** (23); the reveal holds it for
@@ -120,7 +132,11 @@ probably right.
 tuned by ear against the wrong number, so they are right as they sound and
 their comments are what is misleading.
 
-## 0a. The harvester has the salvage bug's twin, and it is two lines
+## 0a. The harvester has the salvage bug's twin — DONE
+
+**Done**, in the same place and by the same two lines: `jr nc,@eco_h_no_work`,
+which writes `ENT_ORDER_IDLE` and lets `phase4_fly` bring it home.
+
 
 `eco_harvester_step` does `call eco_nearest_patch : ret nc` when every patch is
 mined out, and `phase4_fly` skips `ENT_ORDER_HARVEST` — so a harvester on an
@@ -186,7 +202,12 @@ briefing to dismiss.
   inside the playfield. They are redrawn from dirty flags, so wiping them means
   setting those flags.
 
-## 1b. A queued ship joins the squadron selected when it FINISHES
+## 1b. A queued ship joins the squadron that ORDERED it — DONE
+
+**Done.** A parallel byte array beside `eco_queue_buf` carries the squadron each
+order was placed by, and `eco_start_build` takes it as an argument instead of
+reading `squad_sel`. Two tests, both verified to fail on the old behaviour.
+
 
 Not when it was ordered. That was already true of the single slipway; the
 queue widens the window from one build time to ten, so it is worth fixing now.
@@ -258,7 +279,29 @@ frame has none.
 
 ---
 
-## 4. Music IN THE GAME — the battle
+## 4. Music IN THE GAME — the battle — DONE
+
+**Done, and NEITHER of the two problems this entry names was the one it thought.**
+
+The HARD problem assumed the player had to tick at 50 Hz, i.e. in the interrupt,
+and that a bank-resident note stream therefore could not be read.
+`src/sys/music.asm` does not tick in the interrupt at all: it runs once a game
+frame and advances by the DIFFERENCE in `sys_tick_50hz`, so the tempo is right
+whatever the frame rate does and the window is at rest for every read. The
+prefetch ring recommended below is not needed.
+
+The TASTE problem — which of three channels — turned out to be FORCED rather
+than chosen. `snd_fire` is on A; `snd_explosion` and `snd_hit` are on B, the
+noise voice; and C is used by nothing but the jump, which stops the world.
+One voice is free during a battle, so the music is the BASS alone on C — and
+the piece was composed as a bed for exactly this.
+
+What did need deciding, and was asked for afterwards: **the music ducks while
+an effect sounds.** A level and not a pause of the stream — stopping the clock
+would make the tune drift by however long the battle lasted.
+
+The rest of this entry, kept for the parts still true:
+
 
 **Half of this is done.** `MUSIC1` and `MUSIC2` are on the disc and play, the
 converter works, and the note streams for the two in-game loops are generated

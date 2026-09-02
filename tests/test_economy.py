@@ -1007,6 +1007,128 @@ class TestTheBuildQueue(EconomyFixture):
                          "the queue did not survive the jump intact")
 
 
+class TestAnOrderRemembersWhoPlacedIt(EconomyFixture):
+    """A ship joins the squadron that ORDERED it, not the one selected when it
+    happens to come off the slipway.
+
+    That was already true of the single slipway and nobody minded, because the
+    window was one build time. The queue takes ten orders, so the window is ten
+    build times -- order three interceptors for squadron 1, press `3` to look
+    at something, and all three used to arrive in squadron 3.
+
+    An order is a plan and a plan says who it is for. The moment the player
+    said so is the moment they paid, which is the same moment eco_queue takes
+    the RU and for the same reason.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.open_the_whole_list()
+
+    def squadron_of(self, slot):
+        return self.ent(slot, ENT_SQUAD)
+
+    def active_slots(self):
+        """Which of the fleet's slots hold a ship RIGHT NOW.
+
+        Compared before and after rather than guessing at the first free one:
+        open_the_whole_list pokes a harvester in, in squadron 0, and the first
+        free slot is below it -- so a scan that took "everything above the free
+        slot" collected that harvester and reported a ship in squadron 0 that
+        nothing had ordered.
+        """
+        return {slot for slot in range(ENT_PLAYER_MAX)
+                if self.ent(slot, ENT_FLAGS) & F_ACTIVE}
+
+    def free_slot(self):
+        for slot in range(ENT_PLAYER_MAX):
+            if not (self.ent(slot, ENT_FLAGS) & F_ACTIVE):
+                return slot
+        self.fail("the fleet has no room to build into")
+
+    def order(self, ship_class):
+        """Queue one, without waiting for it."""
+        self.hold("b")
+        self.set_pick(ship_class)
+        self.hold(cpc.KEY_ENTER, frames=25)
+        self.hold("b")
+
+    def test_the_squadron_is_taken_at_order_time(self):
+        """Order for the selected squadron, then select another and wait."""
+        ordered_for = self.byte("SQUAD_SEL")
+        slot = self.free_slot()
+        self.order(CLASS_INTERCEPTOR)
+
+        #  ...and now look somewhere else, which is the whole scenario. A
+        #  squadron with no ships is refused by squad_select, so `d` makes one
+        #  first: the divide peels half of squadron 1 into the next free
+        #  number and selects nothing, so the press after it can.
+        self.hold("d")
+        self.hold("2")
+        moved_to = self.byte("SQUAD_SEL")
+        self.assertNotEqual(moved_to, ordered_for,
+                            "the selection never moved, so this proves nothing")
+
+        for _ in range(1200):
+            if self.ent(slot, ENT_FLAGS) & F_ACTIVE:
+                break
+            self.c.run_frames(2)
+        else:
+            self.fail("the yard never delivered")
+
+        self.assertEqual(
+            self.squadron_of(slot), ordered_for,
+            f"the ship joined squadron {self.squadron_of(slot)}, which is "
+            f"whoever was selected when it FINISHED, not the {ordered_for} "
+            "that ordered it")
+
+    def test_each_order_in_the_queue_keeps_its_own(self):
+        """Two orders for two squadrons, waiting at once. One byte on the
+        slipway would give both of them the second one's answer.
+
+        SPACE FIRST, and it is the same trick TestTheBuildQueue uses: eco_update
+        is skipped while the game is paused and phase4_commands is not, so the
+        yard holds still while `B`, ENTER and the squadron keys go on working.
+        Without it the first hull is delivered before the second order can be
+        placed and there is no queue in the test at all -- measured, the first
+        one came off the slipway during the two keypresses that change the
+        selection.
+        """
+        self.hold(cpc.KEY_SPACE)
+        before = self.active_slots()
+
+        first_for = self.byte("SQUAD_SEL")
+        self.order(CLASS_INTERCEPTOR)
+
+        #  A squadron with no ships is refused by squad_select, so `d` makes
+        #  one first: it peels half of squadron 1 into the next free number.
+        self.hold("d")
+        self.hold("2")
+        second_for = self.byte("SQUAD_SEL")
+        self.assertNotEqual(first_for, second_for,
+                            "the selection never moved, so this proves nothing")
+        self.order(CLASS_INTERCEPTOR)
+        self.assertGreater(self.byte("ECO_QUEUE_LEN"), 0,
+                           "both orders went to the slipway: there is no queue "
+                           "in this test")
+
+        self.hold(cpc.KEY_SPACE)                    # ...and let the yard work
+        made = {}
+        for _ in range(2400):
+            for slot in self.active_slots() - before:
+                made.setdefault(slot, self.squadron_of(slot))
+            if len(made) >= 2:
+                break
+            self.c.run_frames(2)
+
+        self.assertGreaterEqual(len(made), 2,
+                                f"only {len(made)} ship(s) arrived: {made}")
+        got = sorted(made.values())
+        self.assertEqual(got, sorted([first_for, second_for]),
+                         f"the two ships joined {got}, not one each for "
+                         f"{first_for} and {second_for}")
+
+
 class TestTheQueueOnTheScreen(EconomyFixture):
     """Section 5.5 asks the strip for "Πόροι (RU) και ουρά κατασκευής".
 
