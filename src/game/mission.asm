@@ -168,20 +168,42 @@ MIS_JUMP_COST       equ 2800
 ;      three have room to spare. tests/test_campaign.TestEveryPicketFits reads
 ;      it out of the mission table rather than trusting these two numbers.
 ;
-;  Both are 0-based, like mis_index.
+;  ...AND THE DESTROYER IS THE SAME BARGAIN, one range further on. Section 8
+;  gives it "διαθέσιμο από την 5η αποστολή" and that is what it had: a mission
+;  number, which the player reaches by waiting. The design owner's instruction
+;  is that it should not be available until mission 9 AND that there should be
+;  a derelict for it -- so it is not a date any more, it is a job, and the two
+;  capital ships are unlocked the same way. A mission number as well would be a
+;  second rule saying what the first already says, because the hull it is
+;  learned from does not appear before mission 9.
+;
+;  Missions 9, 10 and 11 field 6, 8 and 6, so the worst case is 8 + 1 + 8 = 17
+;  against ENT_ENEMY_MAX's 20. Three chances again, for the reason above, and
+;  the two ranges DO NOT OVERLAP -- there is one derelict_pos, so two adrift at
+;  once would be two hulls at the same point. src/main.asm asserts both.
+;
+;  All four are 0-based, like mis_index.
 MIS_DERELICT_FROM   equ 3               ; mission 4
 MIS_DERELICT_UNTIL  equ 5               ; ...and it is still there in mission 6
+MIS_DEST_WRECK_FROM  equ 8              ; mission 9
+MIS_DEST_WRECK_UNTIL equ 10             ; ...and still there in mission 11
 
 ;  What the campaign has unlocked, one bit each. It survives a jump because it
 ;  is not touched by mis_setup, and a power cycle because fleet_disc_save puts
 ;  it on the disc -- see src/sys/fdc.asm for why it goes in the save block's
 ;  PAD and why it is tagged.
+;
+;  THE BIT NUMBER IS ALSO THE MESSAGE. wave_say_unlock takes it and draws
+;  message n+1 off wave_say_text, so a class that can be unlocked and a word
+;  saying so are the same list in the same order -- see game/wavesdraw.asm.
 CAMP_UNLOCK_FRIG_BIT equ 0
 CAMP_UNLOCK_FRIGATE  equ 1
+CAMP_UNLOCK_DEST_BIT equ 1
+CAMP_UNLOCK_DESTROYER equ 2
 ;  Every bit that means something today. fleet_disc_load range-checks what it
 ;  reads against this, because a blank disc and another game's disc both arrive
 ;  there and the pad is uninitialised bank RAM.
-CAMP_UNLOCK_ALL      equ CAMP_UNLOCK_FRIGATE
+CAMP_UNLOCK_ALL      equ CAMP_UNLOCK_FRIGATE + CAMP_UNLOCK_DESTROYER
 
 ;  The briefing screen (section 10). Three lines, and the tone the design asks
 ;  for: "λίγο κείμενο, πολλή σιωπή".

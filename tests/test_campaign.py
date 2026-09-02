@@ -178,15 +178,42 @@ class TestEveryPicketFits(CampaignFixture):
         not fit would be the last of a wave -- and it would go missing without
         a word, which is the exact failure the partition exists to end.
         """
-        for i in range(self.sym["MIS_DERELICT_FROM"],
-                       self.sym["MIS_DERELICT_UNTIL"] + 1):
-            count = self.descriptor(i)[12]
-            want = count + 1 + self.sym["WAVE_MAX"]
-            self.assertLessEqual(
-                want, self.sym["ENT_ENEMY_MAX"],
-                f"mission {i + 1} fields {count} hostiles and a derelict, so a "
-                f"full wave on top of them needs {want} of "
-                f"{self.sym['ENT_ENEMY_MAX']} hostile slots")
+        for first, last, cls, _ in self.derelict_table():
+            for i in range(first, last + 1):
+                count = self.descriptor(i)[12]
+                want = count + 1 + self.sym["WAVE_MAX"]
+                self.assertLessEqual(
+                    want, self.sym["ENT_ENEMY_MAX"],
+                    f"mission {i + 1} fields {count} hostiles and the class "
+                    f"{cls} derelict, so a full wave on top of them needs "
+                    f"{want} of {self.sym['ENT_ENEMY_MAX']} hostile slots")
+
+    def derelict_table(self):
+        """Every (from, until, class, unlock) row, out of bank 4.
+
+        READ rather than mirrored, and read as a WHOLE table rather than as the
+        one range this test used to know about: there are two derelicts now --
+        a frigate in missions 4-6 and a destroyer in 9-11 -- and a test that
+        checked the arithmetic for one of them would go on passing while the
+        other silently cost a wave its last ship.
+        """
+        rec, kinds = self.sym["DERELICT_REC"], self.sym["DERELICT_KINDS"]
+        raw = h.read_bank4(self.c, self.sym["DERELICT_TABLE"], rec * kinds)
+        return [tuple(raw[n * rec:(n + 1) * rec]) for n in range(kinds)]
+
+    def test_the_two_derelicts_are_never_adrift_at_once(self):
+        """There is one derelict_pos, so overlapping ranges would put two hulls
+        on the same point -- and mis_spawn_derelict's loop does not know that,
+        deliberately: it places every row that wants placing. src/main.asm
+        asserts it too; this is the same claim made against the table the game
+        actually reads, which is where a bad edit would show up."""
+        rows = sorted(self.derelict_table())
+        for (a_from, a_until, _, _), (b_from, _, _, _) in zip(rows, rows[1:]):
+            self.assertGreater(
+                b_from, a_until,
+                f"a derelict adrift from mission {b_from + 1} overlaps one "
+                f"still there in mission {a_until + 1}")
+            self.assertLessEqual(a_from, a_until, "an empty derelict range")
 
     def test_the_derelict_stops_where_the_room_stops(self):
         """MIS_DERELICT_UNTIL is mission 6, and this is the arithmetic that

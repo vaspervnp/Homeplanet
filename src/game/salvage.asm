@@ -452,18 +452,28 @@ slv_deliver:
     ;  player cannot find does not exist.
     ;
     ;  ON THE TRANSITION, not on the fact. The bit is idempotent and a second
-    ;  frigate hull would re-announce news that is three missions old, so the
-    ;  test is that it was CLEAR before this hull was delivered.
-    cp CLASS_FRIGATE
-    jr nz,@slv_nothing_learned
-    ld a,(campaign_unlocks)
-    and CAMP_UNLOCK_FRIGATE
-    jr nz,@slv_nothing_learned          ; already known: no news
-    ld a,(campaign_unlocks)
-    or CAMP_UNLOCK_FRIGATE
-    ld (campaign_unlocks),a
-    call wave_say_frigate               ; preserves HL, which is the entity
-@slv_nothing_learned:
+    ;  hull of the same class would re-announce news that is three missions
+    ;  old, so the test is that it was CLEAR before this one was delivered.
+    ;
+    ;  WHICH class teaches what is game/campaignrun.asm's derelict_table -- the
+    ;  same rows mis_spawn_derelict places from, so "there is a dead Destroyer
+    ;  adrift from mission 9" and "towing a Destroyer hull home unlocks the
+    ;  Destroyer" are one fact in one place. Both capital ships work this way
+    ;  now; the Destroyer used to be a mission number.
+    push hl                             ; the entity: ENT_FLAGS is cleared below
+    call mis_derelict_unlock
+    jr nc,@slv_learned_nothing_new      ; this class teaches nothing
+    ld c,a
+    ld hl,campaign_unlocks
+    and (hl)
+    jr nz,@slv_learned_nothing_new      ; already known: no news
+    ld a,(hl)
+    or c
+    ld (hl),a
+    ld a,c
+    call wave_say_unlock
+@slv_learned_nothing_new:
+    pop hl
 
     ld de,ENT_FLAGS
     add hl,de

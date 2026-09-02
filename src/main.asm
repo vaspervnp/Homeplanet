@@ -609,7 +609,24 @@ bank4_limit:
 ;  two of them -- which is not the check anyone wants. Each one is drawn at
 ;  HUD_SAY_X on its own, so each one is measured against HUD_MOTH_X on its own.
     assert HUD_SAY_X + (wave_say_text_1 - wave_say_text - 1) * TXT_CHAR_W_BYTES <= HUD_MOTH_X, "INCOMING runs into the Mothership's hull"
-    assert HUD_SAY_X + (wave_say_text_end - wave_say_text_1 - 1) * TXT_CHAR_W_BYTES <= HUD_MOTH_X, "the Frigate unlock message runs into the Mothership's hull"
+    assert HUD_SAY_X + (wave_say_text_2 - wave_say_text_1 - 1) * TXT_CHAR_W_BYTES <= HUD_MOTH_X, "the Frigate unlock message runs into the Mothership's hull"
+    assert HUD_SAY_X + (wave_say_text_end - wave_say_text_2 - 1) * TXT_CHAR_W_BYTES <= HUD_MOTH_X, "the Destroyer unlock message runs into the Mothership's hull"
+
+;  ...and there is one message for INCOMING plus one per unlock bit, in that
+;  order, because wave_say_unlock turns a bit number into an index. A class
+;  that could be unlocked with no word to go with it would draw whatever
+;  follows the table.
+    assert WAVE_MSG_DESTROYER == 2, "the message list and campaign_unlocks' bits are out of step"
+
+;  THE TWO DERELICTS MUST NOT BE ADRIFT AT THE SAME TIME. There is one
+;  derelict_pos, so overlapping ranges would put two hulls on the same point --
+;  and mis_spawn_derelict's loop does not know that, deliberately: it places
+;  every row that wants placing, which is the honest thing for it to do and
+;  makes this the only place the constraint is stated.
+    assert MIS_DEST_WRECK_FROM > MIS_DERELICT_UNTIL, "the two derelicts overlap and would be placed on the same point"
+    assert MIS_DERELICT_FROM <= MIS_DERELICT_UNTIL, "the frigate derelict's range is empty"
+    assert MIS_DEST_WRECK_FROM <= MIS_DEST_WRECK_UNTIL, "the destroyer derelict's range is empty"
+    assert MIS_DEST_WRECK_UNTIL < MIS_COUNT, "the destroyer derelict outlives the campaign"
     assert HUD_MOTH_X + HUD_HP_CHARS * TXT_CHAR_W_BYTES <= SCR_BYTES_PER_LINE, "the Mothership's hull runs off the screen"
 
 ;  THE GAME-OVER SCREEN. Its four lines are centred by hand -- there is no

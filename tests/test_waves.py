@@ -890,7 +890,7 @@ class TestTheReadout(WaveFixture):
         self.c.run_frames(4 * TICKS_PER_GAME_FRAME)
 
         row = self.hull_row()
-        self.assertIn("FRIGATE UNLOCKED", row)
+        self.assertIn("YARD: FRIGATE", row)
         self.assertNotIn("INCOMING", row, "the row said both messages at once")
 
     def test_the_two_messages_do_not_share_an_ink(self):

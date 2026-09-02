@@ -872,7 +872,8 @@ Design document section 13 lists ten phases.
 - **Phase 7 — done.** Resource patches, harvesters, RU, and a build panel;
   `H` and `B` are live. The loop closes: build a harvester, send it out, and
   what it mines pays for the next ship. **All seven of §8's buildable classes
-  are on the list**, at §8's prices, with the Destroyer gated to mission 5.
+  are on the list**, at §8's prices, with both capital ships gated behind
+  salvaging their own hull.
   Every mission fields two to four patches and they are DRAWN, in the tactical
   view and in the sensor view, in the two inks described under "Markers".
   **The yard takes a QUEUE of ten now**, mixed classes, FIFO — see "The build
@@ -996,10 +997,11 @@ The panel offers all seven of §8's buildable classes, **cheapest first**, so
 walking the list with `.` is walking up a price ladder rather than guessing.
 A class that is not available yet is STEPPED OVER, not shown and refused: the
 readout is one three-letter tag wide, so an entry the player can see but
-cannot order looks like a broken ENTER key. Today the Destroyer is the only
-one with a condition (§8: from mission 5), and `eco_pick_allowed` is one test
-rather than a table of unlock missions — it becomes a table the second time a
-class needs one. `eco_queue` checks as well as the stepper, because the pick
+cannot order looks like a broken ENTER key. **Both capital ships have a
+condition and both are the same one** — tow that class's hull home — so
+`eco_pick_allowed` reads `eco_class_gate`, one byte a class: 0 always, an
+unlock bit, or "from mission N" (which nothing uses today and a test drives
+for that reason). `eco_queue` checks as well as the stepper, because the pick
 is a byte in RAM and the orders menu injects keys.
 
 `TAB` is bound and correct per the hardware matrix but **unverified** — the
@@ -2005,8 +2007,8 @@ candidate and was rejected — it says what the KEYS do, and a hull figure is no
 a key. §5.5 had already asked for two of the things this row now carries: a
 "μπάρα ενέργειας Mothership", generalised from the Mothership to the fleet
 because a number is smaller than a bar and says more, and a "γραμμή μηνυμάτων",
-which carries `INCOMING` and `FRIGATE UNLOCKED` — see "The message row says two
-things now" below.
+which carries `INCOMING` and one message per unlockable class — see "The
+message row says two things now" below.
 
 168 and not 169, which is what it was first. The strip's three rows want the
 same gap or they read as two blocks rather than three lines; at 169 the gap to
@@ -2024,7 +2026,8 @@ nothing else would put it back.
 
 #### The message row says two things now
 
-`INCOMING` and **`FRIGATE UNLOCKED`**, between `HULL nnn%` and `BASE nnn%`, and
+`INCOMING`, **`YARD: FRIGATE`** and **`YARD: DESTROYER`**, between
+`HULL nnn%` and `BASE nnn%`, and
 what made the second one necessary is that the reward for three missions of
 towing was a build panel that silently grew a row. The panel steps *over* a
 class it cannot offer, so before the delivery the Frigate is not on the list at
@@ -4285,7 +4288,7 @@ hand-builds `phase4_order` and was writing **one byte an entry** after the sort
 started keeping two. Half the list read as depths, and every grouping test came
 out with singletons where it wanted groups.
 
-### The Frigate is unlocked by salvaging a derelict
+### The two capital ships are unlocked by salvaging a derelict
 
 From mission 4 a dead **Vekhar frigate** is adrift at the edge of the play area,
 and towing it to the Mothership teaches the yard to build them. Until then the
@@ -4300,11 +4303,69 @@ unlock is keyed on the delivered hull's **class**, not on "was that the
 derelict": no slot index to go stale, and it stays true the day `campaign.asm`
 gets an enemy class column.
 
-**And the moment it happens is now on the screen** — `FRIGATE UNLOCKED` on the
+**And the moment it happens is now on the screen** — `YARD: FRIGATE` on the
 HUD's message row, once, on the transition. Until that landed the whole reward
 was a build panel one row longer, which a player meets only by opening it and
 noticing a row they were not looking for. See "The message row says two things
 now" for the mechanism and for the twelve bytes that had to go to bank 4.
+
+#### ...and so is the Destroyer, from mission 9
+
+§8 gives it *"διαθέσιμο από την 5η αποστολή"* and that is what it had: a
+mission number, which a player reaches by waiting. The design owner's
+instruction was **both** halves at once — not available until mission 9, *and*
+there should be a derelict — and those are **one rule, not two**. The
+Destroyer's hull is not adrift before mission 9, so the job IS the date, and
+`eco_class_gate` carries no mission number at all now.
+
+| | Frigate | Destroyer |
+|---|---|---|
+| hull adrift in | missions 4–6 | **9–11** |
+| pickets there | 8, 8, 6 | **6, 8, 6** |
+| worst case | 8+1+8 = 17 | 8+1+8 = 17, against `ENT_ENEMY_MAX` 20 |
+
+**`derelict_table` is one list and it says two things**: `(from, until, class,
+the unlock it grants)`. `mis_spawn_derelict` places from it and `slv_deliver`
+reads it to decide what the yard has learned — so *"there is a dead Destroyer
+adrift from mission 9"* and *"towing a Destroyer hull home unlocks the
+Destroyer"* cannot come to disagree, which two lists would the first time a
+third capital ship was added to one of them.
+
+**The ranges must not overlap and nothing in the loop knows it.**
+`mis_spawn_derelict` places every row that wants placing, which is the honest
+thing for it to do; there is one `derelict_pos`, so two adrift at once would be
+two hulls on one point. `src/main.asm` asserts it, and
+`test_the_two_derelicts_are_never_adrift_at_once` asserts it again against the
+table the game actually reads.
+
+**The bit number is the message number.** `wave_say_unlock` takes the mask,
+shifts it to a bit index and adds one for `INCOMING` at 0 — so the list of
+unlockable classes and the list of words saying so are one list in one order,
+and a third capital ship is a bit, a table row and a string with nothing to
+keep in step by hand.
+
+> **`YARD:` and not `UNLOCKED`, and the Destroyer is why.** `DESTROYER
+> UNLOCKED` is **eighteen characters exactly** — it clears the assert, and it
+> ends on the very byte `BASE` begins at, so the two words touch with no gap.
+> The yard is what has learned the class and where the player goes to use it,
+> so the prefix says who is talking in five characters instead of eight. Both
+> messages then read the same way, which `FRIGATE UNLOCKED` beside `YARD:
+> DESTROYER` would not have. Found by printing the row with its inks, not by
+> counting characters in the source.
+
+> **The "from mission N" gate now has no user, so a test drives it.**
+> `eco_class_gate`'s `1..127` form was the Destroyer's rule and both gated
+> classes are unlock bits now — and an untested branch is worse than none, as
+> this file already records about a `planet_lit` flag nothing set. It is kept
+> because it is eight instructions and buys the next class that wants a date
+> rather than a job; `TestTheMissionNumberGateStillWorks` pokes the **Scout's**
+> row to "from mission 3" and asks the panel before and after.
+
+> **`mis_derelict_wanted` exists because `CP` sets carry when A is BELOW the
+> operand**, so "too early" and "place it" both leave CF set on a `ret c`. Every
+> exit goes through one of two labels for that reason. Getting it wrong puts
+> the Destroyer's hull in mission 1, which is precisely what a range check is
+> for.
 
 `eco_pick_allowed` is a **table** now, as its own comment predicted it would be
 the second time a class needed a gate: one byte a class, `0` always, `1..127`

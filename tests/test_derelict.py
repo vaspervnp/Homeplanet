@@ -479,8 +479,15 @@ class TestTheYardWillNotTakeAFrigateYet(DerelictFixture):
 
 class TestTheDestroyerGateStillWorks(DerelictFixture):
     """eco_pick_allowed became a TABLE for this feature, and the class that was
-    already gated is the thing a table most easily breaks. Section 8:
-    "διαθέσιμο από την 5η αποστολή"."""
+    already gated is the thing a table most easily breaks.
+
+    Section 8 said "διαθέσιμο από την 5η αποστολή" and that is no longer the
+    rule: the design owner moved the Destroyer to mission 9 and asked for a
+    derelict to go with it, so both capital ships are learned the same way --
+    by towing their own hull home. A mission number as well would have been a
+    second rule saying what the first already says, because the Destroyer's
+    hull is not adrift before mission 9.
+    """
 
     def destroyer_pick(self):
         order = h.read_bank4(self.c, self.sym["ECO_BUILD_ORDER"],
@@ -497,16 +504,71 @@ class TestTheDestroyerGateStillWorks(DerelictFixture):
         self.hold(cpc.KEY_ENTER)
         return self.byte("ECO_BUILD_CLASS")
 
-    def test_not_before_the_mission_section_eight_names(self):
+    def test_not_before_its_hull_has_been_towed_home(self):
         self.assertEqual(self.byte("MIS_INDEX"), 0)
         self.assertEqual(self.try_to_order_a_destroyer(), 0xFF,
                          "a destroyer was ordered in mission 1")
 
-    def test_and_yes_from_it(self):
-        self.jump_to(self.sym["CLASS_DESTROYER_MIS"])
+    def test_and_reaching_the_mission_is_not_enough_on_its_own(self):
+        """The discriminating half. Walking to mission 9 is what the OLD rule
+        needed and it is now exactly the thing that must not work -- a build
+        that kept a mission number in eco_class_gate passes the test above and
+        fails this one."""
+        self.jump_to(self.sym["MIS_DEST_WRECK_FROM"])
+        self.assertEqual(self.try_to_order_a_destroyer(), 0xFF,
+                         "reaching mission 9 unlocked the destroyer on its own")
+
+    def test_and_yes_once_the_yard_has_learned_it(self):
+        self.c.write_ram(self.sym["CAMPAIGN_UNLOCKS"],
+                         bytes([self.sym["CAMP_UNLOCK_DESTROYER"]]))
         self.assertEqual(self.try_to_order_a_destroyer(),
                          self.sym["CLASS_DESTROYER"],
-                         "the destroyer is still refused at mission 5")
+                         "the destroyer is still refused after salvaging it")
+
+
+class TestTheMissionNumberGateStillWorks(DerelictFixture):
+    """NO CLASS USES IT ANY MORE, and that is exactly why this exists.
+
+    eco_class_gate's 1..127 form means "from mission N", and it was the
+    Destroyer's rule until the derelict replaced it. Both gated classes are
+    unlock bits now, so the branch that decodes a mission number has no caller
+    in the shipped table -- and an untested branch is worse than none, which
+    this project has already written down once about a planet_lit flag that
+    nothing set.
+
+    So it is driven directly: the SCOUT's row is poked to "from mission 3" and
+    the panel is asked before and after. Keeping the form costs eight
+    instructions and buys the next class that wants a date rather than a job.
+    """
+
+    def scout_is_offered(self):
+        seen, order = set(), h.read_bank4(self.c, self.sym["ECO_BUILD_ORDER"],
+                                          self.sym["CLASS_BUILDABLE"])
+        self.give_the_yard_a_harvester()
+        self.hold("b")
+        for _ in range(3 * self.sym["CLASS_BUILDABLE"]):
+            seen.add(order[self.byte("ECO_BUILD_PICK")])
+            self.hold(".", frames=20)
+        return self.sym["CLASS_SCOUT"] in seen
+
+    def gate_the_scout_from(self, mission_1_based):
+        """eco_class_gate is in BANK 4, so it is written through the window."""
+        h.write_cpu(self.c, self.sym["ECO_CLASS_GATE"] + self.sym["CLASS_SCOUT"],
+                    bytes([mission_1_based]))
+
+    def test_a_class_gated_on_a_mission_number_appears_at_that_mission(self):
+        self.assertTrue(self.scout_is_offered(),
+                        "the scout is not on the list to begin with, so "
+                        "nothing below this means anything")
+
+        self.gate_the_scout_from(3)
+        self.assertEqual(self.byte("MIS_INDEX"), 0)
+        self.assertFalse(self.scout_is_offered(),
+                         "a class gated from mission 3 was offered in mission 1")
+
+        self.c.write_ram(self.sym["MIS_INDEX"], bytes([2]))   # mission 3
+        self.assertTrue(self.scout_is_offered(),
+                        "a class gated from mission 3 was refused in mission 3")
 
 
 class TestOnlyAFrigateTeachesTheYard(DerelictFixture):
@@ -779,6 +841,67 @@ class TestTheUnlockSaysSo(DerelictFixture):
         self.set_ent(slot, ENT_TIMER, 0)
         self.set_ent(slot, ENT_FLAGS, F_ACTIVE | F_ENEMY | F_DISABLED)
         return slot
+
+
+class TestTheDestroyersOwnHull(DerelictFixture):
+    """The second derelict, in missions 9-11, and the whole of the Destroyer's
+    new gate.
+
+    The design owner asked for two things at once -- "not available until
+    mission 9" and "there should be a derelict" -- and they are one rule: the
+    hull is not adrift before mission 9, so the job IS the date and there is no
+    mission number anywhere. What that costs is that this has to prove the hull
+    is really there, because if it were not the class would simply be
+    unreachable for the whole campaign and every gate test would still pass.
+    """
+
+    def destroyer_hulls(self):
+        return {s for s in self.hulls()
+                if self.ent(s, ENT_CLASS) == self.sym["CLASS_DESTROYER"]}
+
+    def test_there_is_none_in_the_mission_before_its_range(self):
+        self.jump_to(self.sym["MIS_DEST_WRECK_FROM"] - 1)
+        self.assertEqual(self.destroyer_hulls(), set(),
+                         "the destroyer's hull is adrift a mission early")
+
+    def test_it_is_adrift_from_mission_nine_and_towing_it_teaches_the_yard(self):
+        self.jump_to(self.sym["MIS_DEST_WRECK_FROM"])
+        adrift = self.destroyer_hulls()
+        self.assertEqual(len(adrift), 1,
+                         "mission 9 does not field the destroyer's hull")
+        hull = adrift.pop()
+
+        #  ...and it is a HULL, not a ship: the same ACTIVE+ENEMY+DISABLED that
+        #  slv_make_wreck produces, which is what every one of a wreck's combat
+        #  exclusions is keyed on.
+        self.assertEqual(self.ent(hull, ENT_FLAGS),
+                         F_ACTIVE | F_ENEMY | F_DISABLED)
+        self.assertEqual(self.ent(hull, ENT_HULL), 0)
+
+        before = self.unlocks()
+        self.assertFalse(before & self.sym["CAMP_UNLOCK_DESTROYER"],
+                         "the destroyer was already unlocked before the tow")
+
+        corvette = self.make_corvette()
+        self.clear_the_board({corvette})
+        self.hold("t")
+        for _ in range(80):
+            self.c.run_frames(30)
+            if not (self.ent(hull, ENT_FLAGS) & F_ACTIVE):
+                break
+        else:
+            self.fail("the destroyer's hull was never delivered")
+
+        self.assertTrue(self.unlocks() & self.sym["CAMP_UNLOCK_DESTROYER"],
+                        "the hull arrived and the yard learned nothing")
+        #  ...and the frigate is untouched by it. One table row per class, so a
+        #  loop that wrote the wrong row would show up here rather than as a
+        #  free capital ship three missions earlier.
+        self.assertEqual(self.unlocks() & self.sym["CAMP_UNLOCK_FRIGATE"],
+                         before & self.sym["CAMP_UNLOCK_FRIGATE"],
+                         "towing the destroyer's hull also unlocked the frigate")
+        self.assertEqual(self.byte("WAVE_MSG"), self.sym["WAVE_MSG_DESTROYER"],
+                         "the row named the wrong class")
 
 
 class TestItComesBackUntilItIsTaken(DerelictFixture):

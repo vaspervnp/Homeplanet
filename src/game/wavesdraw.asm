@@ -195,8 +195,21 @@ wave_changed:
 
 
 ; ----------------------------------------------------------------------------
-;  wave_say_frigate -- put the unlock on the message row
-;  Uses: AF
+;  wave_say_unlock -- put "the yard has learned a class" on the message row
+;  In : A = the unlock mask that was just set -- ONE bit
+;  Uses: AF, B
+;
+;  THE BIT NUMBER IS THE MESSAGE NUMBER, plus one for INCOMING at 0. So the
+;  list of things that can be unlocked and the list of words saying so are one
+;  list in one order, and adding a third capital ship is a bit, a derelict_table
+;  row and a string -- with nothing to keep in step by hand. The alternative,
+;  a message index carried in derelict_table beside the mask, is a second
+;  number meaning the same thing.
+;
+;  The shift is four instructions against a table of eight bytes, and it cannot
+;  spin: A is non-zero by the time it gets here (mis_derelict_unlock returns
+;  carry clear for a class that teaches nothing, and slv_deliver branches on
+;  that), and the guard at the top makes that true rather than merely likely.
 ;
 ;  PRESERVES HL, and that is not politeness: its one caller is inside
 ;  slv_deliver, between the entity pointer being taken and ENT_FLAGS being
@@ -218,11 +231,18 @@ wave_changed:
 ;  hull was also delivered by a corvette they sent, so they are looking at the
 ;  fleet rather than at the horizon.
 ; ----------------------------------------------------------------------------
-wave_say_frigate:
+wave_say_unlock:
+    or a
+    ret z                               ; a class that teaches nothing
+    ld b,0
+@wave_unlock_bit:
+    inc b
+    rrca
+    jr nc,@wave_unlock_bit
+    ld a,b                              ; bit 0 -> message 1, bit 1 -> 2
+    ld (wave_msg),a
     ld a,WAVE_SAY_FRAMES
     ld (wave_say),a
-    ld a,WAVE_MSG_FRIGATE
-    ld (wave_msg),a
     ret
 
 
@@ -251,10 +271,20 @@ wave_saying:
 wave_hp_label:      defb "HULL",0
 wave_moth_label:    defb "BASE",0
 wave_hp_sign:       defb "%",0
-;  Indexed by wave_msg, so the ORDER here is WAVE_MSG_*. Both must fit between
+;  Indexed by wave_msg, so the ORDER here is WAVE_MSG_*: message n+1 is the
+;  class unlocked by bit n of campaign_unlocks. Every one must fit between
 ;  HUD_SAY_X and HUD_MOTH_X -- eighteen characters -- and src/main.asm asserts
-;  it, because txt_draw clips at the screen edge and would happily write
-;  INCOMING over the top of the Mothership's hull figure.
+;  each of them separately, because txt_draw clips at the screen edge and would
+;  happily write over the top of the Mothership's hull figure.
+;
+;  "YARD:" AND NOT "UNLOCKED", and the Destroyer is why. DESTROYER UNLOCKED is
+;  eighteen characters exactly: it clears the assert, and it ends on the very
+;  byte BASE begins at, so the two words touch with no gap at all. The yard is
+;  what has learned the class and it is where the player goes to use it, so the
+;  prefix says who is talking in five characters instead of eight -- and both
+;  messages then read the same way, which "FRIGATE UNLOCKED" beside "YARD:
+;  DESTROYER" would not have.
 wave_say_text:      defb "INCOMING",0
-wave_say_text_1:    defb "FRIGATE UNLOCKED",0
+wave_say_text_1:    defb "YARD: FRIGATE",0
+wave_say_text_2:    defb "YARD: DESTROYER",0
 wave_say_text_end:

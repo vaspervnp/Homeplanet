@@ -285,22 +285,54 @@ mis_setup:
 ;  reads the delivered hull's class to decide what the yard pays, and it is the
 ;  same byte that decides what the yard has learned.
 ; ----------------------------------------------------------------------------
-mis_spawn_derelict:
-    ld a,(campaign_unlocks)
-    and CAMP_UNLOCK_FRIGATE
-    ret nz                              ; taken already; there is only one
+;  ...AND THERE ARE TWO OF THEM NOW, so this is a table rather than a pair of
+;  compares: a Vekhar frigate in missions 4-6 and a Vekhar DESTROYER in 9-11.
+;  One row is (from, until, class, the unlock it grants), and it is the SAME
+;  table slv_deliver reads to decide what the yard has learned -- so "what is
+;  adrift" and "what towing it teaches" cannot come to disagree, which they
+;  would the first time a third one was added to one list and not the other.
+;
+;  The loop does not know the ranges do not overlap; src/main.asm asserts that
+;  separately, because there is one derelict_pos and two adrift at once would
+;  be two hulls at the same point.
+DERELICT_REC        equ 4
+DERELICT_KINDS      equ 2
 
-    ld a,(mis_index)
-    cp MIS_DERELICT_FROM
-    ret c
-    cp MIS_DERELICT_UNTIL + 1
-    ret nc
+derelict_table:
+    defb MIS_DERELICT_FROM,   MIS_DERELICT_UNTIL,   CLASS_FRIGATE,   CAMP_UNLOCK_FRIGATE
+    defb MIS_DEST_WRECK_FROM, MIS_DEST_WRECK_UNTIL, CLASS_DESTROYER, CAMP_UNLOCK_DESTROYER
+derelict_table_end:
+
+mis_spawn_derelict:
+    ld hl,derelict_table
+    ld b,DERELICT_KINDS
+@mis_derelict_kind:
+    push bc
+    push hl
+    call mis_derelict_wanted
+    pop hl
+    pop bc
+    jr c,@mis_derelict_place
+    ld de,DERELICT_REC
+    add hl,de
+    djnz @mis_derelict_kind
+    ret
+
+@mis_derelict_place:
+    ;  HL is the row that wants placing; its class is the third byte.
+    inc hl
+    inc hl
+    ld a,(hl)
+    push af
 
     ;  Theirs. mis_clear_enemies has just freed the whole hostile region, so
     ;  this cannot fail -- and if a later mission ever made it fail, the answer
     ;  is the same "place what fits" the picket takes.
     call ent_find_free_theirs
-    ret nc
+    jr c,@mis_derelict_room
+    pop af
+    ret
+@mis_derelict_room:
 
     call ent_addr
     push hl
@@ -313,7 +345,7 @@ mis_spawn_derelict:
     ;  Squadron, order and target come out right for free, and the class does
     ;  now that mis_make_enemy takes one; the two fields that do not are
     ;  overwritten below.
-    ld a,CLASS_FRIGATE
+    pop af
     call mis_make_enemy
 
     ld a,(ent_index)
@@ -330,7 +362,74 @@ mis_spawn_derelict:
 
 
 ; ----------------------------------------------------------------------------
-;  mis_make_enemy -- turn the entity at HL into a Vekhar ship of class A
+;  mis_derelict_wanted -- should this row's hull be adrift in this mission?
+;  In : HL -> a derelict_table row
+;  Out: CF set if it should be placed. HL is not preserved.
+;  Uses: AF, HL
+;
+;  EVERY EXIT GOES THROUGH ONE OF TWO LABELS, deliberately. `cp` sets CF when
+;  A is BELOW the operand, so "too early" and "place it" would otherwise both
+;  leave CF set on a `ret c` -- and the Destroyer's hull would be adrift in
+;  mission 1, which is a thing a range check is supposed to make impossible.
+; ----------------------------------------------------------------------------
+mis_derelict_wanted:
+    push hl
+    inc hl
+    inc hl
+    inc hl
+    ld a,(hl)                           ; the unlock this hull grants
+    ld hl,campaign_unlocks
+    and (hl)
+    pop hl
+    jr nz,@mis_der_no                   ; learned already; there is only one
+
+    ld a,(mis_index)
+    cp (hl)                             ; from
+    jr c,@mis_der_no                    ; too early for this one
+    inc hl
+    cp (hl)                             ; until, inclusive
+    jr c,@mis_der_yes
+    jr z,@mis_der_yes
+@mis_der_no:
+    or a                                ; CF clear: not this mission
+    ret
+@mis_der_yes:
+    scf
+    ret
+
+
+; ----------------------------------------------------------------------------
+;  mis_derelict_unlock -- what towing a hull of class A home teaches the yard
+;  In : A = the delivered hull's class
+;  Out: A = the unlock mask, 0 if that class teaches nothing.
+;       CF set if there is one.
+;  Uses: AF, B, DE, HL
+;
+;  THE SAME TABLE mis_spawn_derelict places from, and that is the point rather
+;  than thrift: "there is a dead Destroyer adrift from mission 9" and "towing a
+;  Destroyer hull home unlocks the Destroyer" are one fact, and two lists would
+;  disagree the first time a third capital ship was added to one of them.
+;
+;  Keyed on the CLASS and not on "was that the derelict", which is the older
+;  decision this inherits: no slot index to go stale, and it stays true the day
+;  campaign.asm fields a live frigate that the fleet shoots down.
+; ----------------------------------------------------------------------------
+mis_derelict_unlock:
+    ld hl,derelict_table + 2            ; the class byte of the first row
+    ld de,DERELICT_REC
+    ld b,DERELICT_KINDS
+@mis_unlock_row:
+    cp (hl)
+    jr z,@mis_unlock_found
+    add hl,de
+    djnz @mis_unlock_row
+    xor a                               ; CF clear too
+    ret
+@mis_unlock_found:
+    inc hl
+    ld a,(hl)
+    scf
+    ret
 ;  In : HL -> the entity, A = class
 ;  Uses: everything
 ;

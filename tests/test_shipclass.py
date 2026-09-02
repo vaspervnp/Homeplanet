@@ -255,17 +255,31 @@ class TestTheDestroyerIsGated(ClassFixture):
             self.hold(".", frames=20)
         return seen
 
-    def test_it_is_not_on_the_list_before_mission_5(self):
+    def test_it_is_not_on_the_list_until_its_hull_is_towed_home(self):
         """Stepped over rather than shown and refused. The panel has room for
         one three-letter tag, so an entry the player can see but cannot order
-        looks like a broken ENTER key."""
+        looks like a broken ENTER key.
+
+        IT USED TO BE A MISSION NUMBER -- section 8's "from mission 5" -- and
+        the design owner moved it to mission 9 AND asked for a derelict, so it
+        is a job now rather than a date. Reaching mission 9 is no longer enough
+        and this says so: the mission index is walked past the old gate and
+        past the new one, and the class is still absent."""
         self.boot()
         self.assertEqual(self.byte("MIS_INDEX"), 0)
         self.assertNotIn(CLASS_DESTROYER, self.walk_the_whole_list())
 
-    def test_it_is_on_the_list_from_mission_5(self):
+        for mission in (CLASS_DESTROYER_MIS, self.sym["MIS_DEST_WRECK_UNTIL"]):
+            self.c.write_ram(self.sym["MIS_INDEX"], bytes([mission]))
+            self.assertNotIn(
+                CLASS_DESTROYER, self.walk_the_whole_list(),
+                f"reaching mission {mission + 1} unlocked the Destroyer on its "
+                f"own, without the hull being salvaged")
+
+    def test_it_is_on_the_list_once_the_yard_has_learned_it(self):
         self.boot()
-        self.c.write_ram(self.sym["MIS_INDEX"], bytes([CLASS_DESTROYER_MIS]))
+        self.c.write_ram(self.sym["CAMPAIGN_UNLOCKS"],
+                         bytes([self.sym["CAMP_UNLOCK_DESTROYER"]]))
         self.assertIn(CLASS_DESTROYER, self.walk_the_whole_list())
 
     def test_ordering_it_early_is_refused_even_if_the_pick_gets_there(self):
@@ -296,17 +310,14 @@ class TestBuildingThroughTheUI(ClassFixture):
 
     def order(self, ship_class):
         self.c.write_ram(self.sym["ECO_RU"], (900).to_bytes(2, "little"))
-        #  The two gated classes, each arranged the way its own gate works --
-        #  see eco_class_gate in src/game/classdata.asm. The Destroyer's is a
-        #  mission number; the Frigate's is a bit the player sets by salvaging
-        #  the derelict, and tests/test_derelict.py is where THAT is tested.
-        #  Here they are just preconditions, so that this stays a test of what
-        #  the panel charges.
-        if ship_class == CLASS_DESTROYER:
-            self.c.write_ram(self.sym["MIS_INDEX"], bytes([CLASS_DESTROYER_MIS]))
-        if ship_class == CLASS_FRIGATE:
-            self.c.write_ram(self.sym["CAMPAIGN_UNLOCKS"],
-                             bytes([self.sym["CAMP_UNLOCK_FRIGATE"]]))
+        #  The two gated classes. BOTH are unlock bits now -- each capital ship
+        #  is learned by towing its own hull home, and tests/test_derelict.py is
+        #  where that is tested. Here they are just preconditions, so that this
+        #  stays a test of what the panel charges.
+        unlock = {CLASS_FRIGATE: "CAMP_UNLOCK_FRIGATE",
+                  CLASS_DESTROYER: "CAMP_UNLOCK_DESTROYER"}.get(ship_class)
+        if unlock:
+            self.c.write_ram(self.sym["CAMPAIGN_UNLOCKS"], bytes([self.sym[unlock]]))
         self.hold("b")
         self.assertEqual(self.byte("ECO_BUILD_OPEN"), 1, "the panel did not open")
 

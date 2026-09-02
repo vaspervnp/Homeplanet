@@ -152,8 +152,12 @@ WAVE_SAY_FRAMES     equ 40
 ;  with exactly one thing to say; the Frigate unlock is the second, and it is
 ;  the one that needed the line to become a line rather than a flag. See
 ;  wave_say_frigate.
+;  ...and one per unlock bit after it, in campaign_unlocks' own order: message
+;  n+1 is bit n. wave_say_unlock does that arithmetic so the two lists cannot
+;  drift.
 WAVE_MSG_INCOMING   equ 0
-WAVE_MSG_FRIGATE    equ 1
+WAVE_MSG_FRIGATE    equ CAMP_UNLOCK_FRIG_BIT + 1
+WAVE_MSG_DESTROYER  equ CAMP_UNLOCK_DEST_BIT + 1
 
 ;  Game frames between readings of the fleet's hull. See wave_update.
 WAVE_READ_EVERY     equ 4

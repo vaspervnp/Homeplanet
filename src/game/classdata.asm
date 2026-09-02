@@ -119,9 +119,16 @@ class_name_end:
 ;  CLASS_COUNT long and two places to look when a class is unexpectedly
 ;  missing from the panel.
 ;
-;  The Destroyer's row is written as CLASS_DESTROYER_MIS + 1 rather than as 5,
-;  so the equate section 8's "διαθέσιμο από την 5η αποστολή" already lives in
-;  is still the only place that number appears.
+;  BOTH CAPITAL SHIPS ARE UNLOCK BITS NOW and no row uses the mission form. The
+;  Destroyer's was CLASS_DESTROYER_MIS + 1 -- section 8's "διαθέσιμο από την 5η
+;  αποστολή" -- until the design owner moved it to mission 9 and asked for a
+;  derelict to go with it. A date and a job would have been two rules saying
+;  one thing, and the hull cannot be towed home before mission 9 anyway, so the
+;  job is the whole of it. See game/mission.asm.
+;
+;  THE 1..127 FORM STAYS, and it is not dead weight: it is the cheap gate, and
+;  the day a class wants "from mission N" it is a byte rather than a mechanic.
+;  tests/test_shipclass.py drives it directly so that it cannot rot unused.
 ; ----------------------------------------------------------------------------
 ECO_GATE_FLAG       equ #80
 
@@ -133,7 +140,7 @@ eco_class_gate:
     defb 0                              ; bomber
     defb ECO_GATE_FLAG + CAMP_UNLOCK_FRIG_BIT   ; frigate: salvage the derelict
     defb 0                              ; salvage corvette
-    defb CLASS_DESTROYER_MIS + 1        ; destroyer: from mission 5
+    defb ECO_GATE_FLAG + CAMP_UNLOCK_DEST_BIT   ; destroyer: salvage its own
 
 ; ----------------------------------------------------------------------------
 ;  What the yard offers, in the order , and . step through -- cheapest first,
@@ -146,7 +153,7 @@ eco_build_order:
     defb CLASS_BOMBER                   ;  55
     defb CLASS_SALVAGE                  ;  90
     defb CLASS_FRIGATE                  ; 120
-    defb CLASS_DESTROYER                ; 250, and not before mission 5
+    defb CLASS_DESTROYER                ; 250, and not before its hull is towed home
 eco_build_order_end:
 
 ;  Ship costs, Homeplanet.md section 8, indexed by class. A cost of zero means
