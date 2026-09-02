@@ -147,6 +147,28 @@ entities:           defs ENT_MAX * ENT_SIZE
 phase4_vis:         defs ENT_MAX * PHASE4_VIS_SIZE
 phase4_order:       defs ENT_MAX * 2        ; index, and its depth beside it
 phase4_gcount:      defs ENT_MAX
+
+;  The briefing being shown, copied out of BANK 7 by brief_fetch.
+;
+;  IN THE LOW 16K, AND THAT IS NOT A PREFERENCE. It was written into bank 4
+;  first, with fleet_block and class_standin, on the reasoning that space after
+;  bank4_end is free -- and bank 4 is THE WINDOW. brief_fetch does its copying
+;  with bank 7 paged in, so every byte went straight back into bank 7 on top of
+;  the text being read, and the buffer was still zero when bank 4 came back.
+;  The briefing drew its title and three blank lines.
+;
+;  Up here it costs address space and no file, exactly like the entity arrays
+;  above it: everything past code_end is outside the image DISC.BIN carries.
+;  ONE LINE, not all three, and that is the low 16K being the tight one again.
+;  Three lines is 111 bytes at the longest text the screen can hold, which took
+;  `free:` to 396 -- and the floor is about 450, because tests/test_sound.py
+;  puts 384 bytes of stub above LOW_END and harness another 0x60. A dozen test
+;  classes with nothing to do with briefings fail below it.
+;
+;  Fetching per line costs three bank flips a frame on a screen where nothing
+;  else is running at all, which is the cheapest 71 bytes ever bought.
+BRIEF_BUF_SIZE      equ 40
+brief_line:         defs BRIEF_BUF_SIZE
 ;  ...and the two dirty-rectangle lists, which are ENT_MAX-shaped as well
 ;  (PHASE4_RECT_SLOTS), so they grew with the fleet too.
 phase4_rects_a:     defs PHASE4_RECT_SLOTS * 4
@@ -676,6 +698,12 @@ bank6_end:
 bank7_start:
     include "gen/spr_salvage.asm"
     include "gen/spr_destroyer.asm"
+
+;  ...and the briefings, in the 4672 bytes of this bank that lib_load was
+;  already reading and throwing away. game/briefings.asm has the arithmetic;
+;  the short of it is that raw sectors cost DISC.BIN nothing and DISC.BIN is
+;  what twenty missions do not fit inside.
+    include "game/briefings.asm"
 bank7_end:
     save "build/bank7.raw", BANK_WINDOW, bank7_end - BANK_WINDOW
 

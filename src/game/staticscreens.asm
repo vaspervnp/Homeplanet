@@ -259,9 +259,20 @@ mis_brief_draw:
     call txt_draw                       ; HL is already the name
 
     ;  The lines are BRIEF_LINES zero-terminated strings a mission, back to
-    ;  back in mission_text, walked to rather than pointed at: twenty-four
-    ;  pointers was forty-eight bytes of a bank that has none, and the strings
-    ;  were already in order.
+    ;  back in mission_text, walked to rather than pointed at: sixty pointers
+    ;  would be a hundred and twenty bytes spent to avoid counting zero bytes
+    ;  that are already there, and the strings were always in order.
+    ;
+    ;  ...and mission_text is in BANK 7 now, with the salvage and destroyer
+    ;  libraries, because twenty missions' worth of briefings does not fit in
+    ;  DISC.BIN and lib_load was already reading 4672 unused bytes into that
+    ;  bank every boot. This code is bank 4 and CANNOT page bank 7 in for
+    ;  itself -- the window would stop being the RAM it is executing from -- so
+    ;  brief_fetch does the paging from the low 16K. See game/briefings.asm.
+    ;
+    ;  It fetches ONE LINE per call, so mis_text_ptr counts strings now instead
+    ;  of walking them; a three-line buffer cost 111 bytes of a low 16K whose
+    ;  floor the tests put at about 450.
     call mis_descriptor
     ld de,MIS_TEXT
     add hl,de
@@ -269,15 +280,7 @@ mis_brief_draw:
     ld b,a
     add a,a
     add a,b                             ; BRIEF_LINES strings a mission
-    ld b,a
-    ld hl,mission_text
-    or a
-    jr z,@mis_brief_at
-@mis_brief_seek:
-    call mis_next_line
-    djnz @mis_brief_seek
-@mis_brief_at:
-    ld (mis_text_ptr),hl
+    ld (mis_text_ptr),a
 
     ld a,BRIEF_TEXT_Y
     ld (mis_text_y),a
@@ -285,11 +288,12 @@ mis_brief_draw:
     ld (mis_text_left),a
 
 @mis_brief_line:
-    ld hl,(mis_text_ptr)
-    push hl
-    call mis_next_line
-    ld (mis_text_ptr),hl
-    pop hl
+    ld a,(mis_text_ptr)
+    inc a
+    ld (mis_text_ptr),a
+    dec a
+    call brief_fetch
+    ld hl,brief_line
     ld b,BRIEF_X
     ld a,(mis_text_y)
     ld c,a

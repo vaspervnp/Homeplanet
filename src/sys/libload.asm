@@ -242,6 +242,85 @@ lib_init:
     ret
 
 
+; ----------------------------------------------------------------------------
+;  brief_fetch -- copy ONE briefing line out of bank 7
+;  In : A = which string, counting from the first line of the first mission
+;  Out: brief_line holds it, zero-terminated
+;  Uses: everything
+;
+;  IN THE LOW 16K, AND IT HAS TO BE. The briefing text lives in bank 7 with the
+;  salvage and destroyer libraries -- see game/briefings.asm for why it is not
+;  in bank 4 -- and mis_brief_draw, which wants it, is bank 4 code. It cannot
+;  page bank 7 in for itself: the instant it does, the window stops being the
+;  RAM it is executing from. So the OUT happens here, with the CPU already
+;  running in the low 16K, and bank 4 is back before the RET reaches a return
+;  address that is in it. Exactly gfx/sprite.asm's spr_blit_banked, and exactly
+;  the trap title_draw_ships fell into when the libraries repacked 3+3+2.
+;
+;  No DI. The interrupt handler calls snd_update and key_scan and neither reads
+;  bank 4 -- which is why mus_update is called from the frame loop and not from
+;  the tick. A briefing is drawn with the world stopped, so nothing else is
+;  looking at the window either.
+;
+;  Walked to rather than pointed at, for the reason the text has always been:
+;  the strings are in order, so sixty pointers would be a hundred and twenty
+;  bytes spent to avoid counting zero bytes that are already there. The walk is
+;  up to sixty strings long at the end of a twenty-mission campaign, on a
+;  static screen with the world stopped.
+; ----------------------------------------------------------------------------
+brief_fetch:
+    ld (brief_skip),a
+
+    ld bc,GA_PORT * 256 + GA_BANK_7
+    out (c),c
+
+    ld hl,mission_text
+    ld a,(brief_skip)
+    or a
+    jr z,@brief_at_text
+    ld b,a
+@brief_skip_string:
+    ld a,(hl)
+    inc hl
+    or a
+    jr nz,@brief_skip_string
+    djnz @brief_skip_string             ; ...one whole string per pass
+@brief_at_text:
+
+    ;  C is the room left in the buffer. A bound rather than a comment: the
+    ;  text is authored in another file and a line long enough to run past the
+    ;  end would write over whatever follows, on a screen that is drawn before
+    ;  anyone could see what went wrong. B is 1 because this fetches a single
+    ;  line -- see the note by brief_line in src/main.asm for why the buffer is
+    ;  not three of them.
+    ld de,brief_line
+    ld b,1
+    ld c,BRIEF_BUF_SIZE
+@brief_copy:
+    ld a,(hl)
+    ld (de),a
+    inc hl
+    inc de
+    dec c
+    jr z,@brief_full
+    or a
+    jr nz,@brief_copy
+    djnz @brief_copy
+    jr @brief_done
+
+@brief_full:
+    ;  Out of room. Terminate what there is, so the drawing walks off the end
+    ;  of a string rather than off the end of the buffer.
+    dec de
+    xor a
+    ld (de),a
+
+@brief_done:
+    ld bc,GA_PORT * 256 + GA_BANK_4
+    out (c),c
+    ret
+
+
 ; ============================================================================
 ;  State
 ; ============================================================================
@@ -249,6 +328,7 @@ lib_init:
 ;  LIB_TRACK equate above are the same symbol and the build stops with "there
 ;  is already an alias with the same name".
 lib_bank:           defb 0
+brief_skip:         defb 0
 lib_next_track:     defb 0
 lib_cur_track:      defb 0
 lib_left:           defb 0
