@@ -259,6 +259,83 @@ order_dock:
     pop hl
     ld bc,6
     ldir
+    jp order_release_attack
+
+
+; ----------------------------------------------------------------------------
+;  order_release_attack -- a movement order ENDS an attack order
+;  Uses: everything
+;
+;  Reported as "χάνω τυχαία τον στόλο ... τον βλέπω, τον επιλέγω, αλλά δεν
+;  απαντάει στις εντολές", and it was all three of those things at once.
+;
+;  phase4_fly SKIPS a ship under ENT_ORDER_ATTACK, deliberately, so that
+;  cbt_move_enemies can close it on its target without the two of them stepping
+;  it by PHASE4_STEP in opposite directions and cancelling. The consequence
+;  nobody had followed through is that while the order stands, `R`, `F` and the
+;  move disc are not merely ineffective -- they are SILENTLY ineffective. The
+;  station is written, the formation is changed, the disc is confirmed, and not
+;  one ship moves. Nothing on screen says why, and the only key that ever got a
+;  squadron back was `G`, which is not something a player would guess.
+;
+;  Measured on the build this was reported against: one hostile alive at 7500
+;  units, press `A`, and TWELVE OF SIXTEEN ships fly out to it while four stay
+;  behind -- the squadron spread from 0 to 7500 units apart. `R` and then `F`
+;  moved neither group. `G` brought them home. The four that stayed are the
+;  "τυχαία": cbt_distance saturates at 255, so at that range whether a
+;  particular ship finds the enemy at all turns on a few hundred world units of
+;  where its formation slot happened to put it, and one order tears the
+;  squadron in half.
+;
+;  So: telling a squadron where to BE is a new order, and it replaces the old
+;  one. IDLE and not GUARD, for the reason cbt_fire_if_able gives where it
+;  spends the order itself -- cbt_retarget_one returns early for GUARD, so a
+;  ship dropped into it stops being re-pointed at nearer targets.
+;
+;  ONLY ATTACK, and that guard is the same one cbt_fire_if_able needs: a
+;  harvester in the selection is carrying ENT_ORDER_HARVEST, and a `R` that
+;  cleared orders unconditionally would send the miners home and stop the
+;  economy every time the player docked.
+;
+;  ENT_PLAYER_MAX and not ENT_MAX: a hostile carries SQUAD_NONE and could never
+;  match the selection, so the hostile region is twenty slots of asking.
+; ----------------------------------------------------------------------------
+order_release_attack:
+    xor a
+    ld (order_index),a
+@ord_rel_one:
+    ld a,(order_index)
+    call ent_addr
+
+    push hl
+    ld de,ENT_FLAGS
+    add hl,de
+    bit 0,(hl)
+    pop hl
+    jr z,@ord_rel_next
+
+    push hl
+    ld de,ENT_SQUAD
+    add hl,de
+    ld a,(hl)
+    ld hl,squad_sel
+    cp (hl)
+    pop hl
+    jr nz,@ord_rel_next
+
+    ld de,ENT_ORDER
+    add hl,de
+    ld a,(hl)
+    cp ENT_ORDER_ATTACK
+    jr nz,@ord_rel_next
+    ld (hl),ENT_ORDER_IDLE
+
+@ord_rel_next:
+    ld hl,order_index
+    inc (hl)
+    ld a,(hl)
+    cp ENT_PLAYER_MAX
+    jr c,@ord_rel_one
     ret
 
 
@@ -299,7 +376,7 @@ order_target_step:
 @ord_tgt_in_range:
     ld c,a
     push bc
-    call ent_is_active
+    call ent_is_flying
     pop bc
     jr c,@ord_tgt_found
     djnz @ord_tgt_try
@@ -664,7 +741,7 @@ order_disc_confirm:
     ldir
     xor a
     ld (disc_active),a
-    ret
+    jp order_release_attack
 
 
 ; ----------------------------------------------------------------------------

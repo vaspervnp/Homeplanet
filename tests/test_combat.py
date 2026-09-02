@@ -709,3 +709,101 @@ class TestBothSidesLookInTheRightPlace(CombatFixture):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestAMovementOrderEndsAnAttackOrder(CombatFixture):
+    """Reported as "χάνω τυχαία τον στόλο ... δεν απαντάει στις εντολές".
+
+    phase4_fly skips a ship under ENT_ORDER_ATTACK on purpose, so while the
+    order stands `R`, `F` and the move disc are not merely ineffective -- they
+    are SILENTLY ineffective. Nothing on screen says so and `G` was the only
+    key that ever recalled a squadron.
+
+    Measured against the build this was reported on: one hostile alive at 7500
+    units, press `A`, and twelve of sixteen ships fly out to it while four stay
+    behind. Neither `R` nor `F` moved either group.
+    """
+
+    #  Far enough that the flight out is long and obvious, and inside the range
+    #  cbt_distance can still express -- it saturates at 255 camera units, which
+    #  is 16320 world units, and past that an enemy is never found at all.
+    FAR = 7500
+
+    def keep_a_hostile_alive(self, frames, step=20):
+        """Run the game with one distant enemy that cannot be killed.
+
+        The fleet reaches it and would destroy it in seconds otherwise, and
+        then the attack order spends itself for the ordinary reason -- which
+        is the thing this test must not measure.
+        """
+        slot = self.sym["ENT_PLAYER_MAX"] + 2
+        base = self.sym["ENTITIES"] + slot * ENT_SIZE
+        for _ in range(0, frames, step):
+            self.c.write_ram(base, struct.pack("<hhh", self.FAR, 0, self.FAR))
+            self.c.write_ram(base + ENT_FLAGS, bytes([F_ACTIVE | F_ENEMY]))
+            self.c.write_ram(base + ENT_HULL, b"\xff")
+            self.c.write_ram(base + ENT_CLASS, b"\x00")
+            self.c.run_frames(step)
+
+    def fleet_orders(self):
+        return [self.ent(s, ENT_ORDER)[0]
+                for s in range(self.sym["ENT_PLAYER_MAX"])
+                if self.flags(s) & F_ACTIVE]
+
+    def furthest_ship(self):
+        return max(max(abs(v) for v in self.position(s))
+                   for s in range(self.sym["ENT_PLAYER_MAX"])
+                   if self.flags(s) & F_ACTIVE)
+
+    def send_them_out(self):
+        self.kill_all_enemies()
+        self.keep_a_hostile_alive(40)
+        started_within = self.furthest_ship()
+        self.c.key_down("a")
+        self.keep_a_hostile_alive(25)
+        self.c.key_up("a")
+        self.keep_a_hostile_alive(60)
+        self.assertIn(ENT_ORDER_ATTACK, self.fleet_orders(),
+                      "pressing A did not put the squadron under an attack order")
+        return started_within
+
+    def press(self, key):
+        self.c.key_down(key)
+        self.keep_a_hostile_alive(25)
+        self.c.key_up(key)
+        self.keep_a_hostile_alive(400)
+
+    def test_the_station_key_recalls_a_squadron_that_is_attacking(self):
+        home = self.send_them_out()
+        self.press("r")
+        self.assertNotIn(ENT_ORDER_ATTACK, self.fleet_orders(),
+                         "R left the squadron attacking")
+        self.assertLess(self.furthest_ship(), home + 1200,
+                        "R was obeyed on paper and no ship came home")
+
+    def test_the_formation_key_recalls_a_squadron_that_is_attacking(self):
+        home = self.send_them_out()
+        self.press("f")
+        self.assertNotIn(ENT_ORDER_ATTACK, self.fleet_orders(),
+                         "F left the squadron attacking")
+        self.assertLess(self.furthest_ship(), home + 1200,
+                        "F was obeyed on paper and no ship came home")
+
+    def test_a_harvest_order_survives_a_movement_order(self):
+        """The guard that makes this safe, and it is not hypothetical.
+
+        A harvester in the selection carries ENT_ORDER_HARVEST, and an `R`
+        that cleared orders unconditionally would send every miner home and
+        stop the economy each time the player docked.
+        """
+        harvest = self.sym["ENT_ORDER_HARVEST"]
+        slot = next(s for s in range(self.sym["ENT_PLAYER_MAX"])
+                    if self.flags(s) & F_ACTIVE)
+        self.c.write_ram(self.sym["ENTITIES"] + slot * ENT_SIZE + ENT_ORDER,
+                         bytes([harvest]))
+        self.c.key_down("r")
+        self.c.run_frames(25)
+        self.c.key_up("r")
+        self.c.run_frames(30)
+        self.assertEqual(self.ent(slot, ENT_ORDER)[0], harvest,
+                         "docking took the harvest order off a miner")

@@ -67,7 +67,7 @@ form_init:
 
 ; ----------------------------------------------------------------------------
 ;  form_cycle -- the F key: next formation for the selected squadron
-;  Uses: AF, DE, HL
+;  Uses: everything
 ; ----------------------------------------------------------------------------
 form_cycle:
     ld a,(squad_sel)
@@ -82,7 +82,13 @@ form_cycle:
     xor a
 @form_store:
     ld (hl),a
-    ret
+
+    ;  Changing the shape is telling the squadron where to BE, so it ends an
+    ;  attack order the same way the station and the move disc do. Without it
+    ;  `F` is silently ignored for exactly as long as the fleet is out
+    ;  fighting -- which is when a player is most likely to press it. See
+    ;  order_release_attack for what was reported and what was measured.
+    jp order_release_attack
 
 
 ; ----------------------------------------------------------------------------

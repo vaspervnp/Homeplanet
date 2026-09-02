@@ -251,6 +251,38 @@ ent_is_active:
 
 
 ; ----------------------------------------------------------------------------
+;  ent_is_flying -- CF set if slot A holds a ship that could be shot at
+;  In : A = slot index
+;  Out: CF set = active and not wreckage
+;  Uses: AF, DE, HL
+;
+;  A wreck is ACTIVE + ENEMY + DISABLED, so ent_is_active says yes to a hulk.
+;  That is right for "is this slot occupied" and wrong for every question the
+;  PLAYER asks. `,` and `.` walked onto derelicts because of it, and `A` then
+;  aimed the squadron at something that cannot be attacked -- the ships stop
+;  dead until cbt_fire_if_able notices and re-acquires, which reads exactly
+;  like the attack key not working. Every kill leaves a hulk now, so the target
+;  list fills up with them as a mission goes on.
+;
+;  combat.asm's cbt_target_flying asks the same question of (cbt_target); this
+;  one takes a slot, so the order code does not have to write combat's own
+;  scratch variable in order to ask it.
+; ----------------------------------------------------------------------------
+ent_is_flying:
+    call ent_addr
+    ld de,ENT_FLAGS
+    add hl,de
+    ld a,(hl)
+    bit 2,a                             ; ENT_F_DISABLED
+    jr nz,@ent_wreckage
+    rra
+    ret
+@ent_wreckage:
+    or a                                ; CF clear: nothing to aim at
+    ret
+
+
+; ----------------------------------------------------------------------------
 ;  ent_find_free_ours / ent_find_free_theirs -- the first free slot of a REGION
 ;  Out: CF set and A = the slot (and (ent_index) = it too), or CF clear if that
 ;       region is full
