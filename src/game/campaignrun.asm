@@ -28,6 +28,8 @@ mis_init:
     ld (mis_complete),a
     ld (mis_leave_ok),a
     ld (mis_failed),a
+    ld (mis_won),a
+    ld (jfx_no_arrival),a               ; uninitialised bank RAM until now
     ld (mis_saved),a                    ; nothing banked yet
     ld (campaign_unlocks),a             ; ...and nothing reverse-engineered
     ld hl,0
@@ -152,6 +154,7 @@ mis_setup:
     ld (mis_complete),a
     ld (mis_leave_ok),a
     ld (mis_failed),a
+    ld (mis_won),a
     ld (eco_repaired),a                 ; one repair per mission
     ;  ...and the base is not left half-mended across a jump with the yard shut.
     ;  moth_fixing halts production, so a flag carried into the next mission
@@ -619,14 +622,84 @@ mis_gate:
 
     ;  ...and the drive has to be paid for. Asked here rather than at the key
     ;  so that the HUD's JUMP never offers what ENTER would refuse.
+    ;
+    ;  EXCEPT ON THE LAST ONE, where the key is LAND and not JUMP: the fleet is
+    ;  not travelling anywhere, it has arrived. Charging for it would let a
+    ;  player who cleared the final board be refused the ending because they
+    ;  had spent the treasury on the fleet that cleared it -- which is the
+    ;  worst possible moment for this game to say no.
+    call mis_is_last
+    jr c,@mis_gate_open
     call mis_jump_fare
     ld hl,(eco_ru)
     or a
     sbc hl,de
     ret c
 
+@mis_gate_open:
     ld a,1
     ld (mis_leave_ok),a
+    ret
+
+
+; ----------------------------------------------------------------------------
+;  mis_leave_word -- what the HUD's fourth field says about leaving
+;  Out: HL -> the string, CF set if it names a key that works right now
+;  Uses: AF, HL
+;
+;  Blank, JUMP, or LAND on the last mission. All three in one place because
+;  they are one question, and IN BANK 4 because asking it in the low 16K cost
+;  a whole page -- see the call site in src/demo/phase4.asm.
+;
+;  JUMP and LAND are the same four characters, which is most of why the ending
+;  is a different WORD rather than a different field: the position was measured
+;  for four and src/main.asm asserts the two stay equal.
+; ----------------------------------------------------------------------------
+mis_leave_word:
+    ld hl,phase4_hud_blank + 1          ; four spaces: no way out yet
+    ld a,(mis_leave_ok)
+    or a
+    ret z                               ; CF clear, from the OR
+    ld hl,mis_word_jump
+    call mis_is_last
+    jr nc,@mis_word_done
+    ld hl,mis_word_land
+@mis_word_done:
+    scf
+    ret
+
+mis_word_jump:      defb "JUMP",0
+mis_word_jump_end:
+mis_word_land:      defb "LAND",0
+mis_word_land_end:
+
+
+; ----------------------------------------------------------------------------
+;  mis_is_last -- CF set if the mission being played is the final one
+;  Uses: AF
+;
+;  One place that knows which mission the campaign ends at, read by the gate,
+;  by mis_jump and by the HUD's label. Three copies of `cp MIS_COUNT - 1` would
+;  be three chances for the key, the word on the screen and the fare to
+;  disagree about where the ending is.
+; ----------------------------------------------------------------------------
+mis_is_last:
+    ld a,(mis_index)
+    cp MIS_COUNT - 1
+    jr z,@mis_last_yes
+    ;  NOT `ret nz`. CP sets CARRY when A is BELOW the operand, so every
+    ;  mission before the last would return with the flag SET -- which reads as
+    ;  "this is the last one". The HUD said LAND in mission 1 and mis_gate
+    ;  waived the fare for the whole campaign.
+    ;
+    ;  This is the SECOND time in three days: mis_derelict_wanted, forty lines
+    ;  up, carries a paragraph about the same trap, and it was written by me.
+    ;  A routine whose answer IS the carry flag has to set the flag on every
+    ;  exit deliberately; there is no such thing as falling out of one.
+    or a
+    ret
+@mis_last_yes:
+    scf
     ret
 
 
@@ -755,10 +828,14 @@ mis_jump:
     or a
     jr z,@mis_no_jump
 
-    ld a,(mis_index)
-    inc a
-    cp MIS_COUNT
-    jr nc,@mis_no_jump                  ; the campaign is over
+    ;  THE LAST MISSION LANDS INSTEAD OF JUMPING. This used to refuse -- the
+    ;  campaign simply had no twenty-first row -- so a player who fought
+    ;  through all twenty was left flying around a cleared board with a key
+    ;  that did nothing. A journey that is computed to be over and never says
+    ;  so is not an ending, which is the same thing the defeat screen was
+    ;  written to fix and is now the third time this file has recorded it.
+    call mis_is_last
+    jr c,@mis_land
 
     ;  Pay for the drive. AFTER the two refusals above and before anything
     ;  else moves, so a refused jump is never charged for -- mis_gate has
@@ -795,6 +872,23 @@ mis_jump:
     call fleet_restore
     call mis_setup
     call mis_brief_open                 ; every mission opens on its briefing
+    scf
+    ret
+
+@mis_land:
+    ;  THE VANISH RUNS, and the arrival does not. jfx_vanish erases the fleet
+    ;  where it stands, which is the right gesture for a fleet setting down --
+    ;  and it must NOT arm the reveal, because there is no next mission to be
+    ;  revealed and the flag would fire over the victory page. jfx_land is
+    ;  jfx_vanish without that.
+    call jfx_land
+
+    ;  ...and that is the whole of it. mis_index is NOT advanced -- there is no
+    ;  twentieth-first row -- and the save is NOT written, because over_key
+    ;  erases it on the way out and writing it here would only be undone. The
+    ;  campaign is finished, not suspended.
+    ld a,1
+    ld (mis_won),a
     scf
     ret
 

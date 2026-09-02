@@ -268,12 +268,17 @@ demo_update:
     ;  opens the title, and drawing the page afterwards would put it over the
     ;  screen it has just handed on to.
 @p4_check_over:
+    ;  EITHER ENDING. mis_failed is the flag for one and mis_won for the other,
+    ;  they cannot both be set, and over_draw picks its words off whichever it
+    ;  is -- see game/gameover.asm for why the two pages are one page.
     ld a,(mis_failed)
-    or a
+    ld hl,mis_won
+    or (hl)
     jr z,@p4_check_brief
     call over_key
     ld a,(mis_failed)
-    or a
+    ld hl,mis_won
+    or (hl)
     jr z,@p4_static_done                ; dismissed: the title has it now
     call phase4_select_list
     call over_draw
@@ -2136,11 +2141,14 @@ phase4_hud:
     ;  mis_leave_ok and not mis_complete. The label is a promise that the key
     ;  works, so it has to track the same byte mis_jump reads -- an objective
     ;  met with a wave still on the screen is not a jump.
-    ld a,(mis_leave_ok)
-    or a
-    ld hl,phase4_hud_blank + 1          ; four spaces: no jump yet
-    jr z,@p4_mis_show
-    ld hl,phase4_hud_jump               ; the jump is available
+    ;  WHICH WORD IS BANK 4'S BUSINESS -- blank, JUMP, or LAND on the last
+    ;  mission, where there is nowhere further to go and the key ends the
+    ;  campaign instead of moving it on. It went here first, as three loads and
+    ;  two branches, and cost the LOW 16K a whole page: `free:` 484 to 228,
+    ;  under the ~450 the tests need, and a page of the low 16K is 256 bytes of
+    ;  a DISC.BIN that had 174. One call and two strings in the bank instead.
+    call mis_leave_word
+    jr nc,@p4_mis_show
     ld a,PEN_RED                        ; ...and section 2 makes 3 the ink
     call txt_set_pen                    ; that means "look at this"
 @p4_mis_show:
@@ -2488,12 +2496,6 @@ phase4_hud_shadow_mis:  defb #FE
 phase4_hud_ru_label: defb "RU ",0
 phase4_hud_help:     defb "?HELP",0
 phase4_hud_mis_label: defb "M",0
-phase4_hud_jump:     defb "JUMP",0
-;  So src/main.asm can measure THIS string rather than the run of three that
-;  follows it. RASM cannot count zero bytes, so a label is the only way to ask
-;  how long one string in a run is -- the same reason wave_say_text has one
-;  between each of its messages.
-phase4_hud_jump_end:
 phase4_yard_text:    defb " XXX ",0      ; marker, tag, and the queue's depth
 phase4_hud_text:    defb " 0:",0        ; the marker and digit are patched in
 

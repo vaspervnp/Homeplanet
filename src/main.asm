@@ -335,7 +335,6 @@ low_end:
 ;  plausible mission number -- this project's oldest failure shape. The width is
 ;  checked against MIS_COUNT now, so it cannot fall behind the mission table.
     assert MIS_COUNT < 100, "the mission number needs more digits than HUD_MIS_DIGITS"
-    assert HUD_MIS_JUMP_X + (phase4_hud_jump_end - phase4_hud_jump - 1) * TXT_CHAR_W_BYTES <= SCR_BYTES_PER_LINE, "JUMP runs off the end of the HUD row"
 
 ;  ...and the queue's depth is drawn as ONE digit, which is only enough while
 ;  the waiting line cannot reach ten. The slipway holds the tenth order, so it
@@ -547,6 +546,16 @@ class_standin:
 ;  pad walked into: "a zeroed pad gives it for free" was wrong, because nothing
 ;  had ever written those bytes.
 ; ----------------------------------------------------------------------------
+;  The campaign has been FINISHED. Like mis_failed it is the whole flag -- the
+;  victory page is up exactly when this is set -- and like mis_failed it is
+;  cleared in every place a campaign begins, so "the screen goes away when a
+;  new game starts" is true by construction rather than by anyone remembering
+;  to clear a second byte. Up here for the same page-quantum reason as the four
+;  below it, and mis_init writes both before anything reads them, which is what
+;  makes uninitialised bank RAM safe for them.
+mis_won:            defs 1
+jfx_no_arrival:     defs 1              ; this sweep is a LANDING, so no reveal
+
 moth_fixing:        defs 1              ; the yard is on the base, not on ships
 moth_fix_frac:      defs 1              ; hundredths of a hull point carried
 moth_fix_ticks:     defs 1              ; 50 Hz ticks towards the next second
@@ -643,6 +652,15 @@ bank4_limit:
 ;  table would be the SUM of the messages and would fail the moment there were
 ;  two of them -- which is not the check anyone wants. Each one is drawn at
 ;  HUD_SAY_X on its own, so each one is measured against HUD_MOTH_X on its own.
+;  The HUD's fourth field, and both words that share it. DOWN HERE because
+;  mis_leave_word and its two strings are in bank 4 -- an ASSERT is evaluated
+;  where it stands and cannot see an include that has not happened yet, which
+;  is the same reason the hull row's measurements are down here.
+    assert HUD_MIS_JUMP_X + (mis_word_jump_end - mis_word_jump - 1) * TXT_CHAR_W_BYTES <= SCR_BYTES_PER_LINE, "JUMP runs off the end of the HUD row"
+;  LAND shares the position, so it must be the same width. It is a different
+;  WORD and not a different layout, and that is only true while they are equal.
+    assert mis_word_land_end - mis_word_land == mis_word_jump_end - mis_word_jump, "LAND and JUMP are different lengths and share a position"
+
     assert HUD_SAY_X + (wave_say_text_1 - wave_say_text - 1) * TXT_CHAR_W_BYTES <= HUD_MOTH_X, "INCOMING runs into the Mothership's hull"
     assert HUD_SAY_X + (wave_say_text_2 - wave_say_text_1 - 1) * TXT_CHAR_W_BYTES <= HUD_MOTH_X, "the Frigate unlock message runs into the Mothership's hull"
     assert HUD_SAY_X + (wave_say_text_end - wave_say_text_2 - 1) * TXT_CHAR_W_BYTES <= HUD_MOTH_X, "the Destroyer unlock message runs into the Mothership's hull"
@@ -673,6 +691,15 @@ bank4_limit:
     assert OVER_LINE_2_X * 2 + (over_line_3 - over_line_2 - 1) * TXT_CHAR_W_BYTES == SCR_BYTES_PER_LINE, "the game-over screen's second line is not centred"
     assert OVER_LINE_3_X * 2 + (over_prompt - over_line_3 - 1) * TXT_CHAR_W_BYTES == SCR_BYTES_PER_LINE, "the game-over screen's third line is not centred"
     assert OVER_PROMPT_X * 2 + (over_prompt_end - over_prompt - 1) * TXT_CHAR_W_BYTES == SCR_BYTES_PER_LINE, "the game-over screen's prompt is not centred"
+;  ...and the victory page's own three, which share the prompt and the same
+;  hand-worked centring. Its big word is HOMEPLANET -- ten glyphs, the whole
+;  line, flush left exactly as the title screen draws the same word, which
+;  is why it has no centring assert but a width one.
+    assert WIN_LINE_1_X * 2 + (win_line_2 - win_line_1 - 1) * TXT_CHAR_W_BYTES == SCR_BYTES_PER_LINE, "the victory screen's first line is not centred"
+    assert WIN_LINE_2_X * 2 + (win_line_3 - win_line_2 - 1) * TXT_CHAR_W_BYTES == SCR_BYTES_PER_LINE, "the victory screen's second line is not centred"
+    assert WIN_LINE_3_X * 2 + (win_line_3_end - win_line_3 - 1) * TXT_CHAR_W_BYTES == SCR_BYTES_PER_LINE, "the victory screen's third line is not centred"
+    assert (win_line_1 - win_title - 1) * TXT_BIG_W_BYTES <= SCR_BYTES_PER_LINE, "the victory title is wider than the screen"
+    assert win_line_1 - win_title - 1 == 10, "the victory title is not the ten-glyph name the title screen draws"
 
 ;  ...and the big word, whose glyphs are five pixels in an eight-pixel cell --
 ;  so the drawn width is three bytes short of the cells it occupies, and that

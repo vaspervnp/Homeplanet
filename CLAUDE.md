@@ -982,7 +982,7 @@ not needed and should stay unspent.
 | `?` | the key list; `ESC` goes back |
 | `SPACE` | on the title screen, start the game |
 
-`J` jumps when `mis_gate` allows it — the objective met, three waves seen, no
+`J` **lands** rather than jumping on the last mission, and landing opens the victory screen — see "The end of the journey". Otherwise it jumps when `mis_gate` allows it — the objective met, three waves seen, no
 enemy flying and **`MIS_JUMP_COST` in the treasury** — and writes the save on
 its way out.
 
@@ -5330,6 +5330,73 @@ into both buffers, the bar does the same), two of them cross a tick boundary,
 and `demo_frames` is an integer — so 19.8 game frames counted as 19.
 `test_frame_rate_does_not_regress` now settles for 100 frames and measures
 over 400.
+
+### The end of the journey
+
+**On the last mission the key is `LAND`, and landing is the ending.** It used
+to REFUSE: `mis_jump` bounced off `cp MIS_COUNT` and a player who fought
+through all twenty was left on a cleared board with a key that did nothing.
+That is the same defect the game-over screen exists to fix — an ending the game
+computes and never says — arriving from the other side.
+
+`mis_is_last` is the one place that knows where the campaign ends, and the
+gate, the key and the HUD's word all ask it. Three copies of `cp MIS_COUNT - 1`
+would be three chances for them to disagree.
+
+- **Landing is FREE.** `mis_gate` skips the fare on the last mission, because
+  the fleet is not travelling anywhere. Charging would let a player who cleared
+  the final board be refused the ending for having spent the treasury on the
+  fleet that cleared it — the worst possible moment for this game to say no.
+- **`mis_index` does not move and the disc is not written.** There is no
+  twenty-first row, and `over_key` erases the save on the way out, so writing
+  it here would only be undone. The campaign is finished, not suspended.
+- **The vanish runs and the arrival does not.** `jfx_land` is `jfx_vanish`
+  without arming `jfx_armed` — there is no briefing to reveal, and the flag
+  would sit unspent until something dismissed a screen and then run a
+  seventeen-second reveal over the victory page.
+
+**THE TWO ENDINGS ARE ONE PAGE.** They were nearly two files. Everything is
+shared — the 200-line wipe, a big word in `txt_big`, three centred lines, the
+homeplanet, and `SPACE` erasing the save and beginning again — so what differs
+is a nine-byte descriptor: the words, their columns, and the big word's ink.
+A second copy would have been ~200 bytes of a `DISC.BIN` that had 400, and two
+places to fix the day the layout moved.
+
+**The big word is the game's own name.** `HOMEPLANET` is exactly ten glyphs,
+which is what `txt_big` spans the screen with and what the title screen already
+draws — so the first screen states it as a promise and the last as an arrival,
+in the same letters at the same size. White where `GAME OVER` is red. The three
+lines mirror the defeat's line for line, because the two endings are the same
+sentence with the verbs changed:
+
+| lost | won |
+|---|---|
+| `THE MOTHERSHIP IS GONE.` | `THE MOTHERSHIP IS HOME.` |
+| `SIXTY THOUSAND SLEEPERS WITH IT.` | `SIXTY THOUSAND SLEEPERS WAKE.` |
+| `NINE GENERATIONS END HERE.` | `NINE GENERATIONS BEGIN HERE.` |
+
+**No fires on the winning page**, which is the same world arrived at rather
+than burning — and it is the picture the title screen already draws.
+
+> **`ret nz` RETURNED CARRY SET, and I had written the warning myself two
+> commits earlier.** `mis_is_last` was `cp MIS_COUNT - 1 : ret nz`, and `CP`
+> sets carry when A is BELOW the operand — so every mission before the last
+> returned with the flag meaning "this IS the last one". The HUD said `LAND` in
+> mission 1 and `mis_gate` waived the fare for the whole campaign.
+> `mis_derelict_wanted`, forty lines up in the same file, carries a paragraph
+> about exactly this trap. **A routine whose answer IS the carry flag has to
+> set the flag on every exit deliberately; there is no falling out of one.**
+> Caught because the test asserted `JUMP` in mission 1 as well as `LAND` in
+> mission 20 — the half that looks redundant is the half that failed.
+
+> **AND `ld (mis_won),a` WENT BESIDE EVERY WRITE OF `mis_failed`, INCLUDING THE
+> ONE THAT SETS IT.** Three sites clear the flag and one sets it to 1 on the
+> Mothership's loss, so losing the campaign also *won* it and the defeat screen
+> drew `THE MOTHERSHIP IS HOME.` over a burning planet. Eleven `test_gameover`
+> failures, all reading "the page never reached both buffers", which says
+> nothing about the cause. Found by putting the page on the screen and reading
+> it back, not by re-reading the diff. **A blind edit across "every site that
+> writes X" assumes they all write the same VALUE.**
 
 ### The game-over screen
 

@@ -795,3 +795,156 @@ class TestTheBriefingComesOutOfBankSeven(unittest.TestCase):
             self.assertEqual(got, " " * indent + expect.rstrip(),
                              f"briefing line {n} reads {got!r} on the screen "
                              f"and {expect!r} on the disc")
+
+
+class TestTheEndOfTheJourney(unittest.TestCase):
+    """The last mission LANDS, and landing is the ending.
+
+    "στην τελευταία πίστα, το Jump γίνεται land μετά το τρίτο κύμα. Αμέσως μετά
+    το land, οθόνη νίκης."
+
+    It used to REFUSE: mis_jump bounced off `cp MIS_COUNT` and a player who
+    fought through all twenty was left on a cleared board with a key that did
+    nothing. That is the same defect the defeat screen was written to fix --
+    an ending the game computes and never says.
+    """
+
+    FIRST_CHAR, LAST_CHAR, CHAR_H = 32, 95, 8
+
+    @classmethod
+    def setUpClass(cls):
+        cls.sym = h.symbols()
+        cls.LAST = cls.sym["MIS_COUNT"] - 1
+
+    def setUp(self):
+        self.c = h.boot_quick(frames=300)
+        h.let_the_game_draw(self.c, self.sym, 3)
+        self.font = bytes(self.c.read_ram(
+            self.sym["TXT_FONT"],
+            (self.LAST_CHAR - self.FIRST_CHAR + 1) * self.CHAR_H))
+
+    def tearDown(self):
+        h.close(getattr(self, "c", None))
+
+    def byte(self, name):
+        return self.c.read_ram(self.sym[name], 1)[0]
+
+    def banked(self, name):
+        return h.read_bank4(self.c, self.sym[name], 1)[0]
+
+    def at_mission(self, index):
+        self.c.write_ram(self.sym["MIS_INDEX"], bytes([index]))
+        self.c.write_ram(self.sym["PHASE4_HUD_SHADOW_MIS"], bytes([0xFF]))
+        h.clear_the_way_out(self.c)
+        h.let_the_game_draw(self.c, self.sym, 4)
+
+    def leave_word(self):
+        """The four characters of the HUD's fourth field, off the pixels."""
+        ram = self.c.read_ram(h.front_buffer(self.c), 0x4000)
+        y, out = self.sym["HUD_ROW_B_Y"], []
+        for bx in range(self.sym["HUD_MIS_JUMP_X"],
+                        self.sym["HUD_MIS_JUMP_X"] + 8, 2):
+            cell = []
+            for r in range(self.CHAR_H):
+                a = ram[h.screen_offset(y + r, bx)]
+                b = ram[h.screen_offset(y + r, bx + 1)]
+                cell.append(((a | (a << 4)) & 0xF0)
+                            | (((b | (b << 4)) & 0xF0) >> 4))
+            out.append(self.match(cell))
+        return "".join(out)
+
+    def match(self, cell):
+        for code in range(self.FIRST_CHAR, self.LAST_CHAR + 1):
+            i = (code - self.FIRST_CHAR) * self.CHAR_H
+            g = self.font[i:i + self.CHAR_H]
+            if all(cell[r] == ((g[r] & 0xF0) | ((g[r] << 4) & 0xF0) >> 4)
+                   for r in range(self.CHAR_H)):
+                return chr(code)
+        return "?"
+
+    def test_the_word_is_jump_until_the_last_mission_and_then_land(self):
+        """Read as PIXELS, and both halves asserted: a build that said LAND
+        everywhere would pass the second one on its own."""
+        self.at_mission(0)
+        self.assertEqual(self.leave_word(), "JUMP",
+                         "the first mission does not offer JUMP")
+        self.at_mission(self.LAST)
+        self.assertEqual(self.leave_word(), "LAND",
+                         "the last mission still says JUMP")
+
+    def test_landing_ends_the_campaign_instead_of_advancing_it(self):
+        self.at_mission(self.LAST)
+        self.assertEqual(self.banked("MIS_WON"), 0, "it was already won")
+
+        self.c.key_down("j")
+        self.c.run_frames(40)
+        self.c.key_up("j")
+        for _ in range(120):
+            self.c.run_frames(10)
+            if self.banked("MIS_WON"):
+                break
+        else:
+            self.fail("`J` on the last mission did nothing")
+
+        #  ...and it did NOT walk off the end of the mission table.
+        self.assertEqual(self.byte("MIS_INDEX"), self.LAST,
+                         "landing advanced the mission index past the campaign")
+        self.assertEqual(self.byte("MIS_BRIEFING"), 0,
+                         "landing opened a briefing for a mission that does "
+                         "not exist")
+
+    def test_the_victory_page_is_up_and_says_the_games_name(self):
+        self.at_mission(self.LAST)
+        self.c.key_down("j")
+        self.c.run_frames(40)
+        self.c.key_up("j")
+        for _ in range(200):
+            self.c.run_frames(10)
+            if self.banked("MIS_WON") and self.lit_rows() > 0:
+                break
+        else:
+            self.fail("the victory page never appeared")
+
+        #  The big word spans the line, so the top band is where it is. Ink 1
+        #  rather than the defeat page's ink 3 is the claim: section 2 gives
+        #  ink 1 to the fleet and ink 3 to alarm, and this is not an alarm.
+        hi = lo = 0
+        ram = self.c.read_ram(h.front_buffer(self.c), 0x4000)
+        y = self.sym["OVER_TITLE_Y"]
+        for r in range(32):
+            for x in range(80):
+                b = ram[h.screen_offset(y + r, x)]
+                hi |= b & 0xF0
+                lo |= b & 0x0F
+        self.assertTrue(hi, "nothing is drawn where the big word should be")
+        self.assertFalse(lo, "the victory title is drawn in the alarm ink")
+
+    def lit_rows(self):
+        ram = self.c.read_ram(h.front_buffer(self.c), 0x4000)
+        y = self.sym["OVER_TITLE_Y"]
+        return sum(1 for r in range(32)
+                   if any(ram[h.screen_offset(y + r, x)] for x in range(80)))
+
+    def test_space_puts_it_away_and_starts_again(self):
+        self.at_mission(self.LAST)
+        self.c.key_down("j")
+        self.c.run_frames(40)
+        self.c.key_up("j")
+        for _ in range(200):
+            self.c.run_frames(10)
+            if self.banked("MIS_WON"):
+                break
+        else:
+            self.fail("the campaign was never won")
+
+        self.c.key_down(" ")
+        self.c.run_frames(40)
+        self.c.key_up(" ")
+        for _ in range(200):
+            self.c.run_frames(10)
+            if not self.banked("MIS_WON"):
+                break
+        else:
+            self.fail("SPACE did not put the victory page away")
+        self.assertEqual(self.byte("MIS_INDEX"), 0,
+                         "it did not begin again at the first mission")

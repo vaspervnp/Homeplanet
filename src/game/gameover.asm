@@ -137,6 +137,41 @@ over_erase_save:
 ;  over_draw -- the whole page
 ;  Uses: everything
 ; ----------------------------------------------------------------------------
+; ----------------------------------------------------------------------------
+;  THE TWO ENDINGS ARE ONE PAGE, and that is worth stating because they were
+;  nearly two files. Everything below is identical for both: the two-hundred
+;  line wipe, a ten-or-nine glyph word in txt_big, three centred lines, the
+;  homeplanet, and SPACE erasing the save and beginning again. What differs is
+;  the words, their columns, the ink of the big one, and whether the world is
+;  burning -- so those are a DESCRIPTOR and the drawing is shared.
+;
+;  A second copy would have cost about two hundred bytes of DISC.BIN, which has
+;  four hundred; and it would have been two places to fix the day the layout
+;  moved, which is how the orders menu and the help page came to disagree about
+;  where their prompts went.
+;
+;  Nine bytes: three (string, x) pairs, the title and its x, and the big ink.
+;  The FIRES are not in it -- they are keyed on mis_failed directly, because
+;  "the losing page has fires" is a fact about which page it is rather than a
+;  parameter anyone would ever want to set the other way.
+; ----------------------------------------------------------------------------
+OVER_PAGE_SIZE      equ 9
+
+over_page_lost:
+    defw over_title
+    defb OVER_TITLE_X, SOLID_INK_3
+    defb OVER_LINE_1_X, OVER_LINE_2_X, OVER_LINE_3_X
+    defb 0                              ; pad to OVER_PAGE_SIZE
+    defb 0
+
+over_page_won:
+    defw win_title
+    defb WIN_TITLE_X, TXT_BIG_INK
+    defb WIN_LINE_1_X, WIN_LINE_2_X, WIN_LINE_3_X
+    defb 0
+    defb 0
+
+
 over_draw:
     ;  All two hundred lines: see the head of this file for why this one does
     ;  not use static_wipe.
@@ -146,32 +181,71 @@ over_draw:
     xor a
     call scr_fill_rect
 
-    ;  Ink 3, and put back to 1 on the way out -- the title screen draws
-    ;  through the same routine and is white. Section 2 gives ink 3 to the
-    ;  thing that demands attention, and nothing in this game demands it more.
-    ld a,SOLID_INK_3
+    ;  Which ending. mis_failed is the flag for one and mis_won for the other,
+    ;  and they cannot both be set: mis_jump only lands on a board with nothing
+    ;  hostile flying, and mis_update only fails on a Mothership that is gone.
+    ld hl,over_page_lost
+    ld a,(mis_won)
+    or a
+    jr z,@over_page
+    ld hl,over_page_won
+@over_page:
+    ld (over_page_ptr),hl
+
+    ;  The big word, in its own ink, and put back to the title screen's on the
+    ;  way out -- that screen draws through the same routine and is white.
+    ld e,(hl)
+    inc hl
+    ld d,(hl)
+    inc hl
+    ld b,(hl)                           ; its x
+    inc hl
+    ld a,(hl)                           ; ...and its ink
     call txt_big_set_ink
-    ld hl,over_title
-    ld b,OVER_TITLE_X
+    ex de,hl
     ld c,OVER_TITLE_Y
     call txt_big_at
     ld a,TXT_BIG_INK
     call txt_big_set_ink
 
-    ld hl,over_line_1
-    ld b,OVER_LINE_1_X
-    ld c,OVER_BODY_Y
-    call txt_draw
+    ;  The three lines. Their strings are back to back after the title, so the
+    ;  walk is mis_next_line and only the columns come out of the descriptor --
+    ;  the same shape as the briefings and the orders menu.
+    ld hl,(over_page_ptr)
+    ld e,(hl)
+    inc hl
+    ld d,(hl)
+    ex de,hl
+    call mis_next_line                  ; past the title, to line 1
+    ld (over_line_ptr),hl
 
-    ld hl,over_line_2
-    ld b,OVER_LINE_2_X
-    ld c,OVER_BODY_Y + OVER_LINE_STEP
+    ld a,OVER_BODY_Y
+    ld (over_line_y),a
+    ld hl,(over_page_ptr)
+    ld de,4
+    add hl,de
+    ld (over_x_ptr),hl
+    ld a,3
+    ld (over_lines_left),a
+@over_line:
+    ld hl,(over_x_ptr)
+    ld b,(hl)
+    inc hl
+    ld (over_x_ptr),hl
+    ld a,(over_line_y)
+    ld c,a
+    ld hl,(over_line_ptr)
+    push hl
     call txt_draw
-
-    ld hl,over_line_3
-    ld b,OVER_LINE_3_X
-    ld c,OVER_BODY_Y + 2 * OVER_LINE_STEP
-    call txt_draw
+    pop hl
+    call mis_next_line
+    ld (over_line_ptr),hl
+    ld a,(over_line_y)
+    add a,OVER_LINE_STEP
+    ld (over_line_y),a
+    ld hl,over_lines_left
+    dec (hl)
+    jr nz,@over_line
 
     ;  The world, and then what is burning on it.
     ld hl,OVER_PLANET_CX
@@ -179,7 +253,11 @@ over_draw:
     ld a,OVER_PLANET_CY
     ld (planet_cy),a
     call planet_draw
-    call over_fires
+    ;  ...burning, on the losing page only. The winning one is the same world
+    ;  arrived at, and the title screen already draws exactly that.
+    ld a,(mis_won)
+    or a
+    call z,over_fires
 
     ;  The prompt in ink 2, which is what the context bar means by "a key".
     ;  The bar itself is suppressed on every full-screen page, so this line is
@@ -274,6 +352,11 @@ over_fires:
 ; ============================================================================
 ;  Scratch. One fire's worth, and none of it survives over_fires.
 ; ============================================================================
+over_page_ptr:      defw 0
+over_line_ptr:      defw 0
+over_x_ptr:         defw 0
+over_line_y:        defb 0
+over_lines_left:    defb 0
 over_fires_left:    defb 0
 over_fire_ptr:      defw 0
 over_fire_dx:       defb 0

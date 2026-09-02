@@ -88,6 +88,7 @@ tut_enter:
     ld (mis_complete),a
     ld (mis_leave_ok),a
     ld (mis_failed),a
+    ld (mis_won),a
     ld hl,0
     ld (mis_timer),hl
     ;  ...and the mark the delta is measured from, or the first frame of the

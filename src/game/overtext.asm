@@ -29,11 +29,55 @@ over_line_3:
 OVER_LINE_3_X       equ 14
 
 ;  BEGIN AGAIN and not CONTINUE, because over_erase_save has just made that
-;  true: the disc no longer carries a campaign to continue.
+;  true: the disc no longer carries a campaign to continue. SHARED with the
+;  victory page, which erases the save for the same reason -- a finished
+;  campaign is not one to be resumed either.
 over_prompt:
     defb "SPACE - BEGIN AGAIN",0
 over_prompt_end:
 OVER_PROMPT_X       equ 21
+
+
+; ----------------------------------------------------------------------------
+;  ...AND THE OTHER ENDING, which is the same page with different words.
+;
+;  THE BIG WORD IS THE GAME'S NAME, and that is the whole idea rather than a
+;  convenience. HOMEPLANET is exactly ten glyphs, which is what txt_big spans
+;  the screen with and what the title screen already says -- so the first
+;  screen of the game states it as a promise and the last one states it as an
+;  arrival, in the same letters at the same size. It is white where GAME OVER
+;  is red: section 2 gives ink 1 to the fleet and ink 3 to alarm.
+;
+;  THE THREE LINES DELIBERATELY MIRROR THE DEFEAT'S, line for line, because
+;  the two endings are the same sentence with the verbs changed:
+;
+;      THE MOTHERSHIP IS GONE.          THE MOTHERSHIP IS HOME.
+;      SIXTY THOUSAND SLEEPERS WITH IT. SIXTY THOUSAND SLEEPERS WAKE.
+;      NINE GENERATIONS END HERE.       NINE GENERATIONS BEGIN HERE.
+;
+;  The first pair is even the same length, so they occupy the same column.
+;  Section 1's voice is what decides "WAKE" rather than anything triumphant:
+;  the reward for nine generations of flight is that the sleepers get up.
+; ----------------------------------------------------------------------------
+;  Ten glyphs, one more than GAME OVER, so it is centred differently -- and
+;  at ten it is what txt_big spans the whole line with, which is exactly
+;  what the title screen asserts about the same word.
+WIN_TITLE_X         equ 0
+win_title:
+    defb "HOMEPLANET",0
+
+win_line_1:
+    defb "THE MOTHERSHIP IS HOME.",0
+WIN_LINE_1_X        equ 17
+
+win_line_2:
+    defb "SIXTY THOUSAND SLEEPERS WAKE.",0
+WIN_LINE_2_X        equ 11
+
+win_line_3:
+    defb "NINE GENERATIONS BEGIN HERE.",0
+WIN_LINE_3_X        equ 12
+win_line_3_end:
 
 
 ; ----------------------------------------------------------------------------
