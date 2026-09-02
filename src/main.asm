@@ -326,6 +326,17 @@ low_end:
 ;  measured rather than counted so that widening the field again cannot pass.
     assert HUD_YARD_X + (phase4_hud_text - phase4_yard_text - 1) * TXT_CHAR_W_BYTES <= HUD_MIS_X, "the yard readout runs into the mission number"
 
+;  THE MISSION NUMBER'S FIELD, AGAINST THE MISSION TABLE. It was one digit,
+;  written when the campaign was eight missions long. txt_draw_num fills its
+;  field from the RIGHT and stops when the field is full, so from mission 10 on
+;  it drew the UNITS and dropped the tens: `M 0` for mission 10 and `M 1` for
+;  mission 11, which is the same thing missions 20 and 1 drew. AMBIGUOUS rather
+;  than merely wrong, and nothing caught it because the readout was still a
+;  plausible mission number -- this project's oldest failure shape. The width is
+;  checked against MIS_COUNT now, so it cannot fall behind the mission table.
+    assert MIS_COUNT < 100, "the mission number needs more digits than HUD_MIS_DIGITS"
+    assert HUD_MIS_JUMP_X + (phase4_hud_jump_end - phase4_hud_jump - 1) * TXT_CHAR_W_BYTES <= SCR_BYTES_PER_LINE, "JUMP runs off the end of the HUD row"
+
 ;  ...and the queue's depth is drawn as ONE digit, which is only enough while
 ;  the waiting line cannot reach ten. The slipway holds the tenth order, so it
 ;  cannot -- but this is the line that says so.

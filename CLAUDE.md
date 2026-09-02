@@ -2002,7 +2002,7 @@ budgets a 32-pixel strip and the two rows of squadron counts sit at 178 and
 188, so **lines 168–177 have been part of the HUD and black since the strip was
 drawn**. Neither existing row had four characters to spare: row A runs
 squadrons to byte 51, RU to 67 and `?HELP` to 79, and row B runs squadrons to
-41, the yard to 51 and `M n JUMP` to 71. The context bar was the other
+41, the yard to 51 and `M nn JUMP` to 73. The context bar was the other
 candidate and was rejected — it says what the KEYS do, and a hull figure is not
 a key. §5.5 had already asked for two of the things this row now carries: a
 "μπάρα ενέργειας Mothership", generalised from the Mothership to the fleet
@@ -5039,6 +5039,28 @@ off `build/bank7.raw` one at a time. It is the test that does the real work
 here, exactly as it is for the briefings' 36 characters.
 
 ### The HUD
+
+> **THE MISSION NUMBER WAS ONE DIGIT AND THE CAMPAIGN IS TWENTY MISSIONS.**
+> `mis_index` was never wrong; the FIELD was. `txt_draw_num` fills from the
+> RIGHT and stops when the field is full, so from mission 10 on it drew the
+> units and dropped the tens — `M 0` for mission 10, `M 1` for mission 11,
+> which is what missions 20 and 1 also drew. **Ambiguous rather than merely
+> wrong**, and no assertion on `MIS_INDEX` could ever have seen it: the byte
+> was right every time. Reported by the design owner as *"ο αριθμός της πίστας
+> χωράει μόνο ένα ψηφίο στο hud"*.
+>
+> It is `HUD_MIS_DIGITS` now, asserted against `MIS_COUNT`, so the field cannot
+> fall behind the mission table again. Right-aligned, which is what makes it
+> free: `@txt_pad` blanks the unused places with SPACES, so `M  1` and `M 20`
+> put `JUMP` in the same column and the one label in the HUD that promises a
+> key works does not jitter every tenth mission.
+>
+> **Which digit survived was MEASURED, and the first guess was backwards.**
+> Building with the old width and reading the row back off the pixels is what
+> settled it. `tests/test_campaign.TestTheMissionNumberOnTheHud` walks all
+> twenty and asserts both that each reads as itself and that **no two are drawn
+> alike** — the second is the half that catches this class of defect, because
+> "the number is in there somewhere" passes for 1 and 11 both.
 
 Three rows now, not two: `HUD_ROW_C_Y` at 168 carries the fleet's hull
 percentage and `INCOMING`, in ten lines of the strip that had been black since

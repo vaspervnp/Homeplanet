@@ -137,6 +137,104 @@ class TestCampaignShape(CampaignFixture):
                            f"the campaign does not escalate: {counts}")
 
 
+class TestTheMissionNumberOnTheHud(unittest.TestCase):
+    """`M nn` in HUD row B, read back as PIXELS at every mission of the
+    campaign.
+
+    THE VARIABLE WAS NEVER WRONG. mis_index held the right mission throughout;
+    the field it was drawn into was one character wide, written when the
+    campaign was eight missions long, and txt_draw_num fills from the RIGHT and
+    stops when the field is full. So from mission 10 on it drew the units and
+    dropped the tens -- `M 0` for mission 10, `M 1` for mission 11 -- which is
+    what missions 20 and 1 also drew. Ambiguous rather than merely wrong, and
+    no assertion on MIS_INDEX could ever have seen it.
+
+    Reported by the design owner: "ο αριθμός της πίστας χωράει μόνο ένα ψηφίο
+    στο hud".
+    """
+
+    FIRST_CHAR, LAST_CHAR, CHAR_H = 32, 95, 8
+
+    @classmethod
+    def setUpClass(cls):
+        cls.sym = h.symbols()
+
+    def setUp(self):
+        self.c = h.boot_quick(frames=300)
+        h.let_the_game_draw(self.c, self.sym, 3)
+        self.font = bytes(self.c.read_ram(
+            self.sym["TXT_FONT"],
+            (self.LAST_CHAR - self.FIRST_CHAR + 1) * self.CHAR_H))
+
+    def tearDown(self):
+        h.close(getattr(self, "c", None))
+
+    def mission_field(self):
+        """The characters drawn from HUD_MIS_X up to where JUMP begins."""
+        ram = self.c.read_ram(h.front_buffer(self.c), 0x4000)
+        y = self.sym["HUD_ROW_B_Y"]
+        out = []
+        for bx in range(self.sym["HUD_MIS_X"], self.sym["HUD_MIS_JUMP_X"], 2):
+            cell = []
+            for r in range(self.CHAR_H):
+                a = ram[h.screen_offset(y + r, bx)]
+                b = ram[h.screen_offset(y + r, bx + 1)]
+                #  Fold the low nibble up: one decoder, whatever the ink.
+                cell.append(((a | (a << 4)) & 0xF0)
+                            | (((b | (b << 4)) & 0xF0) >> 4))
+            out.append(self.match(cell))
+        return "".join(out)
+
+    def match(self, cell):
+        for code in range(self.FIRST_CHAR, self.LAST_CHAR + 1):
+            i = (code - self.FIRST_CHAR) * self.CHAR_H
+            g = self.font[i:i + self.CHAR_H]
+            if all(cell[r] == ((g[r] & 0xF0) | ((g[r] << 4) & 0xF0) >> 4)
+                   for r in range(self.CHAR_H)):
+                return chr(code)
+        return "?"
+
+    def show_mission(self, index):
+        self.c.write_ram(self.sym["MIS_INDEX"], bytes([index]))
+        #  The HUD repaints only when it changes, and the shadow packs
+        #  mis_index * 2 + mis_leave_ok into one byte. Poking mis_index behind
+        #  the game's back leaves that shadow agreeing with the OLD value only
+        #  by luck, so it is spoiled deliberately rather than hoped about.
+        self.c.write_ram(self.sym["PHASE4_HUD_SHADOW_MIS"], bytes([0xFF]))
+        h.let_the_game_draw(self.c, self.sym, 4)
+
+    def test_every_mission_of_the_campaign_reads_as_itself(self):
+        seen = {}
+        for index in range(self.sym["MIS_COUNT"]):
+            self.show_mission(index)
+            field = self.mission_field()
+            want = str(index + 1)
+            self.assertIn(want, field,
+                          f"mission {want} is drawn as {field!r}")
+            seen[want] = field
+
+        #  ...AND NO TWO MISSIONS LOOK ALIKE, which is the half that catches
+        #  the defect this test exists for. A one-character field draws
+        #  mission 11 exactly as it draws mission 1, and an assertion that
+        #  "the number is in there somewhere" passes for both.
+        drawn = [f.strip() for f in seen.values()]
+        self.assertEqual(len(set(drawn)), len(drawn),
+                         f"two missions are drawn identically: {seen}")
+
+    def test_the_jump_label_does_not_move_as_the_number_grows(self):
+        """The field is right-aligned so that JUMP keeps its column. A
+        left-aligned number would shove the one label in the HUD that promises
+        a key works two pixels sideways every tenth mission."""
+        self.show_mission(0)
+        one = self.mission_field()
+        self.show_mission(self.sym["MIS_COUNT"] - 1)
+        twenty = self.mission_field()
+        self.assertEqual(len(one), len(twenty))
+        self.assertEqual(one[0], twenty[0], "the M label moved")
+        self.assertEqual(one.rstrip()[-1], "1")
+        self.assertTrue(twenty.rstrip().endswith(str(self.sym["MIS_COUNT"])))
+
+
 class TestEveryPicketFits(CampaignFixture):
     """The entity table is partitioned now (game/entity.asm) and hostiles get
     ENT_ENEMY_MAX slots of it. mis_setup places what fits and stops, so a row

@@ -131,6 +131,23 @@ HUD_RU_X            equ 54          ; two bytes clear of the squadron list,
                                         ; reach 70, where ?HELP starts
 HUD_YARD_X          equ 44
 HUD_MIS_X           equ 56
+;  TWO DIGITS, because the campaign is twenty missions long and this field was
+;  one. It was written when there were eight of them.
+;
+;  MEASURED RATHER THAN REASONED ABOUT, and the first guess was backwards.
+;  txt_draw_num fills its field from the RIGHT, so what survived was the UNITS
+;  and what was dropped was the tens: mission 10 drew `M 0` and mission 11 drew
+;  `M 1`. So it was not merely wrong for the last eleven missions, it was
+;  AMBIGUOUS -- 1 and 11 read alike, 10 and 20 read alike -- which is worse,
+;  because a wrong number invites a second look and a plausible one does not.
+;  src/main.asm asserts the width against MIS_COUNT now.
+;
+;  Right-aligned, and that is what makes it free: @txt_pad blanks the unused
+;  places with SPACES, so `M  1` and `M 20` put JUMP in the same column and the
+;  label does not jitter as the campaign goes on.
+HUD_MIS_DIGITS      equ 2
+HUD_MIS_NUM_X       equ HUD_MIS_X + 2 * TXT_CHAR_W_BYTES
+HUD_MIS_JUMP_X      equ HUD_MIS_NUM_X + (HUD_MIS_DIGITS + 1) * TXT_CHAR_W_BYTES
 ;  What is left of row A after the RU figure, one character clear of it.
 HUD_HELP_X          equ 70
 
@@ -2111,9 +2128,9 @@ phase4_hud:
     call phase4_hud_label
     ld a,(mis_index)
     inc a
-    ld b,HUD_MIS_X + 2 * TXT_CHAR_W_BYTES
+    ld b,HUD_MIS_NUM_X
     ld c,HUD_ROW_B_Y
-    ld d,1
+    ld d,HUD_MIS_DIGITS
     call txt_draw_num
 
     ;  mis_leave_ok and not mis_complete. The label is a promise that the key
@@ -2127,7 +2144,7 @@ phase4_hud:
     ld a,PEN_RED                        ; ...and section 2 makes 3 the ink
     call txt_set_pen                    ; that means "look at this"
 @p4_mis_show:
-    ld b,HUD_MIS_X + 4 * TXT_CHAR_W_BYTES
+    ld b,HUD_MIS_JUMP_X
     ld c,HUD_ROW_B_Y
     call txt_draw
     ld a,PEN_WHITE
@@ -2472,6 +2489,11 @@ phase4_hud_ru_label: defb "RU ",0
 phase4_hud_help:     defb "?HELP",0
 phase4_hud_mis_label: defb "M",0
 phase4_hud_jump:     defb "JUMP",0
+;  So src/main.asm can measure THIS string rather than the run of three that
+;  follows it. RASM cannot count zero bytes, so a label is the only way to ask
+;  how long one string in a run is -- the same reason wave_say_text has one
+;  between each of its messages.
+phase4_hud_jump_end:
 phase4_yard_text:    defb " XXX ",0      ; marker, tag, and the queue's depth
 phase4_hud_text:    defb " 0:",0        ; the marker and digit are patched in
 
