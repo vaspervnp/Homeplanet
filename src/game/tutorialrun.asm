@@ -17,9 +17,11 @@
 ;  A STEP IS A ROW
 ;  ---------------
 ;  tut_table is TUT_STEPS rows of (gate, entry act), both addresses, and
-;  tut_text is TUT_STEPS zero-terminated strings back to back walked by
-;  str_index -- the same shape mission_text and menu_words already have.
-;  Adding a step is a row and a string.
+;  tut_text is TUT_STEPS zero-terminated strings back to back -- the same shape
+;  mission_text and menu_words already have. Adding a step is a row and a
+;  string. THE ROWS ARE HERE AND THE STRINGS ARE IN BANK 7
+;  (game/screentext.asm), for the reason menu_keys and menu_words are split:
+;  the row is the behaviour and the string is only what is read.
 ;
 ;      GATE   called every frame while the step is showing. CF set means the
 ;             player has done the thing and the tutorial moves on. It is
@@ -981,8 +983,16 @@ tut_draw:
     cp TUT_STEPS
     ret nc
 
+    ;  A still holds tut_step -- CP does not touch it -- and that is exactly
+    ;  the skip count bank7_fetch wants. The line comes out of BANK 7 into
+    ;  bank7_line, because this code is bank 4 and bank 4 IS the window: it
+    ;  cannot page bank 7 in for itself. See sys/libload.asm.
+    ;
+    ;  BC is set AFTER the fetch, not before: bank7_fetch uses BC for the gate
+    ;  array port, which is what help_column pushes its row's x and y around.
     ld hl,tut_text
-    call str_index                      ; the walker ctx_class_name uses
+    call bank7_fetch
+    ld hl,bank7_line
     ld b,TUT_TEXT_X
     ld c,HUD_ROW_C_Y
     call txt_draw
@@ -1042,35 +1052,20 @@ tut_table_end:
 ; ============================================================================
 ;  The words
 ; ============================================================================
-;  TUT_STEPS strings back to back, walked by str_index, so the order in the
-;  file is the order on the screen. Every one has to fit TUT_TEXT_CHARS:
-;  txt_draw clips at the SCREEN edge and says nothing, so a long line is
-;  silently written over the step counter. src/main.asm has the gross check and
-;  tests/test_tutorial.TestTheWords has the exact one, per string.
+;  THE SEVENTEEN LINES ARE IN BANK 7 -- game/screentext.asm -- and only this
+;  four-byte caption is left here. They went across when DISC.BIN was down to
+;  a hundred and forty bytes: lib_load reads LIB_SECTORS into bank 7 every boot
+;  whether anything is in them or not, so text put there costs the file
+;  nothing, while a byte of this bank's image costs it one.
+;
+;  The caption did NOT go with them, and the reason is the buffer rather than
+;  the bytes. bank7_fetch copies into the ONE bank7_line, so fetching "/17"
+;  would throw away the line tut_draw is in the middle of drawing -- and it is
+;  four bytes against a second bank flip a frame.
 ; ----------------------------------------------------------------------------
-;  Immediately before tut_text, so main.asm can measure it.
 tut_of_text:
     defb "/17",0
-
-tut_text:
-    defb "ARROW KEYS TURN THE VIEW",0
-    defb "Z AND X ZOOM IN AND OUT",0
-    defb "P PANS  THEN 0 COMES BACK",0
-    defb "S SWITCHES TO THE SENSORS",0
-    defb "PRESS 1 OR 2 TO PICK A SQUADRON",0
-    defb "I SHOWS WHAT IT IS MADE OF",0
-    defb "ENTER ARROWS ENTER TO MOVE IT",0
-    defb "F CHANGES THE FORMATION",0
-    defb "D DIVIDES IT AND C JOINS IT",0
-    defb "R SENDS IT HOME TO THE BASE",0
-    defb "H SENDS HARVESTERS OUT TO MINE",0
-    defb "B OPENS THE YARD  ENTER BUYS",0
-    defb "ESC SHUTS IT   , . PICK A TARGET",0
-    defb "A ATTACKS WHAT YOU PICKED",0
-    defb "SPACE STOPS THE BATTLE",0
-    defb "T TOWS THE WRECK HOME FOR RU",0
-    defb "J LEAVES WHEN THE JOB IS DONE",0
-tut_text_end:
+tut_of_text_end:
 
 
 ; ============================================================================

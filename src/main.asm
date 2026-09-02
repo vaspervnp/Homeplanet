@@ -682,36 +682,12 @@ bank4_limit:
     assert MIS_DEST_WRECK_UNTIL < MIS_COUNT, "the destroyer derelict outlives the campaign"
     assert HUD_MOTH_X + HUD_HP_CHARS * TXT_CHAR_W_BYTES <= SCR_BYTES_PER_LINE, "the Mothership's hull runs off the screen"
 
-;  THE GAME-OVER SCREEN. Its four lines are centred by hand -- there is no
-;  centring in txt_draw and one screen does not justify inventing it -- so the
-;  arithmetic that centred them is checked here against the strings themselves.
-;  Reword a line without moving its x and the build stops instead of the line
-;  sitting a character off.
-    assert OVER_LINE_1_X * 2 + (over_line_2 - over_line_1 - 1) * TXT_CHAR_W_BYTES == SCR_BYTES_PER_LINE, "the game-over screen's first line is not centred"
-    assert OVER_LINE_2_X * 2 + (over_line_3 - over_line_2 - 1) * TXT_CHAR_W_BYTES == SCR_BYTES_PER_LINE, "the game-over screen's second line is not centred"
-    assert OVER_LINE_3_X * 2 + (over_prompt - over_line_3 - 1) * TXT_CHAR_W_BYTES == SCR_BYTES_PER_LINE, "the game-over screen's third line is not centred"
-    assert OVER_PROMPT_X * 2 + (over_prompt_end - over_prompt - 1) * TXT_CHAR_W_BYTES == SCR_BYTES_PER_LINE, "the game-over screen's prompt is not centred"
-;  ...and the victory page's own three, which share the prompt and the same
-;  hand-worked centring. Its big word is HOMEPLANET -- ten glyphs, the whole
-;  line, flush left exactly as the title screen draws the same word, which
-;  is why it has no centring assert but a width one.
-    assert WIN_LINE_1_X * 2 + (win_line_2 - win_line_1 - 1) * TXT_CHAR_W_BYTES == SCR_BYTES_PER_LINE, "the victory screen's first line is not centred"
-    assert WIN_LINE_2_X * 2 + (win_line_3 - win_line_2 - 1) * TXT_CHAR_W_BYTES == SCR_BYTES_PER_LINE, "the victory screen's second line is not centred"
-    assert WIN_LINE_3_X * 2 + (win_line_3_end - win_line_3 - 1) * TXT_CHAR_W_BYTES == SCR_BYTES_PER_LINE, "the victory screen's third line is not centred"
-    assert (win_line_1 - win_title - 1) * TXT_BIG_W_BYTES <= SCR_BYTES_PER_LINE, "the victory title is wider than the screen"
-    assert win_line_1 - win_title - 1 == 10, "the victory title is not the ten-glyph name the title screen draws"
-
-;  ...and the big word, whose glyphs are five pixels in an eight-pixel cell --
-;  so the drawn width is three bytes short of the cells it occupies, and that
-;  is what OVER_TITLE_X halves. It is a different sum from the four above, not
-;  the same one with a different font.
-;  Two-sided, because this one cannot come out exact: the drawn width is odd
-;  (72 cells less 3 blank columns is 69) and the margin either side of it is
-;  therefore a half byte. The four lines above ARE exact -- n characters at two
-;  bytes each is always even -- so they are asserted as equalities.
-    assert OVER_TITLE_X * 2 + (over_line_1 - over_title - 1) * TXT_BIG_W_BYTES - 3 <= SCR_BYTES_PER_LINE, "GAME OVER sits right of centre"
-    assert OVER_TITLE_X * 2 + (over_line_1 - over_title - 1) * TXT_BIG_W_BYTES - 3 >= SCR_BYTES_PER_LINE - 1, "GAME OVER sits left of centre"
-    assert (over_line_1 - over_title - 1) * TXT_BIG_W_BYTES <= SCR_BYTES_PER_LINE, "GAME OVER is wider than the screen"
+;  THE GAME-OVER AND VICTORY SCREENS. Everything here that measures one of
+;  their STRINGS has moved to the bottom of this file, after the bank-7
+;  include: the words went across to game/screentext.asm and ASSERT is
+;  evaluated where it stands, so a line that has not been assembled yet is not
+;  a label yet. Look for "the two endings' words" down there. What is left
+;  here is the layout in Y, which is equates only.
 
 ;  Nothing on it may reach the strip, which it clears itself and does not
 ;  redraw -- it is the one full-screen page that takes all 200 lines.
@@ -1089,6 +1065,68 @@ ENDIF
     assert B7_BUF_SIZE > MENU_FIELD, "the bank 7 buffer cannot hold a menu row"
     assert B7_BUF_SIZE > HELP_MAX_CHARS, "the bank 7 buffer cannot hold a help row"
 
+; ----------------------------------------------------------------------------
+;  THE TWO ENDINGS' WORDS, which are in bank 7 and whose COLUMNS are in bank 4
+;  (game/overtext.asm). These asserts used to sit up with the rest of the
+;  game-over layout and had to come down here when the strings moved: ASSERT is
+;  evaluated where it stands, and a bank-7 label is not a label until the
+;  include above has happened.
+;
+;  Each line is centred by hand -- there is no centring in txt_draw and one
+;  screen does not justify inventing it -- so the arithmetic that centred them
+;  is checked against the strings themselves. Reword a line without moving its
+;  x and the build stops instead of the line sitting a character off. It is
+;  also the only thing checking that the four strings of a page are still
+;  ADJACENT AND IN THE ORDER over_draw walks them in.
+; ----------------------------------------------------------------------------
+    assert OVER_LINE_1_X * 2 + (over_line_2 - over_line_1 - 1) * TXT_CHAR_W_BYTES == SCR_BYTES_PER_LINE, "the game-over screen's first line is not centred"
+    assert OVER_LINE_2_X * 2 + (over_line_3 - over_line_2 - 1) * TXT_CHAR_W_BYTES == SCR_BYTES_PER_LINE, "the game-over screen's second line is not centred"
+    assert OVER_LINE_3_X * 2 + (over_prompt - over_line_3 - 1) * TXT_CHAR_W_BYTES == SCR_BYTES_PER_LINE, "the game-over screen's third line is not centred"
+    assert OVER_PROMPT_X * 2 + (over_prompt_end - over_prompt - 1) * TXT_CHAR_W_BYTES == SCR_BYTES_PER_LINE, "the game-over screen's prompt is not centred"
+;  ...and the victory page's own three, which share the prompt and the same
+;  hand-worked centring. Its big word is HOMEPLANET -- ten glyphs, the whole
+;  line, flush left exactly as the title screen draws the same word, which
+;  is why it has no centring assert but a width one.
+    assert WIN_LINE_1_X * 2 + (win_line_2 - win_line_1 - 1) * TXT_CHAR_W_BYTES == SCR_BYTES_PER_LINE, "the victory screen's first line is not centred"
+    assert WIN_LINE_2_X * 2 + (win_line_3 - win_line_2 - 1) * TXT_CHAR_W_BYTES == SCR_BYTES_PER_LINE, "the victory screen's second line is not centred"
+    assert WIN_LINE_3_X * 2 + (win_line_3_end - win_line_3 - 1) * TXT_CHAR_W_BYTES == SCR_BYTES_PER_LINE, "the victory screen's third line is not centred"
+    assert (win_line_1 - win_title - 1) * TXT_BIG_W_BYTES <= SCR_BYTES_PER_LINE, "the victory title is wider than the screen"
+    assert win_line_1 - win_title - 1 == 10, "the victory title is not the ten-glyph name the title screen draws"
+
+;  ...and the big word, whose glyphs are five pixels in an eight-pixel cell --
+;  so the drawn width is three bytes short of the cells it occupies, and that
+;  is what OVER_TITLE_X halves. It is a different sum from the four above, not
+;  the same one with a different font.
+;  Two-sided, because this one cannot come out exact: the drawn width is odd
+;  (72 cells less 3 blank columns is 69) and the margin either side of it is
+;  therefore a half byte. The four lines above ARE exact -- n characters at two
+;  bytes each is always even -- so they are asserted as equalities.
+    assert OVER_TITLE_X * 2 + (over_line_1 - over_title - 1) * TXT_BIG_W_BYTES - 3 <= SCR_BYTES_PER_LINE, "GAME OVER sits right of centre"
+    assert OVER_TITLE_X * 2 + (over_line_1 - over_title - 1) * TXT_BIG_W_BYTES - 3 >= SCR_BYTES_PER_LINE - 1, "GAME OVER sits left of centre"
+    assert (over_line_1 - over_title - 1) * TXT_BIG_W_BYTES <= SCR_BYTES_PER_LINE, "GAME OVER is wider than the screen"
+
+;  ...and every one of them has to fit the one buffer they are fetched into,
+;  exactly as the menu's and the help page's rows do above. ONE ASSERT PER
+;  STRING, because they are stored back to back and RASM cannot be asked for
+;  the longest of nine -- the distance from a label to the NEXT label is one
+;  line's length, and the distance across the whole run is not a length at all.
+    assert over_line_1 - over_title <= B7_BUF_SIZE, "GAME OVER does not fit the bank 7 buffer"
+    assert over_line_2 - over_line_1 <= B7_BUF_SIZE, "the game-over screen's first line does not fit the bank 7 buffer"
+    assert over_line_3 - over_line_2 <= B7_BUF_SIZE, "the game-over screen's second line does not fit the bank 7 buffer"
+    assert over_prompt - over_line_3 <= B7_BUF_SIZE, "the game-over screen's third line does not fit the bank 7 buffer"
+    assert over_prompt_end - over_prompt <= B7_BUF_SIZE, "the ending pages' prompt does not fit the bank 7 buffer"
+    assert win_line_1 - win_title <= B7_BUF_SIZE, "HOMEPLANET does not fit the bank 7 buffer"
+    assert win_line_2 - win_line_1 <= B7_BUF_SIZE, "the victory screen's first line does not fit the bank 7 buffer"
+    assert win_line_3 - win_line_2 <= B7_BUF_SIZE, "the victory screen's second line does not fit the bank 7 buffer"
+    assert win_line_3_end - win_line_3 <= B7_BUF_SIZE, "the victory screen's third line does not fit the bank 7 buffer"
+
+;  The tutorial's seventeen instruction lines followed them across, and the
+;  step counter beside them did not -- see game/tutorialrun.asm for why four
+;  bytes stayed in bank 4. TUT_TEXT_CHARS is what a line may not exceed, and
+;  the sum is all ASSERT can see of that; the per-line check is
+;  tests/test_tutorial.TestTheWords, off build/bank7.raw.
+    assert B7_BUF_SIZE > TUT_TEXT_CHARS, "the bank 7 buffer cannot hold a tutorial line"
+
 ;  The help page's right column IS menu_words, so it is MENU_COUNT rows long
 ;  and not HELP_ROWS. It clears today only because help.asm already moved its
 ;  prompt up beside the title for exactly this reason.
@@ -1132,7 +1170,10 @@ ENDIF
 ;  The row's three fields, each against the start of the next one.
     assert TUT_TEXT_X + TUT_TEXT_CHARS * TXT_CHAR_W_BYTES <= TUT_NUM_X, "a tutorial line would run into the step counter"
     assert TUT_NUM_X + 2 * TXT_CHAR_W_BYTES <= TUT_OF_X, "the step number would run into the /17"
-    assert TUT_OF_X + (tut_text - tut_of_text - 1) * TXT_CHAR_W_BYTES <= SCR_BYTES_PER_LINE, "the tutorial's step counter runs off the screen"
+;  Against tut_of_text_end and not against tut_text, which is the whole of what
+;  moving the lines to bank 7 cost this block: the caption is a bank-4 label and
+;  the lines are bank-7 ones now, so the distance between them is not a length.
+    assert TUT_OF_X + (tut_of_text_end - tut_of_text - 1) * TXT_CHAR_W_BYTES <= SCR_BYTES_PER_LINE, "the tutorial's step counter runs off the screen"
 
 ;  tut_fleet_has_order reaches ENT_ORDER from the flags byte with two INCs, because
 ;  BC is the loop counter and cannot hold an offset. Separate the two fields and

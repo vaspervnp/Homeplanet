@@ -253,9 +253,13 @@ class TestTheWords(unittest.TestCase):
     it. This is the exact check, taken out of the image the build produced.
     """
 
+    #  OFF build/bank7.raw, not build/sprites.raw: the seventeen lines moved out
+    #  of bank 4 the day DISC.BIN was down to a hundred and forty bytes, and
+    #  bank 7 is what the build wrote onto the disc for lib_load to read back.
+    #  Same check test_menu makes of menu_words and test_help of help_words.
     def setUp(self):
         self.sym = h.symbols()
-        with open(os.path.join(h.BUILD, "sprites.raw"), "rb") as f:
+        with open(os.path.join(h.BUILD, "bank7.raw"), "rb") as f:
             self.image = f.read()
 
     def lines(self):

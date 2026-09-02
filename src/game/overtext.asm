@@ -1,40 +1,38 @@
 ; ============================================================================
-;  overtext.asm -- the words on the game-over screen, in bank 4
+;  overtext.asm -- where the two ending pages' words are drawn, in bank 4
 ; ============================================================================
 ;  Section 1's voice: lonely, quiet, and never explaining more than it has to.
 ;  The Mothership is the colony -- sixty thousand sleepers and nine generations
 ;  of them -- so the loss is stated as what it costs and not as a rule.
 ;
+;  THE WORDS THEMSELVES ARE IN BANK 7, in game/screentext.asm, and what is left
+;  here is their COLUMNS and the fire table. They went across when DISC.BIN was
+;  down to a hundred and forty bytes: lib_load reads LIB_SECTORS into bank 7
+;  every boot whether anything is in them or not, so raw-sector text costs the
+;  file nothing while a byte of the bank-4 image costs it one.
+;
+;  The columns stayed because they are not text: over_draw reads three of them
+;  out of a descriptor per page, one per line, and a column fetched out of bank
+;  7 would need a bank flip to read a byte -- the menu_keys rule exactly.
+;
 ;  Each x is (SCR_BYTES_PER_LINE - characters * TXT_CHAR_W_BYTES) / 2, worked
 ;  out here rather than at run time because there is no centring in txt_draw
 ;  and one screen does not justify inventing it. They are asserted in
-;  src/main.asm against the strings themselves, so a reworded line that is no
-;  longer centred stops the build instead of sitting a character off.
+;  src/main.asm against the strings themselves -- which is why the strings have
+;  to stay ADJACENT AND IN ORDER over there, and why those asserts had to move
+;  to the bottom of that file, after the bank-7 include: ASSERT is evaluated
+;  where it stands and cannot see an include that has not happened yet.
 ; ----------------------------------------------------------------------------
 
 ;  Nine glyphs, which is what OVER_TITLE_X is centred for.
-over_title:
-    defb "GAME OVER",0
-
-over_line_1:
-    defb "THE MOTHERSHIP IS GONE.",0
 OVER_LINE_1_X       equ 17
-
-over_line_2:
-    defb "SIXTY THOUSAND SLEEPERS WITH IT.",0
 OVER_LINE_2_X       equ 8
-
-over_line_3:
-    defb "NINE GENERATIONS END HERE.",0
 OVER_LINE_3_X       equ 14
 
 ;  BEGIN AGAIN and not CONTINUE, because over_erase_save has just made that
 ;  true: the disc no longer carries a campaign to continue. SHARED with the
 ;  victory page, which erases the save for the same reason -- a finished
 ;  campaign is not one to be resumed either.
-over_prompt:
-    defb "SPACE - BEGIN AGAIN",0
-over_prompt_end:
 OVER_PROMPT_X       equ 21
 
 
@@ -63,21 +61,9 @@ OVER_PROMPT_X       equ 21
 ;  at ten it is what txt_big spans the whole line with, which is exactly
 ;  what the title screen asserts about the same word.
 WIN_TITLE_X         equ 0
-win_title:
-    defb "HOMEPLANET",0
-
-win_line_1:
-    defb "THE MOTHERSHIP IS HOME.",0
 WIN_LINE_1_X        equ 17
-
-win_line_2:
-    defb "SIXTY THOUSAND SLEEPERS WAKE.",0
 WIN_LINE_2_X        equ 11
-
-win_line_3:
-    defb "NINE GENERATIONS BEGIN HERE.",0
 WIN_LINE_3_X        equ 12
-win_line_3_end:
 
 
 ; ----------------------------------------------------------------------------

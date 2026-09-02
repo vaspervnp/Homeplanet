@@ -194,31 +194,40 @@ over_draw:
 
     ;  The big word, in its own ink, and put back to the title screen's on the
     ;  way out -- that screen draws through the same routine and is white.
+    ;
+    ;  ITS STRING IS IN BANK 7 and this is bank 4 code, so it comes through
+    ;  bank7_fetch into bank7_line rather than being drawn where it lies -- see
+    ;  sys/libload.asm for why this file cannot page bank 7 in for itself. The
+    ;  ink is set BEFORE the fetch because txt_big_set_ink is self-modifying and
+    ;  outlives it; the x is re-read AFTER it, out of the descriptor, because
+    ;  bank7_fetch uses BC for the gate array port and would take it with it.
     ld e,(hl)
     inc hl
     ld d,(hl)
     inc hl
-    ld b,(hl)                           ; its x
-    inc hl
+    inc hl                              ; past the x, re-read below
     ld a,(hl)                           ; ...and its ink
     call txt_big_set_ink
-    ex de,hl
+
+    ex de,hl                            ; HL = the title, in bank 7
+    xor a
+    call bank7_fetch
+    ld (over_line_ptr),hl               ; the cursor: line 1 is next
+
+    ld hl,(over_page_ptr)
+    inc hl
+    inc hl
+    ld b,(hl)                           ; its x
+    ld hl,bank7_line
     ld c,OVER_TITLE_Y
     call txt_big_at
     ld a,TXT_BIG_INK
     call txt_big_set_ink
 
     ;  The three lines. Their strings are back to back after the title, so the
-    ;  walk is mis_next_line and only the columns come out of the descriptor --
-    ;  the same shape as the briefings and the orders menu.
-    ld hl,(over_page_ptr)
-    ld e,(hl)
-    inc hl
-    ld d,(hl)
-    ex de,hl
-    call mis_next_line                  ; past the title, to line 1
-    ld (over_line_ptr),hl
-
+    ;  walk is the cursor bank7_fetch hands back -- exactly what stops the help
+    ;  page's columns re-counting the rows above them -- and only the columns
+    ;  come out of the descriptor.
     ld a,OVER_BODY_Y
     ld (over_line_y),a
     ld hl,(over_page_ptr)
@@ -228,18 +237,19 @@ over_draw:
     ld a,3
     ld (over_lines_left),a
 @over_line:
+    ld hl,(over_line_ptr)
+    xor a
+    call bank7_fetch
+    ld (over_line_ptr),hl
+
     ld hl,(over_x_ptr)
     ld b,(hl)
     inc hl
     ld (over_x_ptr),hl
     ld a,(over_line_y)
     ld c,a
-    ld hl,(over_line_ptr)
-    push hl
+    ld hl,bank7_line
     call txt_draw
-    pop hl
-    call mis_next_line
-    ld (over_line_ptr),hl
     ld a,(over_line_y)
     add a,OVER_LINE_STEP
     ld (over_line_y),a
@@ -264,7 +274,10 @@ over_draw:
     ;  the only thing on the screen saying how to leave it.
     ld a,2
     call txt_set_pen
-    ld hl,over_prompt
+    ld hl,over_prompt                   ; ...also in bank 7
+    xor a
+    call bank7_fetch
+    ld hl,bank7_line
     ld b,OVER_PROMPT_X
     ld c,OVER_PROMPT_Y
     call txt_draw

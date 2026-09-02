@@ -1,9 +1,19 @@
 ; ============================================================================
-;  game/screentext.asm -- the words the stopped-world screens draw, IN BANK 7
+;  game/screentext.asm -- words that are only ever READ, IN BANK 7
 ; ============================================================================
-;  The orders menu's list and the help page's left column. They followed the
-;  briefings across for the same reason and by the same road; read the top of
-;  game/briefings.asm for the arithmetic, because it is the same arithmetic.
+;  The orders menu's list, the help page's left column, the tutorial's
+;  seventeen instruction lines and the words on the two ending pages. They
+;  followed the briefings across for the same reason and by the same road; read
+;  the top of game/briefings.asm for the arithmetic, because it is the same
+;  arithmetic.
+;
+;  "Stopped-world" was the rule when this file held two tables and it is not
+;  the rule any more: the tutorial's row is drawn from tut_draw, at the very
+;  end of an ordinary playing frame. What actually decides it is the narrow
+;  test in game/shipclass.asm -- can this run between class_tier_addr and
+;  class_blit_done? -- and nothing here can. bank7_fetch puts bank 4 back
+;  before it returns, so a reader only has to be somewhere the window is at
+;  rest, which the whole frame loop is except inside the blit.
 ;
 ;  The short of it: lib_load reads LIB_SECTORS -- 13312 bytes -- into bank 7
 ;  every boot, and bank 7 holds two 4320-byte sprite libraries, so thousands of
@@ -102,3 +112,79 @@ help_words:
     defb "K L MOVE ONE SHIP",0
     defb "M   MUSIC ON/OFF",0
 help_words_end:
+
+; ----------------------------------------------------------------------------
+;  tut_text -- the tutorial's seventeen instruction lines
+;
+;  TUT_STEPS strings back to back, in the order the steps run, so the order in
+;  this file is the order on the screen. tut_draw fetches step n with a skip
+;  count of n -- the seek the briefing does, not the walk the two columns above
+;  do, because the tutorial draws ONE line and it is not the one after the last.
+;
+;  THE GATES AND THE ACTS STAYED IN BANK 4, and that is the menu_keys rule
+;  again: tut_table is two addresses a row and it is the whole of the
+;  behaviour, so a row fetched out of bank 7 would put the paging between a
+;  player's key and the step advancing, to save sixty-eight bytes.
+;
+;  Every line has to fit TUT_TEXT_CHARS -- txt_draw clips at the SCREEN edge
+;  and says nothing, so a long one is silently written over the step counter.
+;  src/main.asm has the gross check and tests/test_tutorial.TestTheWords has
+;  the exact one, per string, off build/bank7.raw.
+; ----------------------------------------------------------------------------
+tut_text:
+    defb "ARROW KEYS TURN THE VIEW",0
+    defb "Z AND X ZOOM IN AND OUT",0
+    defb "P PANS  THEN 0 COMES BACK",0
+    defb "S SWITCHES TO THE SENSORS",0
+    defb "PRESS 1 OR 2 TO PICK A SQUADRON",0
+    defb "I SHOWS WHAT IT IS MADE OF",0
+    defb "ENTER ARROWS ENTER TO MOVE IT",0
+    defb "F CHANGES THE FORMATION",0
+    defb "D DIVIDES IT AND C JOINS IT",0
+    defb "R SENDS IT HOME TO THE BASE",0
+    defb "H SENDS HARVESTERS OUT TO MINE",0
+    defb "B OPENS THE YARD  ENTER BUYS",0
+    defb "ESC SHUTS IT   , . PICK A TARGET",0
+    defb "A ATTACKS WHAT YOU PICKED",0
+    defb "SPACE STOPS THE BATTLE",0
+    defb "T TOWS THE WRECK HOME FOR RU",0
+    defb "J LEAVES WHEN THE JOB IS DONE",0
+tut_text_end:
+
+; ----------------------------------------------------------------------------
+;  The two endings' words -- see game/overtext.asm, which is what is left of
+;  that file: the columns, the fire table and the equates.
+;
+;  THE ORDER IS LOAD-BEARING TWICE OVER. over_draw fetches a page's title with
+;  a skip of 0 and then hands the cursor back for each of its three lines, so
+;  the four strings of a page have to be adjacent and in the order they are
+;  drawn -- exactly the walk the help page's columns do. And src/main.asm
+;  measures each line's LENGTH as the distance to the label after it, so the
+;  centring asserts are checking the strings that are really there.
+;
+;  over_prompt is shared: the victory page erases the save for the same reason
+;  the defeat does, so both say BEGIN AGAIN. It sits after the losing page's
+;  three lines, which is what makes (over_prompt - over_line_3 - 1) line 3's
+;  length.
+; ----------------------------------------------------------------------------
+over_title:
+    defb "GAME OVER",0
+over_line_1:
+    defb "THE MOTHERSHIP IS GONE.",0
+over_line_2:
+    defb "SIXTY THOUSAND SLEEPERS WITH IT.",0
+over_line_3:
+    defb "NINE GENERATIONS END HERE.",0
+over_prompt:
+    defb "SPACE - BEGIN AGAIN",0
+over_prompt_end:
+
+win_title:
+    defb "HOMEPLANET",0
+win_line_1:
+    defb "THE MOTHERSHIP IS HOME.",0
+win_line_2:
+    defb "SIXTY THOUSAND SLEEPERS WAKE.",0
+win_line_3:
+    defb "NINE GENERATIONS BEGIN HERE.",0
+win_line_3_end:
