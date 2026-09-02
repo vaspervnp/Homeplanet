@@ -743,6 +743,7 @@ tut_a_enemy:
     ldir
     pop hl
     push hl
+    ld a,CLASS_INTERCEPTOR
     call mis_make_enemy
 
     ;  ...and then softer than mis_make_enemy's 200, which is the picket's hull

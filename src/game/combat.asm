@@ -813,6 +813,40 @@ cbt_find_enemy:
     ld a,c
     ld (cbt_target),a
     call cbt_distance
+
+    ;  ...and then push an UNARMED candidate away, so that a warship prefers
+    ;  something that can shoot back while there is one to be had.
+    ;
+    ;  Section 8 says the harvester is "αργό, άοπλο, χρειάζεται προστασία" --
+    ;  it is MEANT to be vulnerable. What it was instead is a free kill: the
+    ;  search takes the nearest target, harvesters fly out to patches alone by
+    ;  design, so every picket in the campaign peeled off and killed the
+    ;  economy first. Measured with tools/balance.py: the harvesters are gone
+    ;  by mission 3 and the treasury reaches zero at mission 5, after which the
+    ;  fleet cannot be replaced and the campaign ends at 7. The ships were
+    ;  never the thing that lost.
+    ;
+    ;  A BIAS AND NOT AN EXCLUSION. If nothing armed is anywhere in the region
+    ;  every candidate carries the same penalty, so the miner is still picked
+    ;  and still dies -- "needs protection" stays true, it just stops meaning
+    ;  "is the first thing shot at".
+    ;
+    ;  HL is on the stack; ENT_CLASS is the two bytes in front of ENT_FLAGS,
+    ;  which is section 7's record layout being convenient rather than designed
+    ;  and is asserted in src/main.asm for wave_health's sake already.
+    pop hl
+    push hl
+    dec hl
+    dec hl                              ; -> ENT_CLASS
+    ld e,(hl)
+    ld d,0
+    ld hl,cbt_prey_bias
+    add hl,de
+    add a,(hl)
+    jr nc,@cbt_prey_fits
+    ld a,255                            ; cbt_distance saturates; so does this
+@cbt_prey_fits:
+
     ld hl,cbt_best_dist
     cp (hl)
     jr nc,@cbt_no_nearer                ; something closer is already held
@@ -835,6 +869,39 @@ cbt_find_enemy:
     ld a,(cbt_best)
     ld (cbt_target),a
     ret
+
+
+; ----------------------------------------------------------------------------
+;  How much further away an unarmed ship LOOKS to a warship picking a target.
+;
+;  In the low 16K with the rest of the frame loop, because cbt_find_enemy reads
+;  it and that is the innermost non-blit loop in the game.
+;
+;  The two entries that are not zero are the two classes whose damage row in
+;  cbt_damage_matrix is noise -- the harvester's 4/2/4 and the corvette's 6/3/8
+;  against an interceptor's 24. Everything else, the scout included, can hurt
+;  you and is fair game at face value.
+;
+;  CBT_UNARMED_BIAS is 96 against a CBT_RANGE of 40, so an escort anywhere within
+;  a couple of weapons' reach of its miner takes the shot instead. It is not
+;  larger because cbt_distance saturates at 255: a penalty near that flattens
+;  every unarmed ship to "infinitely far" and they would stop being targets at
+;  all rather than being poor ones.
+; ----------------------------------------------------------------------------
+CBT_UNARMED_BIAS    equ 96
+
+cbt_prey_bias:
+    defb 0                              ; interceptor
+    defb 0                              ; mothership -- the prize, never a bias
+    defb CBT_UNARMED_BIAS                ; harvester: unarmed
+    defb 0                              ; scout
+    defb 0                              ; bomber
+    defb 0                              ; frigate
+    defb CBT_UNARMED_BIAS                ; salvage corvette: unarmed
+    defb 0                              ; destroyer
+cbt_prey_bias_end:
+
+    assert cbt_prey_bias_end - cbt_prey_bias == CLASS_COUNT, "cbt_prey_bias is not one byte a class"
 
 
 ; ============================================================================

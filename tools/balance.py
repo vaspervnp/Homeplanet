@@ -67,10 +67,23 @@ COST = {CLASS_INTERCEPTOR: 35, CLASS_HARVESTER: 40}
 WANT_HARVESTERS = 2
 
 #  How long a rebuilding run stays after it could have left, in EMULATOR
-#  frames. Past the first attack wave on purpose: mining is what pays for the
-#  ships and loitering is what the waves charge for, so a linger that stopped
-#  short of 600 game frames would be measuring the income without the bill.
-LINGER = 5000
+#  frames. A CAP AND NOT A DURATION: the loop below stops the moment mis_gate
+#  genuinely opens, which is what a player has to wait for.
+#
+#  IT USED TO BE A FLAT 5000 AND THAT WAS THE MEASUREMENT LYING. The comment
+#  here said "past the first attack wave on purpose", and it was -- but the
+#  jump gate has since become the price of LEAVING rather than of staying, and
+#  it asks for WAVE_BEFORE_JUMP of them plus an empty board. At one wave a
+#  minute that is three to five minutes, where 5000 emulator frames is about a
+#  hundred seconds. So the tool measured a third of a mission: not enough
+#  travel time for the harvesters to reach the stock a patch actually holds,
+#  and not enough of the waves that the hull is spent on.
+#
+#  It is the same lesson this project keeps relearning in its tests -- wait for
+#  the thing, do not count frames -- arriving in a measuring tool, where it is
+#  worse, because a tool with the wrong clock does not fail. It prints a
+#  plausible campaign that nobody plays.
+LINGER = 24000
 #  src/game/shipclass.asm. All eight of section 8's classes exist now, so a
 #  run that spends its RU can show up as any of them.
 NAMES = {0: "int", 1: "moth", 2: "harv", 3: "scout",
@@ -190,7 +203,8 @@ for mission in range(MIS_COUNT):
     #  half of the mission a rebuilding player actually plays.
     lingered = 0
     while (REBUILD and lingered < LINGER
-           and not c.read_ram(s["MIS_FAILED"], 1)[0]):
+           and not c.read_ram(s["MIS_FAILED"], 1)[0]
+           and not c.read_ram(s["MIS_LEAVE_OK"], 1)[0]):
         c.run_frames(120)
         lingered += 120
         spend()
@@ -202,7 +216,8 @@ for mission in range(MIS_COUNT):
     lost = total(before) - total(after)
     print(f"{mission + 1:>3} {enemy_start:>5} {total(before):>3} {total(after):>3} "
           f"{lost:>4}  {hull_after:>5}  {show(after)}  RU={ru} "
-          f"{'frames=' + str(frames)} {'FAILED' if failed else ''}"
+          f"{'frames=' + str(frames)} {'held=' + str(lingered)} "
+          f"{'FAILED' if failed else ''}"
           f"{' TIMEOUT' if frames >= 9000 else ''}")
 
     if failed:

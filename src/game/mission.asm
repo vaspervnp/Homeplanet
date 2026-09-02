@@ -36,12 +36,30 @@ MIS_COUNT           equ 8
 ;  Descriptor layout, all of it in bank 4.
 MIS_NAME            equ 0               ; 12 bytes, zero-terminated
 MIS_ENEMY_COUNT     equ 12
-MIS_ENEMY_PTR       equ 13              ; -> 6-byte positions
+MIS_ENEMY_PTR       equ 13              ; -> MIS_ENEMY_SIZE-byte rows
 MIS_PATCH_COUNT     equ 15
 MIS_PATCH_PTR       equ 16              ; -> 8-byte patches
 MIS_OBJECTIVE       equ 18
 MIS_TEXT            equ 19            ; index into mission_text_table
 MIS_SIZE            equ 20
+
+;  A row of an enemy layout: x, y, z, and the CLASS that sits there.
+;
+;  The class byte is the whole of section 8's balance triangle finally being
+;  used by the side that is meant to test it. It cost one byte a ship and a
+;  seventh byte of stride; what it buys is that the matrix in classdata.asm
+;  stops being a property the player's fleet has and the enemy does not.
+;
+;  Read it beside cbt_damage_matrix or the layouts below say nothing. An
+;  interceptor -- which is most of what the player owns -- does 24 to another
+;  interceptor, 30 to a bomber and TEN to a frigate; a bomber does 8 back to a
+;  fighter and 44 to a Mothership. So the three classes are three different
+;  problems rather than three pictures: interceptors are the fight you already
+;  know, bombers ignore your escorts and go for the one ship you cannot lose,
+;  and a frigate is the one you cannot economically kill with fighters at all.
+MIS_ENEMY_POS       equ 0               ; three words
+MIS_ENEMY_CLASS     equ 6
+MIS_ENEMY_SIZE      equ 7
 
 ;  What winning looks like.
 MIS_OBJ_CLEAR       equ 0               ; destroy every enemy
@@ -96,12 +114,35 @@ MIS_SURVIVE_TICKS   equ 50 * 30
 ;  other three -- the HUD's JUMP simply does not appear until the RU is there,
 ;  so a player never presses a key that refuses them.
 ;
-;  A THOUSAND AGAINST ECO_START_RU's 120 AND ECO_RU_MAX's 9999. The number
-;  makes the economy compulsory rather than optional: a fleet that never mines
-;  cannot leave mission 1, which is a bigger change than it looks -- see the
-;  note in tools/balance.py, whose DEFAULT tactic never spends a unit and can
-;  no longer finish the campaign at all.
-MIS_JUMP_COST       equ 1000
+;  THE FARE IS A CURVE NOW, ONE WORD A MISSION IN mission_fare, and a flat
+;  thousand is what it replaced. That number made the economy compulsory rather
+;  than optional -- a fleet that never mines cannot leave mission 1 -- and it
+;  was RIGHT about that and wrong about everything after it.
+;
+;  Measured with tools/balance.py, on the rebuilding tactic:
+;
+;      mis 2, no enemies at all, harvesters alive, rich patches:  940 RU
+;      the fare:                                                 1000 RU
+;
+;  So the income of a peaceful mission was approximately the price of leaving
+;  it, and the campaign funded its own travel and nothing else. The treasury
+;  reached zero at mission 5 and the fleet -- which had GROWN from 16 ships to
+;  29 over the first four -- fell to three by mission 7, because from the
+;  moment the money ran out "rebuild" is the same tactic as "do nothing". The
+;  campaign was not being lost to the Vekhar. It was going bankrupt.
+;
+;  The curve keeps the property the flat number was there for and drops the one
+;  it was not: mission 1's fare is still more than ECO_START_RU, so the first
+;  jump still cannot be made without mining, and a harvester still has to be
+;  bought before anything can be earned. What it stops doing is taxing the late
+;  campaign at a rate no fleet can both pay and grow under.
+;
+;  MIS_JUMP_COST is the DEAREST fare rather than the fare. Nothing in the game
+;  reads it -- mis_jump_fare does the looking-up -- but it is what the tests and
+;  tests/harness.clear_the_way_out top a purse up to when they want to be sure
+;  a jump is affordable, and src/main.asm asserts no row of the curve exceeds
+;  it. A value that is merely "big enough" would stop being so silently.
+MIS_JUMP_COST       equ 800
 
 ; ----------------------------------------------------------------------------
 ;  THE DERELICT, and what the campaign can unlock
@@ -205,7 +246,10 @@ mis_wipe:           defb 0
 jfx_mode:           defb 0              ; JFX_NONE / JFX_OUT / JFX_IN
 jfx_col:            defb 0              ; where the line is, in bytes 0..80
 jfx_armed:          defb 0              ; a jump happened; reveal on the way out
-mis_text_ptr:       defw 0
+;  Which briefing STRING comes next, counting from the first line of the first
+;  mission -- not a pointer any more. mis_brief_draw fetches one line at a time
+;  out of bank 7; see the note by brief_line in src/main.asm.
+mis_text_ptr:       defb 0
 mis_text_y:         defb 0
 mis_text_left:      defb 0
 mis_brief_prompt:   defb "ENTER",0

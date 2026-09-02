@@ -205,12 +205,20 @@ mis_setup:
     push hl
     ld hl,(mis_src)
     pop de
-    ld bc,6
+    ld bc,MIS_ENEMY_CLASS
     ldir
+
+    ;  LDIR left HL on the seventh byte of the row, which is the class. Take it
+    ;  before mis_src is advanced past it, and carry it over ent_addr on the
+    ;  stack -- ent_addr's argument is A.
+    ld a,(hl)
+    inc hl
     ld (mis_src),hl
 
+    push af
     ld a,(ent_index)
     call ent_addr
+    pop af
     call mis_make_enemy
 
     ld hl,mis_left
@@ -302,17 +310,14 @@ mis_spawn_derelict:
     ldir
     pop hl
 
-    ;  Squadron, order and target come out right for free; the three fields
-    ;  that do not are overwritten below.
+    ;  Squadron, order and target come out right for free, and the class does
+    ;  now that mis_make_enemy takes one; the two fields that do not are
+    ;  overwritten below.
+    ld a,CLASS_FRIGATE
     call mis_make_enemy
 
     ld a,(ent_index)
     call ent_addr
-    push hl
-    ld de,ENT_CLASS
-    add hl,de
-    ld (hl),CLASS_FRIGATE
-    pop hl
     push hl
     ld de,ENT_HULL
     add hl,de
@@ -325,11 +330,21 @@ mis_spawn_derelict:
 
 
 ; ----------------------------------------------------------------------------
-;  mis_make_enemy -- turn the entity at HL into a Vekhar interceptor
-;  In : HL -> the entity
+;  mis_make_enemy -- turn the entity at HL into a Vekhar ship of class A
+;  In : HL -> the entity, A = class
 ;  Uses: everything
+;
+;  THE HULL STAYS FLAT AT 200 whatever the class is, and that is deliberate
+;  rather than unfinished. class_hull is 255 for five of the eight classes, so
+;  reading it here would make almost every enemy identical anyway; what makes a
+;  Vekhar frigate hard to kill is the COLUMN under it in cbt_damage_matrix, and
+;  that is already true without spending a byte here. 200 is also the handicap
+;  the picket has always carried against the player's 255, and keeping it flat
+;  means the class column changes WHO the enemy is without quietly changing how
+;  much of it there is to shoot through.
 ; ----------------------------------------------------------------------------
 mis_make_enemy:
+    ld c,a                              ; the class, until its field is reached
     push hl
     ld de,ENT_FLAGS
     add hl,de
@@ -343,7 +358,7 @@ mis_make_enemy:
     push hl
     ld de,ENT_CLASS
     add hl,de
-    ld (hl),CLASS_INTERCEPTOR
+    ld (hl),c
     pop hl
     push hl
     ld de,ENT_SQUAD
@@ -501,14 +516,36 @@ mis_gate:
 
     ;  ...and the drive has to be paid for. Asked here rather than at the key
     ;  so that the HUD's JUMP never offers what ENTER would refuse.
+    call mis_jump_fare
     ld hl,(eco_ru)
-    ld de,MIS_JUMP_COST
     or a
     sbc hl,de
     ret c
 
     ld a,1
     ld (mis_leave_ok),a
+    ret
+
+
+; ----------------------------------------------------------------------------
+;  mis_jump_fare -- what it costs to leave the mission being played
+;  Out: DE = the fare
+;  Uses: AF, DE, HL
+;
+;  A column in campaign.asm rather than an equate, because the flat thousand it
+;  replaced was almost exactly the income of a peaceful mission and the
+;  campaign went bankrupt at 5. game/mission.asm carries the measurement.
+; ----------------------------------------------------------------------------
+mis_jump_fare:
+    ld a,(mis_index)
+    ld l,a
+    ld h,0
+    add hl,hl
+    ld de,mission_fare
+    add hl,de
+    ld e,(hl)
+    inc hl
+    ld d,(hl)
     ret
 
 
@@ -623,8 +660,12 @@ mis_jump:
     ;  Pay for the drive. AFTER the two refusals above and before anything
     ;  else moves, so a refused jump is never charged for -- mis_gate has
     ;  already checked the treasury covers it, and nothing has run between.
+    ;
+    ;  It is the fare of the mission being LEFT, and the increment above went
+    ;  into A rather than into mis_index -- which is not written until further
+    ;  down -- so mis_jump_fare reads the right row.
+    call mis_jump_fare
     ld hl,(eco_ru)
-    ld de,MIS_JUMP_COST
     or a
     sbc hl,de
     ld (eco_ru),hl

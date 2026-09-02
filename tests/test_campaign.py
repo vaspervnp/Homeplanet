@@ -244,10 +244,28 @@ class TestTheWayOut(CampaignFixture):
     def waves_seen(self, n):
         self.c.write_ram(self.sym["WAVE_COUNT"], bytes([n]))
 
+    def fare(self):
+        """What it costs to leave the mission being played.
+
+        A COLUMN in campaign.asm rather than the flat MIS_JUMP_COST this used
+        to read. That number was almost exactly the income of a peaceful
+        mission -- measured, 1000 against 940 -- so the campaign funded its own
+        travel and nothing else and went bankrupt at mission 5. MIS_JUMP_COST
+        is the DEAREST fare now, which is what makes it still the right thing
+        for harness.clear_the_way_out to top a purse up to; it is the wrong
+        thing for a test that wants to be one unit short of THIS jump.
+
+        Bank 4, so read_bank4 and not read_ram: mission_fare lives beside
+        mission_table and the window has a sprite library in it a tenth of the
+        time.
+        """
+        addr = self.sym["MISSION_FARE"] + self.byte("MIS_INDEX") * 2
+        return int.from_bytes(h.read_bank4(self.c, addr, 2), "little")
+
     def pay_the_fare(self, over=True):
         """The treasury the drive is fuelled out of. `over=False` leaves the
         player one unit short, which is the only interesting failing case."""
-        cost = self.sym["MIS_JUMP_COST"]
+        cost = self.fare()
         self.c.write_ram(self.sym["ECO_RU"],
                          struct.pack("<H", cost if over else cost - 1))
 
@@ -319,7 +337,8 @@ class TestTheWayOut(CampaignFixture):
         self.assertFalse(self.press_j(), "left with a wave on the screen")
 
     def test_the_fare_is_the_fourth_thing_it_asks(self):
-        """A jump spends MIS_JUMP_COST, so the drive has to be paid for. One
+        """A jump spends the mission's own fare, so the drive has to be paid
+        for. One
         unit short is the case worth writing: it separates "cannot afford it"
         from "has no money at all", which a treasury of zero would not."""
         self.to_a_mission_with_a_picket()
@@ -342,7 +361,7 @@ class TestTheWayOut(CampaignFixture):
         self.to_a_mission_with_a_picket()
         self.clear_the_board()
         self.waves_seen(self.sym["WAVE_BEFORE_JUMP"])
-        purse = self.sym["MIS_JUMP_COST"] + 250
+        purse = self.fare() + 250
         self.c.write_ram(self.sym["ECO_RU"], struct.pack("<H", purse))
         self.c.run_frames(24)
         self.assertTrue(self.press_j(), "the way out was closed with the fare paid")
@@ -529,3 +548,100 @@ class TestDefeat(CampaignFixture):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestTheBriefingComesOutOfBankSeven(unittest.TestCase):
+    """The text moved out of DISC.BIN and into the sprite banks.
+
+    game/briefings.asm has the arithmetic: twenty missions' briefings are about
+    1100 bytes and DISC.BIN had 383 of headroom, while lib_load was already
+    reading 4672 bytes into bank 7 every boot and throwing them away.
+
+    So this asserts the whole path at once -- the build put the strings on the
+    disc, lib_load read them into bank 7, brief_fetch paged that bank in from
+    the low 16K and copied three of them out, and mis_brief_draw drew them.
+    Reading the words back OFF THE SCREEN is what makes it one test instead of
+    four that each pass while the picture is blank.
+    """
+
+    FIRST_CHAR, LAST_CHAR, CHAR_H, CHAR_W_BYTES = 32, 90, 8, 2
+
+    @classmethod
+    def setUpClass(cls):
+        cls.sym = h.symbols()
+        #  What the build put in bank 7, which is what the disc carries. Not
+        #  the source: this is the same check test_shipclass makes of the
+        #  sprite banks, and it is the one that catches a loader and a writer
+        #  that disagree about where a sector is.
+        with open("build/bank7.raw", "rb") as f:
+            cls.bank7 = f.read()
+
+    def setUp(self):
+        self.c = h.boot_quick(frames=300)
+        self.font = bytes(self.c.read_ram(
+            self.sym["TXT_FONT"],
+            (self.LAST_CHAR - self.FIRST_CHAR + 1) * self.CHAR_H))
+
+    def tearDown(self):
+        h.close(getattr(self, "c", None))
+
+    def briefing_on_the_disc(self, mission):
+        """The three lines the build wrote into bank 7 for one mission."""
+        at = self.sym["MISSION_TEXT"] - 0x4000
+        for _ in range(mission * self.sym["BRIEF_LINES"]):
+            at = self.bank7.index(b"\0", at) + 1
+        out = []
+        for _ in range(self.sym["BRIEF_LINES"]):
+            end = self.bank7.index(b"\0", at)
+            out.append(self.bank7[at:end].decode("ascii"))
+            at = end + 1
+        return out
+
+    def line_on_the_screen(self, y):
+        """Decode one row of glyphs, the way tests/test_ctxbar.py does."""
+        ram = self.c.read_ram(h.front_buffer(self.c), 0x4000)
+        raw = [[ram[h.screen_offset(y + r, x)] for x in range(80)]
+               for r in range(self.CHAR_H)]
+        out = []
+        for cell in range(80 // self.CHAR_W_BYTES):
+            x = cell * self.CHAR_W_BYTES
+            #  Fold the low nibble up: the same pixels are ink 1 in the high
+            #  nibble and ink 2 in the low one, so this reads a glyph whichever
+            #  pen it was drawn in.
+            want = [((raw[r][x] | (raw[r][x] << 4)) & 0xF0,
+                     (raw[r][x + 1] | (raw[r][x + 1] << 4)) & 0xF0)
+                    for r in range(self.CHAR_H)]
+            out.append(self._match(want))
+        return "".join(out).rstrip()
+
+    def _match(self, cell):
+        for code in range(self.FIRST_CHAR, self.LAST_CHAR + 1):
+            g = self.font[(code - self.FIRST_CHAR) * self.CHAR_H:][:self.CHAR_H]
+            if all(cell[r] == (g[r] & 0xF0, (g[r] << 4) & 0xF0)
+                   for r in range(self.CHAR_H)):
+                return chr(code)
+        return "?"
+
+    def test_a_briefing_is_on_the_screen_word_for_word(self):
+        #  boot_quick has already pressed past the first one, so jump into the
+        #  next and read it while it is still up.
+        h.clear_the_way_out(self.c)
+        self.c.key_down("j")
+        self.c.run_frames(25)
+        self.c.key_up("j")
+        self.assertTrue(h.wait_for_briefing(self.c), "no briefing after jumping")
+        h.let_the_game_draw(self.c, self.sym, 8)
+
+        mission = self.c.read_ram(self.sym["MIS_INDEX"], 1)[0]
+        want = self.briefing_on_the_disc(mission)
+        y = self.sym["BRIEF_TEXT_Y"]
+        for n, expect in enumerate(want):
+            got = self.line_on_the_screen(y + n * self.sym["BRIEF_LINE_STEP"])
+            #  The indent is BRIEF_X, which is a BYTE column: two bytes a
+            #  character cell, so it is four blank cells and not eight. Checked
+            #  rather than stripped -- a line drawn at the wrong x is a real
+            #  defect and this is the only test that would ever see it.
+            indent = self.sym["BRIEF_X"] // self.CHAR_W_BYTES
+            self.assertEqual(got, " " * indent + expect.rstrip(),
+                             f"briefing line {n} reads {got!r} on the screen "
+                             f"and {expect!r} on the disc")

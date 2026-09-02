@@ -54,7 +54,7 @@ mission_table:
     defb 8
     defw enemies_close
     defb 2
-    defw patches_thin
+    defw patches_rich
     defb MIS_OBJ_CLEAR
     defb 4                              ; briefing text
 
@@ -63,7 +63,7 @@ mission_table:
     defb 6
     defw enemies_scatter
     defb 3
-    defw patches_thin
+    defw patches_deep
     defb MIS_OBJ_CLEAR
     defb 5                              ; briefing text
 
@@ -72,7 +72,7 @@ mission_table:
     defb 12
     defw enemies_wall
     defb 3
-    defw patches_rich
+    defw patches_deep
     defb MIS_OBJ_CLEAR
     defb 6                              ; briefing text
 
@@ -81,7 +81,7 @@ mission_table:
     defb 10
     defw enemies_wall
     defb 2
-    defw patches_thin
+    defw patches_deep
     defb MIS_OBJ_SURVIVE
     defb 7                              ; briefing text
 
@@ -91,7 +91,22 @@ mission_table_end:
 
 
 ; ----------------------------------------------------------------------------
-;  Enemy layouts. Six bytes a ship: x, y, z.
+;  Enemy layouts. MIS_ENEMY_SIZE bytes a ship: x, y, z, and the class.
+;
+;  The class column is read beside cbt_damage_matrix or it says nothing. What
+;  the player owns is nearly all interceptors, and an interceptor does 24 to
+;  another interceptor, 30 to a bomber and TEN to a frigate; a bomber does 8
+;  back to a fighter and 44 to a Mothership. So:
+;
+;    interceptor  the fight the player already knows
+;    bomber       ignores the escort and goes for the one ship that cannot be
+;                 lost -- the answer is to intercept it, not to out-trade it
+;    frigate      cannot economically be killed with fighters at all; it is
+;                 what makes buying a bomber of one's own worth 60 RU
+;
+;  Kept SPARSE on purpose. Two frigates in a wall of twelve is a fight with a
+;  problem in it; six is a wall a fighter fleet simply cannot get through, and
+;  the campaign is measured, not argued -- tools/balance.py is what says which.
 ;
 ;  All of these are a quarter of what they used to be. WORLD_SHIFT went from 8
 ;  to 6 to make the play area four times bigger, and the authored content had
@@ -100,55 +115,147 @@ mission_table_end:
 ; ----------------------------------------------------------------------------
 mis_none:
 
+;  The first fight of the campaign, and all four are interceptors on purpose:
+;  the player meets the class column later, once the plain fight is understood.
 enemies_picket:
     defw  -2250, 0, 5000
+    defb  CLASS_INTERCEPTOR
     defw   -750, 0, 5000
+    defb  CLASS_INTERCEPTOR
     defw    750, 0, 5000
+    defb  CLASS_INTERCEPTOR
     defw   2250, 0, 5000
+    defb  CLASS_INTERCEPTOR
 
+;  A static defence, so the two frigates are the middle of it -- the thing the
+;  line is built around, and the first time fighters meet a hull they cannot
+;  chew through.
 enemies_line:
     defw  -3000,  0, 5500
+    defb  CLASS_INTERCEPTOR
     defw  -2125,  0, 5500
+    defb  CLASS_INTERCEPTOR
     defw  -1250,  0, 5500
+    defb  CLASS_INTERCEPTOR
     defw   -375,  0, 5500
+    defb  CLASS_FRIGATE
     defw    375,  0, 5500
+    defb  CLASS_FRIGATE
     defw   1250,  0, 5500
+    defb  CLASS_INTERCEPTOR
     defw   2125,  0, 5500
+    defb  CLASS_INTERCEPTOR
     defw   3000,  0, 5500
+    defb  CLASS_INTERCEPTOR
 
 ;  Right on top of the fleet: the nebula hides them until it is too late.
+;  Two bombers, and being already inside the screen is exactly what a bomber
+;  wants -- they are here for the Mothership and the escort is behind them.
 enemies_close:
     defw  -1250,   500,  1750
+    defb  CLASS_INTERCEPTOR
     defw   1250,  -500,  1750
+    defb  CLASS_INTERCEPTOR
     defw  -1750,  -500, -1500
+    defb  CLASS_BOMBER
     defw   1750,   500, -1500
+    defb  CLASS_BOMBER
     defw      0,  1000,  2250
+    defb  CLASS_INTERCEPTOR
     defw      0, -1000, -2250
+    defb  CLASS_INTERCEPTOR
     defw  -2500,     0,     0
+    defb  CLASS_INTERCEPTOR
     defw   2500,     0,     0
+    defb  CLASS_INTERCEPTOR
 
 enemies_scatter:
     defw  -4000,   750,  3500
+    defb  CLASS_INTERCEPTOR
     defw   4000,  -750,  3500
+    defb  CLASS_INTERCEPTOR
     defw  -4000,  -750, -3500
+    defb  CLASS_FRIGATE
     defw   4000,   750, -3500
+    defb  CLASS_INTERCEPTOR
     defw      0,  1250,  5000
+    defb  CLASS_BOMBER
     defw      0, -1250, -5000
+    defb  CLASS_INTERCEPTOR
 
-;  A wall across the jump point.
+;  A wall across the jump point. The frigates ARE the wall, so they are in the
+;  front rank; the bombers sit behind it and come through the hole.
+;
+;  Mission 8 fields the first TEN of these rather than all twelve, so the order
+;  is what decides what it gets: both frigates and one bomber.
 enemies_wall:
     defw  -3500,  750, 5000
+    defb  CLASS_INTERCEPTOR
     defw  -2250,  750, 5000
+    defb  CLASS_FRIGATE
     defw  -1000,  750, 5000
+    defb  CLASS_INTERCEPTOR
     defw    250,  750, 5000
+    defb  CLASS_INTERCEPTOR
     defw   1500,  750, 5000
+    defb  CLASS_FRIGATE
     defw   2750,  750, 5000
+    defb  CLASS_INTERCEPTOR
     defw  -3500, -750, 5000
+    defb  CLASS_INTERCEPTOR
     defw  -2250, -750, 5000
+    defb  CLASS_INTERCEPTOR
     defw  -1000, -750, 5000
+    defb  CLASS_BOMBER
     defw    250, -750, 5000
+    defb  CLASS_INTERCEPTOR
     defw   1500, -750, 5000
+    defb  CLASS_INTERCEPTOR
     defw   2750, -750, 5000
+    defb  CLASS_BOMBER
+enemies_wall_end:
+
+;  A FORGOTTEN CLASS BYTE IS THE FAILURE THIS FILE IS SHAPED TO HAVE, and it
+;  would not look like one: the stride is seven, so one missing defb slides
+;  every ship after it half a row along and the picket comes out at coordinates
+;  nobody wrote, with classes read out of somebody else's Z. Counting the bytes
+;  between the labels is the one check that catches it, and RASM can do it at
+;  build time for nothing.
+    assert enemies_line    - enemies_picket  ==  4 * MIS_ENEMY_SIZE, "enemies_picket is not four ships"
+    assert enemies_close   - enemies_line    ==  8 * MIS_ENEMY_SIZE, "enemies_line is not eight ships"
+    assert enemies_scatter - enemies_close   ==  8 * MIS_ENEMY_SIZE, "enemies_close is not eight ships"
+    assert enemies_wall    - enemies_scatter ==  6 * MIS_ENEMY_SIZE, "enemies_scatter is not six ships"
+    assert enemies_wall_end - enemies_wall   == 12 * MIS_ENEMY_SIZE, "enemies_wall is not twelve ships"
+
+
+; ----------------------------------------------------------------------------
+;  What it costs to LEAVE each mission. One word a mission, read by
+;  mis_jump_fare, and deliberately a column rather than a field in the row
+;  above: the fare is a curve, and a curve is something you want to be able to
+;  see the shape of at a glance while you tune it.
+;
+;  Row N is the price of leaving mission N, so the last one is never charged --
+;  there is nowhere to go from HOMEPLANET. It carries the dearest figure anyway
+;  so that the shape reads honestly and so that MIS_JUMP_COST stays true.
+;
+;  Rising, because the treasury does. The first fare is above ECO_START_RU's
+;  120 on purpose -- that is the whole of what the old flat thousand was FOR,
+;  and it survives here: mission 1 cannot be left without buying a harvester
+;  and mining with it. See the long note in game/mission.asm for the
+;  measurement that killed the flat number.
+; ----------------------------------------------------------------------------
+mission_fare:
+    defw 200                            ; 1. THE TEST
+    defw 300                            ; 2. ASH
+    defw 400                            ; 3. THE WRECK
+    defw 500                            ; 4. THE DEPOT
+    defw 600                            ; 5. THE NEBULA
+    defw 700                            ; 6. THE GRAVES
+    defw MIS_JUMP_COST                  ; 7. THE GATE -- the dearest
+    defw MIS_JUMP_COST                  ; 8. HOMEPLANET -- never charged
+mission_fare_end:
+
+    assert (mission_fare_end - mission_fare) / 2 == MIS_COUNT, "the fare curve is not one word a mission"
 
 
 ; ----------------------------------------------------------------------------
@@ -229,71 +336,25 @@ patches_thin:
     defw    750,   250, -5500
     defw 1500
 
-
-; ----------------------------------------------------------------------------
-;  Briefing text (Homeplanet.md section 10).
+;  THE LATE CAMPAIGN: FEWER PATCHES, MUCH DEEPER ONES.
 ;
-;  BRIEF_LINES lines a mission, back to back and each zero-terminated, walked
-;  by mis_brief_draw in the order they are written here -- so the ORDER is the
-;  layout and there is no table of pointers. Uppercase because that is the
-;  whole of the font, and short because the design asks for "λίγο κείμενο,
-;  πολλή σιωπή". The tone is section 1's: lonely, quiet, and never explaining
-;  more than it has to.
+;  A mission is three to five minutes now, because mis_gate will not let one be
+;  left before its third wave -- and three harvesters working that long mine
+;  more than a thin field holds. Measured with tools/balance.py at its old
+;  hundred-second linger the stock never ran out and this set would have been
+;  pointless; measured over a real mission it is the binding constraint.
 ;
-;  THE FIRST TWO SAID SOMETHING THE GAME STOPPED DOING, and that is what these
-;  three lines of it are about. mis_gate will not let a mission be left before
-;  its third wave, whatever the mission's own objective is -- so missions 1 and
-;  2, which field no picket at all and complete on their first frame, are three
-;  waves of Vekhar each. Mission 2's briefing said "THERE IS NOTHING HERE TO
-;  FIGHT", which was true when it was written and is now the opposite of what
-;  happens.
-;
-;  It is fixed in the FICTION rather than in the rule, because the rule is
-;  universal and a universal rule wants saying once. What the jump gate
-;  actually means is that arriving is heard: the Vekhar come to the noise, and
-;  a fleet leaves when they have stopped coming. Mission 1 is where a player
-;  meets that for the first time, so mission 1 is where it is said -- and
-;  mission 2 then only has to stop denying it.
-;
-;  BRIEF_X is 8 pixels and TXT_CHAR_W_BYTES is 2, so a line has 39 characters
-;  before txt_draw clips it at the edge of the screen. The longest here is 37.
-; ----------------------------------------------------------------------------
-mission_text:
-    defb "FIRST JUMP IN NINE GENERATIONS.",0
-    defb "SIXTY THOUSAND SLEEPERS ABOARD.",0
-    defb "THEY HEARD IT. HOLD UNTIL THEY STOP.",0
-
-    defb "THE COLONY IS STILL BURNING.",0
-    defb "NOTHING OF THEIRS WAS WAITING HERE.",0
-    defb "GATHER WHAT IS LEFT. THEY WILL COME.",0
-
-    defb "A DEBRIS FIELD, AND SOMETHING",0
-    defb "SITTING IN IT THAT HAS NOT MOVED",0
-    defb "SINCE WE ARRIVED.",0
-
-;  THIS ONE CARRIES A MECHANIC AND NOT ONLY A MOOD, and that is deliberate.
-;  From here a dead Vekhar frigate is adrift at the edge of the field, and
-;  towing it home with a Salvage Corvette is the only way the yard ever learns
-;  to build one -- the build panel STEPS OVER a class it cannot offer, so a
-;  player who is not told has nothing on the screen to wonder about. The
-;  recurring lesson in this project is that a feature the player cannot find
-;  does not exist; three lines of a briefing is the cheapest place to fix that.
-    defb "A VEKHAR SUPPLY POST. A DEAD FRIGATE",0
-    defb "IS ADRIFT AT THE EDGE OF IT.",0
-    defb "SALVAGE THE HULL AND WE CAN BUILD IT.",0
-
-    defb "THE NEBULA BLINDS THE SENSORS.",0
-    defb "THEY WILL BE INSIDE THE FORMATION",0
-    defb "BEFORE ANYONE SEES THEM.",0
-
-    defb "A DEAD FLEET, DRIFTING.",0
-    defb "THE HULL MARKINGS ARE KERA.",0
-    defb "SOMEONE ELSE TRIED THIS BEFORE US.",0
-
-    defb "A VEKHAR JUMP GATE.",0
-    defb "EVERYTHING THEY HAVE LEFT IS HERE.",0
-    defb "THERE IS NO WAY ROUND IT.",0
-
-    defb "THE MAP WAS NOT WRONG.",0
-    defb "THE PLANET IS THERE, AND SO ARE THEY.",0
-    defb "HOLD LONG ENOUGH TO SEE IT.",0
+;  Deeper rather than MORE, and that is the whole shape of it. Section 1's
+;  campaign is a fleet that only ever shrinks, and a late mission scattered
+;  with plentiful little fields would read as the war getting easier. Two or
+;  three large finds reads as scraping: there is more in each one, and there is
+;  nowhere else to go.
+patches_deep:
+    defw  -6000,   500, -2500
+    defw 9000
+    defw   6000,  -500,  2500
+    defw 9000
+    defw   -750,   250,  6000
+    defw 7500
+    defw   2500,  -250, -6000
+    defw 7500

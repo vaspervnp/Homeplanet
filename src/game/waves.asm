@@ -589,7 +589,13 @@ wave_send:
 
     ;  A Vekhar interceptor like any other, and then the two things that make
     ;  it a wave ship: the flag mis_count_enemies looks past, and its own hull.
+    ;  Interceptors, deliberately, though mis_make_enemy will take any class
+    ;  now. The waves are the one part of the campaign whose difficulty has
+    ;  been MEASURED -- tools/waverate.py, against a 70% floor -- and mixing
+    ;  classes into them changes that number without the mission table saying
+    ;  anything about it. Variety belongs where an author can see it.
     ld hl,(wave_ent)
+    ld a,CLASS_INTERCEPTOR
     call mis_make_enemy
     ld hl,(wave_ent)
     ld de,ENT_FLAGS
