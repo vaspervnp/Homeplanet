@@ -20,22 +20,34 @@ sys.path.insert(0, __file__.rsplit("/", 2)[0])
 from tests import harness as h
 import cpc
 
-#  Read out of the build, both of them. The count and the ORDER of the rows
-#  are menutext.asm's, and every row after an inserted one moves -- REPAIR went
+#  Read out of the build. The count and the ORDER of the rows are
+#  screentext.asm's, and every row after an inserted one moves -- REPAIR went
 #  in beside BUILD and shifted nine of the eleven constants below, every one of
-#  which was a number written down here. A row index is a fact about a table in
-#  bank 4, so it is looked up in that table.
-def _menu_rows():
+#  which was a number written down here. A row index is a fact about a table,
+#  so it is looked up in that table.
+#
+#  OFF build/bank7.raw, which is what the build wrote onto the disc, not the
+#  source. The words moved out of bank 4 the day DISC.BIN ran out of headroom;
+#  this is the same check test_shipclass makes of the sprite banks, and it is
+#  the one that catches a loader and a writer disagreeing about where a sector
+#  is. The KEYS are still in bank 4 -- see menu_words_on_the_disc.
+def menu_words_on_the_disc():
+    """Every row's text, in order, as the build put it in bank 7."""
     sym = h.symbols()
-    base = sym["MENU_ENTRIES"]
-    raw = h.read_bank4(h.boot_quick(frames=250), base,
-                       sym["MENU_ENTRIES_END"] - base)
-    rows, i = [], 0
-    while i < len(raw):
-        end = raw.index(0, i + 1)
-        rows.append(raw[i + 1:end].decode("ascii").split()[0])
-        i = end + 1
-    return rows
+    with open("build/bank7.raw", "rb") as f:
+        bank7 = f.read()
+    at = sym["MENU_WORDS"] - 0x4000
+    end_of_table = sym["MENU_WORDS_END"] - 0x4000
+    out = []
+    while at < end_of_table:
+        end = bank7.index(b"\0", at)
+        out.append(bank7[at:end].decode("ascii"))
+        at = end + 1
+    return out
+
+
+def _menu_rows():
+    return [text.split()[0] for text in menu_words_on_the_disc()]
 
 
 _ROWS = _menu_rows()
@@ -290,20 +302,28 @@ class TestTheShortcutsAreShown(MenuFixture):
     def test_every_row_names_its_key(self):
         """"Show the keyboard shortcuts after each command" -- so each line
         has to end in one, and the key it ends in has to be the key the entry
-        actually injects."""
-        base = self.sym["MENU_ENTRIES"]
-        raw = h.read_bank4(self.c, base, self.sym["MENU_ENTRIES_END"] - base)
+        actually injects.
 
-        rows, i = [], 0
-        while i < len(raw):
-            key = raw[i]
-            end = raw.index(0, i + 1)
-            rows.append((key, raw[i + 1:end].decode("ascii")))
-            i = end + 1
+        THE TWO HALVES OF A ROW ARE IN TWO DIFFERENT BANKS NOW -- the words in
+        bank 7 off the disc, the key ids in bank 4 -- so this is also the test
+        that they are still in step. src/main.asm asserts both tables are
+        MENU_COUNT long, which catches a row missing from one of them; what it
+        cannot see is a row that is present in both and says the wrong letter,
+        because "the printed shortcut is the key that is injected" is a fact
+        about the CONTENTS. A menu whose tables had slipped past each other
+        would go on working perfectly while giving the wrong orders."""
+        words = menu_words_on_the_disc()
+        keys = h.read_bank4(self.c, self.sym["MENU_KEYS"],
+                            self.sym["MENU_KEYS_END"] - self.sym["MENU_KEYS"])
 
-        self.assertEqual(len(rows), MENU_COUNT)
+        self.assertEqual(len(words), MENU_COUNT)
+        self.assertEqual(len(keys), MENU_COUNT,
+                         "menu_keys and menu_words are different lengths")
+        rows = list(zip(keys, words))
+
         for key, text in rows:
-            self.assertEqual(len(text), 17, f"{text!r} is not the field width")
+            self.assertEqual(len(text), self.sym["MENU_FIELD"],
+                             f"{text!r} is not the field width")
             self.assertNotEqual(text.rstrip(), text.rstrip().split()[0],
                                 f"{text!r} has a command but no shortcut after it")
 

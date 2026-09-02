@@ -34,7 +34,7 @@
 ;  mis_brief_draw lives in bank 4, and the instant it paged bank 7 into the
 ;  window it would vanish from under the program counter -- the same trap
 ;  gfx/sprite.asm's spr_blit_banked exists for, and the one the title screen
-;  walked into the day the libraries repacked. brief_fetch does the paging from
+;  walked into the day the libraries repacked. bank7_fetch does the paging from
 ;  the LOW 16K and copies the three lines into brief_buffer; see sys/libload.asm.
 ;
 ;  Everything below this line is unchanged from when it lived in campaign.asm.

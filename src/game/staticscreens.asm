@@ -268,7 +268,7 @@ mis_brief_draw:
     ;  DISC.BIN and lib_load was already reading 4672 unused bytes into that
     ;  bank every boot. This code is bank 4 and CANNOT page bank 7 in for
     ;  itself -- the window would stop being the RAM it is executing from -- so
-    ;  brief_fetch does the paging from the low 16K. See game/briefings.asm.
+    ;  bank7_fetch does the paging from the low 16K. See game/briefings.asm.
     ;
     ;  It fetches ONE LINE per call, so mis_text_ptr counts strings now instead
     ;  of walking them; a three-line buffer cost 111 bytes of a low 16K whose
@@ -292,8 +292,12 @@ mis_brief_draw:
     inc a
     ld (mis_text_ptr),a
     dec a
-    call brief_fetch
-    ld hl,brief_line
+    ;  SEEKS rather than walks, unlike the two columns that share this routine:
+    ;  three lines out of sixty, so the cursor bank7_fetch hands back would have
+    ;  to be kept somewhere for the sake of two skips a screen.
+    ld hl,mission_text
+    call bank7_fetch
+    ld hl,bank7_line
     ld b,BRIEF_X
     ld a,(mis_text_y)
     ld c,a

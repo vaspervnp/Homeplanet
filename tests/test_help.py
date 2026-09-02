@@ -184,5 +184,54 @@ class TestTheHudSaysSo(HelpFixture):
         self.assertGreater(ink, 20, "nothing is drawn where the help label should be")
 
 
+class TestTheColumnsFitBesideEachOther(unittest.TestCase):
+    """txt_draw clips at the SCREEN edge and not at the column, so a left-hand
+    line one character too long does not fail -- it runs silently into the
+    right-hand column and the two are drawn on top of each other.
+
+    src/main.asm asserts the table's TOTAL length against HELP_ROWS *
+    (HELP_MAX_CHARS + 1), which catches a row added without HELP_ROWS moving,
+    and cannot catch one line being three long while another is three short.
+    That is what this measures, one line at a time, and it is the same shape as
+    the 36-character check on the briefings -- which found two lines that had
+    been quietly losing their full stops since the day they were written.
+
+    OFF build/bank7.raw: what the build put on the disc, not the source."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.sym = h.symbols()
+        with open("build/bank7.raw", "rb") as f:
+            cls.bank7 = f.read()
+
+    def strings_between(self, first, last):
+        at, end_of_table = self.sym[first] - 0x4000, self.sym[last] - 0x4000
+        out = []
+        while at < end_of_table:
+            end = self.bank7.index(b"\0", at)
+            out.append(self.bank7[at:end].decode("ascii"))
+            at = end + 1
+        return out
+
+    def test_the_left_column_stops_short_of_the_right_one(self):
+        lines = self.strings_between("HELP_WORDS", "HELP_WORDS_END")
+        self.assertEqual(len(lines), self.sym["HELP_ROWS"],
+                         "help_words is not HELP_ROWS lines long")
+        for line in lines:
+            self.assertLessEqual(
+                len(line), self.sym["HELP_MAX_CHARS"],
+                f"{line!r} runs into the orders column")
+
+    def test_the_right_column_stops_at_the_edge_of_the_screen(self):
+        """The right-hand column is the orders menu's own words, drawn at
+        HELP_COL2_X rather than at MENU_TEXT_X -- a different x, so its fit is
+        a different question from the menu's own."""
+        room = ((self.sym["SCR_BYTES_PER_LINE"] - self.sym["HELP_COL2_X"])
+                // self.sym["TXT_CHAR_W_BYTES"])
+        for line in self.strings_between("MENU_WORDS", "MENU_WORDS_END"):
+            self.assertLessEqual(len(line), room,
+                                 f"{line!r} runs off the right of the help page")
+
+
 if __name__ == "__main__":
     unittest.main()

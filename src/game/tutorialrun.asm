@@ -18,7 +18,7 @@
 ;  ---------------
 ;  tut_table is TUT_STEPS rows of (gate, entry act), both addresses, and
 ;  tut_text is TUT_STEPS zero-terminated strings back to back walked by
-;  str_index -- the same shape mission_text and menu_entries already have.
+;  str_index -- the same shape mission_text and menu_words already have.
 ;  Adding a step is a row and a string.
 ;
 ;      GATE   called every frame while the step is showing. CF set means the

@@ -248,7 +248,7 @@ jfx_col:            defb 0              ; where the line is, in bytes 0..80
 jfx_armed:          defb 0              ; a jump happened; reveal on the way out
 ;  Which briefing STRING comes next, counting from the first line of the first
 ;  mission -- not a pointer any more. mis_brief_draw fetches one line at a time
-;  out of bank 7; see the note by brief_line in src/main.asm.
+;  out of bank 7; see the note by bank7_line in src/main.asm.
 mis_text_ptr:       defb 0
 mis_text_y:         defb 0
 mis_text_left:      defb 0

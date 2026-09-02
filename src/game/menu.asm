@@ -6,9 +6,17 @@
 ;
 ;  THE MENU DOES NOT KNOW WHAT ANY COMMAND MEANS.
 ;  ---------------------------------------------
-;  Each entry carries the key id it stands for, and choosing one INJECTS that
-;  key -- writes its bit into key_hits and lets the frame carry on into
+;  Each row has a key id it stands for, and choosing one INJECTS that key --
+;  writes its bit into key_hits and lets the frame carry on into
 ;  phase4_commands, which acts on it exactly as if the player had pressed it.
+;
+;  A row is two tables deep now rather than one: menu_keys in bank 4 beside
+;  this code, and menu_words in BANK 7 with the briefings, because DISC.BIN's
+;  ceiling is what binds this project and bank 7 costs it nothing. The keys did
+;  not go with the words -- see game/menutext.asm -- so nothing pages a bank
+;  between pressing ENTER and the order being given, and menu_entry_key is an
+;  index rather than the walk it used to be. menu_draw fetches a row at a time
+;  through bank7_fetch, which does the paging from the low 16K.
 ;
 ;  That is the whole design. A menu that called order_issue and eco_build_open
 ;  itself would be a second copy of the dispatch in phase4_commands, and the
@@ -48,6 +56,11 @@ MENU_TOP            equ 14
 MENU_STEP           equ 9
 MENU_MARK_X         equ 22              ; x is in BYTES
 MENU_TEXT_X         equ 24
+;  Every row of menu_words is padded to exactly this so the shortcut at the end
+;  right-aligns, which is what lets src/main.asm check the whole table with one
+;  division. It fits because MENU_TEXT_X is 24 bytes in and the screen is 80,
+;  so there is room for twenty-eight characters and no more.
+MENU_FIELD          equ 17
 ;  Beside the title, not under the list. Thirteen rows do not leave room for a
 ;  line of their own above HUD_TOP -- help.asm reached the same arrangement for
 ;  the same reason, and its right column is this same table.
@@ -126,8 +139,7 @@ menu_key:
     ret nc
 
     ;  Take the entry's key, wipe the board, and put that one key back.
-    call menu_entry_addr
-    ld a,(hl)
+    call menu_entry_key
     push af
     call key_clear
     pop af
@@ -136,27 +148,23 @@ menu_key:
 
 
 ; ----------------------------------------------------------------------------
-;  menu_entry_addr -- HL -> the selected entry (its key id byte)
-;  Uses: AF, BC, DE, HL
+;  menu_entry_key -- A = the key id the selected row stands for
+;  Uses: AF, DE, HL
 ;
-;  The entries are variable length -- a key id and then a string -- so getting
-;  to one is walking past the ones before it. Ten of them once a frame is
-;  nothing, and it keeps the table a table rather than a table of pointers.
+;  One index into a flat table. It used to be a walk past every entry above
+;  this one, because a key id and its words were stored back to back and the
+;  entries were therefore variable length. The words are in bank 7 now and the
+;  keys are a parallel array in bank 4 -- see game/menutext.asm for why the
+;  keys did not go with them -- so the walk is gone and, more to the point, so
+;  is any question of paging a bank on the path between ENTER and the order.
 ; ----------------------------------------------------------------------------
-menu_entry_addr:
-    ld hl,menu_entries
+menu_entry_key:
     ld a,(menu_pick)
-    or a
-    ret z
-    ld b,a
-@menu_skip_entry:
-    inc hl                              ; past the key id
-@menu_skip_text:
+    ld e,a
+    ld d,0
+    ld hl,menu_keys
+    add hl,de
     ld a,(hl)
-    inc hl
-    or a
-    jr nz,@menu_skip_text
-    djnz @menu_skip_entry
     ret
 
 
@@ -179,7 +187,10 @@ menu_draw:
     ld c,MENU_TITLE_Y
     call txt_draw
 
-    ld hl,menu_entries
+    ;  The cursor into bank 7's word list. bank7_fetch hands it back one string
+    ;  further on each time, so seventeen rows count seventeen strings between
+    ;  them rather than a hundred and fifty.
+    ld hl,menu_words
     ld (menu_ptr),hl
     ld a,MENU_TOP
     ld (menu_y),a
@@ -201,21 +212,18 @@ menu_draw:
     ld c,a
     call txt_draw
 
+    ;  Out of bank 7 and into the low 16K, then drawn from there. The fetch
+    ;  steps the cursor over the string for us, so there is nothing to walk.
     ld hl,(menu_ptr)
-    inc hl                              ; step over the key id to the words
-    push hl
+    xor a
+    call bank7_fetch
+    ld (menu_ptr),hl
+
+    ld hl,bank7_line
     ld b,MENU_TEXT_X
     ld a,(menu_y)
     ld c,a
     call txt_draw
-    pop hl
-
-@menu_next_text:
-    ld a,(hl)
-    inc hl
-    or a
-    jr nz,@menu_next_text
-    ld (menu_ptr),hl
 
     ld a,(menu_y)
     add a,MENU_STEP

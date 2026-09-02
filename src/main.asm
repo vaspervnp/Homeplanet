@@ -148,11 +148,12 @@ phase4_vis:         defs ENT_MAX * PHASE4_VIS_SIZE
 phase4_order:       defs ENT_MAX * 2        ; index, and its depth beside it
 phase4_gcount:      defs ENT_MAX
 
-;  The briefing being shown, copied out of BANK 7 by brief_fetch.
+;  The one line being drawn, copied out of BANK 7 by bank7_fetch. Three screens
+;  share it: the mission briefing, the orders menu and the help page.
 ;
 ;  IN THE LOW 16K, AND THAT IS NOT A PREFERENCE. It was written into bank 4
 ;  first, with fleet_block and class_standin, on the reasoning that space after
-;  bank4_end is free -- and bank 4 is THE WINDOW. brief_fetch does its copying
+;  bank4_end is free -- and bank 4 is THE WINDOW. bank7_fetch does its copying
 ;  with bank 7 paged in, so every byte went straight back into bank 7 on top of
 ;  the text being read, and the buffer was still zero when bank 4 came back.
 ;  The briefing drew its title and three blank lines.
@@ -165,10 +166,11 @@ phase4_gcount:      defs ENT_MAX
 ;  puts 384 bytes of stub above LOW_END and harness another 0x60. A dozen test
 ;  classes with nothing to do with briefings fail below it.
 ;
-;  Fetching per line costs three bank flips a frame on a screen where nothing
-;  else is running at all, which is the cheapest 71 bytes ever bought.
-BRIEF_BUF_SIZE      equ 40
-brief_line:         defs BRIEF_BUF_SIZE
+;  Fetching per line costs a bank flip a row on screens where nothing else is
+;  running at all, which is the cheapest 71 bytes ever bought -- and it is what
+;  let the menu's and the help page's words follow the briefings across.
+B7_BUF_SIZE         equ 40
+bank7_line:         defs B7_BUF_SIZE
 ;  ...and the two dirty-rectangle lists, which are ENT_MAX-shaped as well
 ;  (PHASE4_RECT_SLOTS), so they grew with the fleet too.
 phase4_rects_a:     defs PHASE4_RECT_SLOTS * 4
@@ -705,6 +707,9 @@ bank7_start:
 ;  the short of it is that raw sectors cost DISC.BIN nothing and DISC.BIN is
 ;  what twenty missions do not fit inside.
     include "game/briefings.asm"
+;  ...and the words the other two stopped-world screens draw, across for the
+;  same reason and read by the same routine. See game/screentext.asm.
+    include "game/screentext.asm"
 bank7_end:
     save "build/bank7.raw", BANK_WINDOW, bank7_end - BANK_WINDOW
 
@@ -968,7 +973,37 @@ ENDIF
     assert MENU_PROMPT_X + (menu_bar - menu_prompt - 1) * TXT_CHAR_W_BYTES <= SCR_BYTES_PER_LINE, "the orders menu's prompt runs off the screen"
     assert MENU_MARK_X + (menu_prompt - menu_title - 1) * TXT_CHAR_W_BYTES <= MENU_PROMPT_X, "the orders menu's title runs into its prompt"
 
-;  The help page's right column IS menu_entries, so it is MENU_COUNT rows long
+;  THE MENU IS TWO PARALLEL TABLES NOW -- the key ids in bank 4 and the words
+;  in bank 7 -- and these two asserts are what stands where "the key id and its
+;  words are stored back to back" used to stand for free. A line missing from
+;  either table slides every shortcut below it onto the wrong row, and the menu
+;  would go on working perfectly while giving the wrong orders.
+;
+;  The words divide EXACTLY because every row is padded to the same
+;  seventeen-character field so the shortcut right-aligns -- so one assert
+;  catches a missing row, a short row and a long row alike. That is a stronger
+;  check than the interleaved table ever had, and it is free.
+    assert menu_keys_end - menu_keys == MENU_COUNT, "menu_keys is not one key per menu row"
+    assert menu_words_end - menu_words == MENU_COUNT * (MENU_FIELD + 1), "menu_words is not MENU_COUNT rows of the full field width"
+
+;  Only a bound for the help page's own column, because its lines are ragged by
+;  design. What it catches is a row added here without HELP_ROWS moving, and
+;  the wide end of a line running into the right-hand column; the per-line
+;  width is measured off build/bank7.raw by tests/test_help.py, which is what
+;  it takes to check the strings one at a time.
+    assert help_words_end - help_words <= HELP_ROWS * (HELP_MAX_CHARS + 1), "the help page's left column is too long for its rows"
+    assert help_words_end - help_words > HELP_ROWS, "the help page's left column has fewer rows than HELP_ROWS"
+;  ...and the width HELP_MAX_CHARS claims really is the width there is. Written
+;  as a multiply because the division that would derive it does not floor: see
+;  the note beside the equate in game/help.asm.
+    assert HELP_COL1_X + HELP_MAX_CHARS * TXT_CHAR_W_BYTES <= HELP_COL2_X, "a full-width help line would run into the orders column"
+
+;  The shared buffer has to hold the longest thing any of the three screens
+;  fetches into it. The briefing's own bound is BRIEF_MAX_CHARS, below.
+    assert B7_BUF_SIZE > MENU_FIELD, "the bank 7 buffer cannot hold a menu row"
+    assert B7_BUF_SIZE > HELP_MAX_CHARS, "the bank 7 buffer cannot hold a help row"
+
+;  The help page's right column IS menu_words, so it is MENU_COUNT rows long
 ;  and not HELP_ROWS. It clears today only because help.asm already moved its
 ;  prompt up beside the title for exactly this reason.
     assert HELP_BODY_Y + (MENU_COUNT - 1) * HELP_LINE_STEP + TXT_CHAR_H <= HUD_TOP, "the help page's right column is drawn inside the HUD strip"

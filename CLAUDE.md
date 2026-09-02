@@ -183,9 +183,15 @@ and prints how many bytes are left in the low 16K and in every bank. Watch all
 of them, and watch the "hand-written code ends at" figure rather than `free:` —
 see "Where 700 bytes came from" for why the second one lies.
 
-**Today: low 16K 484, bank 4 1420, `DISC.BIN` 26085 of 26368 so 283 of
-headroom.** `DISC.BIN` is the binding constraint again -- see "Twenty missions,
-and the two ceilings they hit". The low 16K figure is the one to watch too — it went back to
+**Today: low 16K 484, bank 4 1837, bank 7 10997 of 13312, `DISC.BIN` 25668 of
+26368 so 700 of headroom.** `DISC.BIN` had been the binding constraint at 201
+until the menu's and the help page's words went to bank 7 — see "...and then
+the menu's and the help page's words followed them", which is also where the
+next lever is: **bank 7 still has 2315 bytes that `lib_load` reads and throws
+away every boot**, and reaching them costs no new code at all now that
+`bank7_fetch` is general. Any text, or any data only read while the world is
+stopped, can go there for nothing.
+The low 16K figure is the one to watch too — it went back to
 being the binding constraint the day the fleet's ceiling doubled, and about 450
 of those 524 belong to the tests (see "The low 16K's real floor" below). It is
 also measured **above the entity arrays** now: `free:` is the gap between
@@ -200,16 +206,31 @@ default. The help text, the mission table, the formation shapes, the per-class
 data, the cached half of the marker pass, the context bar, the player's
 commands and the campaign's setup and teardown all live there.
 
-**`DISC.BIN`'s ceiling IS the binding constraint again.** It is
-**26085 against 26368, so 283 of headroom** -- twenty missions and the
+**`DISC.BIN`'s ceiling is the one that has bound this project three times
+running**, and each time the answer was to take DATA out of the file rather
+than to make the code smaller. It is **25668 against 26368, so 700 of
+headroom**; it was 201 before the menu and help words went to bank 7, and 283
+before that. Twenty missions and the
 homeplanet spent what follows — and it got there twice over: the
 sprite libraries repacked 3+3+2 ("The repack, and the three things it was
 expected to buy"), and then the six `ENT_MAX`-shaped arrays moved above
 `code_end`, which took 2 KB of zeros out of the file in one go. Note that
 low-16K code costs the file byte for byte while bank-4 code costs it whatever
 RLE makes of it (which for code is nearly nothing), and that **uninitialised
-data need not cost it anything at all** — that is the newest of the three
-levers and the one to reach for first.
+data need not cost it anything at all**.
+
+**There are four levers now, and the order to reach for them in is:**
+
+1. **Text and stopped-world data → bank 7.** Free, and there is no new code to
+   write: `lib_load` already reads 13312 bytes into that bank every boot and
+   2315 of them are still thrown away, and `bank7_fetch` is general. This is
+   what the briefings, the orders menu's words and the help page's columns did.
+2. **Uninitialised data → after `code_end` or after `bank4_end`.** Also free:
+   `entities`, `fleet_block` and `class_standin` all live outside the saved
+   image.
+3. **Low-16K code → bank 4**, if it cannot run between `class_tier_addr` and
+   `class_blit_done`. Costs the file whatever the packer makes of it.
+4. Making something smaller. Last, and it has never yet been the answer.
 
 **Bank 4 is at 2247 bytes.** The two sprite libraries it used to carry left in
 the repack and took it to 6227; the tutorial, the `I` page's code and section
@@ -249,10 +270,16 @@ power-on layout. Equates in `src/equ/hardware.asm`.
 
 | Bank | Holds | How it gets there |
 |---|---|---|
-| 4 | mission table; help, menu and title CODE; the §9 command code and the campaign's setup/teardown CODE; the cached marker projection; per-class data; formation shapes; the zoom table; the fleet buffer | inside `DISC.BIN` |
+| 4 | mission table; help, menu and title CODE; the menu's KEY IDS; the §9 command code and the campaign's setup/teardown CODE; the cached marker projection; per-class data; formation shapes; the zoom table; the fleet buffer | inside `DISC.BIN` |
 | 5 | interceptor + mothership + harvester sprites | raw sectors, read by `lib_load` |
 | 6 | scout + bomber + frigate sprites | " |
-| 7 | salvage + destroyer sprites | " |
+| 7 | salvage + destroyer sprites, **and every word the stopped-world screens draw** — briefings, the orders menu's list, the help page's left column | " |
+
+**Bank 7 is not full and the spare is not spare by accident**: `lib_load` reads
+a fixed `LIB_SECTORS` into every bank, so bank 7 — which carries two libraries
+where the others carry three — has thousands of bytes arriving off the disc
+every boot whether anything is in them or not. `bank7_fetch` is how bank-4 code
+reads them. That is lever 1 above.
 
 Getting bank 4 there is the awkward part, and `src/disc.asm` explains it at
 length: the loader stub cannot live at `#4000`, because the instant it pages
@@ -369,6 +396,25 @@ grep -hoE '^@[a-z_0-9]+' $(find src -name '*.asm') | sort | uniq -d
 
 **`JR` reaches ±127 bytes.** A shared error exit at the end of a long routine
 will be out of range; use `JP`. RASM reports it as "relative offset N too far".
+
+**RASM's `/` does NOT floor, and an equate derived with it can be one too
+big.** `HELP_MAX_CHARS equ (HELP_COL2_X - HELP_COL1_X) / TXT_CHAR_W_BYTES` is
+39/2, and it came back **20** — a twenty-character line at `HELP_COL1_X` ends
+one byte *past* the column the equate exists to keep it clear of. The bound was
+looser than the thing it was bounding, which is the worst way for a guard to be
+wrong: it passes, and it passes the case it was written for.
+
+So a derived constant whose division is not exact should be a **literal with an
+assert that multiplies back**, which is the same shape `TUT_STEPS` already has
+for a different reason:
+
+```
+HELP_MAX_CHARS      equ 19
+    assert HELP_COL1_X + HELP_MAX_CHARS * TXT_CHAR_W_BYTES <= HELP_COL2_X
+```
+
+Found by reading the value out of the symbol file in a test, not by reading the
+source — the expression looks right and the assembler is what disagrees.
 
 **Test scratch memory comes from the build, not from a magic address.** The
 tests poke stubs at `harness.STUB` and read results at `harness.RESULT`, both
@@ -1391,7 +1437,7 @@ gone; **`E`** is the letter left in the word, on the same matrix row 7 as the
 > nothing left above the title to move. The glyphs are eight tall, so nine is a
 > one-pixel gutter and the list is visibly tighter. The choice was a cramped
 > list or a command the player cannot find: **the help page's right column IS
-> `menu_entries`**, so a row that is not there is not anywhere. `HELP_LINE_STEP`
+> `menu_words`**, so a row that is not there is not anywhere. `HELP_LINE_STEP`
 > came down with it. Seventeen orders will need a second column.
 
 > **And the menu tests indexed rows by NUMBER.** Inserting REPAIR beside BUILD
@@ -3452,7 +3498,7 @@ there twice. Worth reading as a list of the shapes to look for:
 | Found | Bytes | What it was |
 |---|---|---|
 | `form_offsets` | 216 | Loose and Wall are the SAME 4×4 lattice, one flat and one on end; Wedge is flat so its Y is structurally zero. 384 bytes of `defw` became four numbers, sixteen pairs and one real 3D shape |
-| `help_col_right` | ~120 | the help page's right column was the orders menu written out a second time. It now DRAWS `menu_entries`, stepping over the key id in front of each string |
+| `help_col_right` | ~120 | the help page's right column was the orders menu written out a second time. It now DRAWS `menu_words` -- and once the key ids moved to their own table it stopped needing to step over anything |
 | `title_star_table` | ~95 | forty stars as (x, y, pixel). The objection to generating them was TWINKLING, and twinkling comes from randomness — a xorshift reseeded to the same constant every frame lays the same field down every frame |
 | `title_rand` | ~8 of bank 4 | ...and then the attack waves needed the same eight instructions with the opposite habit. `sys_rand_step` takes the word in HL and hands it back, so the STEP is shared and the STATE is not — which is the whole distinction, and sharing the state would have made every campaign send the same waves |
 | `dist_manhattan` | ~90 | combat and the economy each had their own copy of the P/V test, the negate, the shift and the saturate |
@@ -3560,12 +3606,18 @@ cursor keys walk the list, `ENTER` runs one. It stops the world like the
 briefing and the help page.
 
 **It does not know what any command means.** Each entry in
-`src/game/menutext.asm` carries a *key id*, and choosing one **injects that
+`src/game/menutext.asm` has a *key id*, and choosing one **injects that
 key** — `key_inject` writes its bit into `key_edge` and `demo_update` falls
 through into the playing path so `phase4_commands` acts on it in the same
 frame. A menu that called `order_issue` and `eco_build_open` itself would be a
 second copy of that dispatch, and the two would drift the first time a command
 grew a precondition. Adding an order to the menu is adding a row.
+
+**A row is now two tables deep**: the key in `menutext.asm` (bank 4) and the
+words in `screentext.asm` (bank 7). Adding an order means a line in each, and
+`src/main.asm` asserts both are `MENU_COUNT` long. The keys stayed in bank 4 on
+purpose — see "...and then the menu's and the help page's words followed them"
+— so that nothing pages a bank between ENTER and the order being given.
 
 Two things this depends on:
 
@@ -3607,7 +3659,7 @@ put its own, with a comment saying why: *"the right column is thirteen rows and
 wants the bottom"*. The help page had met this and solved it; the menu had not,
 and the two files do not read each other. So the guard is six `ASSERT`s in
 `src/main.asm` — the vertical mirror of the context bar's horizontal ones —
-including two for the help page, whose right column is `menu_entries` and is
+including two for the help page, whose right column is `menu_words` and is
 therefore `MENU_COUNT` rows long rather than `HELP_ROWS`. They were checked by
 putting the old numbers back and watching the build stop; an assert nobody has
 seen fail is a comment.
@@ -4317,6 +4369,63 @@ AND WE CAN BUILD IT.`. There is a test that says so now instead of a comment
 that hoped so, and it reads the words back off `build/bank7.raw` — what the
 build put on the disc, not the source.
 
+#### ...and then the menu's and the help page's words followed them
+
+`DISC.BIN` was down to **201 bytes** — a three-byte edit for a control build
+failed the `#A700` assert — and the same lever was still there: bank 7 holds
+two 4320-byte libraries plus the briefings, and `lib_load` reads
+`LIB_SECTORS` = 13312 into it every boot regardless. `game/screentext.asm` is
+the orders menu's seventeen lines and the help page's eleven, in that bank.
+**26167 → 25668, so 201 bytes of headroom became 700**, and bank 4 got the same
+499 back.
+
+Three things about it are worth knowing, and the first is the one to copy.
+
+**THE KEYS DID NOT GO WITH THE WORDS.** A menu row used to be a key id and then
+its text, back to back — and the key id is the whole of the behaviour, because
+`menu.asm` injects it and lets `phase4_commands` do the work. Moving it would
+have put a bank flip on the path between pressing ENTER and the order being
+given, to save seventeen bytes. So `menu_keys` is in bank 4 beside the code
+that reads it and `menu_words` is in bank 7, as **parallel arrays**, and
+`menu_entry_key` is now an index rather than a walk past every row above it —
+smaller *and* the one that does not page.
+
+**What that costs is a check that used to be free**, and it is the general
+price of splitting a table: interleaved, a row could not half-exist. Two
+asserts replace it, and the words' one is stronger than what it replaces —
+every row is padded to `MENU_FIELD` so the shortcut right-aligns, so
+`menu_words_end - menu_words == MENU_COUNT * (MENU_FIELD + 1)` catches a
+missing row, a short row and a long row alike. Both were checked by breaking
+them. What neither can see is a row present in both tables that names the wrong
+letter, so `test_every_row_names_its_key` reads the words off `build/bank7.raw`
+and the keys out of bank 4 and zips them — a menu whose tables had slipped past
+each other would go on working perfectly while giving the wrong orders.
+
+**And the help page got simpler rather than harder.** Its right-hand column IS
+the orders menu's list, so that the two cannot drift; it used to walk that list
+with a "step over one byte in front of each string" offset that existed only
+because the key ids were in the way. They are not in the way any more, so both
+columns are plain lists of strings and `help_gap` is gone.
+
+`brief_fetch` is `bank7_fetch`: **In HL = a string table, A = strings to skip;
+Out the string in `bank7_line` and HL just past it.** Returning the cursor is
+what keeps a seventeen-row column from being quadratic — the briefing still
+seeks, because it wants three lines out of sixty and would have to keep a
+cursor somewhere for the sake of two skips, but a column passes A=0 and hands
+back the HL it got. It came out ~11 bytes *smaller* than the version it
+replaced while serving three screens instead of one.
+
+> **`help_column` has to push BC around the fetch as well as around the draw**,
+> because BC carries the row's x and y and the fetch needs it for the gate
+> array port. That is the whole of what moving the words cost that routine.
+
+> **Verified by reading both screens back off the pixels**, because every test
+> here is about state and the failure this could have had — a row at the wrong
+> y, the same row seventeen times, blanks — is invisible to all of them. Both
+> columns are exact. Note when doing that again that `HELP_COL1_X` is **1, an
+> odd byte**: a decoder stepping character cells from x=0 is misaligned by one
+> byte on that column and reports garbage for a screen that is perfect.
+
 #### What the campaign measures at twenty
 
 `tools/balance.py --rebuild`, all twenty missions, Mothership alive at the end:
@@ -4707,7 +4816,7 @@ only test that matters.
 
 **`help_prompt` is shared rather than copied.** One `ESC - BACK`, so the two
 pages cannot come to disagree about how you get out of them — the same
-reasoning that makes the help page's right column *be* `menu_entries`.
+reasoning that makes the help page's right column *be* `menu_words`.
 
 #### `wave_pct_of`, and why it returns rather than stores
 
@@ -4789,10 +4898,23 @@ that emerged: **anything that only runs while the game is stopped belongs in
 the bank.** The low 16K is for the frame loop. Moving the help page and the
 menu's two keyboard helpers out is what bought back the 512 bytes the orders
 menu spent — and the tests notice immediately, because `HELP_SHOWN` then has
-to be read with `read_cpu`. `src/game/helptext.asm` is the layout: two
-columns of `HELP_ROWS` zero-terminated strings, walked in order, so the order
-in the file is the order on screen. Keep every line inside 19 characters;
-`txt_draw` clips at the screen edge, not at the column.
+to be read with `read_cpu`.
+
+**The WORDS are in bank 7**, in `src/game/screentext.asm` with the briefings —
+`help_words` for the left column and `menu_words` for the right, which is the
+orders menu's own list so the two screens cannot come to disagree. Both are
+zero-terminated strings walked in order, so the order in the file is the order
+on screen, and `help_column` fetches them a row at a time through
+`bank7_fetch`. `src/game/helptext.asm` is what is left in bank 4: the title,
+and the `ESC - BACK` prompt that the squadron page shares.
+
+Keep every left-column line inside **`HELP_MAX_CHARS`** — `txt_draw` clips at
+the screen edge and not at the column, so a line one over is drawn on top of
+the orders. Two things check it: an aggregate assert in `src/main.asm`, which
+is a loose bound and only catches a row added without `HELP_ROWS` moving, and
+`tests/test_help.TestTheColumnsFitBesideEachOther`, which measures each line
+off `build/bank7.raw` one at a time. It is the test that does the real work
+here, exactly as it is for the briefings' 36 characters.
 
 ### The HUD
 
