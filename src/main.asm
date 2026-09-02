@@ -994,10 +994,10 @@ ENDIF
 ; ----------------------------------------------------------------------------
     assert (tut_table_end - tut_table) / TUT_STEP_SIZE == TUT_STEPS, "the tutorial's step table is not TUT_STEPS rows"
 
-;  The counter says "/16" in so many bytes, so the number of steps is on the
+;  The counter says "/17" in so many bytes, so the number of steps is on the
 ;  screen as a literal and has to agree with the table. There is no arithmetic
 ;  that turns TUT_STEPS into two characters at assembly time.
-    assert TUT_STEPS == 16, "the tutorial no longer has sixteen steps, and the /16 on the screen says it does"
+    assert TUT_STEPS == 17, "the tutorial no longer has seventeen steps, and the /17 on the screen says it does"
 
 ;  ...and there has to be a line for every one of them. A SUM, with the same
 ;  limitation as the class-name check above -- one long line and three short
@@ -1008,18 +1008,18 @@ ENDIF
 
 ;  The row's three fields, each against the start of the next one.
     assert TUT_TEXT_X + TUT_TEXT_CHARS * TXT_CHAR_W_BYTES <= TUT_NUM_X, "a tutorial line would run into the step counter"
-    assert TUT_NUM_X + 2 * TXT_CHAR_W_BYTES <= TUT_OF_X, "the step number would run into the /16"
+    assert TUT_NUM_X + 2 * TXT_CHAR_W_BYTES <= TUT_OF_X, "the step number would run into the /17"
     assert TUT_OF_X + (tut_text - tut_of_text - 1) * TXT_CHAR_W_BYTES <= SCR_BYTES_PER_LINE, "the tutorial's step counter runs off the screen"
 
-;  tut_attacking reaches ENT_ORDER from the flags byte with two INCs, because
+;  tut_fleet_has_order reaches ENT_ORDER from the flags byte with two INCs, because
 ;  BC is the loop counter and cannot hold an offset. Separate the two fields and
 ;  it reads ENT_SQUAD instead, which is a plausible number and would make the
 ;  fight step fire the moment a ship joined squadron 2.
-    assert ENT_ORDER == ENT_FLAGS + 2, "tut_attacking reaches ENT_ORDER with two INCs"
+    assert ENT_ORDER == ENT_FLAGS + 2, "tut_fleet_has_order reaches ENT_ORDER with two INCs"
 
 ;  The tutorial's own hostile is placed by index into the HOSTILE region, and
 ;  its slot has to be free for the whole stage: nothing else spawns one, and
-;  the tutorial's fleet is six ships and a Mothership.
+;  the tutorial's fleet is TUT_SHIPS ships and a Mothership.
     assert (tut_fleet_end - tut_fleet) / 2 == TUT_SHIPS, "the tutorial's fleet table is not TUT_SHIPS ships"
     assert TUT_SHIPS + 1 <= ENT_PLAYER_MAX, "the tutorial's fleet does not fit the player's region"
 

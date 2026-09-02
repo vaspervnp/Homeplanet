@@ -48,7 +48,7 @@
 ;  How many steps there are. Asserted in src/main.asm against the size of
 ;  tut_steps, which is the table that actually decides it -- this is the copy
 ;  the code indexes with and the copy the "/16" on the screen agrees with.
-TUT_STEPS           equ 16
+TUT_STEPS           equ 17
 TUT_STEP_SIZE       equ 4               ; a gate and an entry act, both words
 
 ;  ...and how many ships the tutorial's own fleet has, the Mothership apart.
@@ -56,7 +56,7 @@ TUT_STEP_SIZE       equ 4               ; a gate and an entry act, both words
 ;  bank-4 labels is not resolvable where the low 16K needs to read it, and
 ;  src/main.asm checks this one against tut_fleet the way it checks the other
 ;  against tut_table.
-TUT_SHIPS           equ 6
+TUT_SHIPS           equ 8
 
 ;  Row C, in BYTES across the line. The step counter sits at the right-hand
 ;  end, in ink 2, because it is chrome in exactly the sense RU and HULL are.

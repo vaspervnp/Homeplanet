@@ -28,6 +28,7 @@ to real keys either way -- but only that one test says the sequence joins up.
 from __future__ import annotations
 
 import os
+import struct
 import sys
 import unittest
 
@@ -44,21 +45,25 @@ LAST_CHAR = 90
 CHAR_H = 8
 CHAR_W_BYTES = 2
 
-TUT_STEPS = 16
+#  READ, NOT MIRRORED. A copy of this number fails the day a step is added,
+#  in the vocabulary of whatever the test was really about -- which is the
+#  lesson tests/test_waves.py already learned about WAVE_FIRST_FRAMES.
+TUT_STEPS = h.symbols()["TUT_STEPS"]
 TUT_TEXT_CHARS = 32
 
 ENT_SIZE = 20
 ENT_X, ENT_CLASS, ENT_HULL, ENT_FLAGS, ENT_SQUAD, ENT_ORDER = 0, 9, 10, 11, 12, 13
 F_ACTIVE, F_ENEMY = 1, 2
 CLASS_INTERCEPTOR, CLASS_MOTHERSHIP, CLASS_HARVESTER = 0, 1, 2
+CLASS_SALVAGE = 6
 ENT_ORDER_ATTACK = 2
 
 #  Step indices, 0-based, mirrored from tut_table in src/game/tutorialrun.asm.
 S_LOOK, S_ZOOM, S_PAN, S_VIEW = 0, 1, 2, 3
 S_SQUAD, S_INFO, S_MOVE, S_FORM, S_SPLIT, S_DOCK = 4, 5, 6, 7, 8, 9
 S_MINE, S_BUILD = 10, 11
-S_TARGET, S_FIGHT, S_PAUSE = 12, 13, 14
-S_LEAVE = 15
+S_TARGET, S_FIGHT, S_PAUSE, S_SALVAGE = 12, 13, 14, 15
+S_LEAVE = 16
 
 
 # ---------------------------------------------------------------------------
@@ -370,7 +375,7 @@ class TestTheLineOnTheScreen(TutFixture):
             self.assertIn("ARROW KEYS TURN THE VIEW", joined,
                           f"buffer #{base:04X} does not carry the instruction; "
                           f"it reads {sorted(rows)}")
-            self.assertIn("1/16", joined,
+            self.assertIn(f"1/{TUT_STEPS}", joined,
                           f"buffer #{base:04X} has no step counter")
 
     def test_the_hull_readout_has_given_the_row_up(self):
@@ -389,7 +394,7 @@ class TestTheLineOnTheScreen(TutFixture):
         self.assertEqual(self.step(), S_ZOOM, "turning the camera did nothing")
         joined = "".join("".join(v) for v in self.rows(8).values())
         self.assertIn("Z AND X ZOOM IN AND OUT", joined)
-        self.assertIn("2/16", joined)
+        self.assertIn(f"2/{TUT_STEPS}", joined)
 
 
 # ---------------------------------------------------------------------------
@@ -553,6 +558,62 @@ class GateFixture(TutFixture):
 
     def assert_moved(self, n, what):
         self.assertEqual(self.step(), n + 1, f"{what} did not advance the tutorial")
+
+
+# ---------------------------------------------------------------------------
+class TestTheSalvageStep(GateFixture):
+    """`T` sends the corvette after the hull the fight left behind.
+
+    The gate watches the ORDER and not the key, which is the rule the head of
+    tutorialrun.asm sets for every gate and which the fight one step above it
+    cannot keep -- an attack order is spent in the frame it is given once the
+    last hostile is dead, and a tow is a flight of several seconds.
+    """
+
+    def a_wreck_and_a_corvette(self):
+        """Put a hull in the hostile region, the way a kill would."""
+        slot = self.sym["ENT_PLAYER_MAX"]
+        base = self.sym["ENTITIES"] + slot * ENT_SIZE
+        self.c.write_ram(base, struct.pack("<hhh", 0, 0, 3000))
+        self.c.write_ram(base + ENT_FLAGS, bytes([F_ACTIVE | F_ENEMY | 4]))
+        self.c.write_ram(base + ENT_HULL, b"\x00")
+        self.c.write_ram(base + ENT_CLASS, bytes([CLASS_INTERCEPTOR]))
+        self.c.run_frames(20)
+
+    def corvettes(self):
+        return [s for s in range(self.sym["ENT_PLAYER_MAX"])
+                if self.c.read_ram(self.sym["ENTITIES"] + s * ENT_SIZE
+                                   + ENT_CLASS, 1)[0] == CLASS_SALVAGE
+                and self.c.read_ram(self.sym["ENTITIES"] + s * ENT_SIZE
+                                    + ENT_FLAGS, 1)[0] & F_ACTIVE]
+
+    def test_the_stage_fields_a_corvette_in_each_squadron(self):
+        """Step 9 divides a squadron and combines it again, so which half
+        squadron 1 keeps is squad_split's business. With one corvette the
+        stage stalled here, on a key the player had pressed correctly."""
+        squads = {self.c.read_ram(self.sym["ENTITIES"] + s * ENT_SIZE
+                                  + ENT_SQUAD, 1)[0] for s in self.corvettes()}
+        self.assertEqual(squads, {1, 2},
+                         "the tutorial does not field a corvette per squadron")
+
+    def test_another_key_does_not_satisfy_it(self):
+        self.at_step(S_SALVAGE)
+        self.a_wreck_and_a_corvette()
+        for key in ("h", "g", "b"):
+            self.c.key_down(key)
+            self.c.run_frames(30)
+            self.c.key_up(key)
+            self.c.run_frames(30)
+        self.assert_stuck(S_SALVAGE, "pressing keys that are not T")
+
+    def test_the_tow_order_is_what_satisfies_it(self):
+        self.at_step(S_SALVAGE)
+        self.a_wreck_and_a_corvette()
+        self.c.key_down("t")
+        self.c.run_frames(30)
+        self.c.key_up("t")
+        self.c.run_frames(40)
+        self.assert_moved(S_SALVAGE, "towing the wreck")
 
 
 # ---------------------------------------------------------------------------
@@ -891,7 +952,15 @@ class TestTheWholeThing(TutFixture):
         #  15 -- the pause
         self.hold(cpc.KEY_SPACE)
         self.hold(cpc.KEY_SPACE)
-        self.expect(S_LEAVE, "the tactical pause")
+        self.expect(S_SALVAGE, "the tactical pause")
+
+        #  16 -- the corvette fetches what the fight left behind
+        self.hold("t")
+        for _ in range(80):
+            if self.step() != S_SALVAGE:
+                break
+            c.run_frames(20)
+        self.expect(S_LEAVE, "towing the wreck")
 
         #  ...and the HUD offers the jump, exactly as a real mission does.
         self.assertEqual(self.byte("MIS_COMPLETE"), 1,

@@ -350,9 +350,17 @@ class TestTheClock(WaveFixture):
         """SPACE freezes the battle (section 9), and a clock that kept running
         would mean the safest thing a cornered player can do is also the thing
         that brings the next wave forward."""
-        self.set_timer(WAVE_FIRST_TICKS - 20)
+        #  PAUSE FIRST, THEN SET THE CLOCK. It was the other way round, with the
+        #  timer left twenty ticks short of the wave -- and `hold` takes thirty
+        #  frames down and thirty up, every one of which is a tick the clock is
+        #  still running for, because the pause does not exist until key_scan
+        #  sees the edge. Twenty ticks was never a margin against that; it was a
+        #  bet on how many game frames a keypress takes, which is the assumption
+        #  this file's own header warns about, and it came in one day when the
+        #  boot got faster. Pausing first makes the setup say what it means.
         self.hold(" ")
         self.assertEqual(self.byte("ORDER_PAUSED"), 1)
+        self.set_timer(WAVE_FIRST_TICKS - 20)
         frozen = self.word("MIS_TIMER")
         self.c.run_frames(30 * TICKS_PER_GAME_FRAME)
         self.assertEqual(self.word("MIS_TIMER"), frozen)

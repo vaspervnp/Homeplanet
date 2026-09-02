@@ -680,7 +680,36 @@ tut_g_fight:
 ;  wave_health and ent_room_ours do, and reaches ENT_ORDER with two INCs
 ;  rather than an `ld bc,offset` -- BC cannot be spared, because B is the loop
 ;  counter. src/main.asm asserts the two fields are that far apart.
+;  ...and the same scan for the tow, because "did the player's order reach a
+;  ship" is one question and there are two keys that ask it.
+;  16. T sends the corvette after the hull the fight left behind.
+;
+;  THE EFFECT AND NOT THE KEY, which the fight one step above cannot manage and
+;  this one can. `A` needs its key watched because cbt_fire_if_able spends the
+;  attack order in the same frame it is given once the last hostile is dead; a
+;  tow is a flight of several seconds out to where the wreck is drifting and
+;  back, so ENT_ORDER_TOW is on the corvette for scores of frames and tut_update
+;  cannot miss it.
+;
+;  THERE IS A CORVETTE IN EACH SQUADRON, and that is this step paying for step
+;  9. `T` orders the SELECTED squadron's corvettes, and step 9 has the player
+;  divide a squadron and combine it again -- which leaves squadron 1 holding
+;  half of what it started with plus the whole of squadron 2. Which half is
+;  squad_split's business and not something a lesson four steps later should
+;  depend on: with one corvette the stage stalled here, on a key the player had
+;  pressed correctly.
+tut_g_salvage:
+    jp tut_towing
+
+
 tut_attacking:
+    ld c,ENT_ORDER_ATTACK
+    jr tut_fleet_has_order
+
+tut_towing:
+    ld c,ENT_ORDER_TOW
+
+tut_fleet_has_order:
     ld hl,entities + ENT_FLAGS
     ld de,ENT_SIZE
     ld b,ENT_PLAYER_MAX
@@ -694,7 +723,7 @@ tut_attacking:
     inc hl                              ; ENT_ORDER, two bytes past the flags
     ld a,(hl)
     pop hl
-    cp ENT_ORDER_ATTACK
+    cp c
     jr nz,@tut_atk_next
     scf
     ret
@@ -1003,6 +1032,7 @@ tut_table:
     defw tut_g_target,  tut_a_enemy
     defw tut_g_fight,   tut_a_none
     defw tut_g_pause,   tut_a_none
+    defw tut_g_salvage, tut_a_none
     ;  --- Act 5: leaving ----------------------------------------------------
     defw tut_g_never,   tut_a_ready
 tut_table_end:
@@ -1019,7 +1049,7 @@ tut_table_end:
 ; ----------------------------------------------------------------------------
 ;  Immediately before tut_text, so main.asm can measure it.
 tut_of_text:
-    defb "/16",0
+    defb "/17",0
 
 tut_text:
     defb "ARROW KEYS TURN THE VIEW",0
@@ -1037,6 +1067,7 @@ tut_text:
     defb "ESC SHUTS IT   , . PICK A TARGET",0
     defb "A ATTACKS WHAT YOU PICKED",0
     defb "SPACE STOPS THE BATTLE",0
+    defb "T TOWS THE WRECK HOME FOR RU",0
     defb "J LEAVES WHEN THE JOB IS DONE",0
 tut_text_end:
 
@@ -1059,9 +1090,11 @@ tut_fleet:
     defb CLASS_INTERCEPTOR, 1
     defb CLASS_INTERCEPTOR, 1
     defb CLASS_HARVESTER,   1
+    defb CLASS_SALVAGE,     1
     defb CLASS_INTERCEPTOR, 2
     defb CLASS_INTERCEPTOR, 2
     defb CLASS_HARVESTER,   2
+    defb CLASS_SALVAGE,     2
 tut_fleet_end:
 
 ;  Two fields, near enough that a hold is fetched in about nine seconds, and
