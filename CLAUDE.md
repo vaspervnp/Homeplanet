@@ -2005,7 +2005,8 @@ candidate and was rejected — it says what the KEYS do, and a hull figure is no
 a key. §5.5 had already asked for two of the things this row now carries: a
 "μπάρα ενέργειας Mothership", generalised from the Mothership to the fleet
 because a number is smaller than a bar and says more, and a "γραμμή μηνυμάτων",
-which today carries one message: `INCOMING`.
+which carries `INCOMING` and `FRIGATE UNLOCKED` — see "The message row says two
+things now" below.
 
 168 and not 169, which is what it was first. The strip's three rows want the
 same gap or they read as two blocks rather than three lines; at 169 the gap to
@@ -2020,6 +2021,60 @@ times a second in a battle and undo the entire bargain that makes the HUD
 affordable. This is nine characters. `phase4_hud` sets `wave_dirty` when it
 repaints, because a `mis_wipe` clears all 200 lines including this row and
 nothing else would put it back.
+
+#### The message row says two things now
+
+`INCOMING` and **`FRIGATE UNLOCKED`**, between `HULL nnn%` and `BASE nnn%`, and
+what made the second one necessary is that the reward for three missions of
+towing was a build panel that silently grew a row. The panel steps *over* a
+class it cannot offer, so before the delivery the Frigate is not on the list at
+all and afterwards it is — a change a player only meets by opening the panel
+and noticing something they were not looking for. **Third time this project has
+written down that a computed thing which is never shown is not a thing**; the
+game-over screen and `mis_failed` were the last.
+
+- **`wave_say` stopped being the message and became a countdown**, with
+  `wave_msg` beside it saying which. `wave_say_text` is a run of strings walked
+  by `str_index`, the same walker `ctx_class_name` and the formation names use.
+- **The ink is what tells them apart**, because they share the same eighteen
+  characters. `INCOMING` keeps §2's attention ink; the unlock is **ink 1**,
+  news about the player's own fleet in the fleet's own ink. A red word in that
+  slot means a threat and nothing else.
+- **`wave_saying` folds both bytes into the one shadow.** The shadow compared
+  `wave_say` as a yes/no, which was right with one message and became a hole
+  with two: an unlock landing while `INCOMING` is up does not change the
+  yes/no, so the row would go on saying `INCOMING` until the countdown ran out.
+  It is `wave_msg + 1`, or 0 for silence.
+- **It fires on the TRANSITION, not on the fact.** `campaign_unlocks` is
+  idempotent, so keying the announcement on the bit would re-report
+  three-mission-old news for every frigate hull towed home afterwards. The test
+  is that the bit was clear before this hull arrived — and
+  `test_a_second_frigate_hull_does_not_announce_it_again` fails on a build with
+  that guard removed while its sibling passes, which is what makes it a guard
+  rather than a duplicate.
+- **It overwrites a live `INCOMING`**, deliberately: it fires once in a
+  campaign against every wave, so the worst case is a few seconds of a warning
+  that repeats inside a minute, against never being told at all.
+
+> **`wave_say_frigate` is twelve bytes and it had to go in bank 4.** Written in
+> `waves.asm` beside the state it writes, it took the low 16K over a page
+> boundary and `free:` from 484 to **228** — well under the ~450 the tests need
+> for scratch, and a dozen classes with nothing to do with salvage would have
+> failed. The bill comes in units of 256 and the standing answer applies: state
+> in the low 16K where `read_ram` can see it, code in the bank. `slv_deliver`
+> is bank 4 already, so it is a call between two routines that are both there.
+
+> **Both asserts on this row had to become one per message.** RASM cannot count
+> zero bytes in a run, so the single `wave_say_text_end - wave_say_text`
+> measurement became the SUM of the two strings the moment there were two — and
+> failed, correctly but uselessly. There is a label between them now and each is
+> measured against `HUD_MOTH_X` on its own, because each is drawn at
+> `HUD_SAY_X` on its own.
+
+> **Looked at, both messages, with the inks printed per character cell.**
+> `FRIGATE UNLOCKED` is 16 of the 18 available and leaves two clear cells
+> before `BASE`; the two messages read as different colours. That is the
+> question no test asks.
 
 #### ...and the Mothership's own, because an average hides it
 
@@ -4244,6 +4299,12 @@ exclusions, `fleet_save`'s filter and the whole tow path come for free. The
 unlock is keyed on the delivered hull's **class**, not on "was that the
 derelict": no slot index to go stale, and it stays true the day `campaign.asm`
 gets an enemy class column.
+
+**And the moment it happens is now on the screen** — `FRIGATE UNLOCKED` on the
+HUD's message row, once, on the transition. Until that landed the whole reward
+was a build panel one row longer, which a player meets only by opening it and
+noticing a row they were not looking for. See "The message row says two things
+now" for the mechanism and for the twelve bytes that had to go to bank 4.
 
 `eco_pick_allowed` is a **table** now, as its own comment predicted it would be
 the second time a class needed a gate: one byte a class, `0` always, `1..127`

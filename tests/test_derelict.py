@@ -37,6 +37,7 @@ ENT_ENEMY_MAX's 20.
 
 from __future__ import annotations
 
+import struct
 import sys
 import unittest
 
@@ -685,6 +686,99 @@ class TestTheSalvage(DerelictFixture):
         else:
             self.fail("the derelict was never delivered")
         self.assertEqual(self.ru() - before, COST_FRIGATE)
+
+
+class TestTheUnlockSaysSo(DerelictFixture):
+    """Three missions of towing bought a build list one row longer, and until
+    now nothing on the screen marked the moment it arrived.
+
+    The panel steps OVER a class it cannot offer, so before the delivery the
+    Frigate is not on the list at all and afterwards it is -- a change the
+    player only meets by opening the panel and noticing a row they were not
+    looking for. This project has already written down twice that a feature
+    the player cannot find does not exist; the defeat screen was the last one.
+
+    WHAT IS ASSERTED IS THE STATE, not the pixels: the row's own drawing is
+    tests/test_waves.py's, which is where the decoder lives. What belongs here
+    is that the tow reaches it, and that it does so exactly once.
+    """
+
+    def said(self):
+        """(frames left, which message) -- both in the low 16K beside wave_say."""
+        return self.byte("WAVE_SAY"), self.byte("WAVE_MSG")
+
+    def tow_it_home(self, slot, limit=80):
+        self.hold("t")
+        for _ in range(limit):
+            self.c.run_frames(30)
+            if not (self.ent(slot, ENT_FLAGS) & F_ACTIVE):
+                return
+        self.fail("the hull was never delivered")
+
+    def test_delivering_the_hull_puts_the_unlock_on_the_message_row(self):
+        self.jump_to(self.FROM)
+        derelict = self.derelicts().pop()
+        corvette = self.make_corvette()
+        self.clear_the_board({corvette})
+
+        #  AND NOT BEFORE. The message is a countdown, so "it is up now" would
+        #  pass just as happily against a build that put it up at mis_setup.
+        self.assertEqual(self.said()[0], 0,
+                         "the row was already saying something before the tow")
+
+        self.tow_it_home(derelict)
+        frames, which = self.said()
+        self.assertGreater(frames, 0, "the hull arrived and nothing was said")
+        self.assertEqual(which, self.sym["WAVE_MSG_FRIGATE"],
+                         "the row is saying something, but not the unlock")
+
+    def test_a_second_frigate_hull_does_not_announce_it_again(self):
+        """The bit is idempotent, so writing it is not the event -- the
+        TRANSITION is. Without that test the announcement is keyed on a fact
+        that stays true for the rest of the campaign, and every frigate hull
+        towed home for the next sixteen missions re-reports news the player
+        has already had.
+
+        The Vekhar field only interceptors today, so this arranges the case
+        rather than playing into it: the second hull is a wreck of the same
+        class, which is what campaign.asm growing an enemy class column would
+        produce naturally."""
+        self.jump_to(self.FROM)
+        first = self.derelicts().pop()
+        corvette = self.make_corvette()
+        self.clear_the_board({corvette})
+        self.tow_it_home(first)
+        self.assertEqual(self.said()[1], self.sym["WAVE_MSG_FRIGATE"])
+
+        #  Let it lapse, so "still up" cannot be mistaken for "said again".
+        self.c.write_ram(self.sym["WAVE_NEXT"], struct.pack("<H", 0xFFFF))
+        for _ in range(40):
+            self.c.run_frames(30)
+            if self.said()[0] == 0:
+                break
+        else:
+            self.fail("the message never went away")
+
+        second = self.make_wreck(CLASS_FRIGATE)
+        self.tow_it_home(second)
+        self.assertEqual(
+            self.said()[0], 0,
+            "a second frigate hull re-announced an unlock three missions old")
+
+    def make_wreck(self, cls):
+        """A crippled hostile, byte for byte what slv_make_wreck leaves."""
+        slot = next(s for s in range(self.PLAYER_MAX, self.ENT_MAX)
+                    if not (self.ent(s, ENT_FLAGS) & F_ACTIVE))
+        moth = self.pos(self.byte("MOTH_SLOT"))
+        self.set_pos(slot, (moth[0] + 6000, moth[1], moth[2]))
+        self.set_ent(slot, ENT_CLASS, cls)
+        self.set_ent(slot, ENT_HULL, 0)
+        self.set_ent(slot, ENT_SQUAD, 0)
+        self.set_ent(slot, ENT_ORDER, ORDER_IDLE)
+        self.set_ent(slot, ENT_TARGET, NO_TARGET)
+        self.set_ent(slot, ENT_TIMER, 0)
+        self.set_ent(slot, ENT_FLAGS, F_ACTIVE | F_ENEMY | F_DISABLED)
+        return slot
 
 
 class TestItComesBackUntilItIsTaken(DerelictFixture):

@@ -443,11 +443,26 @@ slv_deliver:
     ;
     ;  HERE and not at slv_find_wreck or the moment the tow line goes on: the
     ;  yard has to actually receive the hull.
+    ;
+    ;  AND IT IS SAID OUT LOUD, once. The build panel steps OVER a class it
+    ;  cannot offer, so before this the Frigate is not on the list and after it
+    ;  the list is one row longer -- which is the whole reward for three
+    ;  missions of towing, and nothing on the screen marked the moment it
+    ;  arrived. This project has written down twice already that a feature the
+    ;  player cannot find does not exist.
+    ;
+    ;  ON THE TRANSITION, not on the fact. The bit is idempotent and a second
+    ;  frigate hull would re-announce news that is three missions old, so the
+    ;  test is that it was CLEAR before this hull was delivered.
     cp CLASS_FRIGATE
     jr nz,@slv_nothing_learned
     ld a,(campaign_unlocks)
+    and CAMP_UNLOCK_FRIGATE
+    jr nz,@slv_nothing_learned          ; already known: no news
+    ld a,(campaign_unlocks)
     or CAMP_UNLOCK_FRIGATE
     ld (campaign_unlocks),a
+    call wave_say_frigate               ; preserves HL, which is the entity
 @slv_nothing_learned:
 
     ld de,ENT_FLAGS

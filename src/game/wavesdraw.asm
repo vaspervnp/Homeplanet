@@ -119,16 +119,33 @@ wave_draw:
     ld a,PEN_WHITE
     call txt_set_pen
 
-    ;  ...and, for a few seconds after one lands, why the shooting started. A
-    ;  wave arrives six thousand units out and the player may be looking the
-    ;  other way; without this the first they know of it is a hull figure
-    ;  falling for no reason they can see.
+    ;  ...AND THE MESSAGE LINE. Section 5.5 asks for one and this is it: for a
+    ;  few seconds, the thing that has just happened that the player would
+    ;  otherwise have to infer. A wave arrives six thousand units out and they
+    ;  may be looking the other way, so without INCOMING the first they know of
+    ;  it is a hull figure falling for no reason they can see; and the Frigate
+    ;  unlock is a build panel that silently grows a row three missions after
+    ;  the thing that earned it.
     ld a,(wave_say)
     or a
     ret z
+
+    ;  THE INK SEPARATES THEM, because they share the same eighteen characters
+    ;  and must never be mistaken for each other. INCOMING is section 2's
+    ;  attention ink, like the HULL figure below a third and like JUMP. The
+    ;  unlock is ink 1 -- news about the player's own fleet, in the fleet's own
+    ;  ink -- and a red word in this slot means a threat and nothing else.
+    ld a,(wave_msg)
+    or a
     ld a,PEN_RED
+    jr z,@wave_say_pen
+    ld a,PEN_WHITE
+@wave_say_pen:
     call txt_set_pen
+
+    ld a,(wave_msg)
     ld hl,wave_say_text
+    call str_index                      ; the walker ctx_class_name uses
     ld b,HUD_SAY_X
     ld c,HUD_ROW_C_Y
     call txt_draw
@@ -159,11 +176,7 @@ wave_changed:
     cp (hl)
     jr nz,@wave_hp_diff
 
-    ld a,(wave_say)
-    or a
-    jr z,@wave_hp_quiet
-    ld a,1
-@wave_hp_quiet:
+    call wave_saying
     ld hl,wave_say_shadow
     cp (hl)
     ret z
@@ -173,11 +186,7 @@ wave_changed:
     ld (wave_pct_shadow),a
     ld a,(wave_moth_pct)
     ld (wave_moth_shadow),a
-    ld a,(wave_say)
-    or a
-    jr z,@wave_hp_quiet2
-    ld a,1
-@wave_hp_quiet2:
+    call wave_saying
     ld (wave_say_shadow),a
     ld a,2                              ; once into each screen buffer
     ld (wave_dirty),a
@@ -185,8 +194,67 @@ wave_changed:
 
 
 
+; ----------------------------------------------------------------------------
+;  wave_say_frigate -- put the unlock on the message row
+;  Uses: AF
+;
+;  PRESERVES HL, and that is not politeness: its one caller is inside
+;  slv_deliver, between the entity pointer being taken and ENT_FLAGS being
+;  cleared through it. Two bytes of state, so there is nothing else to save.
+;
+;  IN BANK 4 with the rest of this row's drawing, and it had to be. Written in
+;  waves.asm first, beside the state it writes -- twelve bytes, which took the
+;  low 16K over a page boundary and `free:` from 484 to 228, well under the
+;  ~450 the tests need for their scratch. The bill comes in units of 256 and
+;  the split is the standing answer: state in the low 16K where read_ram can
+;  see it, code in the bank. slv_deliver is bank 4 code already, so this is a
+;  call between two routines that are both here.
+;
+;  IT OVERWRITES AN INCOMING THAT IS STILL UP, which is the one judgement in
+;  here. A threat outranks good news -- but this fires ONCE IN A CAMPAIGN and
+;  INCOMING fires every wave, so the player loses at worst a few seconds of a
+;  warning that will be repeated inside a minute, against never being told at
+;  all that the thing they have spent three missions towing has worked. The
+;  hull was also delivered by a corvette they sent, so they are looking at the
+;  fleet rather than at the horizon.
+; ----------------------------------------------------------------------------
+wave_say_frigate:
+    ld a,WAVE_SAY_FRAMES
+    ld (wave_say),a
+    ld a,WAVE_MSG_FRIGATE
+    ld (wave_msg),a
+    ret
+
+
+; ----------------------------------------------------------------------------
+;  wave_saying -- what the message row is saying, as ONE byte
+;  Out: A = 0 when quiet, else the message number plus one
+;  Uses: AF
+;
+;  ONE shadow byte for both halves of the state, and that is what it is for.
+;  The countdown ticks every frame, so comparing it as a number would repaint
+;  the row forty times a message; comparing it as a yes/no was right while
+;  there was one message and became a hole the moment there were two -- an
+;  unlock landing while INCOMING is still up does not change the yes/no, so the
+;  row would go on saying INCOMING until the countdown ran out. Plus one is
+;  what keeps message 0 distinct from silence.
+; ----------------------------------------------------------------------------
+wave_saying:
+    ld a,(wave_say)
+    or a
+    ret z
+    ld a,(wave_msg)
+    inc a
+    ret
+
+
 wave_hp_label:      defb "HULL",0
 wave_moth_label:    defb "BASE",0
 wave_hp_sign:       defb "%",0
+;  Indexed by wave_msg, so the ORDER here is WAVE_MSG_*. Both must fit between
+;  HUD_SAY_X and HUD_MOTH_X -- eighteen characters -- and src/main.asm asserts
+;  it, because txt_draw clips at the screen edge and would happily write
+;  INCOMING over the top of the Mothership's hull figure.
 wave_say_text:      defb "INCOMING",0
+wave_say_text_1:    defb "FRIGATE UNLOCKED",0
 wave_say_text_end:

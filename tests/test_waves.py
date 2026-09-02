@@ -873,6 +873,68 @@ class TestTheReadout(WaveFixture):
         self.force_wave(frames=60)
         self.assertIn("INCOMING", self.hull_row())
 
+    def test_the_message_row_can_say_more_than_one_thing(self):
+        """Section 5.5 asks for a message line and this row was it with exactly
+        one message in it. The Frigate unlock is the second, and what it needed
+        was for wave_say to stop BEING the message and start counting one down.
+
+        Driven through the state rather than through a three-mission tow --
+        tests/test_derelict.py is what proves the unlock reaches here. What
+        this asks is the half that lives on this row: that wave_msg chooses
+        the words."""
+        self.c.write_ram(self.sym["WAVE_NEXT"], struct.pack("<H", 0xFFFF))
+        self.c.write_ram(self.sym["WAVE_MSG"],
+                         bytes([self.sym["WAVE_MSG_FRIGATE"]]))
+        self.c.write_ram(self.sym["WAVE_SAY"],
+                         bytes([self.sym["WAVE_SAY_FRAMES"]]))
+        self.c.run_frames(4 * TICKS_PER_GAME_FRAME)
+
+        row = self.hull_row()
+        self.assertIn("FRIGATE UNLOCKED", row)
+        self.assertNotIn("INCOMING", row, "the row said both messages at once")
+
+    def test_the_two_messages_do_not_share_an_ink(self):
+        """They share the same eighteen characters of the row, so the ink is
+        the only thing telling them apart at a glance. Section 2 gives ink 3 to
+        the thing that wants attention -- INCOMING is a threat and keeps it;
+        the unlock is news about the player's own fleet and is ink 1, the
+        fleet's own ink.
+
+        THE ROW DECODER CANNOT SEE THIS, deliberately: it folds the low nibble
+        up so that one decoder reads a white HULL and a red INCOMING without
+        being told which. So the ink is read straight off the planes here, the
+        way tests/test_ctxbar.py does it."""
+        self.c.write_ram(self.sym["WAVE_NEXT"], struct.pack("<H", 0xFFFF))
+
+        inks = {}
+        for name in ("WAVE_MSG_INCOMING", "WAVE_MSG_FRIGATE"):
+            self.c.write_ram(self.sym["WAVE_MSG"], bytes([self.sym[name]]))
+            self.c.write_ram(self.sym["WAVE_SAY"],
+                             bytes([self.sym["WAVE_SAY_FRAMES"]]))
+            self.c.run_frames(4 * TICKS_PER_GAME_FRAME)
+            inks[name] = self.ink_of_the_message()
+
+        self.assertEqual(inks["WAVE_MSG_INCOMING"], 3,
+                         "INCOMING is not in the attention ink any more")
+        self.assertEqual(inks["WAVE_MSG_FRIGATE"], 1,
+                         "the unlock is drawn in the ink that means a threat")
+
+    def ink_of_the_message(self):
+        """The pen the message field is drawn in.
+
+        Ink 1 is %01, so its pixels land in the high nibble; ink 2 is %10 and
+        the low one; ink 3 is both. Read over the whole glyph height and take
+        whichever planes carry any ink at all."""
+        ram = self.c.read_ram(h.front_buffer(self.c), 0x4000)
+        hi = lo = 0
+        for r in range(CHAR_H):
+            for x in range(self.sym["HUD_SAY_X"], self.sym["HUD_MOTH_X"]):
+                b = ram[h.screen_offset(self.sym["HUD_ROW_C_Y"] + r, x)]
+                hi |= b & 0xF0
+                lo |= b & 0x0F
+        self.assertTrue(hi or lo, "nothing is drawn on the message row at all")
+        return (1 if hi else 0) | (2 if lo else 0)
+
     def test_the_word_goes_away_again(self):
         self.force_wave(frames=60)
         self.assertIn("INCOMING", self.hull_row())

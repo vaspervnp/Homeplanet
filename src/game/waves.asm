@@ -145,8 +145,15 @@ WAVE_ARC            equ 31              ; 45 degrees of jitter about the bearing
 WAVE_HULL_MIN       equ 120
 WAVE_HULL_SPAN      equ 127             ; masked, so 120..247
 
-;  How long INCOMING stays up: game frames, so about eight seconds.
+;  How long a message stays up: game frames, so about eight seconds.
 WAVE_SAY_FRAMES     equ 40
+
+;  WHICH message. Section 5.5 asks for a "γραμμή μηνυμάτων" and this row was it
+;  with exactly one thing to say; the Frigate unlock is the second, and it is
+;  the one that needed the line to become a line rather than a flag. See
+;  wave_say_frigate.
+WAVE_MSG_INCOMING   equ 0
+WAVE_MSG_FRIGATE    equ 1
 
 ;  Game frames between readings of the fleet's hull. See wave_update.
 WAVE_READ_EVERY     equ 4
@@ -618,6 +625,11 @@ wave_send:
     inc (hl)
     ld a,WAVE_SAY_FRAMES
     ld (wave_say),a
+    ;  ...and it is INCOMING that is being said. Written every time rather than
+    ;  left alone, because the unlock may have been the last thing on this row
+    ;  and a threat must never inherit somebody else's word.
+    xor a                               ; WAVE_MSG_INCOMING
+    ld (wave_msg),a
     ret
 
 
@@ -746,7 +758,8 @@ wave_offset:
 wave_next:          defw WAVE_FIRST_TICKS
 wave_count:         defb 0              ; waves sent this mission
 wave_size:          defb 0              ; ships in the last one
-wave_say:           defb 0              ; frames of INCOMING left
+wave_say:           defb 0              ; frames of the message left
+wave_msg:           defb 0              ; ...and which one it is
 wave_left:          defb 0
 wave_ship_hull:     defb 0
 wave_bearing:       defb 0

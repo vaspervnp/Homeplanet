@@ -602,7 +602,14 @@ bank4_limit:
 ;  row's drawing, and RASM evaluates an ASSERT where it stands -- it cannot see
 ;  an include that has not happened yet. Same reason the table invariants are
 ;  at the bottom of this file.
-    assert HUD_SAY_X + (wave_say_text_end - wave_say_text - 1) * TXT_CHAR_W_BYTES <= HUD_MOTH_X, "INCOMING runs into the Mothership's hull"
+;
+;  ONE PER MESSAGE, and a label between the strings to make that possible: RASM
+;  cannot count zero bytes in a run, so a single measurement over the whole
+;  table would be the SUM of the messages and would fail the moment there were
+;  two of them -- which is not the check anyone wants. Each one is drawn at
+;  HUD_SAY_X on its own, so each one is measured against HUD_MOTH_X on its own.
+    assert HUD_SAY_X + (wave_say_text_1 - wave_say_text - 1) * TXT_CHAR_W_BYTES <= HUD_MOTH_X, "INCOMING runs into the Mothership's hull"
+    assert HUD_SAY_X + (wave_say_text_end - wave_say_text_1 - 1) * TXT_CHAR_W_BYTES <= HUD_MOTH_X, "the Frigate unlock message runs into the Mothership's hull"
     assert HUD_MOTH_X + HUD_HP_CHARS * TXT_CHAR_W_BYTES <= SCR_BYTES_PER_LINE, "the Mothership's hull runs off the screen"
 
 ;  THE GAME-OVER SCREEN. Its four lines are centred by hand -- there is no
