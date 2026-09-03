@@ -4102,7 +4102,12 @@ run. Missions 1-3 are identical, mission 4 comes out with MORE hull, and it
 lands on the 6/7 coin toss this file already documents.
 `tools/waverate.py 4` was **44/48 = 92%** against the 70% floor, from 45/48.
 
-**Today's figure is 77/80 = 96% over all twenty missions**, and the older
+**Today's figure is 79/80 = 99% over all twenty missions** — 40/40 with the
+fleet each mission actually has and 39/40 crippled to half the ships at half
+hull — measured after `J` grew its ten-second countdown, which was the
+reason to re-measure: `mis_timer` keeps advancing during the spool, so it is
+ten more seconds in which a wave can arrive. It went UP rather than down,
+because the harvesters work through those seconds too. The older
 48-trial figures below are the eight-mission campaign. It was measured after the fleet's ceiling doubled
 and `cbt_find_enemy` stopped sweeping the whole table: 24/24 with the fleet
 each mission actually has, 23/24 with it crippled to half the ships at half
@@ -4713,12 +4718,12 @@ Two campaigns, eighty trials, no stops:
 
 ```
      whole: 40/40 = 100%
-    halved: 37/40 =  92%
-       all: 77/80 =  96%   -- the floor is 70%
+    halved: 39/40 =  98%
+       all: 79/80 =  99%   -- the floor is 70%
 ```
 
-The three losses are missions 2, 4 and 20, all in the crippled column — the
-only column the waves have ever won.
+The one loss is in the crippled column — the only column the waves have ever
+won, in every run this tool has ever produced.
 
 **`MISSIONS` was a literal 8 in that tool** while the table said twenty. A
 measuring tool with a stale count does not fail; it prints a plausible table
