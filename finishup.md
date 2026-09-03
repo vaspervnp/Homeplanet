@@ -54,9 +54,16 @@ second on its own — the same shape as
 
 ---
 
-## 2. Landing has no wipe
+## 2. Landing has no wipe — the JUMP keeps its
 
-**Asked for:** *"There should be no effect also."*
+**Asked for:** *"There should be no effect also."* — and, when this was first
+written down ambiguously: *"Το wipe θέλω να αφαιρεθεί ΜΟΝΟ για το landing. Όχι
+για το jumping."*
+
+**Only the landing loses the wipe.** Every ordinary jump keeps `jfx_vanish`
+on the way out and the reveal on the way in, exactly as today — the bars are
+the fleet entering the drive, and that picture is right for a jump. What is
+wrong is using the same picture for a fleet that is *arriving*.
 
 `mis_jump_now`'s landing path calls `jfx_land`, which is `jfx_vanish` without
 arming the reveal. So the fleet is currently swept away by the bars before the
@@ -66,9 +73,16 @@ victory page — and that is wrong twice over:
   Sweeping it away says the opposite of what the screen is about to say.
 - **It is seven seconds of nothing** between the last shot and the ending.
 
-So: the landing path does not call `jfx_land` at all. Delete the call and
-`jfx_land` with it if nothing else wants it — check `jfx_no_arrival`, which
-exists only to serve it and can go too. That is ~20 bytes of bank 4 back.
+So: **the `@mis_land` path in `mis_jump_now` does not call `jfx_land` at
+all.** The `call jfx_vanish` above it, on the ordinary jump path, is not
+touched. Delete `jfx_land` and `jfx_no_arrival` with the call if nothing else
+wants them — they exist only to serve it. That is ~20 bytes of bank 4 back.
+
+The test that says the boundary is right has two halves and both are needed:
+a jump out of mission 1 still sweeps (`test_jumpfx`'s existing vanish tests
+are that half), and a landing out of mission 20 does NOT — `jfx_mode` never
+leaves `JFX_NONE` between `J` and `mis_won`. A build that removed the wipe
+from both paths passes the second half on its own.
 
 **What replaces it is item 3**, and the two should be built together: taking
 the wipe out and putting nothing in its place would make the victory page
