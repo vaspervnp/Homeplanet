@@ -5506,6 +5506,42 @@ mind before anyone "fixes" the default tactic's lost mission.
 > walks the campaign with the battle frozen and a paused game can never finish
 > a countdown that lives in `mis_update`.
 
+### The vortex chase opens on a page, once
+
+*"Πριν παίξει πρώτη φορά το minigame να δείχνεις τα πλήκτρα που χρειάζονται
+και να ξεκινάει με enter."*
+
+`mini_intro` in `game/minigame.asm`: four lines and `ENTER - BEGIN`, drawn into
+both buffers, before the **first** chase of a campaign and never again. A
+player who has just watched their fleet swept away and is dropped into a tunnel
+with a red ship in it has no way of knowing the arrow keys are live, that
+closing is the point, or that losing costs ships — and the first chase is the
+one where they pay for not knowing. Once, because after that it is a mechanic
+they have met, and a page before every jump would turn four events into four
+interruptions. `mini_shown` is bank-4 state cleared by `mis_init`; it is not
+saved to disc, so a power cut between missions 4 and 8 shows it once more,
+which is harmless.
+
+> **`key_hit` does not work in a private loop without help.** It reads
+> `key_hits`, which only `key_consume` refreshes — at the top of `demo_update`,
+> which is not running while the chase owns the machine. So the wait loop calls
+> `key_consume` itself once a blank, and once *before* it starts so that an
+> edge left over from before the jump cannot dismiss the page unread.
+> `mini_steer` never had this problem because it reads `key_down`, and
+> `key_state` is kept live by the 50 Hz scan regardless.
+
+> **Every campaign walk in the suite goes through this page**, and so do
+> `tools/balance.py` and `tools/waverate.py`. `harness.wait_for_briefing` taps
+> ENTER while `mini_active` is up; the tap is harmless on the three chases that
+> have no page, because the chase reads the cursor keys and nothing else. The
+> `ChaseFixture` decides *before* `J` whether a page is due — `mini_shown` is
+> bank 4 and cannot be read reliably once the chase is blitting — and traces
+> nothing until it has been dismissed, so `trace[0]` is still the chase's own
+> first step.
+
+`DISC.BIN` is **26310 of 26368 — 58 bytes** after this. The words are in bank 7
+and cost nothing; the page's code is what is left.
+
 ### The end of the journey
 
 **On the last mission the key is `LAND`, and landing is the ending.** It used

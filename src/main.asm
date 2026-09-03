@@ -555,6 +555,11 @@ bank4_end:
 ;  test does not have to watch WHILE the chase is running. mini_run writes
 ;  every one of them before it draws a frame, so none of it needs a starting
 ;  value, and up here it costs the file nothing. Read it with read_bank4.
+;  The intro has been seen this campaign. NOT saved to the disc -- a player who
+;  powers off between missions 4 and 8 reads it once more, which is harmless
+;  -- and cleared by mis_init with the rest of the chase's flags.
+mini_shown:         defb 0
+mini_ip:            defw 0              ; the (x, y) table cursor, intro only
 mini_theta:         defb 0              ; where the enemy is in its weave
 mini_phase:         defb 0              ; how far the shaft has scrolled
 mini_msg:           defb 0              ; which of mini_words is being said
@@ -1383,6 +1388,16 @@ MG_SWING            equ (MG_X_MAX - MG_X_MID) / 4
     assert MG_RUN_X + (mini_say_won - mini_say_run - 1) * TXT_CHAR_W_BYTES <= SCR_BYTES_PER_LINE, "the chase's prompt runs off the screen"
     assert MG_TOLL_NUM_X + 2 * TXT_CHAR_W_BYTES <= SCR_BYTES_PER_LINE, "the ambush's count runs off the screen"
     assert MG_TOLL_X + (mini_words_end - mini_say_toll - 1) * TXT_CHAR_W_BYTES <= MG_TOLL_NUM_X, "SHIPS LOST runs into the number beside it"
+;  ...and the intro page's five, each against its own string, the way the
+;  game-over page's are. Written as the same division the others use.
+    assert (SCR_BYTES_PER_LINE - (mini_intro_2 - mini_intro_1 - 1) * TXT_CHAR_W_BYTES) / 2 == MG_INTRO_1_X, "the chase intro's first line is not centred"
+    assert (SCR_BYTES_PER_LINE - (mini_intro_3 - mini_intro_2 - 1) * TXT_CHAR_W_BYTES) / 2 == MG_INTRO_2_X, "the chase intro's second line is not centred"
+    assert (SCR_BYTES_PER_LINE - (mini_intro_4 - mini_intro_3 - 1) * TXT_CHAR_W_BYTES) / 2 == MG_INTRO_3_X, "the chase intro's third line is not centred"
+    assert (SCR_BYTES_PER_LINE - (mini_intro_go - mini_intro_4 - 1) * TXT_CHAR_W_BYTES) / 2 == MG_INTRO_4_X, "the chase intro's fourth line is not centred"
+    assert (SCR_BYTES_PER_LINE - (mini_intro_words_end - mini_intro_go - 1) * TXT_CHAR_W_BYTES) / 2 == MG_INTRO_GO_X, "the chase intro's prompt is not centred"
+    assert mini_intro_3 - mini_intro_2 <= B7_BUF_SIZE, "a chase intro line does not fit the bank 7 buffer"
+    assert MG_INTRO_Y + (MG_INTRO_LINES - 1) * MG_INTRO_STEP + TXT_CHAR_H <= MG_INTRO_GO_Y, "the chase intro's lines run into its prompt"
+    assert MG_INTRO_GO_Y + TXT_CHAR_H <= SCR_HEIGHT_PX, "the chase intro's prompt runs off the screen"
 
 ;  mini_count and mini_weakest reach ENT_CLASS and ENT_HULL from ENT_FLAGS with
 ;  two DECs, exactly as wave_health does. The adjacency is asserted for that

@@ -236,6 +236,20 @@ MG_TOLL_NUM_X       equ MG_TOLL_X + 22
 MG_HOLD             equ 100
 
 ;  Which of the four strings in mini_words is being said.
+;  The intro page: four lines and a prompt, (x, y) each, centred by hand --
+;  x is (SCR_BYTES_PER_LINE - n * TXT_CHAR_W_BYTES) / 2 and src/main.asm checks
+;  every one against its string. Sixteen lines apart, and the prompt further
+;  down where the game's other pages put theirs.
+MG_INTRO_1_X        equ 8
+MG_INTRO_2_X        equ 5
+MG_INTRO_3_X        equ 5
+MG_INTRO_4_X        equ 6
+MG_INTRO_GO_X       equ 27
+MG_INTRO_Y          equ 48
+MG_INTRO_STEP       equ 16
+MG_INTRO_GO_Y       equ 128
+MG_INTRO_LINES      equ 4
+
 MG_MSG_RUN          equ 0
 MG_MSG_WON          equ 1
 MG_MSG_LOST         equ 2
@@ -301,6 +315,16 @@ mini_run:
     ld (spr_clip_top),a
     ld a,MG_BODY_Y + MG_BODY_H
     ld (spr_clip_bottom),a
+
+    ;  THE FIRST TIME, SAY WHAT THIS IS. "Πριν παίξει πρώτη φορά το minigame
+    ;  να δείχνεις τα πλήκτρα που χρειάζονται και να ξεκινάει με enter." A
+    ;  player who has just watched their fleet swept away and is dropped into
+    ;  a tunnel with a red ship in it has no way of knowing that the arrow keys
+    ;  are live, that closing is the point, or that losing costs ships -- and
+    ;  the first chase is the one where they pay for not knowing. Once a
+    ;  campaign: after that it is a mechanic they have met, and a page in front
+    ;  of every jump would make four events into four interruptions.
+    call mini_intro
 
     ;  Both buffers, all two hundred lines: the mission's own chrome is still
     ;  standing in the two strips and none of it is true any more.
@@ -789,6 +813,104 @@ mini_say:
 @mg_no_toll:
     ld a,1
     jp txt_set_pen
+
+
+; ----------------------------------------------------------------------------
+;  mini_intro -- the page that says what the chase is, before the first one
+;  Uses: everything
+;
+;  Drawn into BOTH buffers, because the display page-flips and a page painted
+;  once alternates with whatever the other buffer holds -- the same obligation
+;  every stopped-world screen in this game carries. Then it waits for ENTER.
+;
+;  key_hit reads key_hits, and key_hits is only refreshed by key_consume at the
+;  top of demo_update -- which is not running: this is a private loop, like
+;  the vanish's. So the loop calls key_consume itself, once a blank, and once
+;  BEFORE it starts so that an edge left over from before the jump cannot
+;  dismiss the page unread. (mini_steer has no such problem: it reads key_down,
+;  and key_state is kept live by the 50 Hz scan regardless.)
+;
+;  mini_t0 is retaken on the way out. mini_wait paces the first step against
+;  it, and a player who read the page for ten seconds would otherwise get a
+;  first step that ended the instant it began.
+; ----------------------------------------------------------------------------
+mini_intro:
+    ld hl,mini_shown
+    ld a,(hl)
+    or a
+    ret nz                              ; met it already this campaign
+    ld (hl),1
+
+    ;  The flush comes BEFORE the drawing, not between it and the wait. Its
+    ;  job is the edge left over from before the jump -- seven seconds of
+    ;  vanish with no key_consume running, so an ENTER pressed anywhere in them
+    ;  would open this page and shut it in the same frame. Put after the two
+    ;  buffers are painted it also ate a press that landed DURING the painting,
+    ;  which is a few frames and which the test fixture hit every time: the
+    ;  page then waited for a second press that never came.
+    call key_consume
+
+    call mini_blank
+    call mini_intro_page
+    call mini_show
+    call mini_blank
+    call mini_intro_page
+    call mini_show
+
+@mg_intro_wait:
+    call scr_wait_vsync
+    call key_consume
+    ld a,KEY_ENTER
+    call key_hit
+    jr nc,@mg_intro_wait
+
+    ld a,(sys_tick_50hz)
+    ld (mini_t0),a
+    ret
+
+;  The four lines in ink 1, walked on the cursor; then the prompt in ink 2,
+;  which is what the context bar means by "a key". Pen back to 1 on the way
+;  out, which is txt_set_pen's contract everywhere.
+mini_intro_page:
+    ld hl,mini_intro_words
+    ld de,mini_intro_xy
+    ld (mini_ip),de
+    ld a,MG_INTRO_LINES
+    ld (mini_idx),a
+@mg_intro_line:
+    xor a
+    call bank7_fetch                    ; the string, and HL just past it
+    push hl
+    ld hl,(mini_ip)
+    ld b,(hl)
+    inc hl
+    ld c,(hl)
+    inc hl
+    ld (mini_ip),hl
+    ld hl,bank7_line
+    call txt_draw
+    pop hl
+    ld a,(mini_idx)
+    dec a
+    ld (mini_idx),a
+    jr nz,@mg_intro_line
+
+    ld a,2
+    call txt_set_pen
+    xor a
+    call bank7_fetch                    ; the prompt is the next string
+    ld hl,bank7_line
+    ld b,MG_INTRO_GO_X
+    ld c,MG_INTRO_GO_Y
+    call txt_draw
+    ld a,1
+    jp txt_set_pen
+
+mini_intro_xy:
+    defb MG_INTRO_1_X, MG_INTRO_Y
+    defb MG_INTRO_2_X, MG_INTRO_Y + MG_INTRO_STEP
+    defb MG_INTRO_3_X, MG_INTRO_Y + 2 * MG_INTRO_STEP
+    defb MG_INTRO_4_X, MG_INTRO_Y + 3 * MG_INTRO_STEP
 
 
 ; ----------------------------------------------------------------------------

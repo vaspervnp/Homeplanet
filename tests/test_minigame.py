@@ -272,6 +272,13 @@ class ChaseFixture(unittest.TestCase):
         Returns the list of (x, ex, dist, left) readings.
         """
         h.clear_the_way_out(cls.c)
+        #  THE FIRST CHASE OF A CAMPAIGN OPENS ON A PAGE THAT WAITS FOR ENTER.
+        #  Whether this one will is decided BEFORE `J`, while the window is at
+        #  rest: mini_shown is bank 4 and the chase blits, so it cannot be read
+        #  reliably once the chase is running. The page is dismissed the moment
+        #  the chase's flag goes up and nothing is traced until it has been, so
+        #  trace[0] is still the chase's own first step.
+        intro_due = not h.read_bank4(cls.c, cls.sym["MINI_SHOWN"], 1)[0]
         cls.c.key_down("j")
         cls.c.run_frames(40)
         cls.c.key_up("j")
@@ -287,6 +294,17 @@ class ChaseFixture(unittest.TestCase):
             if not cls.b("MINI_ACTIVE"):
                 if trace:
                     break
+                continue
+            if intro_due:
+                intro_due = False
+                #  A few frames for the page to be on the screen before it is
+                #  answered -- a human cannot press inside the first vsync, and
+                #  a test that does is testing the paint order, not the page.
+                cls.c.run_frames(8)
+                cls.c.key_down(cpc.KEY_ENTER)
+                cls.c.run_frames(6)
+                cls.c.key_up(cpc.KEY_ENTER)
+                cls.c.run_frames(2)
                 continue
             x, ex = cls.b("MINI_X"), cls.b("MINI_EX")
             trace.append((x, ex, cls.b("MINI_DIST"), cls.b("MINI_LEFT")))
@@ -325,6 +343,111 @@ class ChaseFixture(unittest.TestCase):
         if cls.b("MIS_INDEX") != was + 1:
             raise AssertionError(
                 "the jump was refused, so nothing after it means anything")
+
+
+class TestTheIntro(ChaseFixture):
+    """The page before the FIRST chase: what it is, which keys, and ENTER.
+
+    "Πριν παίξει πρώτη φορά το minigame να δείχνεις τα πλήκτρα που χρειάζονται
+    και να ξεκινάει με enter."
+
+    Two chases on one machine, in order, because the claim has two halves and
+    a build that showed the page before EVERY chase passes the first on its
+    own: the first waits for ENTER and the second does not.
+    """
+
+    FIRST_CHAR, LAST_CHAR, CHAR_H = 32, 95, 8
+
+    @classmethod
+    def start_a_chase(cls):
+        """J, the spool, and stop the instant the chase's flag goes up."""
+        h.clear_the_way_out(cls.c)
+        cls.c.key_down("j")
+        cls.c.run_frames(40)
+        cls.c.key_up("j")
+        cls.c.run_frames(20)
+        cls.c.write_ram(cls.sym["ORDER_PAUSED"], b"\x00")
+        for _ in range(3000):
+            cls.c.run_frames(1)
+            if cls.b("MINI_ACTIVE"):
+                return
+        raise AssertionError("no chase started")
+
+    @classmethod
+    def finish_the_chase(cls):
+        for _ in range(4000):
+            cls.c.run_frames(2)
+            if not cls.b("MINI_ACTIVE"):
+                break
+        h.dismiss_briefing(cls.c)
+        cls.c.run_frames(40)
+        h.wait_for_jump_wipe(cls.c)
+        cls.c.run_frames(30)
+        cls.c.write_ram(cls.sym["ORDER_PAUSED"], b"\x01")
+
+    def row(self, y, x0, cells):
+        """Text off the front buffer at (x0 bytes, y), from the machine's font.
+        Stepped from x0 -- an odd column decoded from 0 reads as garbage."""
+        ram = self.c.read_ram(h.front_buffer(self.c), 0x4000)
+        font = bytes(self.c.read_ram(
+            self.sym["TXT_FONT"], (self.LAST_CHAR - self.FIRST_CHAR + 1) * self.CHAR_H))
+        out = []
+        for bx in range(x0, x0 + cells * 2, 2):
+            cell = []
+            for r in range(self.CHAR_H):
+                a = ram[h.screen_offset(y + r, bx)]
+                b = ram[h.screen_offset(y + r, bx + 1)]
+                cell.append(((a | (a << 4)) & 0xF0) | (((b | (b << 4)) & 0xF0) >> 4))
+            best, bd = " ", 999
+            for ci in range(self.FIRST_CHAR, self.LAST_CHAR + 1):
+                g = font[(ci - self.FIRST_CHAR) * self.CHAR_H:(ci - self.FIRST_CHAR + 1) * self.CHAR_H]
+                d = sum(bin(p ^ q).count("1") for p, q in zip(g, cell))
+                if d < bd:
+                    bd, best = d, chr(ci)
+            out.append(best if bd <= 2 else "?")
+        return "".join(out)
+
+    def test_the_first_chase_waits_on_the_page_and_enter_begins_it(self):
+        self.walk_to_a_chase()
+        self.start_a_chase()
+
+        #  Nothing moves while the page is up, however long it is up.
+        self.c.run_frames(300)
+        self.assertEqual(self.b("MINI_LEFT"), self.sym["MG_STEPS"],
+                         "the chase started without waiting for ENTER")
+        self.assertEqual(self.b("MINI_ACTIVE"), 1)
+
+        #  ...and it is the page, read off the PIXELS: the keys it names and
+        #  the key that starts it.
+        self.assertEqual(
+            self.row(self.sym["MG_INTRO_GO_Y"], self.sym["MG_INTRO_GO_X"], 13),
+            "ENTER - BEGIN")
+        line2 = self.row(self.sym["MG_INTRO_Y"] + self.sym["MG_INTRO_STEP"],
+                         self.sym["MG_INTRO_2_X"], 35)
+        self.assertIn("LEFT AND RIGHT", line2, f"the keys are not named: {line2!r}")
+
+        self.c.key_down(cpc.KEY_ENTER)
+        self.c.run_frames(6)
+        self.c.key_up(cpc.KEY_ENTER)
+        for _ in range(200):
+            self.c.run_frames(2)
+            if self.b("MINI_LEFT") < self.sym["MG_STEPS"]:
+                break
+        else:
+            self.fail("ENTER did not begin the chase")
+        self.finish_the_chase()
+
+        #  THE SECOND CHASE HAS NO PAGE. Walk on to it and watch it run
+        #  without a key being pressed.
+        self.walk_to_a_chase()
+        self.start_a_chase()
+        for _ in range(200):
+            self.c.run_frames(2)
+            if self.b("MINI_LEFT") < self.sym["MG_STEPS"]:
+                break
+        else:
+            self.fail("the second chase of the campaign waited for ENTER too")
+        self.finish_the_chase()
 
 
 class TestWhenItHappens(ChaseFixture):

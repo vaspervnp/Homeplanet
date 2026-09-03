@@ -223,6 +223,15 @@ def wait_for_briefing(c: cpc.CPC, frames: int = 2400) -> bool:
     refusal in tests/test_regions.py, which walks the whole campaign. It costs
     nothing when there is no chase -- the poll returns the moment the briefing
     appears.
+
+    ...AND THE FIRST CHASE OF A CAMPAIGN OPENS ON A PAGE THAT WAITS FOR ENTER
+    -- mini_intro, before the jump out of mission MG_EVERY. A caller that only
+    wants to be past the jump would otherwise sit at that page until this
+    bound ran out and report the jump as refused; tools/balance.py and every
+    campaign walk in the suite come through here. So while the chase's flag is
+    up, ENTER is tapped. During the chase proper the key means nothing -- the
+    chase reads the cursor keys through key_state and nothing else -- so the
+    tap is harmless on the three chases that have no page.
     """
     sym = symbols()
     if "MIS_BRIEFING" not in sym:
@@ -231,6 +240,10 @@ def wait_for_briefing(c: cpc.CPC, frames: int = 2400) -> bool:
     for _ in range(frames // 5):
         if c.read_ram(sym["MIS_BRIEFING"], 1)[0]:
             return True
+        if "MINI_ACTIVE" in sym and c.read_ram(sym["MINI_ACTIVE"], 1)[0]:
+            c.key_down(cpc.KEY_ENTER)
+            c.run_frames(5)
+            c.key_up(cpc.KEY_ENTER)
         c.run_frames(5)
     return False
 

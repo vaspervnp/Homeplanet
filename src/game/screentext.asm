@@ -216,3 +216,27 @@ mini_say_lost:
 mini_say_toll:
     defb "SHIPS LOST",0
 mini_words_end:
+
+; ----------------------------------------------------------------------------
+;  mini_intro_words -- what the chase is and which keys it wants, ONCE
+;
+;  Shown before the FIRST chase of a campaign and dismissed with ENTER; see
+;  mini_intro in game/minigame.asm. Four lines and a prompt, walked in order on
+;  the cursor bank7_fetch hands back. Each line is centred by hand in
+;  MG_INTRO_XY and src/main.asm checks every x against its own string.
+;
+;  Section 1's voice, and the two keys named in the second line are the whole
+;  of the controls -- there is nothing else to press until it is over.
+; ----------------------------------------------------------------------------
+mini_intro_words:
+mini_intro_1:
+    defb "A VEKHAR IS IN THE JUMP WITH US.",0
+mini_intro_2:
+    defb "LEFT AND RIGHT STEER INTO ITS WAKE.",0
+mini_intro_3:
+    defb "CLOSE ON IT BEFORE THE TUNNEL ENDS.",0
+mini_intro_4:
+    defb "LOSE IT, AND THEY WILL BE WAITING.",0
+mini_intro_go:
+    defb "ENTER - BEGIN",0
+mini_intro_words_end:

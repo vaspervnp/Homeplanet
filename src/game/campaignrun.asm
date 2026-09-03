@@ -31,6 +31,7 @@ mis_init:
     ld (mis_won),a
     ld (jump_secs),a                    ; ...and no jump is being counted down
     ld (mini_active),a                  ; ...and so is the chase's flag
+    ld (mini_shown),a                   ; ...and its intro is unread again
     ld (mis_saved),a                    ; nothing banked yet
     ld (campaign_unlocks),a             ; ...and nothing reverse-engineered
     ld hl,0
