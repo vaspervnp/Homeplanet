@@ -486,6 +486,26 @@ def jump_mission(c: cpc.CPC, frames: int = 25) -> None:
     dismiss_briefing(c)
 
 
+def skip_the_countdown(c: cpc.CPC) -> None:
+    """Arm the jump's spool to fire on the NEXT game frame.
+
+    wait_out_the_countdown is for callers that want to be past the jump.
+    This is for callers that want to watch the VANISH, which starts the
+    instant the spool reaches zero: polling for that lands you at an
+    arbitrary point INSIDE the sweep, because mis_jump_now runs the whole
+    thing in one call. Ten seconds is also ten seconds of emulated battle
+    that tests/test_jumpfx.py has no interest in.
+
+    Press `J` first -- this only shortens a countdown that is already
+    running, and does nothing to a jump that was refused.
+    """
+    sym = symbols()
+    if not read_bank4(c, sym["JUMP_SECS"], 1)[0]:
+        return
+    write_cpu(c, sym["JUMP_SECS"], bytes([1]))
+    write_cpu(c, sym["JUMP_TICKS"], bytes([49]))
+
+
 def wait_out_the_countdown(c: cpc.CPC, tries: int = 400) -> None:
     """`J` announces the jump; the drive spools for JUMP_COUNT_SECS first.
 

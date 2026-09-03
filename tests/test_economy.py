@@ -161,6 +161,18 @@ class TestStartingState(EconomyFixture):
 
 class TestBuildPanel(EconomyFixture):
 
+    def poke_a_hostile(self):
+        """One Vekhar ship, in the HOSTILE region -- the partition decides
+        where a hostile may live, and cbt_find_enemy searches the other side's
+        half by index."""
+        slot = self.sym["ENT_PLAYER_MAX"]
+        base = self.sym["ENTITIES"] + slot * ENT_SIZE
+        self.c.write_ram(base, struct.pack("<hhh", 3000, 0, 3000))
+        self.c.write_ram(base + ENT_CLASS, bytes([0]))
+        self.c.write_ram(base + ENT_HULL, bytes([255]))
+        self.c.write_ram(base + ENT_FLAGS, bytes([1 | 2]))   # ACTIVE + ENEMY
+        self.c.run_frames(4)
+        return slot
 
     def setUp(self):
         super().setUp()
@@ -176,7 +188,17 @@ class TestBuildPanel(EconomyFixture):
         self.assertEqual(self.byte("ECO_BUILD_OPEN"), 0)
 
     def test_the_panel_takes_over_the_comma_and_period_keys(self):
-        """They walk the target list otherwise; while it is open they pick a class."""
+        """They walk the target list otherwise; while it is open they pick a class.
+
+        A HOSTILE HAS TO EXIST FOR THE FIRST HALF TO MEAN ANYTHING. `,` and `.`
+        walk what can be ATTACKED, and mission 1 fields nothing -- so with no
+        enemy on the board the target stays ORDER_NO_TARGET whether the panel
+        has taken the keys over or not, and the test would pass on a build
+        where it had not. It used to have a target here only because the
+        picker offered the player's own fleet, which is the defect
+        TestTheFleetCannotBeAimedAtItself was written for.
+        """
+        self.poke_a_hostile()
         self.hold(".", frames=20)
         target_moved = self.byte("ORDER_TARGET")
         self.assertNotEqual(target_moved, 0xFF, "'.' did not walk the target")

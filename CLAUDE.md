@@ -5435,6 +5435,20 @@ contain nothing that would make anyone press `ESC`, and a cancel nobody would
 ever use is decoration. Ten seconds of live battle makes pressing `J`
 *announcing that you are leaving, and then surviving the announcement.*
 
+> **AND IT LANDED PAST demo_update's OWN GUARD, which is a real defect the
+> tests caught rather than a test artefact.** `J` used to be read in
+> `phase4_commands`, so the briefing branch at the top of `demo_update` caught
+> a jump on the very next frame and nothing drew. The spool lives in
+> `mis_update`, which is FURTHER DOWN — so when the count reached zero,
+> `mis_jump_now` swept the fleet away, laid the next mission out, opened its
+> briefing, and then **returned into the middle of a playing frame**, which
+> went on to project, sort and draw the mission the player had not been shown
+> yet, over the black the sweep had just left. Twenty-six frames of it, because
+> the disc write sits in the middle. `mis_update` is followed by a
+> `mis_briefing` re-check now. Found by
+> `test_nothing_of_the_next_mission_shows_before_the_briefing`, which exists
+> for the one-frame version of exactly this.
+
 - **It lives in `mis_update`**, which buys two behaviours for nothing:
   `demo_update` skips `mis_update` while `order_paused`, so SPACE stops the
   countdown along with the battle — a pause that let it run would be a pause

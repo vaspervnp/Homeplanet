@@ -284,7 +284,7 @@ class TestTheVanish(WipeFixture):
         #  columns and "one bar per ship" is not a thing the screen can show.
         self.c.run_frames(400)
 
-    def press_jump(self):
+    def press_jump(self, skip=True):
         #  Mission 1's objective is ARRIVE, so it is complete from the first
         #  frame -- but the objective is only the first of the three things
         #  mis_gate asks, and a mission may not be left before its third wave.
@@ -293,6 +293,18 @@ class TestTheVanish(WipeFixture):
         self.assertEqual(self.c.read_ram(self.sym["MIS_COMPLETE"], 1)[0], 1)
         h.clear_the_way_out(self.c)
         self.c.key_down("j")
+        #  `J` announces; the drive spools for ten seconds first. This file
+        #  is about the WIPE, so the spool is arranged away rather than sat
+        #  through -- and SKIPPED rather than waited out, because the vanish
+        #  starts the instant the count reaches zero and polling for that
+        #  lands mid-sweep.
+        #
+        #  The twenty frames are not padding: the context bar repaints to
+        #  JUMPING while the drive spools, and a test that took its baseline
+        #  before that would blame the SWEEP for the change.
+        self.c.run_frames(20)
+        if skip:
+            h.skip_the_countdown(self.c)
 
     def test_one_bar_per_ship_and_none_of_them_crosses_the_screen(self):
         """The change itself: not one line for the fleet, but one each.
@@ -468,25 +480,54 @@ class TestTheVanish(WipeFixture):
         #  when what they say changes, so a baseline taken at boot can be a
         #  buffer that has not had them yet.
         self.c.run_frames(60)
-        before = {base: (self.bar_bytes(self.buffer(base)),
-                         self.strip_lit(self.buffer(base)))
-                  for base in (h.SCREEN_A, h.SCREEN_B)}
-        for base in (h.SCREEN_A, h.SCREEN_B):
-            self.assertGreater(before[base][1][0], 100,
-                               f"buffer #{base:04X} has no context bar to protect")
 
-        self.press_jump()
-        seen, _, _ = self.sample_sweep(JFX_OUT)
+        #  THE BASELINE COMES AFTER `J`, not before it. The bar repaints to
+        #  JUMPING while the drive spools, which is a legitimate change and
+        #  not the sweep's -- taken before the keypress it read as "the sweep
+        #  changed the context bar".
+        self.press_jump(skip=False)
+        self.c.run_frames(40)
+        h.skip_the_countdown(self.c)
+        before = None
+
+        #  ...AND THE STRIPS ARE READ WHILE THE SWEEP IS STILL RUNNING. They
+        #  used to be read after it, which worked only while the jump ENDED
+        #  with the sweep. It does not: mis_jump_now runs on from there into
+        #  mis_setup and the briefing, and a briefing's static_wipe clears
+        #  from line 0 -- so a reading taken afterwards catches the BRIEFING
+        #  having removed the bar and blames the sweep for it.
+        seen = []
+        for _ in range(400):
+            if h.read_bank4(self.c, self.sym["JFX_MODE"], 1)[0] != JFX_OUT:
+                if seen:
+                    break                   # the sweep is over
+                self.c.run_frames(2)
+                continue
+            seen.append(self.c.read_ram(self.sym["JFX_COL"], 1)[0])
+
+            #  THE BASELINE IS THE SWEEP'S OWN FIRST FRAME. It cannot be taken
+            #  before `J`: the bar repaints to JUMPING while the drive spools
+            #  and then AGAIN every second as the number counts down, so any
+            #  earlier reading is of a different, legitimate picture. What this
+            #  test claims is that the SWEEP changes nothing, and that claim is
+            #  exactly "every frame of it looks like its first".
+            if before is None:
+                before = {b2: (self.bar_bytes(self.buffer(b2)),
+                               self.strip_lit(self.buffer(b2)))
+                          for b2 in (h.SCREEN_A, h.SCREEN_B)}
+                for b2 in (h.SCREEN_A, h.SCREEN_B):
+                    self.assertGreater(
+                        before[b2][1][0], 100,
+                        f"buffer #{b2:04X} has no context bar to protect")
+            for base in (h.SCREEN_A, h.SCREEN_B):
+                ram = self.buffer(base)
+                self.assertEqual(self.bar_bytes(ram), before[base][0],
+                                 f"the sweep changed the context bar in #{base:04X}")
+                self.assertEqual(self.strip_lit(ram), before[base][1],
+                                 f"the sweep changed the strips in buffer #{base:04X}")
+            self.c.run_frames(2)
         self.c.key_up("j")
-        self.assertGreater(len(seen), 5)
-        #  Nothing else is running -- the sweep stops the world -- so both
-        #  strips have to come out of it byte for byte.
-        for base in (h.SCREEN_A, h.SCREEN_B):
-            ram = self.buffer(base)
-            self.assertEqual(self.bar_bytes(ram), before[base][0],
-                             f"the sweep changed the context bar in #{base:04X}")
-            self.assertEqual(self.strip_lit(ram), before[base][1],
-                             f"the sweep changed the strips in buffer #{base:04X}")
+        self.assertGreater(len(seen), 5, "the sweep was never caught running")
 
     def test_nothing_of_the_next_mission_shows_before_the_briefing(self):
         """The one-frame flash the wipe would otherwise have exposed.
@@ -530,6 +571,18 @@ class TestTheReveal(WipeFixture):
         self.c = h.boot_quick(frames=300)
         h.clear_the_way_out(self.c)     # ...mis_gate's other two conditions
         self.c.key_down("j")
+        #  `J` announces; the drive spools for ten seconds first. This file
+        #  is about the WIPE, so the spool is arranged away rather than sat
+        #  through -- and SKIPPED rather than waited out, because the vanish
+        #  starts the instant the count reaches zero and polling for that
+        #  lands mid-sweep.
+        #
+        #  The twenty frames are not padding: the context bar repaints to
+        #  JUMPING while the drive spools, and a test that took its baseline
+        #  before that would blame the SWEEP for the change.
+        self.c.run_frames(20)
+        if True:
+            h.skip_the_countdown(self.c)
         self.c.run_frames(25)
         self.c.key_up("j")
         #  The vanish alone is 359 emulator frames now and the disc write is
@@ -891,6 +944,18 @@ class TestTheJumpIsStillOneAct(WipeFixture):
         self.c.run_frames(40)
         lit_before = self.lit_columns(self.front())
         self.c.key_down("j")
+        #  `J` announces; the drive spools for ten seconds first. This file
+        #  is about the WIPE, so the spool is arranged away rather than sat
+        #  through -- and SKIPPED rather than waited out, because the vanish
+        #  starts the instant the count reaches zero and polling for that
+        #  lands mid-sweep.
+        #
+        #  The twenty frames are not padding: the context bar repaints to
+        #  JUMPING while the drive spools, and a test that took its baseline
+        #  before that would blame the SWEEP for the change.
+        self.c.run_frames(20)
+        if True:
+            h.skip_the_countdown(self.c)
         for _ in range(30):
             self.assertNotEqual(self.mode(), JFX_OUT,
                                 "a refused jump swept the screen anyway")
@@ -1024,11 +1089,23 @@ class TestTheJumpIsHeard(WipeFixture):
             f"explosion and not a drive -- mixer #{r[R_MIXER]:02X}")
         return r[R_PERIOD_C] | (r[R_PERIOD_C_HI] << 8), r[R_AMP_C]
 
-    def press_jump(self):
+    def press_jump(self, skip=True):
         self.assertEqual(self.c.read_ram(self.sym["MIS_COMPLETE"], 1)[0], 1,
                          "mission 1's ARRIVE objective is not met")
         h.clear_the_way_out(self.c)     # ...and the other two of mis_gate's
         self.c.key_down("j")
+        #  `J` announces; the drive spools for ten seconds first. This file
+        #  is about the WIPE, so the spool is arranged away rather than sat
+        #  through -- and SKIPPED rather than waited out, because the vanish
+        #  starts the instant the count reaches zero and polling for that
+        #  lands mid-sweep.
+        #
+        #  The twenty frames are not padding: the context bar repaints to
+        #  JUMPING while the drive spools, and a test that took its baseline
+        #  before that would blame the SWEEP for the change.
+        self.c.run_frames(20)
+        if skip:
+            h.skip_the_countdown(self.c)
         for _ in range(60):
             if self.mode() == JFX_OUT:
                 return
@@ -1125,6 +1202,18 @@ class TestTheJumpIsHeard(WipeFixture):
         #  waits the whole reveal out, which is exactly the thing to be inside.
         h.clear_the_way_out(self.c)     # ...mis_gate's other two conditions
         self.c.key_down("j")
+        #  `J` announces; the drive spools for ten seconds first. This file
+        #  is about the WIPE, so the spool is arranged away rather than sat
+        #  through -- and SKIPPED rather than waited out, because the vanish
+        #  starts the instant the count reaches zero and polling for that
+        #  lands mid-sweep.
+        #
+        #  The twenty frames are not padding: the context bar repaints to
+        #  JUMPING while the drive spools, and a test that took its baseline
+        #  before that would blame the SWEEP for the change.
+        self.c.run_frames(20)
+        if True:
+            h.skip_the_countdown(self.c)
         self.c.run_frames(25)
         self.c.key_up("j")
         self.assertTrue(h.wait_for_briefing(self.c), "no briefing after `J`")
@@ -1187,6 +1276,18 @@ class TestTheMusicGetsOutOfTheJumpsWay(WipeFixture):
                          "this test needs the music playing")
         h.clear_the_way_out(self.c)
         self.c.key_down("j")
+        #  `J` announces; the drive spools for ten seconds first. This file
+        #  is about the WIPE, so the spool is arranged away rather than sat
+        #  through -- and SKIPPED rather than waited out, because the vanish
+        #  starts the instant the count reaches zero and polling for that
+        #  lands mid-sweep.
+        #
+        #  The twenty frames are not padding: the context bar repaints to
+        #  JUMPING while the drive spools, and a test that took its baseline
+        #  before that would blame the SWEEP for the change.
+        self.c.run_frames(20)
+        if True:
+            h.skip_the_countdown(self.c)
         self.c.run_frames(25)
         self.c.key_up("j")
         self.assertTrue(h.wait_for_briefing(self.c, frames=800),

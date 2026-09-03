@@ -849,9 +849,14 @@ mis_jump:
     ld (jump_ticks),a
     ld a,(sys_tick_50hz)
     ld (jump_last),a
-    ;  The sound belonged to the wipe, which is the moment the fleet is already
-    ;  gone. The spool is where a drive winding up actually goes.
-    call snd_jump_out
+    ;  NO SOUND HERE, and that was a mistake I made and backed out. snd_jump_out
+    ;  belongs to the VANISH and its length is measured against it: thirty ticks
+    ;  against a sweep whose floor is 324 emulator frames, chosen so the decay
+    ;  reaches silence before fdc.asm's DI stalls the machine for the disc
+    ;  write. Firing it here as well played it twice and left the wipe itself
+    ;  silent. improvements.md section 8 says a tick per second would be the
+    ;  obvious addition to the spool and is a separate decision; it is still
+    ;  separate.
     scf
     ret
 
