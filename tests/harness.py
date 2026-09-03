@@ -419,7 +419,7 @@ def close(c) -> None:
         c.__del__()
 
 
-def clear_the_way_out(c: cpc.CPC) -> None:
+def clear_the_way_out(c: cpc.CPC, purse: bool = True) -> None:
     """Arrange the three things mis_gate asks for, so that `J` will work.
 
     A mission may not be left before its WAVE_BEFORE_JUMP'th wave, and may not
@@ -446,7 +446,7 @@ def clear_the_way_out(c: cpc.CPC) -> None:
     #  ...and the fare. A jump spends MIS_JUMP_COST out of the same treasury
     #  the yard spends, so a test that jumps in order to get somewhere else
     #  would otherwise have to mine for it.
-    if "MIS_JUMP_COST" in sym:
+    if purse and "MIS_JUMP_COST" in sym:
         purse = int.from_bytes(c.read_ram(sym["ECO_RU"], 2), "little")
         if purse < sym["MIS_JUMP_COST"]:
             c.write_ram(sym["ECO_RU"],
@@ -530,7 +530,12 @@ def wait_out_the_countdown(c: cpc.CPC, tries: int = 400) -> None:
         for _ in range(tries):
             if not read_bank4(c, sym["JUMP_SECS"], 1)[0]:
                 return
-            clear_the_way_out(c)
+            #  purse=False: the BOARD is what a wave closes, and topping the
+            #  treasury up every tenth of a second would silently re-fund a
+            #  test that had set it deliberately. test_the_fare_is_actually_taken
+            #  sets 650, watched this raise it to MIS_JUMP_COST, and reported
+            #  "the drive cost -1750".
+            clear_the_way_out(c, purse=False)
             c.run_frames(10)
     finally:
         if was_paused:

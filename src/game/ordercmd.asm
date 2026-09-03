@@ -349,13 +349,38 @@ order_release_attack:
 
 
 ; ----------------------------------------------------------------------------
-;  order_target_step -- `,` and `.` walk the target through live entities
+;  order_target_step -- `,` and `.` walk the target through HOSTILE entities
 ;  In : A = +1 to go forward, -1 to go back
-;  Out: (order_target) = an active entity index, or ORDER_NO_TARGET
+;  Out: (order_target) = a hostile entity index, or ORDER_NO_TARGET
 ;  Uses: everything
 ;
 ;  Wraps, and skips empty slots, so the player never has to know that the
 ;  entity table is sparse.
+;
+;  AND IT SKIPS OUR OWN SHIPS, WHICH IS A REPAIR RATHER THAN A REFINEMENT.
+;  This walked every FLYING entity, and the fleet is fifty-six of the
+;  seventy-six slots -- so the target landed on one of ours as a matter of
+;  course, and from a fresh mission the very first press of `.` put it on slot
+;  0. `A` then wrote that friendly index into every ship of the selection and
+;  the whole squadron stopped: phase4_fly skips an attacking ship, and with the
+;  target flying and inside CBT_RANGE -- it is in the same formation --
+;  cbt_move_enemies holds station and cbt_fire_if_able used to return at
+;  cbt_hostile without ever reconsidering. Reported as "χάνει το attack κάποιες
+;  φορές. Αντί να επιτίθενται κάθονται κάπου τα squadrons και αφήνουν να τα
+;  χτυπάνε", and measured: press `.`, then `A`, and fifteen of sixteen ships
+;  never moved once in 1800 frames while the fleet was shot down to eight.
+;
+;  cbt_fire_if_able re-acquires now instead of returning, so a bad index can no
+;  longer strand anything whatever writes it -- that is the net, and it is the
+;  one that has to hold. This is the other half, and it is the half a PLAYER
+;  meets: the picker exists to choose something to attack, and offering your
+;  own fleet is offering an order that cannot be carried out. Same reasoning
+;  that makes the build panel step OVER a class it cannot offer rather than
+;  showing it and refusing.
+;
+;  With nothing hostile on the board it now settles on ORDER_NO_TARGET, which
+;  is honest -- and `A` with no target is the case that already worked, because
+;  cbt_fire_if_able finds the nearest enemy for itself.
 ; ----------------------------------------------------------------------------
 
 order_target_step:
@@ -386,6 +411,7 @@ order_target_step:
     ld c,a
     push bc
     call ent_is_flying
+    call c,@ord_tgt_theirs              ; ...and it has to be one of THEIRS
     pop bc
     jr c,@ord_tgt_found
     djnz @ord_tgt_try
@@ -397,6 +423,27 @@ order_target_step:
 @ord_tgt_found:
     ld a,c
     ld (order_target),a
+    ret
+
+
+;  CF set if slot C is on the Vekhar side. Only reached for a slot ent_is_flying
+;  has already passed, so the pair of them is the whole of "something we may be
+;  told to attack" -- active, not wreckage, and not us.
+;
+;  It re-derives the record from C rather than using the HL ent_is_flying
+;  happens to leave on the flags byte. That HL is not in its Out: line, and
+;  this file's rule is that the register contract is the only thing standing
+;  between you and the next scr_line_addr. It runs on a keypress, so the second
+;  ent_addr costs nothing anybody can measure.
+@ord_tgt_theirs:
+    ld a,c
+    call ent_addr
+    ld de,ENT_FLAGS
+    add hl,de
+    ld a,(hl)
+    and ENT_F_ENEMY
+    ret z                               ; ours: CF is clear from the AND
+    scf
     ret
 
 

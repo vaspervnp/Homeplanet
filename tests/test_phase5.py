@@ -705,6 +705,47 @@ class TestOrders(ControlFixture):
     def ent_field(self, slot, offset):
         return self.c.read_ram(self.sym["ENTITIES"] + slot * 20 + offset, 1)[0]
 
+    #  Far enough that the fleet cannot close and start killing them inside a
+    #  test, and well inside the range cbt_distance can still express -- it
+    #  saturates at 255 camera units, which is 16320 world units.
+    HOSTILE_Z = 7500
+
+    def give_them_something_to_shoot_at(self, how_many=3):
+        """Put a few hostiles on the board, in the HOSTILE region.
+
+        THE THREE TESTS BELOW USED TO NEED NOTHING, AND THAT WAS THE DEFECT.
+        `,` and `.` walked order_target over every FLYING entity, so in a
+        mission with no enemies at all -- which is mission 1, where this
+        fixture sits -- the picker settled cheerfully on the player's OWN slot
+        0. `A` then wrote that friendly index into the whole selection and the
+        squadron stopped dead: phase4_fly skips an attacking ship,
+        cbt_move_enemies holds station because a ship in your own formation is
+        inside CBT_RANGE, and cbt_fire_if_able returned at cbt_hostile without
+        ever reconsidering. Nothing steered those ships again.
+
+        It propped up test_a_and_g_... as well, which is the sharper half. An
+        attack order SPENDS ITSELF the moment a re-acquire comes back empty,
+        and with no enemy anywhere that is the same frame `A` was pressed in
+        -- so that test only ever saw ENT_ORDER_ATTACK because aiming at one
+        of ours froze the order where it stood. A test whose precondition is a
+        defect passes for the wrong reason and fails the day the defect goes,
+        which is exactly what these three did.
+
+        Slots ENT_PLAYER_MAX upward, because the two sides are disjoint by
+        index and cbt_find_enemy searches one region: a hostile parked among
+        the fleet is one that nothing can see.
+        """
+        base = self.sym["ENTITIES"]
+        first = self.sym["ENT_PLAYER_MAX"]
+        for n in range(how_many):
+            rec = base + (first + n) * 20
+            self.c.write_ram(rec, struct.pack("<hhh", 0, 0, self.HOSTILE_Z + n * 400))
+            self.c.write_ram(rec + 9, b"\x00")          # ENT_CLASS: interceptor
+            self.c.write_ram(rec + 10, b"\xff")         # ENT_HULL
+            self.c.write_ram(rec + 11, b"\x03")         # ACTIVE | ENEMY
+        self.c.run_frames(30)
+        return [first + n for n in range(how_many)]
+
     def test_r_stations_the_squadron_on_the_mothership(self):
         self.hold("d", frames=30)
         self.hold("2", frames=25)
@@ -714,6 +755,7 @@ class TestOrders(ControlFixture):
                          "R did not send the squadron to the Mothership")
 
     def test_comma_and_period_walk_the_target(self):
+        self.give_them_something_to_shoot_at()
         self.assertEqual(self.byte("ORDER_TARGET"), 0xFF, "something is targeted at boot")
         self.hold(".", frames=20)
         first = self.byte("ORDER_TARGET")
@@ -723,7 +765,15 @@ class TestOrders(ControlFixture):
         self.hold(",", frames=20)
         self.assertEqual(self.byte("ORDER_TARGET"), first, "',' did not go back")
 
-    def test_the_target_is_always_a_live_entity(self):
+    def test_the_target_is_always_a_live_hostile(self):
+        """...a HOSTILE, which is the half that was missing.
+
+        The picker exists to choose something to attack, so offering one of
+        our own is offering an order that cannot be carried out -- and did not
+        merely fail, it stranded the whole squadron. See
+        give_them_something_to_shoot_at.
+        """
+        theirs = self.give_them_something_to_shoot_at()
         for _ in range(12):
             self.hold(".", frames=15)
             target = self.byte("ORDER_TARGET")
@@ -731,12 +781,38 @@ class TestOrders(ControlFixture):
                             "the target walked off the entity table")
             self.assertTrue(self.ent_field(target, 11) & 1,
                             f"slot {target} is targeted but not active")
+            self.assertIn(target, theirs,
+                          f"slot {target} is targeted and it is one of OURS")
+
+    def test_the_target_stays_empty_when_there_is_nothing_to_attack(self):
+        """Mission 1 fields no enemies, and the honest answer is "nobody".
+
+        `A` with no target is the case that has always worked: cbt_fire_if_able
+        finds the nearest enemy for itself. Offering the fleet its own ships
+        instead is what this replaced.
+        """
+        self.assertEqual(self.byte("ORDER_TARGET"), 0xFF, "something is targeted at boot")
+        for _ in range(4):
+            self.hold(".", frames=15)
+        self.assertEqual(self.byte("ORDER_TARGET"), 0xFF,
+                         "`.` found something to attack in a mission with no enemies")
+        for _ in range(4):
+            self.hold(",", frames=15)
+        self.assertEqual(self.byte("ORDER_TARGET"), 0xFF,
+                         "`,` found something to attack in a mission with no enemies")
 
     def test_a_and_g_write_orders_into_the_selected_squadron_only(self):
-        """The records carry the order; nothing acts on it until phase 6."""
+        """The records carry the order, and the order is aimed at a hostile.
+
+        It needs a hostile on the board for two separate reasons now: `.` will
+        not offer one of ours any more, and an attack order with nothing left
+        to shoot at spends itself in the frame it is given.
+        """
+        self.give_them_something_to_shoot_at()
         self.hold("d", frames=30)                 # 1 and 2 both have ships
         self.hold(".", frames=20)
         target = self.byte("ORDER_TARGET")
+        self.assertLess(target, self.sym["ENT_MAX"], "nothing to aim at")
 
         self.hold("a", frames=25)
         selected = self.byte("SQUAD_SEL")

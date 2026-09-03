@@ -807,3 +807,140 @@ class TestAMovementOrderEndsAnAttackOrder(CombatFixture):
         self.c.run_frames(30)
         self.assertEqual(self.ent(slot, ENT_ORDER)[0], harvest,
                          "docking took the harvest order off a miner")
+
+
+class TestTheFleetCannotBeAimedAtItself(CombatFixture):
+    """Reported as "χάνει το attack κάποιες φορές. Αντί να επιτίθενται
+    κάθονται κάπου τα squadrons και αφήνουν να τα χτυπάνε".
+
+    `,` and `.` walk order_target through every FLYING entity, and the
+    player's own fleet is 56 of the 76 slots -- so the target lands on one of
+    ours routinely. From the opening ORDER_NO_TARGET it lands on slot 0 on the
+    very first press of `.`.
+
+    `A` then writes that friendly index into every ship of the selection, and
+    all three things that could steer a ship decline at once:
+
+      - phase4_fly SKIPS a ship under ENT_ORDER_ATTACK, on purpose;
+      - cbt_move_enemies finds the target flying and already inside
+        CBT_RANGE -- it is in the same formation -- so it holds station;
+      - cbt_fire_if_able reaches @cbt_aimed, cbt_hostile says "your own
+        side", and it RETURNED there. It never reached @cbt_reacquire, so the
+        target was never replaced and the order was never spent.
+
+    cbt_retarget_one will not help either: the target is still flying, so it
+    falls through to the ATTACK check and returns early, which is right --
+    a target the player chose is not the AI's to overwrite.
+
+    Nothing steers the ship, for the rest of the mission. Measured against the
+    build this was reported on: fifteen of sixteen ships never moved once in
+    1800 emulator frames, and the fleet was shot from sixteen down to eight
+    while it sat there.
+    """
+
+    def selection(self):
+        return [s for s in range(PLAYER_MAX) if self.flags(s) & F_ACTIVE]
+
+    def stranded(self):
+        """Ships under an attack order aimed at one of OUR OWN slots.
+
+        BY SLOT, not a count. Every historical bug in this area was invisible
+        to a test that counted ships, kills or shots, because a count is
+        exactly what these bugs preserve -- the right number of ships, all of
+        them alive, none of them doing anything.
+        """
+        return [s for s in self.selection()
+                if self.ent(s, ENT_ORDER)[0] == ENT_ORDER_ATTACK
+                and self.ent(s, ENT_TARGET)[0] < PLAYER_MAX]
+
+    def press(self, key, hold=25, after=40):
+        self.c.key_down(key)
+        self.c.run_frames(hold)
+        self.c.key_up(key)
+        self.c.run_frames(after)
+
+    def test_the_target_keys_never_land_on_one_of_our_own_ships(self):
+        """The picker is for choosing something to ATTACK.
+
+        Walking it onto the fleet is what let the order be given at all, and
+        the first press of `.` from a fresh mission is enough to do it.
+        """
+        no_target = self.sym["ORDER_NO_TARGET"]
+        seen = []
+        for _ in range(8):
+            self.press(".")
+            seen.append(self.c.read_ram(self.sym["ORDER_TARGET"], 1)[0])
+        ours = [t for t in seen if t < PLAYER_MAX]
+        self.assertEqual(
+            ours, [],
+            f"`.` stepped the target onto our own slots {ours}; "
+            f"the whole walk was {seen} and only >= {PLAYER_MAX} "
+            f"(or {no_target}) is a thing to attack")
+
+    def test_pressing_A_after_the_target_keys_does_not_strand_the_squadron(self):
+        """The reproduction, through the keys, exactly as reported."""
+        self.press(".")
+        self.press("a")
+        self.c.run_frames(400)
+        self.assertEqual(
+            self.stranded(), [],
+            "slots %s are under an attack order aimed at one of ours; "
+            "nothing steers them and nothing ever will"
+            % self.stranded())
+
+    def test_a_ship_aimed_at_its_own_side_is_handed_back_to_something(self):
+        """The net at the point of use, arranged rather than pressed.
+
+        Deliberately NOT through `,`/`.`: that route is closed now, and a
+        guard tested only by the route that used to reach it stops being a
+        guard the day another one opens. ENT_TARGET is a slot index, and a
+        stale one, a recycled one and a mistaken one all name SOMETHING --
+        which is the rule this file already keeps for cbt_hostile.
+
+        The fleet is displaced from its stations first, so "something steers
+        it" is a measurement and not a tautology: a ship already standing on
+        its station does not move even when it is perfectly healthy.
+
+        THE BOARD IS CLEARED FIRST, and that is what makes the reading
+        unambiguous rather than tidy. With a hostile alive there are two
+        correct outcomes -- re-acquire it, or spend the order -- and the first
+        of them ends with the ship holding station inside CBT_RANGE, which is
+        byte-for-byte what being stranded looks like from out here. Worse, the
+        first attempt at this test destroyed its own premise: the hostiles
+        closed and killed the ship being aimed at, and cbt_kill's forget loop
+        then cleared the bad index out of every record for nothing to do with
+        the fix. With nothing left to shoot at there is exactly one correct
+        answer -- the order is spent and phase4_fly flies them home.
+        """
+        crew = self.selection()
+        self.assertGreater(len(crew), 4, "no fleet to strand")
+        self.kill_all_enemies()
+
+        #  Somewhere a long way from every station, but well inside the range
+        #  cbt_distance can still express -- it saturates at 255 camera units.
+        AWAY = (6000, 0, 6000)
+        for s in crew:
+            base = self.sym["ENTITIES"] + s * ENT_SIZE
+            self.c.write_ram(base, struct.pack("<hhh", *AWAY))
+            self.c.write_ram(base + ENT_ORDER, bytes([ENT_ORDER_ATTACK, crew[0]]))
+        parked = {s: self.position(s) for s in crew}
+
+        self.c.run_frames(400)
+
+        self.assertEqual(
+            self.stranded(), [],
+            "slots %s are still aiming at one of ours" % self.stranded())
+
+        #  Ships in a SQUADRON. phase4_fly returns early on ENT_SQUAD 0 --
+        #  "unassigned: the Mothership holds station" -- so the base does not
+        #  move wherever you put it, and it is the one slot for which staying
+        #  put is the correct answer rather than the symptom.
+        alive = [s for s in crew
+                 if self.flags(s) & F_ACTIVE and self.ent(s, ENT_SQUAD)[0]]
+        self.assertGreater(len(alive), 4, "nothing left in a squadron to measure")
+        frozen = [s for s in alive if self.position(s) == parked[s]]
+        self.assertEqual(
+            frozen, [],
+            f"slots {frozen} have not moved a unit in 400 frames: "
+            "phase4_fly skips them, cbt_move_enemies declines them, "
+            "and nothing ever spent the order")

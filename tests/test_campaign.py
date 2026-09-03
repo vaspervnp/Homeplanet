@@ -483,10 +483,23 @@ class TestTheWayOut(CampaignFixture):
                          "one more unit and it is still closed")
 
     def test_the_fare_is_actually_taken(self):
-        """Charged once, and only when the jump happens."""
+        """Charged once, and only when the jump happens.
+
+        THE PATCHES ARE MINED OUT FIRST, and that is not tidying. `J` no
+        longer jumps -- it spools for ten seconds with the battle running, and
+        three harvesters work through every one of them, so an absolute purse
+        comparison across the jump measures the fare MINUS whatever came home
+        in the meantime. This failed with "the drive cost -1750": the treasury
+        went UP. Emptying the fields leaves the fare as the only thing that can
+        move the number, which is what the test claims to be about.
+        """
         self.to_a_mission_with_a_picket()
         self.clear_the_board()
         self.waves_seen(self.sym["WAVE_BEFORE_JUMP"])
+        for i in range(self.sym["ECO_PATCH_COUNT"]):
+            self.c.write_ram(
+                self.sym["ECO_PATCHES"] + i * self.sym["ECO_PATCH_SIZE"] + 6,
+                b"\x00\x00")
         purse = self.fare() + 250
         self.c.write_ram(self.sym["ECO_RU"], struct.pack("<H", purse))
         self.c.run_frames(24)

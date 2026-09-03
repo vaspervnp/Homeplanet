@@ -259,8 +259,35 @@ cbt_fire_if_able:
 
 @cbt_aimed:
 
+    ;  Never shoot your own side -- and RE-AIM rather than return, which is
+    ;  the whole of "χάνει το attack κάποιες φορές. Αντί να επιτίθενται
+    ;  κάθονται κάπου τα squadrons και αφήνουν να τα χτυπάνε".
+    ;
+    ;  A `ret nc` here is a ship that nothing steers, for the rest of the
+    ;  mission. All three of the things that could move it decline at once,
+    ;  each of them correctly: phase4_fly skips a ship under ENT_ORDER_ATTACK
+    ;  on purpose; cbt_move_enemies finds the target flying and already inside
+    ;  CBT_RANGE, because it is in the same formation, so it holds station;
+    ;  and cbt_retarget_one returns early for ATTACK precisely so that a target
+    ;  the player chose is not the AI's to overwrite. Only this routine ever
+    ;  reconsiders a target, and this was the one exit that left without doing
+    ;  it -- so the order was never spent and the ship never came home.
+    ;
+    ;  It got a friendly index the ordinary way: `,` and `.` walked
+    ;  order_target over every FLYING entity, and the fleet is fifty-six of the
+    ;  seventy-six slots. From a fresh mission the FIRST press of `.` lands on
+    ;  slot 0. Measured on the build this was reported against: press `.`, then
+    ;  `A`, and fifteen of sixteen ships never moved once in 1800 frames while
+    ;  the fleet was shot down to eight.
+    ;
+    ;  order_target_step will not offer one of ours any more, which is where a
+    ;  player should meet this rule. This is the net underneath it, and it is
+    ;  the one that has to hold: ENT_TARGET is a slot index, and a stale one, a
+    ;  recycled one and a mistaken one all name SOMETHING. That is the same
+    ;  argument that put cbt_hostile at the moment of FIRING rather than only
+    ;  at the moment of choosing -- this is that argument finished.
     call cbt_hostile
-    ret nc                              ; never shoot your own side
+    jr nc,@cbt_reacquire
 
     call cbt_in_range
     ret nc

@@ -2462,6 +2462,48 @@ mechanics are symmetric, so the cause was never the damage numbers.
 4. **Nothing ever ENDED the order**, which is item 1 read backwards and is its
    own section immediately below.
 
+#### `,` and `.` could aim the fleet at ITSELF, and then nothing steered it
+
+Reported as *"χάνει το attack κάποιες φορές. Αντί να επιτίθενται κάθονται κάπου
+τα squadrons και αφήνουν να τα χτυπάνε"*. Two keypresses from a fresh boot in
+mission 3: press `.` once, then `A`.
+
+**`ent_is_flying` tests ACTIVE and not-DISABLED — it does not test SIDE**, and
+`order_target_step` walked every flying entity. The fleet is 56 of the 76
+slots, and from `ORDER_NO_TARGET` the walker starts at −1, so **the very first
+`.` lands on slot 0** — one of your own. `order_issue` then wrote that friendly
+index into every ship in the selection.
+
+**All three things that could steer such a ship then decline at once, each
+correctly**, which is why it is permanent rather than slow:
+
+- `phase4_fly` skips `ENT_ORDER_ATTACK`, deliberately;
+- `cbt_move_enemies` finds the target flying and already inside `CBT_RANGE` —
+  it is in the same formation — so it holds station;
+- `cbt_retarget_one` returns early for ATTACK, because a target the player
+  chose is not the AI's to overwrite.
+
+Only `cbt_fire_if_able` ever reconsiders a target, and its `@cbt_aimed` path
+did `call cbt_hostile : ret nc` — **the one exit that left without reaching
+`@cbt_reacquire`**. Measured: 14 of 16 ships never moved a unit over 1800
+frames while the fleet was shot from 16 down to 8.
+
+**Fixed in both halves, and the split is the point.** `ret nc` becomes
+`jr nc,@cbt_reacquire`, so a same-side target re-aims exactly as a wrecked one
+does — that is the net at the point of use, and it has to hold because a slot
+index that is stale, recycled or mistaken all name *something*. And `,`/`.`
+now require the slot to be **hostile** as well as flying, which is the half a
+player meets: the picker exists to choose something to attack.
+
+> **Three `test_phase5` tests were leaning on the defect.** `TestOrders` sits
+> in mission 1, which fields no enemies, so those tests only had a target at
+> all because the picker offered the player's own fleet — and
+> `test_a_and_g_write_orders_into_the_selected_squadron_only` only ever
+> observed `ENT_ORDER_ATTACK` because aiming at a friendly **froze** the
+> order. An attack order with nothing to shoot at spends itself in the frame
+> it is given. When a defect goes, the things getting a free ride off it get
+> worse; that is not a regression.
+
 #### A slot is not empty, it is full of the last ship that was in it
 
 **A replacement built after a casualty came out of the Mothership already
