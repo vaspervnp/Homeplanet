@@ -358,8 +358,21 @@ class TestTheMissionsPicketAlwaysFits(RegionFixture):
             self.jump_once()
             with self.subTest(mission=index + 1):
                 self.assertEqual(self.byte("MIS_INDEX"), index)
+                #  AND THE FLEET IS TOPPED BACK UP RATHER THAN ASSUMED WHOLE.
+                #  The jump out of every MG_EVERY'th mission has the vortex
+                #  chase in it, and a chase nobody plays costs a tenth to a
+                #  half of the fleet -- so this walk came out of mission 4 with
+                #  28 ships of 56 and reported it as the fleet not surviving a
+                #  jump, which is now a thing that legitimately happens. See
+                #  game/minigame.asm.
+                #
+                #  What this test is about is whether the PICKET fits beside a
+                #  fleet at its CEILING, so the ceiling is restored here and
+                #  the ambush is somebody else's subject. The count below is
+                #  what says the refill worked.
+                self.fill_the_fleet()
                 self.assertEqual(len(self.friendly()), self.PLAYER_MAX,
-                                 "the fleet did not come through the jump whole")
+                                 "the fleet is not at its ceiling for this mission")
                 self.assert_sides_stay_home(f"in mission {index + 1}")
                 #  ...and every hostile the row asks for is actually there.
                 #  mis_setup "places what fits and stops", so a region one

@@ -182,7 +182,7 @@ def dismiss_title(c: cpc.CPC) -> None:
     raise RuntimeError("could not get past the title screen")
 
 
-def wait_for_briefing(c: cpc.CPC, frames: int = 600) -> bool:
+def wait_for_briefing(c: cpc.CPC, frames: int = 2400) -> bool:
     """Give a briefing that is on its way a chance to appear.
 
     A jump is not instant, and it is now a long way from it. mis_jump runs the
@@ -213,6 +213,16 @@ def wait_for_briefing(c: cpc.CPC, frames: int = 600) -> bool:
     waits that out first -- polled on jump_secs rather than counted in frames,
     because the countdown is in 50 Hz ticks and how many emulator frames ten
     real seconds take is not a constant.
+
+    ...AND EVERY MG_EVERY'TH JUMP HAS A MINIGAME IN IT. game/minigame.asm runs
+    the vortex chase between jfx_vanish and fleet_save -- 120 steps of six 50 Hz
+    ticks, two seconds of result and two black frames, so about 830 emulator
+    frames during which mis_index has already moved and no briefing is up. That
+    is exactly the state this routine exists to wait out, and it is why the
+    bound is 2400 rather than 600: at 600 the jump out of mission 4 read as a
+    refusal in tests/test_regions.py, which walks the whole campaign. It costs
+    nothing when there is no chase -- the poll returns the moment the briefing
+    appears.
     """
     sym = symbols()
     if "MIS_BRIEFING" not in sym:

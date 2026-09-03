@@ -273,6 +273,34 @@ lib_init:
 ;  its table in order, so it passes A=0 and hands back the HL it got. Seventeen
 ;  rows that would each have re-counted the rows above them count nothing.
 ; ----------------------------------------------------------------------------
+
+; ----------------------------------------------------------------------------
+;  bank7_copy -- BC bytes out of bank 7, wherever they are
+;  In : HL = source in bank 7, DE = destination, BC = how many
+;  Out: HL and DE past the run, as LDIR leaves them
+;  Uses: AF, BC, DE, HL
+;
+;  THE DESTINATION MUST NOT BE IN THE WINDOW. Bank 4 IS the window while this
+;  runs, so a caller that copies into bank 4 writes its bytes back into bank 7
+;  on top of the thing it is reading -- which is exactly the trap the briefings
+;  fell into, and is why mis_row is in the low 16K.
+;
+;  The sibling of bank7_fetch, and here for the same reason it is: the OUT has
+;  to happen with the CPU already executing in the low 16K, because every
+;  caller is bank 4 code. This one carries no terminator, because the enemy
+;  layouts it exists for are full of zero bytes.
+; ----------------------------------------------------------------------------
+bank7_copy:
+    push bc
+    ld bc,GA_PORT * 256 + GA_BANK_7
+    out (c),c
+    pop bc
+    ldir
+    ld bc,GA_PORT * 256 + GA_BANK_4
+    out (c),c
+    ret
+
+
 bank7_fetch:
     ld bc,GA_PORT * 256 + GA_BANK_7
     out (c),c

@@ -171,6 +171,37 @@ phase4_gcount:      defs ENT_MAX
 ;  let the menu's and the help page's words follow the briefings across.
 B7_BUF_SIZE         equ 40
 bank7_line:         defs B7_BUF_SIZE
+
+;  One row of an enemy layout, copied out of BANK 7 by bank7_copy. Up here for
+;  the same two reasons bank7_line is: it is the destination of a copy made
+;  with bank 7 under the window, so it cannot be in bank 4; and everything past
+;  code_end costs address space and no DISC.BIN.
+;
+;  A ROW AND NOT A LAYOUT. The largest layout is twelve ships, eighty-four
+;  bytes, and the low 16K has about thirty to spare -- see the note about the
+;  ~450 floor above. Twelve bank flips once a mission is not a cost worth
+;  naming, and mis_setup was already reading this table one row at a time.
+mis_row:            defs MIS_ENEMY_SIZE
+
+;  THE VORTEX CHASE'S SEVEN BYTES, and they are up here for the same reason
+;  bank7_line is: everything past code_end costs address space and costs
+;  DISC.BIN nothing. The rest of game/minigame.asm's state is in bank 4 with
+;  its code; these seven are the ones a test has to be able to watch WHILE the
+;  chase is running, and the chase blits a sprite several times a step -- so
+;  read_bank4 would have to run a frame to get past a paged-out window, and
+;  running a frame is exactly what a test following the lateral offsets must
+;  not do. read_ram sees these whatever the window is holding.
+;
+;  mini_active is the only one that has to start at a known value, because a
+;  test may look at it before a chase has ever run; mis_init writes it, which
+;  is the same place jfx_no_arrival is dealt with and for the same reason.
+mini_active:        defb 0              ; a chase is on screen right now
+mini_x:             defb 0              ; where you are on the lateral axis
+mini_ex:            defb 0              ; ...and where it is
+mini_dist:          defb 0              ; how far ahead of you it still is
+mini_left:          defb 0              ; how much tunnel there is left
+mini_lost:          defb 0              ; ships the ambush took
+mini_frac:          defb 0              ; ...as the 256th it charged
 ;  ...and the two dirty-rectangle lists, which are ENT_MAX-shaped as well
 ;  (PHASE4_RECT_SLOTS), so they grew with the fleet too.
 phase4_rects_a:     defs PHASE4_RECT_SLOTS * 4
@@ -427,7 +458,6 @@ low_end:
 
     org BANK_WINDOW
 bank4_start:
-    include "gen/zoom.asm"
     include "game/classdata.asm"
     include "game/formdata.asm"
     include "game/homeplanet.asm"
@@ -475,6 +505,12 @@ bank4_start:
 ;  reason: nothing pages bank 4 out at that point. After campaignrun.asm
 ;  because that is what calls it.
     include "game/jumpfx.asm"
+;  The vortex chase, on the jump out of every MG_EVERY'th mission. After
+;  jumpfx.asm because mis_jump_now reaches it between jfx_vanish and
+;  fleet_save, and in here for the ordinary reason: it stops the world and
+;  cannot run between class_tier_addr and class_blit_done. It does not call
+;  class_tier_addr at all -- see mini_blit for why it cannot.
+    include "game/minigame.asm"
 ;  The Salvage Corvette's job. Two of its three routines run from inside the
 ;  frame loop -- slv_make_wreck out of cbt_update and slv_tow_step out of
 ;  eco_update -- which makes it the third thing here reached from there, after
@@ -513,6 +549,30 @@ bank4_end:
 
 ; ----------------------------------------------------------------------------
 ;  Uninitialised bank storage, deliberately BELOW the save above.
+
+;  The vortex chase's working state -- everything in game/minigame.asm that a
+;  test does not have to watch WHILE the chase is running. mini_run writes
+;  every one of them before it draws a frame, so none of it needs a starting
+;  value, and up here it costs the file nothing. Read it with read_bank4.
+mini_theta:         defb 0              ; where the enemy is in its weave
+mini_phase:         defb 0              ; how far the shaft has scrolled
+mini_msg:           defb 0              ; which of mini_words is being said
+mini_t0:            defb 0              ; the tick this step began on
+mini_holdc:         defb 0
+mini_want:          defb 0              ; casualties still owed
+mini_cx:            defb 0              ; the mouth of the shaft, in pixels
+mini_idx:           defb 0
+mini_ring_n:        defb 0
+mini_hwr:           defb 0
+mini_hhr:           defb 0
+mini_lx:            defb 0
+mini_rx:            defb 0
+mini_bx:            defb 0
+mini_bw:            defb 0
+mini_ty:            defb 0
+mini_sx:            defb 0
+mini_sy:            defb 0
+
 ;
 ;  The stand-in ships, for a machine that could not read the disc. Every class
 ;  and every tier points here when lib_load fails, and class_use_fallback
@@ -790,6 +850,17 @@ bank7_start:
 ;  ...and the words the other two stopped-world screens draw, across for the
 ;  same reason and read by the same routine. See game/screentext.asm.
     include "game/screentext.asm"
+;  ...and where the Vekhar are. Not words at all -- 476 bytes of pure table,
+;  read once a mission by mis_setup with the world stopped, which is the same
+;  test everything else in this bank passes. It is what paid for the vortex
+;  chase; see game/enemylayouts.asm.
+    include "game/enemylayouts.asm"
+;  ...and the twelve zoom records, for the same reason and by the same road.
+;  They are 240 bytes of pure table read by ONE routine, order_apply_zoom, on a
+;  keypress -- and every one of its five LDIRs already had a low-16K
+;  destination, so the whole move was five `ldir`s becoming five calls to
+;  bank7_copy. Two hundred and thirty-five bytes of DISC.BIN for five.
+    include "gen/zoom.asm"
 bank7_end:
     save "build/bank7.raw", BANK_WINDOW, bank7_end - BANK_WINDOW
 
@@ -1238,3 +1309,103 @@ ENDIF
 ;  stands and TITLE_PLANET_RY comes from an include further down.
     assert PLANET_HORIZON_Y - PLANET_RY > CTX_BAR_H, "the horizon's apex is above the context bar"
     assert PLANET_HORIZON_Y - PLANET_RY < HUD_TOP, "the horizon never reaches the playfield"
+
+; ----------------------------------------------------------------------------
+;  The vortex chase (game/minigame.asm and mini_words in bank 7).
+;
+;  THE FIRST TWO ARE THE PENALTY. "10% to 50%" is expressed as a 256th and the
+;  map from what was left of the distance to what it charges is an ADD, which
+;  only works while the two ranges are the same size and the top of the range
+;  is exactly a half. Move MG_DIST0 without moving MG_FRAC_MIN and the ambush
+;  quietly starts charging something else.
+; ----------------------------------------------------------------------------
+    assert MG_FRAC_MIN + MG_DIST0 == MG_FRAC_MAX, "the chase's penalty no longer reaches exactly half the fleet"
+    assert MG_FRAC_MAX * 100 / 256 == 50, "MG_FRAC_MAX is not half of 256"
+    assert MG_EVERY >= 1, "the chase would run on every jump or on none"
+    assert MG_EVERY < MIS_COUNT, "no jump in the campaign would ever have a chase"
+
+;  IT HAS TO BEAT THE DRIFT. The enemy's fastest step is the derivative of two
+;  sines at the angle step MG_SPIN, in units of 2*pi/256; written as an integer
+;  so RASM can check it, this is 25 * (A1 * 1 + A2 * 3) * MG_SPIN / 1024 and
+;  the 25/1024 is 2*pi/256 to a quarter of a per cent. A player who cannot
+;  out-turn the thing they are chasing is not playing a game.
+    assert 25 * (MG_AMP1 + MG_AMP2 * 3) * MG_SPIN / 1024 < MG_STEER, "the chase cannot be won: the enemy drifts faster than you steer"
+
+;  ...and it has to be reachable at all: the drift is +/- (A1 + A2) about the
+;  middle of the axis and the player's own end stops are MG_X_MIN and MG_X_MAX.
+    assert MG_X_MID - MG_AMP1 - MG_AMP2 >= MG_X_MIN, "the enemy drifts past the left end of the player's axis"
+    assert MG_X_MID + MG_AMP1 + MG_AMP2 <= MG_X_MAX, "the enemy drifts past the right end of the player's axis"
+
+;  THE SHAFT CLIPS NOTHING, so every edge of the widest ring has to be on the
+;  screen by construction. scr_fill_rect honours no bound of its own and a
+;  width running past byte 79 spills into the scanline eight rows down;
+;  gfx_vline clips only in Y, so an x past 319 lands on the next line.
+;
+;  The mouth swings (MG_X_MAX - MG_X_MID) / 2 either side of MG_CX, and the
+;  widest half width is the last entry of the ladder.
+MG_HW_MAX           equ 137
+MG_HH_MAX           equ MG_HW_MAX / 2 + MG_HW_MAX / 4
+MG_SWING            equ (MG_X_MAX - MG_X_MID) / 4
+    assert mini_ladder_end - mini_ladder == MG_LADDER, "the chase's ladder is not MG_LADDER entries"
+    assert MG_SPACING * MG_RINGS <= MG_LADDER, "two rings of the shaft would be drawn at the same radius"
+    assert MG_CX - MG_SWING - MG_HW_MAX >= 0, "the widest ring runs off the left of the screen"
+    assert MG_CX + MG_SWING + MG_HW_MAX < SCR_WIDTH_PX, "the widest ring runs off the right of the screen"
+    assert MG_CX + MG_SWING + MG_HW_MAX < SCR_WIDTH_PX, "the widest ring is drawn on the next scanline down"
+    assert MG_CX - MG_SWING - MG_HW_MAX >= 0, "the shaft's left-hand edge does not fit a byte"
+    assert MG_LOST_Y > MG_BODY_Y + MG_BODY_H, "the ambush's toll is inside the band the step clears"
+
+;  Nothing may be drawn over the shaft, and the two text rows are the only
+;  other things on the screen.
+    assert MG_TEXT_Y + TXT_CHAR_H <= MG_BODY_Y, "the chase's prompt is inside the band the step clears"
+    assert MG_BODY_Y + MG_BODY_H / 2 > MG_CY - MG_BODY_Y, "the shaft is not centred in the band that clears it"
+    assert MG_BODY_Y + MG_BODY_H > MG_SHIP_Y + interceptor_c_h / 2, "the step's clear stops above the player's own ship"
+    assert MG_BODY_Y + MG_BODY_H <= HUD_TOP, "the step's clear reaches into the HUD strip"
+    assert MG_TEXT_Y >= CTX_BAR_H, "the chase's prompt is drawn into the context bar's strip"
+    assert MG_LOST_Y + TXT_CHAR_H <= HUD_TOP, "the ambush's toll is drawn into the HUD strip"
+
+;  THE FOUR LINES ARE CENTRED BY HAND, in mini_msg_x, so each column has to be
+;  the one its own string's length asks for. Reword a line without moving its
+;  column and the build stops -- the same guard the two ending pages have.
+    assert mini_msg_x_end - mini_msg_x == 4, "the chase has four things to say and not that many columns"
+    assert (SCR_BYTES_PER_LINE - (mini_say_won - mini_say_run - 1) * TXT_CHAR_W_BYTES) / 2 == MG_RUN_X, "the chase's prompt is not centred"
+    assert (SCR_BYTES_PER_LINE - (mini_say_lost - mini_say_won - 1) * TXT_CHAR_W_BYTES) / 2 == MG_WON_X, "the chase's win line is not centred"
+    assert (SCR_BYTES_PER_LINE - (mini_say_toll - mini_say_lost - 1) * TXT_CHAR_W_BYTES) / 2 == MG_LOST_X, "the chase's loss line is not centred"
+
+;  ...and none of them may run off the screen or past bank7_fetch's buffer.
+    assert mini_say_won - mini_say_run <= B7_BUF_SIZE, "the chase's prompt does not fit the bank 7 buffer"
+    assert mini_say_lost - mini_say_won <= B7_BUF_SIZE, "the chase's win line does not fit the bank 7 buffer"
+    assert mini_say_toll - mini_say_lost <= B7_BUF_SIZE, "the chase's loss line does not fit the bank 7 buffer"
+    assert mini_words_end - mini_say_toll <= B7_BUF_SIZE, "the chase's toll line does not fit the bank 7 buffer"
+    assert MG_RUN_X + (mini_say_won - mini_say_run - 1) * TXT_CHAR_W_BYTES <= SCR_BYTES_PER_LINE, "the chase's prompt runs off the screen"
+    assert MG_TOLL_NUM_X + 2 * TXT_CHAR_W_BYTES <= SCR_BYTES_PER_LINE, "the ambush's count runs off the screen"
+    assert MG_TOLL_X + (mini_words_end - mini_say_toll - 1) * TXT_CHAR_W_BYTES <= MG_TOLL_NUM_X, "SHIPS LOST runs into the number beside it"
+
+;  mini_count and mini_weakest reach ENT_CLASS and ENT_HULL from ENT_FLAGS with
+;  two DECs, exactly as wave_health does. The adjacency is asserted for that
+;  routine further up this file; this is the second reader of it.
+    assert ENT_CLASS == ENT_FLAGS - 2, "the chase's ambush cannot reach ENT_CLASS from ENT_FLAGS"
+    assert ENT_HULL == ENT_FLAGS - 1, "the chase's ambush cannot reach ENT_HULL from ENT_FLAGS"
+
+;  The tier thresholds have to be inside the distance the chase actually runs
+;  over, or the enemy is drawn at one size for the whole of it.
+    assert MG_TIER_FAR < MG_DIST0, "the chase's far tier is never reached"
+    assert MG_TIER_MID < MG_TIER_FAR, "the chase's tier thresholds are the wrong way round"
+;  A FORGOTTEN CLASS BYTE IS THE FAILURE THIS FILE IS SHAPED TO HAVE, and it
+;  would not look like one: the stride is seven, so one missing defb slides
+;  every ship after it half a row along and the picket comes out at coordinates
+;  nobody wrote, with classes read out of somebody else's Z. Counting the bytes
+;  between the labels is the one check that catches it, and RASM can do it at
+;  build time for nothing.
+;
+;  THEY ARE HERE AND NOT BESIDE THE DATA because the data is in bank 7 now and
+;  ASSERT is evaluated where it stands -- game/enemylayouts.asm is included
+;  long after game/campaign.asm, which is the file that would like to check it.
+    assert enemies_line    - enemies_picket  ==  4 * MIS_ENEMY_SIZE, "enemies_picket is not four ships"
+    assert enemies_close   - enemies_line    ==  8 * MIS_ENEMY_SIZE, "enemies_line is not eight ships"
+    assert enemies_scatter - enemies_close   ==  8 * MIS_ENEMY_SIZE, "enemies_close is not eight ships"
+    assert enemies_wall    - enemies_scatter ==  6 * MIS_ENEMY_SIZE, "enemies_scatter is not six ships"
+    assert enemies_wall_end - enemies_wall   == 12 * MIS_ENEMY_SIZE, "enemies_wall is not twelve ships"
+    assert enemies_hammer  - enemies_core    ==  8 * MIS_ENEMY_SIZE, "enemies_core is not eight ships"
+    assert enemies_lance   - enemies_hammer  == 10 * MIS_ENEMY_SIZE, "enemies_hammer is not ten ships"
+    assert enemies_lance_end - enemies_lance == 12 * MIS_ENEMY_SIZE, "enemies_lance is not twelve ships"
+    assert enemies_lance_end - enemies_picket <= LIB_SECTORS * FDC_SECTOR_SIZE, "the enemy layouts do not fit bank 7"

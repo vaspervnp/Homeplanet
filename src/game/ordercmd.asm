@@ -764,11 +764,37 @@ order_zoom:
 ;  change. Nothing in the interrupt handler goes near either routine, so there
 ;  is no window to guard.
 ;
-;  cam_zoom_table is in BANK 4, which is the window's resting state. This runs
-;  on a keypress and never during a blit, so it costs nothing to reach -- and
-;  the low 16K, which has none to spare, keeps the 168 bytes.
+;  cam_zoom_table IS IN BANK 7 and every one of the six runs therefore comes
+;  down through bank7_copy, which does the paging from the low 16K -- this file
+;  is bank 4 code and cannot page a bank in for itself. It went across when the
+;  vortex chase needed the room: 240 bytes of DISC.BIN for five `ldir`s
+;  becoming five `call`s, which is the best ratio this project has ever had out
+;  of that lever. Nothing else reads the table, and the destinations were
+;  already in the low 16K, which is what made it a one-routine change.
+;
+;  It runs on a keypress and from demo_init, never during a blit, so the window
+;  is at rest at every call and bank7_copy puts bank 4 back before it returns.
+;  Uses BC as well now, which no caller minds: order_zoom falls into this and
+;  demo_init is "uses everything".
 ; ----------------------------------------------------------------------------
 order_apply_zoom:
+    ;  NOT WITHOUT A DISC. The table is in bank 7 and bank 7 is read off the
+    ;  disc, so on a machine that could not read one it is a bank of whatever
+    ;  powered up -- and unlike every other thing over there, this one is not
+    ;  words on a screen: it is patched into proj_scale and proj_mag, and a
+    ;  record of zeroes makes proj_deltas reject every entity in the game.
+    ;  Nothing is drawn at all, which is a far worse failure than the stand-in
+    ;  blocks class_use_fallback exists to give.
+    ;
+    ;  Returning here leaves the step the image was ASSEMBLED with, and
+    ;  src/main.asm asserts that that is ZOOM_DEFAULT's -- so a machine with no
+    ;  disc plays at exactly the step the game starts on and Z and X do
+    ;  nothing. That is the right shape of degradation for a machine that has
+    ;  no ship art either.
+    ld a,(lib_ok)
+    or a
+    ret z
+
     ld a,(cam_zoom)
     ld l,a
     ld h,0
@@ -782,28 +808,28 @@ order_apply_zoom:
     ld de,cam_zoom_table
     add hl,de
 
-    ld e,(hl)
-    inc hl
-    ld d,(hl)
-    inc hl
-    ld (cam_dist),de
-
+    ld de,cam_dist
+    ld bc,2
+    call bank7_copy
+    ;  BC IN FULL EVERY TIME. The five LDIRs used to lean on B being left at
+    ;  zero by the one before, and bank7_copy does not leave it there -- it
+    ;  ends by writing the gate array, which is an `out (c),c` with #7F in B.
+    ;  A `ld c,4` after one of these asks for #7F04 bytes.
     ld de,proj_zoom_check
     ld bc,4
-    ldir
+    call bank7_copy
     ld de,proj_zoom_shl
-    ld c,4                              ; B is zero: LDIR left it there
-    ldir
+    ld bc,4
+    call bank7_copy
     ld de,proj_zoom_shr
-    ld c,2
-    ldir
+    ld bc,2
+    call bank7_copy
     ld de,proj_zoom_mul
-    ld c,2
-    ldir
+    ld bc,2
+    call bank7_copy
     ld de,proj_mag
-    ld c,6
-    ldir
-    ret
+    ld bc,6
+    jp bank7_copy
 
 
 ; ----------------------------------------------------------------------------

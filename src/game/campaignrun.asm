@@ -31,6 +31,7 @@ mis_init:
     ld (mis_won),a
     ld (jump_secs),a                    ; ...and no jump is being counted down
     ld (jfx_no_arrival),a               ; uninitialised bank RAM until now
+    ld (mini_active),a                  ; ...and so is the chase's flag
     ld (mis_saved),a                    ; nothing banked yet
     ld (campaign_unlocks),a             ; ...and nothing reverse-engineered
     ld hl,0
@@ -210,19 +211,29 @@ mis_setup:
     call ent_find_free_theirs
     jr nc,@mis_no_enemies               ; no room: place what fits
 
+    ;  ent_addr FIRST, because ent_find_free_theirs left the slot in A and
+    ;  bank7_copy uses AF.
     call ent_addr
     push hl
+
+    ;  THE ROW IS IN BANK 7 and this is bank 4 code, so it comes down through
+    ;  bank7_copy into mis_row in the low 16K rather than being LDIR'd where it
+    ;  lies -- see game/enemylayouts.asm for why it is over there and
+    ;  sys/libload.asm for why the paging cannot happen in this file.
     ld hl,(mis_src)
+    ld de,mis_row
+    ld bc,MIS_ENEMY_SIZE
+    call bank7_copy
+    ld (mis_src),hl                     ; the copy left it on the next row
+
+    ld hl,mis_row
     pop de
     ld bc,MIS_ENEMY_CLASS
     ldir
 
-    ;  LDIR left HL on the seventh byte of the row, which is the class. Take it
-    ;  before mis_src is advanced past it, and carry it over ent_addr on the
-    ;  stack -- ent_addr's argument is A.
+    ;  LDIR left HL on the seventh byte of the row, which is the class, and it
+    ;  is carried over ent_addr on the stack -- ent_addr's argument is A.
     ld a,(hl)
-    inc hl
-    ld (mis_src),hl
 
     push af
     ld a,(ent_index)
@@ -987,6 +998,18 @@ mis_jump_now:
     ;  It also covers the disc write below, which spins the drive up for about
     ;  a third of a second with nothing to show for it.
     call jfx_vanish
+
+    ;  THE VORTEX CHASE, ON EVERY MG_EVERY'TH JUMP, and it is HERE rather than
+    ;  three lines further down for one reason: fleet_save and fleet_disc_save
+    ;  are what carry the fleet into the next mission and onto the disc, so a
+    ;  penalty taken above them is permanent and one taken below them is undone
+    ;  by the next boot. Section 1's premise is that what is lost is lost.
+    ;
+    ;  After the vanish because the vanish IS the fleet entering the jump, and
+    ;  because it leaves the playfield black in both buffers -- which is the
+    ;  canvas the chase wants and the state it hands back. It runs its own loop
+    ;  to completion, exactly as the vanish does, so this routine stays atomic.
+    call mini_maybe
 
     call fleet_save                     ; what survives starts the next one
     ld a,(mis_index)

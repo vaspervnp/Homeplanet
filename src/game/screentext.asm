@@ -188,3 +188,31 @@ win_line_2:
 win_line_3:
     defb "NINE GENERATIONS BEGIN HERE.",0
 win_line_3_end:
+
+
+; ----------------------------------------------------------------------------
+;  mini_words -- the four things the vortex chase has to say
+;
+;  Read by mini_draw, which is bank 4 code and fetches them a line at a time
+;  through bank7_fetch, exactly as the briefings and the two ending pages do.
+;
+;  CENTRED BY HAND, in mini_msg_x: a line of n characters starts at
+;  (SCR_BYTES_PER_LINE - n * TXT_CHAR_W_BYTES) / 2, and src/main.asm checks
+;  every one of these against its own length so that rewording a line without
+;  moving its column stops the build.
+;
+;  Section 1's voice: quiet, and never explaining more than it has to. The
+;  first line is the exception and has to be -- it is the only place the keys
+;  are named, because the context bar is suppressed on a screen that owns the
+;  whole of the display.
+; ----------------------------------------------------------------------------
+mini_words:
+mini_say_run:
+    defb "IT CAME THROUGH.  ARROWS TO CLOSE.",0
+mini_say_won:
+    defb "THE VEKHAR IS GONE.",0
+mini_say_lost:
+    defb "IT GOT AWAY.  THEY WERE WAITING.",0
+mini_say_toll:
+    defb "SHIPS LOST",0
+mini_words_end:
