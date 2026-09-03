@@ -980,3 +980,69 @@ class TestTheWholeThing(TutFixture):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestLeavingItEarly(TutFixture):
+    """`ESC` leaves the tutorial and goes back to the title.
+
+    "στο tutorial θέλω επιλογή να φύγω από αυτό και να επιστρέψω στο μενού."
+
+    Until this landed the stage was the ONLY screen in the game a player could
+    not get out of without finishing it -- seventeen steps, each gated on
+    doing the thing rather than on a key to continue, so a player who did not
+    want to do step 9 was simply stuck there.
+
+    ESC takes the slot the orders menu would have had, which is the right
+    place rather than a spare key: everything above it in phase4_commands' ESC
+    chain is "cancel the innermost thing", and once there is nothing left to
+    cancel the innermost thing IS the tutorial.
+    """
+
+    def setUp(self):
+        self.c = h.boot_quick(frames=250, briefing=True)
+        h.wait_for_title(self.c)
+
+    def test_esc_leaves_and_returns_to_the_title(self):
+        self.enter_tutorial()
+        self.assertLess(self.step(), self.sym["TUT_STEPS"] - 1,
+                        "it was already on the last step, where J leaves "
+                        "anyway -- this proves nothing")
+        self.hold(cpc.KEY_ESC)
+        self.c.run_frames(120)
+        self.assertEqual(self.byte("TUT_ACTIVE"), 0, "ESC did not leave")
+        self.assertEqual(h.read_bank4(self.c, self.sym["TITLE_SHOWN"], 1)[0], 1,
+                         "it left the tutorial but not to the title screen")
+
+    def test_it_does_not_open_the_orders_menu_on_the_way_out(self):
+        """ESC is five-deep now. Getting the order wrong drops the player into
+        a screen they did not ask for."""
+        self.enter_tutorial()
+        self.hold(cpc.KEY_ESC)
+        self.c.run_frames(120)
+        self.assertEqual(h.read_bank4(self.c, self.sym["MENU_SHOWN"], 1)[0], 0,
+                         "leaving the tutorial opened the orders menu")
+
+    def test_the_campaign_is_untouched_by_leaving_early(self):
+        """The same claim tut_exit has always made, now reachable from any
+        step: it restores no snapshot because it never wrote anything, and
+        demo_reset re-reads the campaign OFF THE DISC."""
+        self.enter_tutorial()
+        self.hold(cpc.KEY_ESC)
+        self.c.run_frames(180)
+        self.assertEqual(self.byte("MIS_INDEX"), 0,
+                         "the campaign's mission moved")
+        self.assertEqual(self.byte("TUT_ACTIVE"), 0)
+
+    def test_esc_still_shuts_the_yard_rather_than_leaving(self):
+        """Step 12 teaches "B OPENS THE YARD / ESC SHUTS IT", so ESC with the
+        panel open must still mean the panel. This is the guard that says the
+        new binding went BELOW the things it must not outrank, and it passes
+        on both builds -- which is what makes it a guard and not a duplicate."""
+        self.enter_tutorial()
+        self.hold("b")
+        self.assertEqual(self.byte("ECO_BUILD_OPEN"), 1,
+                         "the yard did not open, so this proves nothing")
+        self.hold(cpc.KEY_ESC)
+        self.assertEqual(self.byte("ECO_BUILD_OPEN"), 0, "ESC did not shut it")
+        self.assertEqual(self.byte("TUT_ACTIVE"), 1,
+                         "shutting the yard also left the tutorial")

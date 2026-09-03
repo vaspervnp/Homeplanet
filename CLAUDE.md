@@ -980,6 +980,7 @@ not needed and should stay unspent.
 | `ESC` | the orders menu — cursor keys pick, `ENTER` runs it |
 | `I` | what the selected squadron is made of; `ESC` goes back |
 | `?` | the key list; `ESC` goes back |
+| `ESC` | in the TUTORIAL, leave it and go back to the title |
 | `SPACE` | on the title screen, start the game |
 
 `J` **announces** the jump and the drive spools for ten seconds of live battle before it happens; `ESC` calls it off — see "The jump counts down". It **lands** rather than jumping on the last mission, and landing opens the victory screen — see "The end of the journey". Otherwise it jumps when `mis_gate` allows it — the objective met, three waves seen, no
@@ -5015,6 +5016,37 @@ towards its objective.
 > this file warns. And `TUT_STEPS`/`TUT_SHIPS` are literals with asserts rather
 > than `(end - start)/n`, because RASM cannot resolve an equate derived from two
 > bank-4 labels at symbol-export time.
+
+#### `ESC` leaves it, at any step
+
+*"στο tutorial θέλω επιλογή να φύγω από αυτό και να επιστρέψω στο μενού."*
+
+Until this landed the stage was **the only screen in the game a player could
+not get out of without finishing it** — seventeen steps, each gated on doing
+the thing rather than on a key to continue, so anyone who did not want to do
+step 9 was simply stuck there. `J` left, but only on the last step.
+
+**`ESC` takes the slot the orders menu would have had**, and that is the right
+place rather than a spare key. Everything above it in `phase4_commands`' `ESC`
+chain is *cancel the innermost thing* — the move disc, the build panel, an
+armed `RECYCLE`, a jump spooling — and once there is nothing left to cancel,
+the innermost thing IS the tutorial. The menu is no loss on that stage: it
+teaches the keys themselves, one at a time.
+
+**The bar says so**, and it has to: `ESC` means something different here from
+everywhere else in the game, and a bar that went on saying `MENU` would be
+lying about the key the player is most likely to press — the exact thing
+`game/ctxbar.asm` exists to stop. `CTX_TUTORIAL` sits **below** the disc and
+the panel, so `ESC` still reads as "cancel this" while either is open — step 12
+teaches `B OPENS THE YARD  ESC SHUTS IT`, and there is a test whose only job is
+that it still does.
+
+> **The decision went to bank 4 and the call site did not move.**
+> `menu_open_or_leave` falls through into `menu_open`, so `phase4_commands` has
+> the same three bytes it had. Asked in the low 16K instead, the eight bytes of
+> `ld a,(tut_active) / or a / jp nz` took `free:` from 484 to **228** — and a
+> page of the low 16K is 256 bytes of a `DISC.BIN` that had 646. Third time
+> this week the page quantum has decided where a routine lives.
 
 ### The squadron breakdown
 

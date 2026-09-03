@@ -961,6 +961,7 @@ ENDIF
 ;  here by hand, once per line, for ever.
     assert ctx_text_play_end - ctx_text_play <= CTX_BAR_CHARS + 2, "the playing line is wider than the screen"
     assert ctx_text_disc_end - ctx_text_disc <= CTX_BAR_CHARS + 2, "the move disc line is wider than the screen"
+    assert ctx_text_tutorial_end - ctx_text_tutorial <= CTX_BAR_CHARS + 2, "the tutorial line is wider than the screen"
     assert (ctx_text_pause_tail - ctx_text_paused - 1) * TXT_CHAR_W_BYTES <= CTX_PAUSE_TAIL_X, "PAUSED runs into the rest of its line"
     assert CTX_PAUSE_TAIL_X + (ctx_text_pause_end - ctx_text_pause_tail - 2) * TXT_CHAR_W_BYTES <= SCR_BYTES_PER_LINE, "the paused line is wider than the screen"
     assert (ctx_text_recycle_tail - ctx_text_recycle - 1) * TXT_CHAR_W_BYTES <= CTX_RECYCLE_TAIL_X, "RECYCLE? runs into the rest of its line"

@@ -82,6 +82,7 @@ CTX_DISC            equ 3
 CTX_BUILD           equ 4
 CTX_RECYCLE         equ 5               ; `Y` is armed and asking again
 CTX_JUMPING         equ 6               ; the drive is spooling, ESC calls it off
+CTX_TUTORIAL        equ 7               ; ...and in the tutorial ESC leaves it
 
 ;  How many characters fit on one line, which is the only real constraint on
 ;  the words below -- txt_draw clips at the screen edge rather than wrapping,
@@ -155,11 +156,14 @@ ctx_bar:
     ld hl,ctx_text_disc
     jr z,ctx_line
     cp CTX_PAUSED
-    jr z,ctx_draw_paused
+    jp z,ctx_draw_paused
     cp CTX_RECYCLE
     jr z,ctx_draw_recycle
     cp CTX_JUMPING
     jr z,ctx_draw_jumping
+    cp CTX_TUTORIAL
+    ld hl,ctx_text_tutorial
+    jp z,ctx_line
     ld hl,ctx_text_play
     ;  ...and fall through
 
@@ -552,6 +556,24 @@ ctx_classify:
     ret
 
 @ctx_not_static:
+    ;  THE TUTORIAL FIRST, because the one key it changes is the one every
+    ;  other line on this bar names. ESC opens the orders menu everywhere else
+    ;  and LEAVES here, and a bar that went on saying MENU would be lying
+    ;  about the key the player is most likely to press -- which is the exact
+    ;  thing this file was written to stop. Below the disc and the panel, so
+    ;  that ESC still reads as "cancel this" while either is open, and the
+    ;  tutorial teaches ESC for the yard at step 12.
+    ld a,(tut_active)
+    or a
+    jr z,@ctx_not_tutorial
+    ld a,(disc_active)
+    ld hl,eco_build_open
+    or (hl)
+    jr nz,@ctx_not_tutorial
+    ld a,CTX_TUTORIAL
+    jr @ctx_set
+@ctx_not_tutorial:
+
     ld a,(disc_active)
     or a
     ld a,CTX_DISC
@@ -630,6 +652,15 @@ ctx_text_play_end:
 
 ;  "JUMPING" and then the seconds, drawn separately because a number cannot be
 ;  a run. The tail is a run like every other, so ESC is blue and CANCEL white.
+;  The tutorial's line. ESC is the only key on it that means something
+;  different from everywhere else, and it is first for that reason.
+ctx_text_tutorial:
+    defb "ESC",0,"LEAVE",0
+    defb "SPACE",0,"PAUSE",0
+    defb "?",0,"KEYS",0
+    defb 0
+ctx_text_tutorial_end:
+
 ctx_text_jumping:
     defb "JUMPING",0
 ctx_text_jumping_end:

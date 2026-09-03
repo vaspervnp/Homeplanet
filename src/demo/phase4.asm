@@ -553,7 +553,10 @@ phase4_commands:
     ld a,(jump_secs)
     or a
     jr nz,@p4_no_menu
-    call menu_open
+    ;  ...AND IN THE TUTORIAL, ESC LEAVES -- menu_open_or_leave decides, in
+    ;  bank 4, because asking here cost the LOW 16K a page and a page of the
+    ;  low 16K is 256 bytes of DISC.BIN. Same three bytes at this call site.
+    call menu_open_or_leave
     ret
 @p4_no_menu:
 

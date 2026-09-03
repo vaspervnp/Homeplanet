@@ -71,6 +71,25 @@ MENU_PROMPT_X       equ 40
 ;  menu_open -- put the orders up, selection back at the top
 ;  Uses: AF
 ; ----------------------------------------------------------------------------
+; ----------------------------------------------------------------------------
+;  menu_open_or_leave -- what ESC does when there is nothing left to cancel
+;  Uses: everything
+;
+;  Everything above this in phase4_commands' ESC chain is "cancel the innermost
+;  thing" -- the move disc, the build panel, an armed RECYCLE, a jump spooling.
+;  Once there is nothing left to cancel, the innermost thing IS the tutorial,
+;  and leaving it is what ESC should mean there.
+;
+;  The menu is no loss on that stage: it teaches the keys themselves, one at a
+;  time, and until now the tutorial was the only screen in the game a player
+;  could not get out of without finishing all seventeen steps.
+; ----------------------------------------------------------------------------
+menu_open_or_leave:
+    ld a,(tut_active)
+    or a
+    jp nz,tut_exit
+    ;  ...and fall through
+
 menu_open:
     ld a,1
     ld (menu_shown),a
