@@ -1,11 +1,11 @@
 # finishup.md — the ending, finished properly
 
-Three things the owner asked for about the last mission. Written down rather
+Four things the owner asked for about the last mission. Written down rather
 than built, so the thinking is done while it is still cheap.
 
 The ending works today — `LAND` appears on the last mission, `J` takes it, and
 the victory page comes up — but it was built as "the jump, with the
-twenty-first row missing". These three are what stop it being that.
+twenty-first row missing". These four are what stop it being that.
 
 See "The end of the journey" and "The jump counts down" in
 [CLAUDE.md](CLAUDE.md) for what exists now.
@@ -34,9 +34,9 @@ the seconds. It needs the same choice `mis_leave_word` already makes:
 @ctx_jump_word:
 ```
 
-**The two words are not the same length** — `JUMPING` is 7 and `LANDING` is 7.
-They are. That is luck rather than design, and it means `CTX_JUMP_NUM_X` and
-`CTX_JUMP_TAIL_X` do not move and the existing asserts still hold. **Add an
+**`JUMPING` and `LANDING` are both seven characters.** That is luck rather
+than design, and it means `CTX_JUMP_NUM_X` and `CTX_JUMP_TAIL_X` do not move
+and the existing asserts still hold. **Add an
 assert that the two strings are equal length**, the way `src/main.asm` already
 asserts `LAND` and `JUMP` are, or the day one of them is reworded the number
 will be drawn over a letter.
