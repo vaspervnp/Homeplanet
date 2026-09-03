@@ -32,6 +32,7 @@ buffer on SHOW: the other one is the one being drawn into.
 from __future__ import annotations
 
 import sys
+import struct
 import unittest
 
 sys.path.insert(0, __file__.rsplit("/", 2)[0])
@@ -110,6 +111,12 @@ class WipeFixture(unittest.TestCase):
             if not gcount[i]:
                 continue
             e = vis[i * 6:i * 6 + 6]
+            #  ...and the OTHER SIDE gets no bar: "τα εχθρικά δεν πηδάνε".
+            #  Bit 7 of the class/tier byte is the side. This model has to know
+            #  it or every test in this file that measures a bar against its
+            #  ship's placement would go on expecting one over the picket.
+            if e[5] & 0x80:
+                continue
             sx = e[0] | (e[1] << 8)
             row = geom[(e[5] & 3) * 6:]
             w, sprite_h, halfw, halfh = row[0], row[1], row[2], row[3]

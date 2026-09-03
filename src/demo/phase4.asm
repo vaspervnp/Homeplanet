@@ -402,29 +402,13 @@ demo_update:
     or a
     jr nz,@p4_no_mission
 
-    call mis_update
-
-    ;  ...AND A JUMP CAN HAVE HAPPENED INSIDE IT. The spool lives in
-    ;  mis_update, so when the count reaches zero mis_jump_now runs from here:
-    ;  it sweeps the fleet away, lays the next mission out and opens its
-    ;  briefing, and then RETURNS INTO THE MIDDLE OF A PLAYING FRAME which
-    ;  would go on to project, sort and draw the mission the player has not
-    ;  been shown yet -- over the top of the black the sweep just left, with
-    ;  the context bar still on it.
-    ;
-    ;  `J` used to be read in phase4_commands, above this line, so the briefing
-    ;  branch at the top of demo_update caught it on the very next frame and
-    ;  nothing drew. Moving the jump into the clock moved it PAST that guard.
-    ;  This is that guard, at the one place the jump can now arrive from.
-    ld a,(mis_briefing)
-    or a
-    ret nz
-
-    ;  The attack-wave clock, on mis_timer's own tick and immediately after it
-    ;  -- including in the sensor view below, which runs the battle at triple
-    ;  speed but still advances the mission once. Three minutes is three
-    ;  minutes whichever view the player is in.
-    call wave_update
+    ;  The mission clock, the jump's spool and the attack-wave clock, in one
+    ;  call in BANK 4 -- and the guard between them is the point of the
+    ;  wrapper. See mis_update_frame. Written out here it was twelve bytes of
+    ;  the low 16K and cost a whole PAGE: `free:` 484 to 228, under the ~450
+    ;  the tests need for their scratch.
+    call mis_update_frame
+    ret c                               ; a jump opened a briefing: stop here
 @p4_no_mission:
     ;  Sensors run the battle at triple speed (section 9): the view exists for
     ;  the long transits, and there is nothing to look at while they happen.

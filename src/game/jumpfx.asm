@@ -590,6 +590,24 @@ jfx_ships:
 
     ld a,(jfx_i)
     call phase4_vis_addr
+
+    ;  ONLY THE PLAYER'S SHIPS GET A BAR. "Τα εχθρικά δεν πηδάνε" -- the drive
+    ;  is ours, and a line sweeping a Vekhar picket away says the enemy is
+    ;  leaving with us. Bit 7 of PHASE4_V_CLASSTIER is the side, the same bit
+    ;  phase4_group reads to decide whether a `+n` is white or red.
+    ;
+    ;  Nothing is left behind by it. The vanish ends with two full-playfield
+    ;  black passes, so a hostile simply goes out with the scenery instead of
+    ;  being wiped by a line; and in the reveal a ship with no bar has no mask
+    ;  over it either, so the picket is just THERE when the mission opens --
+    ;  which is what a picket that did not arrive by jump should look like.
+    push hl
+    ld de,PHASE4_V_CLASSTIER
+    add hl,de
+    bit 7,(hl)
+    pop hl
+    jr nz,@jfx_ship_next
+
     call jfx_band
     call c,jfx_bars
 

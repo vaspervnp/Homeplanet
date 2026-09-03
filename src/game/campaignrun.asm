@@ -517,6 +517,37 @@ mis_clear_enemies:
 ;  is aboard it (section 8).
 ;  Uses: everything
 ; ----------------------------------------------------------------------------
+; ----------------------------------------------------------------------------
+;  mis_update_frame -- the mission clock, the spool and the wave clock
+;  Out: CF set if a jump has just opened a briefing and this frame must STOP
+;  Uses: everything
+;
+;  A JUMP CAN HAPPEN INSIDE mis_update. The spool lives there, so when the
+;  count reaches zero mis_jump_now runs from inside it: it sweeps the fleet
+;  away, lays the next mission out and opens its briefing, and then returns
+;  into the middle of a PLAYING frame -- which would go on to project, sort
+;  and draw the mission the player has not been shown yet, over the top of the
+;  black the sweep just left, with the context bar still on it.
+;
+;  `J` used to be read in phase4_commands, ABOVE all this, so the briefing
+;  branch at the top of demo_update caught a jump on the very next frame and
+;  nothing drew. Moving the jump into the clock moved it past that guard.
+;  This is the guard, at the one place a jump can now arrive from.
+;
+;  wave_update is inside the same wrapper rather than beside it because it must
+;  not run either: the mission it would be clocking is over.
+; ----------------------------------------------------------------------------
+mis_update_frame:
+    call mis_update
+    ld a,(mis_briefing)
+    or a
+    scf
+    ret nz
+    call wave_update
+    or a                                ; CF clear: carry on with the frame
+    ret
+
+
 mis_update:
     ;  REAL TIME, not frames: how many 50 Hz ticks have gone by since the last
     ;  game frame. See the note over MIS_SURVIVE_TICKS in game/mission.asm for
