@@ -30,7 +30,6 @@ mis_init:
     ld (mis_failed),a
     ld (mis_won),a
     ld (jump_secs),a                    ; ...and no jump is being counted down
-    ld (jfx_no_arrival),a               ; uninitialised bank RAM until now
     ld (mini_active),a                  ; ...and so is the chase's flag
     ld (mis_saved),a                    ; nothing banked yet
     ld (campaign_unlocks),a             ; ...and nothing reverse-engineered
@@ -1027,12 +1026,16 @@ mis_jump_now:
     ret
 
 @mis_land:
-    ;  THE VANISH RUNS, and the arrival does not. jfx_vanish erases the fleet
-    ;  where it stands, which is the right gesture for a fleet setting down --
-    ;  and it must NOT arm the reveal, because there is no next mission to be
-    ;  revealed and the flag would fire over the victory page. jfx_land is
-    ;  jfx_vanish without that.
-    call jfx_land
+    ;  NO WIPE, and that is the owner's call: "το wipe θέλω να αφαιρεθεί ΜΟΝΟ
+    ;  για το landing. Όχι για το jumping." The bars are the fleet entering the
+    ;  drive, and that picture is right for every jump above this label; it is
+    ;  the wrong one for a fleet that has ARRIVED. It ran here first, as a copy
+    ;  of the vanish that did not arm the reveal, and was seven seconds of the
+    ;  fleet being swept away immediately before a page saying it was home.
+    ;
+    ;  Nothing arms jfx_armed on this path either, so the seventeen-second
+    ;  reveal that copy existed to prevent has nothing to fire from.
+    ;  finishup.md item 4 is what goes here instead.
 
     ;  ...and that is the whole of it. mis_index is NOT advanced -- there is no
     ;  twentieth-first row -- and the save is NOT written, because over_key

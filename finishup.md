@@ -12,7 +12,7 @@ See "The end of the journey" and "The jump counts down" in
 
 ---
 
-## 1. The countdown must say LANDING, not JUMPING
+## 1. The countdown must say LANDING, not JUMPING — BUILT
 
 **Asked for:** *"When landing the countdown should say Landing (not Jumping)."*
 
@@ -54,7 +54,7 @@ second on its own — the same shape as
 
 ---
 
-## 2. Landing has no wipe — the JUMP keeps its
+## 2. Landing has no wipe — the JUMP keeps its — BUILT
 
 **Asked for:** *"There should be no effect also."* — and, when this was first
 written down ambiguously: *"Το wipe θέλω να αφαιρεθεί ΜΟΝΟ για το landing. Όχι
@@ -193,9 +193,9 @@ is the tightest this project has ever been, and item 4 does not fit in it.
 
 So the order is forced:
 
-1. **Item 1** (LANDING) — one string and a branch, ~20 bytes. Fits.
-2. **Item 2** (no wipe) — *gives bytes back*. Do it second and it pays for
-   some of item 3.
+1. ~~**Item 1** (LANDING)~~ — built.
+2. ~~**Item 2** (no wipe)~~ — built; `jfx_land` and `jfx_no_arrival` went
+   with it.
 3. **Item 3** (`L`) — ~15 bytes. Fits.
 4. **Item 4** (the descent) — **does not fit; find the room first.** The lever
    is the one that has worked four times running: move data out of the file

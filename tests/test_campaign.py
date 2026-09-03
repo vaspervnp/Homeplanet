@@ -966,6 +966,84 @@ class TestTheEndOfTheJourney(unittest.TestCase):
         return sum(1 for r in range(32)
                    if any(ram[h.screen_offset(y + r, x)] for x in range(80)))
 
+    def bar_word(self):
+        """The first seven cells of the context bar, off the pixels."""
+        ram = self.c.read_ram(h.front_buffer(self.c), 0x4000)
+        y, x0 = self.sym["CTX_Y"], self.sym["CTX_NAME_X"]
+        out = []
+        for bx in range(x0, x0 + 7 * 2, 2):
+            cell = []
+            for r in range(self.CHAR_H):
+                a = ram[h.screen_offset(y + r, bx)]
+                b = ram[h.screen_offset(y + r, bx + 1)]
+                cell.append(((a | (a << 4)) & 0xF0)
+                            | (((b | (b << 4)) & 0xF0) >> 4))
+            out.append(self.match(cell))
+        return "".join(out)
+
+    def spool(self):
+        """Press J and let the bar repaint to the countdown."""
+        self.c.key_down("j")
+        self.c.run_frames(40)
+        self.c.key_up("j")
+        for _ in range(60):
+            if self.banked("JUMP_SECS"):
+                break
+            self.c.run_frames(5)
+        h.let_the_game_draw(self.c, self.sym, 4)
+
+    def test_the_bar_says_jumping_until_the_last_mission_and_then_landing(self):
+        """finishup.md item 1. Read as PIXELS, both halves: a build that said
+        LANDING everywhere passes the second on its own. The HUD already says
+        LAND on the last mission; a bar under it saying JUMPING is the exact
+        lie game/ctxbar.asm exists to prevent."""
+        self.at_mission(0)
+        self.spool()
+        self.assertEqual(self.bar_word(), "JUMPING", "mission 1 does not spool as JUMPING")
+        self.c.key_down(cpc.KEY_ESC); self.c.run_frames(30); self.c.key_up(cpc.KEY_ESC)
+        self.c.run_frames(30)
+
+        self.at_mission(self.LAST)
+        self.spool()
+        self.assertEqual(self.bar_word(), "LANDING", "the last mission still spools as JUMPING")
+
+    def test_the_landing_has_no_wipe_and_the_jump_keeps_its(self):
+        """finishup.md item 2, and the owner's clarification: "το wipe θέλω να
+        αφαιρεθεί ΜΟΝΟ για το landing. Όχι για το jumping."
+
+        Both halves, because a build that removed the wipe from both paths
+        passes the landing half on its own. The jump half is asserted here on
+        jfx_mode rather than left to test_jumpfx, so the boundary is stated in
+        ONE test that would fail if it moved either way."""
+        JFX_OUT = self.sym["JFX_OUT"]
+
+        #  The jump: the sweep runs.
+        self.at_mission(0)
+        self.c.key_down("j"); self.c.run_frames(40); self.c.key_up("j")
+        h.skip_the_countdown(self.c)
+        swept = False
+        for _ in range(200):
+            self.c.run_frames(2)
+            if self.banked("JFX_MODE") == JFX_OUT:
+                swept = True
+                break
+        self.assertTrue(swept, "an ordinary jump no longer sweeps the fleet away")
+        h.wait_for_briefing(self.c)
+        h.dismiss_briefing(self.c)
+
+        #  The landing: it does not, and never did between J and mis_won.
+        self.at_mission(self.LAST)
+        self.c.key_down("j"); self.c.run_frames(40); self.c.key_up("j")
+        h.skip_the_countdown(self.c)
+        for _ in range(400):
+            self.c.run_frames(2)
+            self.assertNotEqual(self.banked("JFX_MODE"), JFX_OUT,
+                                "the landing swept the fleet away")
+            if self.banked("MIS_WON"):
+                break
+        else:
+            self.fail("the campaign was never won")
+
     def test_space_puts_it_away_and_starts_again(self):
         self.at_mission(self.LAST)
         self.c.key_down("j")

@@ -5468,7 +5468,7 @@ ever use is decoration. Ten seconds of live battle makes pressing `J`
   menu, which is the exact class of bug the context bar was built to make
   visible. `ctx_classify` re-derives the same order.
 
-**The bar says `JUMPING nn  ESC CANCEL`**, `PAUSED`'s shape exactly because it
+**The bar says `JUMPING nn  ESC CANCEL`** — `LANDING nn` on the last mission — `PAUSED`'s shape exactly because it
 is the same kind of thing: a STATE, not a key, in §2's attention ink. The HUD's
 `JUMP` label says the jump is *available*; the bar says it is *happening*, and
 both statements are wanted. The number is **right-aligned in two digits** so
@@ -5525,10 +5525,20 @@ would be three chances for them to disagree.
 - **`mis_index` does not move and the disc is not written.** There is no
   twenty-first row, and `over_key` erases the save on the way out, so writing
   it here would only be undone. The campaign is finished, not suspended.
-- **The vanish runs and the arrival does not.** `jfx_land` is `jfx_vanish`
-  without arming `jfx_armed` — there is no briefing to reveal, and the flag
-  would sit unspent until something dismissed a screen and then run a
-  seventeen-second reveal over the victory page.
+- **There is no wipe on the landing, and every jump keeps its.** *"Το wipe
+  θέλω να αφαιρεθεί ΜΟΝΟ για το landing. Όχι για το jumping."* The bars are
+  the fleet entering the drive, which is right for a jump and wrong for a fleet
+  that has arrived. It was `jfx_land` first — the vanish without arming the
+  reveal — and that was seven seconds of the fleet being swept away
+  immediately before a page saying it was home. The `@mis_land` path calls
+  nothing now, so `jfx_armed` is never set there and the seventeen-second
+  reveal that copy existed to prevent has nothing to fire from. `finishup.md`
+  item 4 is what goes in its place.
+- **The bar says `LANDING` rather than `JUMPING` while it spools.**
+  `ctx_draw_jumping` asks `mis_is_last`, the same routine the HUD's word asks,
+  so the two strips cannot disagree. The words are both seven characters and
+  the seconds are drawn at a fixed x after them, so `src/main.asm` asserts the
+  lengths are equal — "seven and seven" is luck until it is a rule.
 
 **THE TWO ENDINGS ARE ONE PAGE.** They were nearly two files. Everything is
 shared — the 200-line wipe, a big word in `txt_big`, three centred lines, the

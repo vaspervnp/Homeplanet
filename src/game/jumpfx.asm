@@ -357,23 +357,6 @@ JFX_PEN             equ 1
 ;  taken.
 ;  Uses: everything
 ; ----------------------------------------------------------------------------
-; ----------------------------------------------------------------------------
-;  jfx_land -- the vanish, WITHOUT arming the arrival
-;
-;  The fleet setting down at the end of the campaign gets the same gesture as a
-;  fleet leaving -- the bars are the fleet going away, and that is what landing
-;  looks like from out here. What it must not do is arm jfx_armed: there is no
-;  next briefing, so the flag would sit unspent until something dismissed a
-;  screen and then run a seventeen-second reveal over the victory page.
-;
-;  Two instructions rather than a flag on jfx_vanish, because a flag would be
-;  read on the twenty jumps that do not want it.
-; ----------------------------------------------------------------------------
-jfx_land:
-    ld a,1
-    ld (jfx_no_arrival),a
-    jr jfx_vanish
-
 jfx_vanish:
     ;  ...and the sound of it, which is 300 ticks against this sweep's floor of
     ;  324. It starts here rather than anywhere else in mis_jump because the
@@ -386,18 +369,9 @@ jfx_vanish:
     ld (jfx_mode),a
     ;  ...and the note for the other half. The briefing this jump is about to
     ;  put up is the one the reveal belongs to; every other briefing in the
-    ;  game gets none -- and neither does a LANDING, which has no briefing to
-    ;  put up at all. See jfx_land.
-    ld c,a
-    ld a,(jfx_no_arrival)
-    or a
-    ld a,c
-    jr nz,@jfx_no_arm
+    ;  game gets none. A LANDING does not come through here at all -- see
+    ;  @mis_land in game/campaignrun.asm -- so there is no case to except.
     ld (jfx_armed),a
-@jfx_no_arm:
-    xor a
-    ld (jfx_no_arrival),a               ; spent, whichever way it went
-    ld a,c
     xor a
     ld (jfx_col),a
     ld (jfx_bar_off),a

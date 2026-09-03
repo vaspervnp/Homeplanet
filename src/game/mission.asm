@@ -275,10 +275,9 @@ mis_wipe:           defb 0
 jfx_mode:           defb 0              ; JFX_NONE / JFX_OUT / JFX_IN
 jfx_col:            defb 0              ; where the line is, in bytes 0..80
 jfx_armed:          defb 0              ; a jump happened; reveal on the way out
-;  mis_won and jfx_no_arrival are NOT here. They are in bank 4 -- see mis_won
-;  in src/main.asm -- because two bytes took the low 16K over a page boundary
-;  and `free:` from 484 to 228, and a page of the low 16K costs DISC.BIN 256
-;  bytes it does not have.
+;  mis_won is NOT here. It is in bank 4 -- see src/main.asm -- because two
+;  bytes took the low 16K over a page boundary and `free:` from 484 to 228, and
+;  a page of the low 16K costs DISC.BIN 256 bytes it does not have.
 ;  Which briefing STRING comes next, counting from the first line of the first
 ;  mission -- not a pointer any more. mis_brief_draw fetches one line at a time
 ;  out of bank 7; see the note by bank7_line in src/main.asm.

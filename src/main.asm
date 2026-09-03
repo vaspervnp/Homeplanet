@@ -194,7 +194,8 @@ mis_row:            defs MIS_ENEMY_SIZE
 ;
 ;  mini_active is the only one that has to start at a known value, because a
 ;  test may look at it before a chase has ever run; mis_init writes it, which
-;  is the same place jfx_no_arrival is dealt with and for the same reason.
+;  is the same place mis_won and jump_secs are dealt with and for the same
+;  reason.
 mini_active:        defb 0              ; a chase is on screen right now
 mini_x:             defb 0              ; where you are on the lateral axis
 mini_ex:            defb 0              ; ...and where it is
@@ -632,7 +633,6 @@ jump_ticks:         defs 1              ; ticks towards the next second
 jump_last:          defs 1              ; sys_tick_50hz when we last looked
 
 mis_won:            defs 1
-jfx_no_arrival:     defs 1              ; this sweep is a LANDING, so no reveal
 
 moth_fixing:        defs 1              ; the yard is on the base, not on ships
 moth_fix_frac:      defs 1              ; hundredths of a hull point carried
@@ -1041,6 +1041,10 @@ ENDIF
 ;  the word, then two right-aligned digits, then the run. Three measurements
 ;  because there are three pieces and txt_draw would happily overlap them.
     assert CTX_NAME_X + (ctx_text_jumping_end - ctx_text_jumping - 1) * TXT_CHAR_W_BYTES <= CTX_JUMP_NUM_X, "JUMPING runs into its own countdown"
+;  LANDING shares the position and the number is drawn at a fixed x after it,
+;  so the two words must be the same length -- "seven and seven" is luck, and
+;  this is what turns it into a rule. Same shape as LAND against JUMP.
+    assert ctx_text_landing_end - ctx_text_landing == ctx_text_jumping_end - ctx_text_jumping, "LANDING and JUMPING are different lengths and share a position"
     assert CTX_JUMP_NUM_X + 2 * TXT_CHAR_W_BYTES <= CTX_JUMP_TAIL_X, "the countdown runs into ESC CANCEL"
     assert CTX_JUMP_TAIL_X + (ctx_text_jump_tail_end - ctx_text_jump_tail - 2) * TXT_CHAR_W_BYTES <= SCR_BYTES_PER_LINE, "the jumping line is wider than the screen"
 ;  Two digits is enough only while the countdown is under a hundred seconds.

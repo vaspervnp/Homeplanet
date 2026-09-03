@@ -280,7 +280,16 @@ ctx_draw_recycle:
 ctx_draw_jumping:
     ld a,PEN_RED
     call txt_set_pen
+    ;  JUMPING, or LANDING on the last mission -- the same one-place decision
+    ;  mis_leave_word already makes for the HUD's word, asked of the same
+    ;  routine, so the two strips cannot come to disagree about what the key is
+    ;  about to do. A bar that said JUMPING under a HUD that said LAND would be
+    ;  the exact lie this file exists to prevent.
+    call mis_is_last
     ld hl,ctx_text_jumping
+    jr nc,@ctx_jump_word
+    ld hl,ctx_text_landing
+@ctx_jump_word:
     ld b,CTX_NAME_X
     ld c,CTX_Y
     call txt_draw
@@ -664,6 +673,12 @@ ctx_text_tutorial_end:
 ctx_text_jumping:
     defb "JUMPING",0
 ctx_text_jumping_end:
+;  The last mission's word for the same spool. Asserted the same length as
+;  JUMPING in src/main.asm, because the seconds are drawn at a fixed x after it
+;  -- a longer word would have its tail overwritten by the number.
+ctx_text_landing:
+    defb "LANDING",0
+ctx_text_landing_end:
 ctx_text_jump_tail:
     defb "ESC",0,"CANCEL",0
     defb 0
