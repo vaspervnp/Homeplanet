@@ -814,26 +814,26 @@ order_apply_zoom:
 
     ld de,cam_dist
     ld bc,2
-    call bank7_copy
+    call bank6_copy
     ;  BC IN FULL EVERY TIME. The five LDIRs used to lean on B being left at
     ;  zero by the one before, and bank7_copy does not leave it there -- it
     ;  ends by writing the gate array, which is an `out (c),c` with #7F in B.
     ;  A `ld c,4` after one of these asks for #7F04 bytes.
     ld de,proj_zoom_check
     ld bc,4
-    call bank7_copy
+    call bank6_copy
     ld de,proj_zoom_shl
     ld bc,4
-    call bank7_copy
+    call bank6_copy
     ld de,proj_zoom_shr
     ld bc,2
-    call bank7_copy
+    call bank6_copy
     ld de,proj_zoom_mul
     ld bc,2
-    call bank7_copy
+    call bank6_copy
     ld de,proj_mag
     ld bc,6
-    jp bank7_copy
+    jp bank6_copy
 
 
 ; ----------------------------------------------------------------------------

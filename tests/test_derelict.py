@@ -147,7 +147,7 @@ class DerelictFixture(unittest.TestCase):
     def descriptor(self, index):
         #  The table is in BANK 7 now, so this is what the build put on the
         #  disc rather than the CPU's view of the window.
-        with open("build/bank7.raw", "rb") as f:
+        with open("build/bank6.raw", "rb") as f:
             bank7 = f.read()
         base = self.sym["MISSION_TABLE"] - 0x4000 + index * MIS_SIZE
         return bank7[base:base + MIS_SIZE]

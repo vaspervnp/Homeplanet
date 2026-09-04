@@ -377,7 +377,7 @@ class TestTheMissionsPicketAlwaysFits(RegionFixture):
                 #  ...and every hostile the row asks for is actually there.
                 #  mis_setup "places what fits and stops", so a region one
                 #  slot short would field a smaller picket and say nothing.
-                with open("build/bank7.raw", "rb") as f:
+                with open("build/bank6.raw", "rb") as f:
                     bank7 = f.read()
                 wanted = bank7[self.sym["MISSION_TABLE"] - 0x4000
                                + index * MIS_SIZE + MIS_ENEMY_COUNT]

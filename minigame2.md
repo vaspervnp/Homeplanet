@@ -1,8 +1,9 @@
-# minigame2.md — THE RUN: an R-Type between the jumps
+# minigame2.md — THE RUN: an R-Type between the jumps — BUILT
 
 *"Μπορείς να κάνεις χώρο για άλλο ένα minigame τύπου rtype; Απλά σχεδίασέ το."*
 
-Designed, not built. The vortex chase (`minigame.md`, and `game/minigame.asm`
+Built as section 7's smaller version — no destroyer yet — in `game/run.asm`;
+CLAUDE.md "The run" is the account. Written first as a design: The vortex chase (`minigame.md`, and `game/minigame.asm`
 as it turned out) is the model for everything here that is not new; what IS
 new is where the room comes from, and that is section 1, because without it
 nothing in sections 2–6 can be built.

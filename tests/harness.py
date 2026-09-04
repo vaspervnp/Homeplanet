@@ -173,6 +173,13 @@ def dismiss_title(c: cpc.CPC) -> None:
     as the three failures the 3+3+2 repack shook loose.
     """
     sym = symbols()
+    #  Nothing to dismiss while a minigame owns the machine -- and its bank is
+    #  under the window, so the read_bank4 below would wait for a bank that is
+    #  not coming back until it is over. wait_for_briefing sees minigames
+    #  through; this only has to not get in the way.
+    if ("MINI_ACTIVE" in sym and c.read_ram(sym["MINI_ACTIVE"], 1)[0]) or \
+       ("RUN_ACTIVE" in sym and c.read_ram(sym["RUN_ACTIVE"], 1)[0]):
+        return
     if "TITLE_SHOWN" not in sym:
         return
     for _ in range(6):
@@ -245,13 +252,40 @@ def wait_for_briefing(c: cpc.CPC, frames: int = 5600) -> bool:
     for _ in range(frames // 5):
         if c.read_ram(sym["MIS_BRIEFING"], 1)[0]:
             return True
+        #  ENTER ONLY WHILE THE PAGE IS UP -- the step counter still at its
+        #  full count says so. Tapped every poll for as long as the minigame
+        #  ran, the last tap's edge sat in key_edge through the minigame's end
+        #  and dismissed the NEXT MISSION'S BRIEFING the frame it opened; the
+        #  poll below never saw it, the walk ran mission 3 unbriefed, and
+        #  seven campaign tests failed in the vocabulary of whatever they were
+        #  really about.
         if "MINI_ACTIVE" in sym and c.read_ram(sym["MINI_ACTIVE"], 1)[0]:
-            c.key_down(cpc.KEY_ENTER)
-            c.run_frames(5)
-            c.key_up(cpc.KEY_ENTER)
-            win_the_chase(c, sym)
+            if c.read_ram(sym["MINI_LEFT"], 1)[0] == sym["MG_STEPS"]:
+                c.key_down(cpc.KEY_ENTER)
+                c.run_frames(5)
+                c.key_up(cpc.KEY_ENTER)
+            else:
+                win_the_chase(c, sym)
+        if "RUN_ACTIVE" in sym and c.read_ram(sym["RUN_ACTIVE"], 1)[0]:
+            if read_cpu(c, sym["RUN_LEFT"], 1)[0] == sym["RUN_STEPS"]:
+                c.key_down(cpc.KEY_ENTER)
+                c.run_frames(5)
+                c.key_up(cpc.KEY_ENTER)
+            else:
+                end_the_run(c, sym)
         c.run_frames(5)
     return False
+
+
+def end_the_run(c: cpc.CPC, sym: dict) -> None:
+    """Put the R-Type's clock on its last step, so a walk that is only
+    passing through comes out the other side unhurt: no hits, no kills, no
+    toll. Written through the window, because the run's state is bank 7 and
+    bank 7 is in while it runs."""
+    try:
+        write_cpu(c, sym["RUN_LEFT"], b"\x01")
+    except KeyError:
+        pass
 
 
 def win_the_chase(c: cpc.CPC, sym: dict) -> None:
@@ -606,6 +640,15 @@ def wait_out_the_countdown(c: cpc.CPC, tries: int = 400) -> None:
         c.write_ram(sym["ORDER_PAUSED"], bytes([0]))
     try:
         for _ in range(tries):
+            #  A MINIGAME IS AFTER THE COUNTDOWN, and it runs from bank 7 with
+            #  bank 7 under the window: a read_bank4 here waits four hundred
+            #  frames for a bank that is not coming back until it is over, and
+            #  the clear_the_way_out below would write mission N's "objective
+            #  met" over mission N+1's setup the moment it was. The flags are
+            #  the low 16K's, so they can be asked first; wait_for_briefing is
+            #  what sees the minigame through.
+            if c.read_ram(sym["MINI_ACTIVE"], 1)[0] or c.read_ram(sym["RUN_ACTIVE"], 1)[0]:
+                return
             if not read_bank4(c, sym["JUMP_SECS"], 1)[0]:
                 return
             #  purse=False: the BOARD is what a wave closes, and topping the

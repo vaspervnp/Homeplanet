@@ -308,6 +308,19 @@ MG_MSG_STEER        equ 4               ; under the ship, for the whole run
 ;  no divide in this project and MG_EVERY is meant to be tunable to any number
 ;  rather than to a power of two.
 ; ----------------------------------------------------------------------------
+; ----------------------------------------------------------------------------
+;  mini_entry -- what chase_run calls: A = 0 the vortex chase, 1 the run
+;  In : A
+;
+;  One trampoline in the low 16K, two minigames in this bank. The choice is
+;  made here, where both are, rather than in thirteen more bytes down there.
+; ----------------------------------------------------------------------------
+mini_entry:
+    or a
+    jr z,mini_run
+    jp run_main
+
+
 mini_run:
     ld a,1
     ld (mini_active),a
@@ -1039,7 +1052,12 @@ mini_intro:
     call mini_blank
     call mini_intro_page
     call mini_show
+    ;  ...and fall into the wait.
 
+; ----------------------------------------------------------------------------
+;  mini_intro_wait -- until ENTER, with the intro page on both buffers
+; ----------------------------------------------------------------------------
+mini_intro_wait:
 @mg_intro_wait:
     call scr_wait_vsync
     call key_consume
@@ -1057,8 +1075,16 @@ mini_intro:
 mini_intro_page:
     ld hl,mini_intro_words
     ld de,mini_intro_xy
-    ld (mini_ip),de
     ld a,MG_INTRO_LINES
+    ;  ...and fall into the general page.
+
+; ----------------------------------------------------------------------------
+;  mini_page_at -- A lines out of HL, each at the (x, y) DE walks, then the
+;  prompt that follows them at MG_INTRO_GO_X/Y in pen 2. The run's intro uses
+;  it with its own words.
+; ----------------------------------------------------------------------------
+mini_page_at:
+    ld (mini_ip),de
     ld (mini_idx),a
 @mg_intro_line:
     push hl                             ; the string: it is in this bank

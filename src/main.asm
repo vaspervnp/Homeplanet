@@ -226,6 +226,8 @@ mini_left:          defb 0              ; how much tunnel there is left
 mini_lost:          defb 0              ; ships the ambush took
 mini_frac:          defb 0              ; ...as the 256th it charged
 mini_shown:         defb 0              ; the intro has been read this campaign: cleared by mis_init
+run_active:         defb 0              ; the R-Type is on screen right now
+run_shown:          defb 0              ; ...and its page has been read this campaign
 ;  ...and the two dirty-rectangle lists, which are ENT_MAX-shaped as well
 ;  (PHASE4_RECT_SLOTS), so they grew with the fleet too.
 phase4_rects_a:     defs PHASE4_RECT_SLOTS * 4
@@ -571,7 +573,7 @@ IF MINI_ONLY
     call squad_refresh
     xor a
     ld (mini_shown),a
-    call chase_run                      ; bank 7 in, mini_run, bank 4 back
+    call chase_run                      ; A = 0: bank 7 in, the chase, bank 4 back
     jr @mini_loop
 boot_after_init_end:
     assert boot_after_init_end - boot_after_init == BOOT_AFTER_INIT_SIZE, "BOOT_AFTER_INIT_SIZE is not the size of MINI.BIN's loop: the game's pad is wrong"
@@ -953,6 +955,26 @@ bank6_start:
     include "gen/spr_scout.asm"
     include "gen/spr_bomber.asm"
     include "gen/spr_frigate.asm"
+
+;  PURE TABLES, read through bank6_copy into somewhere that is not the window.
+;  They were bank 7's until the R-Type needed the room beside the chase; a copy
+;  does not care which bank it comes from, and this one had 3424 bytes idle.
+;  ...and where the Vekhar are. Not words at all -- 476 bytes of pure table,
+;  read once a mission by mis_setup with the world stopped, which is the same
+;  test everything else in this bank passes. It is what paid for the vortex
+;  chase; see game/enemylayouts.asm.
+    include "game/enemylayouts.asm"
+;  ...and the mission table itself, with its fare column, its patch layouts and
+;  the derelict's position. Four hundred and thirty bytes that only mis_setup,
+;  mis_jump_fare and mis_spawn_derelict ever read, each through bank6_copy
+;  into somewhere that is not the window; mis_descriptor hands out the copy.
+    include "game/campaign.asm"
+;  ...and the twelve zoom records, for the same reason and by the same road.
+;  They are 240 bytes of pure table read by ONE routine, order_apply_zoom, on a
+;  keypress -- and every one of its five LDIRs already had a low-16K
+;  destination, so the whole move was five `ldir`s becoming five calls to
+;  bank6_copy. Two hundred and thirty-five bytes of DISC.BIN for five.
+    include "gen/zoom.asm"
 bank6_end:
 IF MINI_ONLY == 0                       ; identical in both builds; the game's copy is the one on the disc
     save "build/bank6.raw", BANK_WINDOW, bank6_end - BANK_WINDOW
@@ -973,22 +995,7 @@ bank7_start:
 ;  ...and the words the other two stopped-world screens draw, across for the
 ;  same reason and read by the same routine. See game/screentext.asm.
     include "game/screentext.asm"
-;  ...and where the Vekhar are. Not words at all -- 476 bytes of pure table,
-;  read once a mission by mis_setup with the world stopped, which is the same
-;  test everything else in this bank passes. It is what paid for the vortex
-;  chase; see game/enemylayouts.asm.
-    include "game/enemylayouts.asm"
-;  ...and the mission table itself, with its fare column, its patch layouts and
-;  the derelict's position. Four hundred and thirty bytes that only mis_setup,
-;  mis_jump_fare and mis_spawn_derelict ever read, each through bank7_copy
-;  into somewhere that is not the window; mis_descriptor hands out the copy.
-    include "game/campaign.asm"
-;  ...and the twelve zoom records, for the same reason and by the same road.
-;  They are 240 bytes of pure table read by ONE routine, order_apply_zoom, on a
-;  keypress -- and every one of its five LDIRs already had a low-16K
-;  destination, so the whole move was five `ldir`s becoming five calls to
-;  bank7_copy. Two hundred and thirty-five bytes of DISC.BIN for five.
-    include "gen/zoom.asm"
+;  (the enemy layouts, the mission table and the zoom records are in BANK 6 now)
 ;  ...AND CODE, for the first time: the vortex chase, running from this bank.
 ;  It calls nothing in bank 4 and pages nothing -- the interceptor library it
 ;  draws is beside it, its words are beside it, its state is beside it --
@@ -996,6 +1003,9 @@ bank7_start:
 ;  argument; the rule in game/shipclass.asm that this bank holds sprite data
 ;  only was older than the reason for it.
     include "game/minigame.asm"
+;  ...and the second one, the R-Type, which reuses the chase's blit, wait,
+;  page and penalty. game/run.asm; minigame2.md.
+    include "game/run.asm"
 bank7_end:
 IF MINI_ONLY == 0                       ; identical in both builds; the game's copy is the one on the disc
     save "build/bank7.raw", BANK_WINDOW, bank7_end - BANK_WINDOW
@@ -1543,6 +1553,18 @@ MG_SWING            equ (MG_X_MAX - MG_X_MID) / 4
     assert HUD_SAY_X + (wave_say_text_3 - wave_say_text_2 - 1) * TXT_CHAR_W_BYTES <= HUD_MOTH_X, "the Destroyer unlock message runs into the Mothership's hull"
     assert HUD_SAY_X + (wave_say_text_4 - wave_say_text_3 - 1) * TXT_CHAR_W_BYTES <= HUD_MOTH_X, "AUTO RESPONSE ON runs into the Mothership's hull"
     assert HUD_SAY_X + (wave_say_text_end - wave_say_text_4 - 1) * TXT_CHAR_W_BYTES <= HUD_MOTH_X, "AUTO RESPONSE USED runs into the Mothership's hull"
+
+;  The run's words, in bank 7: centred, and inside the band.
+    assert (SCR_BYTES_PER_LINE - (run_say_won - run_say_run - 1) * TXT_CHAR_W_BYTES) / 2 == RUN_RUN_X, "the run's line is not centred"
+    assert (SCR_BYTES_PER_LINE - (run_say_lost - run_say_won - 1) * TXT_CHAR_W_BYTES) / 2 == RUN_WON_X, "the run's win line is not centred"
+    assert (SCR_BYTES_PER_LINE - (run_say_salvage - run_say_lost - 1) * TXT_CHAR_W_BYTES) / 2 == RUN_LOST_X, "the run's loss line is not centred"
+    assert RUN_SALVAGE_NUM_X + 4 * TXT_CHAR_W_BYTES <= SCR_BYTES_PER_LINE, "the run's salvage figure runs off the screen"
+    assert RUN_SALVAGE_X + (run_say_toll - run_say_salvage - 1) * TXT_CHAR_W_BYTES <= RUN_SALVAGE_NUM_X, "SALVAGE RU runs into its figure"
+    assert (SCR_BYTES_PER_LINE - (run_intro_2 - run_intro_1 - 1) * TXT_CHAR_W_BYTES) / 2 == RUN_INTRO_1_X, "the run intro's first line is not centred"
+    assert (SCR_BYTES_PER_LINE - (run_intro_3 - run_intro_2 - 1) * TXT_CHAR_W_BYTES) / 2 == RUN_INTRO_2_X, "the run intro's second line is not centred"
+    assert (SCR_BYTES_PER_LINE - (run_intro_4 - run_intro_3 - 1) * TXT_CHAR_W_BYTES) / 2 == RUN_INTRO_3_X, "the run intro's third line is not centred"
+    assert (SCR_BYTES_PER_LINE - (run_intro_go - run_intro_4 - 1) * TXT_CHAR_W_BYTES) / 2 == RUN_INTRO_4_X, "the run intro's fourth line is not centred"
+    assert (SCR_BYTES_PER_LINE - (run_intro_words_end - run_intro_go - 1) * TXT_CHAR_W_BYTES) / 2 == MG_INTRO_GO_X, "the run intro's prompt is not centred"
 
 ;  The game-over fire table, in bank 7 -- down here for the reason every bank-7
 ;  assert is: ASSERT is evaluated where it stands.

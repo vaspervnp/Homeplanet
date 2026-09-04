@@ -301,8 +301,26 @@ lib_init:
 ;  layouts it exists for are full of zero bytes.
 ; ----------------------------------------------------------------------------
 bank7_copy:
+    ld a,GA_BANK_7
+    jr bankn_copy
+
+; ----------------------------------------------------------------------------
+;  bank6_copy -- the same, out of bank 6: the mission table, the enemy layouts
+;  and the zoom records live there now, so that bank 7 has room for the
+;  code that runs from it. Pure copies do not care which bank they come from.
+; ----------------------------------------------------------------------------
+bank6_copy:
+    ld a,GA_BANK_6
+    ;  ...and fall into bankn_copy.
+
+; ----------------------------------------------------------------------------
+;  bankn_copy -- BC bytes out of bank A, wherever they are
+;  In : A = the bank's GA value, HL = source in it, DE = destination, BC = count
+; ----------------------------------------------------------------------------
+bankn_copy:
     push bc
-    ld bc,GA_PORT * 256 + GA_BANK_7
+    ld b,GA_PORT
+    ld c,a
     out (c),c
     pop bc
     ldir
@@ -312,7 +330,8 @@ bank7_copy:
 
 
 ; ----------------------------------------------------------------------------
-;  chase_run -- page bank 7 in, run the vortex chase from it, page bank 4 back
+;  chase_run -- page bank 7 in, run minigame A from it, page bank 4 back
+;  In : A = 0 the vortex chase, 1 the run
 ;  Uses: everything
 ;
 ;  The first CODE in a sprite bank, and the whole of why it is legal is in
@@ -324,7 +343,7 @@ bank7_copy:
 chase_run:
     ld bc,GA_PORT * 256 + GA_BANK_7
     out (c),c
-    call mini_run
+    call mini_entry                     ; A = which minigame; see game/minigame.asm
     ld bc,GA_PORT * 256 + GA_BANK_4
     out (c),c
     ret

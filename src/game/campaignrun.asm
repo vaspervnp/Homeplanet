@@ -34,6 +34,8 @@ mis_init:
     ld (jump_secs),a                    ; ...and no jump is being counted down
     ld (mini_active),a                  ; ...and so is the chase's flag
     ld (mini_shown),a                   ; ...and its intro is unread again
+    ld (run_active),a                   ; ...and the run's flag and page likewise
+    ld (run_shown),a
     ld (ban_msg),a                      ; ...and no unlock banner is up
     ld (mis_saved),a                    ; nothing banked yet
     ld (campaign_unlocks),a             ; ...and nothing reverse-engineered
@@ -216,7 +218,7 @@ mis_setup:
     call mis_row_in_bank7
     ld de,mis_cur
     ld bc,MIS_SIZE
-    call bank7_copy
+    call bank6_copy
     call mis_descriptor
     ld (mis_desc),hl
 
@@ -255,7 +257,7 @@ mis_setup:
     ld hl,(mis_src)
     ld de,mis_row
     ld bc,MIS_ENEMY_SIZE
-    call bank7_copy
+    call bank6_copy
     ld (mis_src),hl                     ; the copy left it on the next row
 
     ld hl,mis_row
@@ -309,7 +311,7 @@ mis_setup:
     ld b,h
     ld hl,eco_patches
     ex de,hl
-    jp bank7_copy                       ; the layouts are in bank 7 with the row
+    jp bank6_copy                       ; the layouts are in bank 6 with the row
 
 
 ; ----------------------------------------------------------------------------
@@ -390,7 +392,7 @@ mis_spawn_derelict:
     ex de,hl
     ld hl,derelict_pos
     ld bc,6
-    call bank7_copy                     ; six bytes out of bank 7, into the low 16K
+    call bank6_copy                     ; six bytes out of bank 6, into the low 16K
     pop hl
 
     ;  Squadron, order and target come out right for free, and the class does
@@ -838,7 +840,7 @@ mis_jump_fare:
     add hl,de                           ; ...an address in bank 7, so:
     ld de,bank7_line
     ld bc,2
-    call bank7_copy
+    call bank6_copy
     ld de,(bank7_line)
     ret
 
@@ -1079,6 +1081,7 @@ mis_jump_now:
     ;  canvas the chase wants and the state it hands back. It runs its own loop
     ;  to completion, exactly as the vanish does, so this routine stays atomic.
     call mini_maybe
+    call run_maybe                      ; ...or the R-Type, on the jumps between
 
     call fleet_save                     ; what survives starts the next one
     ld a,(mis_index)

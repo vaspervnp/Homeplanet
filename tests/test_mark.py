@@ -95,7 +95,7 @@ class TestEveryMissionFieldsResources(MarkFixture):
 
     def test_no_mission_fields_none(self):
         #  The table is in BANK 7: read what the build put on the disc.
-        with open("build/bank7.raw", "rb") as f:
+        with open("build/bank6.raw", "rb") as f:
             bank7 = f.read()
         base = self.sym["MISSION_TABLE"] - 0x4000
         for m in range(MIS_COUNT):

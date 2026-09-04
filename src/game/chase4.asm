@@ -31,5 +31,27 @@ mini_maybe:
 ;  thirty spare bytes.
 ; ----------------------------------------------------------------------------
 @mg_chase:
-    call chase_run                      ; low 16K: bank 7 in, mini_run, bank 4 back
+    xor a                               ; A = 0: the chase
+    call chase_run                      ; low 16K: bank 7 in, mini_entry, bank 4 back
     jp squad_refresh                    ; ...the ambush may have taken ships
+
+
+; ----------------------------------------------------------------------------
+;  run_maybe -- the R-Type, on the jumps the chase does not take
+;
+;  (mis_index + 1) mod MG_EVERY == 2: the jumps into missions 3, 7, 11, 15 and
+;  19, so the two minigames alternate every other jump and no jump has both.
+;  game/run.asm, in bank 7; minigame2.md is the design.
+; ----------------------------------------------------------------------------
+run_maybe:
+    ld a,(mis_index)
+    inc a
+@run_every:
+    sub MG_EVERY
+    jr nc,@run_every
+    add a,MG_EVERY                      ; the remainder, 0..MG_EVERY-1
+    cp 2
+    ret nz
+    ld a,1                              ; A = 1: the run
+    call chase_run
+    jp squad_refresh

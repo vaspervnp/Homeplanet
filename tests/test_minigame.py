@@ -294,6 +294,17 @@ class ChaseFixture(unittest.TestCase):
         trace = []
         for _ in range(bound):
             cls.c.run_frames(1)
+            #  A jump WITHOUT a chase may have the RUN in it (game/run.asm, on
+            #  the jumps between): see it through the way the harness does --
+            #  ENTER while its page is up, then its clock to the last step.
+            if cls.b("RUN_ACTIVE"):
+                if h.read_cpu(cls.c, cls.sym["RUN_LEFT"], 1)[0] == cls.sym["RUN_STEPS"]:
+                    cls.c.key_down(cpc.KEY_ENTER)
+                    cls.c.run_frames(5)
+                    cls.c.key_up(cpc.KEY_ENTER)
+                else:
+                    h.end_the_run(cls.c, cls.sym)
+                continue
             if not cls.b("MINI_ACTIVE"):
                 if trace:
                     break

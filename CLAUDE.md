@@ -186,8 +186,8 @@ and prints how many bytes are left in the low 16K and in every bank. Watch all
 of them, and watch the "hand-written code ends at" figure rather than `free:` —
 see "Where 700 bytes came from" for why the second one lies.
 
-**Today: low 16K 404, bank 4 2362, bank 7 15206 of 16384, `DISC.BIN` 25152 of
-26368 so 1216 of headroom.** The chase runs from bank 7 now — see "The chase
+**Today: low 16K 402, bank 4 2331, bank 6 14210 and bank 7 15309 of 16384,
+`DISC.BIN` 25183 of 26368 so 1185 of headroom.** The chase runs from bank 7 now — see "The chase
 runs from bank 7" — which is the first lever that moved CODE out of the
 file, and the R-Type in `minigame2.md` has 1178 bytes of bank 7 to fit in. (The paragraph below was written at 700; the levers
 it names have been pulled five more times since -- the class names, the
@@ -5941,6 +5941,53 @@ meant to move out of the low 16K to pay for it had been bank 4 all along —
 and `order_home`, 54 bytes read once at boot, went to bank 7 behind a
 `bank7_copy` in `order_init` instead. Looked at on the machine, off
 `MINI.BIN`: the rings, the tilt, a torpedo in flight, the words.
+
+### The run: an R-Type between the jumps
+
+`minigame2.md`, built small. `game/run.asm`, in bank 7 and running from it
+beside the chase, on the jumps into missions 3, 7, 11, 15 and 19 — `(mis_index
++ 1) mod MG_EVERY == 2`, so the two alternate and no jump has both.
+`chase_run` took an argument for it: `A` = 0 the chase, 1 the run, decided
+by `mini_entry` in bank 7 rather than by thirteen more bytes in the low 16K.
+
+One interceptor clears the lane left to right for `RUN_STEPS` steps: flights
+of three Vekhar come in from the right on sine paths and fire back on a
+roll; UP and DOWN fly, SPACE fires on the edge, three hits and you are down.
+It ends on the clock: **the kills are salvage** (`RUN_SALVAGE` RU each, into
+`eco_ru`, capped), and a third hit is the ambush through `mini_penalty`,
+softened by `RUN_TOLL_PER_KILL` per kill. **It is mostly the chase**:
+`mini_blit` draws both ships at tier C (tier B read as specks), the
+interceptor being in this bank; `mini_clear`, `mini_blank`, `mini_wait`,
+`mini_show`, `mini_hold` pace and page it; `mini_page_at` and
+`mini_intro_wait` — the chase's intro split into a general page and a wait —
+put its page up the first time; `mini_hit_marks` draws the hits out of
+`mini_hits`; `mini_nth` finds its words. Geometry is in units of two pixels
+so an x is a byte, and the stars are the title's reseeded xorshift with the
+scroll subtracted from every x.
+
+**Room came from bank 6.** The enemy layouts, the mission table and the zoom
+records were bank 7's and are pure copies, so `bank7_copy` grew a sibling —
+`bankn_copy` with the bank in `A`, `bank6_copy` in front of it — and the
+three moved to a bank that had 3,424 bytes idle. 1,150 bytes, eleven call
+sites, four tests reading `bank6.raw` where they read `bank7.raw`.
+
+`harness.end_the_run` puts the clock on its last step for any walk passing
+through, as `win_the_chase` does for the chase, so the campaign walks come
+out unhurt. **And `wait_for_briefing` taps ENTER only while a minigame's page
+is up** — the step counter still at its full count says so. Tapped every poll
+for as long as the minigame ran, the last tap's edge sat in `key_edge`
+through the minigame's end and dismissed the NEXT mission's briefing the
+frame it opened; the poll never saw it, the walk played mission 3 unbriefed,
+and seven campaign tests failed in the vocabulary of whatever they were
+really about. `wait_out_the_countdown` likewise returns the moment a
+minigame is up: its `read_bank4` would wait four hundred frames for a bank
+that is not coming back until the minigame is over, and its
+`clear_the_way_out` would write mission N's "objective met" over mission
+N+1's setup the moment it was. `tests/test_run.py` reaches it the honest way — J out of mission
+2 — and reads positions and counts by name: the page and its key, UP/DOWN
+inside the lane, a shot that flies right and leaves, a kill that spends the
+shot, a flight that arrives and flies left, the third hit's toll, the
+clock's salvage, the briefing after.
 
 ### The end of the journey
 

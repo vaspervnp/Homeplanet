@@ -74,7 +74,7 @@ class CampaignFixture(unittest.TestCase):
         """A mission row, read out of bank 4 through the CPU's view."""
         #  The table is in BANK 7 now, so this is what the build put on the
         #  disc rather than the CPU's view of the window.
-        with open("build/bank7.raw", "rb") as f:
+        with open("build/bank6.raw", "rb") as f:
             bank7 = f.read()
         base = self.sym["MISSION_TABLE"] - 0x4000 + index * MIS_SIZE
         return bank7[base:base + MIS_SIZE]
@@ -385,10 +385,10 @@ class TestTheWayOut(CampaignFixture):
         for harness.clear_the_way_out to top a purse up to; it is the wrong
         thing for a test that wants to be one unit short of THIS jump.
 
-        BANK 7, so off build/bank7.raw: mission_fare lives beside
+        BANK 6, so off build/bank6.raw: mission_fare lives beside
         mission_table, which went across with the rest of campaign.asm.
         """
-        with open("build/bank7.raw", "rb") as f:
+        with open("build/bank6.raw", "rb") as f:
             bank7 = f.read()
         addr = self.sym["MISSION_FARE"] - 0x4000 + self.byte("MIS_INDEX") * 2
         return int.from_bytes(bank7[addr:addr + 2], "little")
