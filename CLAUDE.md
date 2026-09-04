@@ -186,10 +186,10 @@ and prints how many bytes are left in the low 16K and in every bank. Watch all
 of them, and watch the "hand-written code ends at" figure rather than `free:` —
 see "Where 700 bytes came from" for why the second one lies.
 
-**Today: low 16K 405, bank 4 1149, bank 7 13768 of 13824, `DISC.BIN` 26343 of
-26368 so 25 of headroom — and bank 7 has 56.** Both ceilings are close now;
-the next room is `minigame2.md`'s fourth track per bank, or the chase moving
-to bank 7 to run from there. (The paragraph below was written at 700; the levers
+**Today: low 16K 405, bank 4 1149, bank 7 13768 of 16384, `DISC.BIN` 26343 of
+26368 so 25 of headroom — and bank 7 has 2616 since the fourth track.** The
+next room for `DISC.BIN` is the chase moving to bank 7 to run from there
+(`minigame2.md`). (The paragraph below was written at 700; the levers
 it names have been pulled five more times since -- the class names, the
 game-over fire table, two pages' scratch and the whole mission table went
 across, for the auto response and the chase's tilt and torpedoes -- and the
@@ -4866,9 +4866,15 @@ hand it to `bank7_copy`.
 > is in `game/mission.asm` beside `mis_desc`, inside the image, in the
 > alignment slack before `gen/tables.asm`, where it costs neither.
 
-**Bank 7 overflowed by 48 bytes and `LIB_SECTORS` is 27 now** — the third
-track of each bank was reserved and two thirds read; it is all read. Three
-more sectors a boot, and the size the build prints against is 13824.
+**Bank 7 overflowed by 48 bytes and `LIB_SECTORS` went to 27**, the whole
+of the third track — and then to **32 with a FOURTH track per bank**, which
+is the ceiling: the window is 16 KB, so the fourth track is nine sectors on
+the disc and five in memory, and `src/main.asm` asserts the product against
+`BANK_WINDOW_SIZE` now. 2560 more bytes of bank 7; fifteen more sectors a
+boot for banks 5 and 6 that gain nothing, because one count is one loop.
+The libraries end at track 31 against `FLEET_TRACK` 39. **Unverified on
+Retro Virtual Machine**, like the 27 before it: the track-advance path runs
+one more time per bank.
 
 **The five tests that read `MISSION_TABLE` read `build/bank7.raw`** now, and
 `test_shipclass`'s "is bank 4 under the window" sentinel is `class_tag`.

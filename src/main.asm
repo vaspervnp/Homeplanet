@@ -994,6 +994,8 @@ ENDIF
 ;  The whole library area has to stay clear of the tracks AMSDOS hands out for
 ;  DISC.BIN, and of the fleet save at the far end of the disc.
     assert LIB_TRACK + LIB_BANKS * LIB_TRACKS_PER_BANK <= FLEET_TRACK, "the sprite libraries run into the fleet save"
+    assert LIB_SECTORS * FDC_SECTOR_SIZE <= BANK_WINDOW_SIZE, "LIB_SECTORS reads past the bank window into screen B"
+    assert LIB_SECTORS <= LIB_TRACKS_PER_BANK * (LIB_LAST_SECTOR - LIB_FIRST_SECTOR + 1), "LIB_SECTORS is more than the library tracks hold"
 
 IF DIAG_DISC
 ;  fdc_drain_result walks ST0, ST1, ST2 and then sticks on the bin, and it does

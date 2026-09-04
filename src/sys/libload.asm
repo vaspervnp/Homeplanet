@@ -74,7 +74,7 @@
 ;  rather than needing fewer of them, and the ~4 KB it takes off DISC.BIN is
 ;  one AMSDOS block, not a track.
 LIB_TRACK           equ 20              ; first track of the library area
-LIB_TRACKS_PER_BANK equ 3               ; 27 sectors, of which we use LIB_SECTORS
+LIB_TRACKS_PER_BANK equ 4               ; 36 sectors on the disc, of which we use LIB_SECTORS
 LIB_BANKS           equ 3               ; banks 5, 6 and 7
 
 ;  13312 bytes: THREE 4320-byte libraries and a little padding. It was 23 when
@@ -100,7 +100,17 @@ LIB_BANKS           equ 3               ; banks 5, 6 and 7
 ;
 ;  The assert in src/main.asm is what stops this being set too low; nothing
 ;  stops it being set too high except this comment.
-LIB_SECTORS         equ 27              ; ALL of the three tracks: the mission table needed the 27th
+;  THIRTY-TWO, WHICH IS THE WINDOW. A fourth track a bank is nine more sectors
+;  on the disc and FIVE more in memory: 32 * 512 is 16384, the whole of the
+;  #4000 window, and a 33rd would be read on top of screen B. So the fourth
+;  track is four ninths used, and src/main.asm asserts the product against
+;  BANK_WINDOW_SIZE now -- the "nothing stops it being set too high" of the
+;  paragraph above stopped being true the day it nearly was. What it bought
+;  is 2560 bytes of bank 7, which is where the words, the tables and, one
+;  day, a minigame that runs from there go; banks 5 and 6 read the same five
+;  sectors of padding for nothing, because one count is one loop, and fifteen
+;  sectors a boot is a third of a second on a real drive.
+LIB_SECTORS         equ 32
 
 LIB_FIRST_SECTOR    equ #C1
 LIB_LAST_SECTOR     equ #C9

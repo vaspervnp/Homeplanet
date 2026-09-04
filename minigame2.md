@@ -70,20 +70,19 @@ trampoline is proven on new code before it carries old.
 
 ### Bank 7 has 464 bytes free, and needs a fourth track
 
-13360 of 13824 today, after the mission table went across. The run is
-1,500–2,000 bytes. `LIB_TRACKS_PER_BANK` is 3 and `LIB_TRACK` is 20, so the
-libraries end at track 28 and the fleet save is at 39: **a fourth track per
-bank fits** (20 + 3 × 4 = 32), and `LIB_SECTORS` at 36 makes every bank 18432
-bytes — 4.6 KB of headroom in bank 7 and the same again unused in 5 and 6.
+13360 of 13824 when this was written; the run is 1,500–2,000 bytes.
+`LIB_TRACKS_PER_BANK` is 4 now and `LIB_SECTORS` 32 — **and 32 is the
+ceiling**, because the window is 16 KB: the fourth track is nine sectors on
+the disc and five in memory. That is 2560 bytes more in bank 7 (16384 in
+all) and the same again unused in 5 and 6. The 4.6 KB an earlier draft of
+this section promised was arithmetic that forgot the window.
 
-That is 27 more sectors at boot, about a second and a half on a real 6128,
-for two banks that gain nothing. The better shape is **a sector count per
-bank** — `LIB_SECTORS_5/6/7` in `lib_load`'s table rather than one
-`LIB_SECTORS`, with `tools/discbanks.py` reading the three out of the symbol
-file as it reads everything else. `lib_load` is the routine this project only
-believes after Retro Virtual Machine agrees; the per-bank count is one more
-byte in a loop that already advances tracks, but it is a change to the FDC
-path and gets the RVM test the others got.
+That is fifteen more sectors at boot, a third of a second on a real 6128,
+for two banks that gain nothing — cheap enough that one `LIB_SECTORS` stayed
+one loop. **So the run has to fit in about 2.5 KB of bank 7 plus whatever the
+chase gives back when it moves there** (~1.4 KB): the smaller version in
+section 7 is the one to build first, and the destroyer is what the chase's
+bytes pay for.
 
 ---
 
@@ -211,7 +210,7 @@ and cannot be called), the three sound effects.
 | state | ~60 | bank 7, or after `low_end` |
 | the trampoline and the call | ~30 | **`DISC.BIN`** |
 | **total against `DISC.BIN`** | **~30** | of 348 |
-| total against bank 7 | ~1,600 | of 464 today, ~5,000 with a fourth track |
+| total against bank 7 | ~1,600 | of 2,600 with the fourth track, ~4,000 once the chase moves there |
 
 The last four features in this project each cost 1.3× to 4.7× their estimate.
 At 4.7× the run is 7.5 KB and still fits a bank with four tracks; that is the
