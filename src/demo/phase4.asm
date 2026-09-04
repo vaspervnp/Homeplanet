@@ -597,9 +597,14 @@ phase4_commands:
     ;  L and K, not M and N: `M` is the mute now, in the game as well as on
     ;  the title screen. K is left of L exactly as N was left of M, so "back a
     ;  number" is still the left-hand key of the pair.
+    ;
+    ;  ...and on the last mission, with the way out open, L LANDS instead:
+    ;  the HUD says LAND, and a player who reads it and presses L must get
+    ;  the landing. squad_move_or_land decides, in bank 4, and falls into
+    ;  squad_move_next every other time. See finishup.md item 3.
     ld a,KEY_L
     call key_hit
-    call c,squad_move_next
+    call c,squad_move_or_land
 
     ld a,KEY_K
     call key_hit

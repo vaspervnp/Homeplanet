@@ -753,6 +753,43 @@ mis_is_last:
 
 
 ; ----------------------------------------------------------------------------
+;  squad_move_or_land -- `L`: lands when LAND is on offer, moves a ship otherwise
+;  Uses: everything
+;
+;  "When LAND is available, both L and J will cause the landing." The word on
+;  the HUD is LAND and the key that did it was J, so a player who read the
+;  screen and pressed L got nothing -- a key that does nothing visible is a
+;  key that is broken. KEY_L is already the squadron pair's "one ship on", so
+;  this is a MODAL binding, decided by the state the player can see: the same
+;  shape as `,`/`.` meaning "step the target" or "step the price list".
+;
+;  The rule is exactly the HUD's: L lands when the fourth field says LAND,
+;  and the fourth field says LAND when mis_leave_ok is set on the last mission.
+;  Both read here so the key and the word cannot disagree. mis_jump then does
+;  its own refusing, so L while a spool is already running does nothing, the
+;  way J does.
+;
+;  NOT in the tutorial. mis_index there is the CAMPAIGN's, which is not being
+;  played, and the stage writes mis_leave_ok by hand -- so with a save parked
+;  on the last mission, L would have left the tutorial instead of moving a
+;  ship. The tutorial's way out is J on its last step, and ESC.
+;
+;  In bank 4 so the call site in phase4_commands is the same three bytes it
+;  was: `call c,squad_move_next` became `call c,squad_move_or_land`.
+; ----------------------------------------------------------------------------
+squad_move_or_land:
+    ld a,(tut_active)
+    or a
+    jp nz,squad_move_next
+    call mis_is_last
+    jp nc,squad_move_next
+    ld a,(mis_leave_ok)
+    or a
+    jp z,squad_move_next
+    jp mis_jump
+
+
+; ----------------------------------------------------------------------------
 ;  mis_jump_fare -- what it costs to leave the mission being played
 ;  Out: DE = the fare
 ;  Uses: AF, DE, HL

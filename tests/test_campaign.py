@@ -992,6 +992,60 @@ class TestTheEndOfTheJourney(unittest.TestCase):
             self.c.run_frames(5)
         h.let_the_game_draw(self.c, self.sym, 4)
 
+    def squad_counts(self):
+        return list(self.c.read_ram(self.sym["SQUAD_COUNT"], 10))[1:]
+
+    def press_l(self):
+        self.c.key_down("l")
+        self.c.run_frames(40)
+        self.c.key_up("l")
+        self.c.run_frames(40)
+
+    def test_l_lands_on_the_last_mission_as_j_does(self):
+        """finishup.md item 3: "When LAND is available, both L and J will cause
+        the landing." The HUD says LAND; a player who reads it and presses L
+        must get the landing rather than a ship quietly changing squadron."""
+        self.at_mission(self.LAST)
+        before = self.squad_counts()
+        self.press_l()
+        for _ in range(120):
+            self.c.run_frames(10)
+            if self.banked("MIS_WON"):
+                break
+        else:
+            self.fail("`L` on the last mission with LAND on offer did not land")
+        self.assertEqual(self.squad_counts(), before,
+                         "L landed AND moved a ship between squadrons")
+
+    def test_l_still_moves_a_ship_when_jump_is_on_offer_before_the_last(self):
+        """The guard: the binding is MODAL, not a second J. With the way out
+        open on mission 1 -- where J would spool -- L must move one ship on a
+        squadron and start no countdown. A build that bound L to mis_jump
+        unconditionally passes the test above on its own."""
+        self.at_mission(0)
+        before = self.squad_counts()
+        self.press_l()
+        after = self.squad_counts()
+        self.assertEqual(after[0], before[0] - 1, f"{before} -> {after}")
+        self.assertEqual(after[1], before[1] + 1, f"{before} -> {after}")
+        self.assertEqual(self.banked("JUMP_SECS"), 0,
+                         "L started the jump countdown on mission 1")
+        self.assertEqual(self.banked("MIS_WON"), 0)
+
+    def test_l_moves_a_ship_on_the_last_mission_while_the_way_out_is_shut(self):
+        """The other half of "when LAND is available": on the last mission
+        with the gate shut the HUD says nothing, so L is the squadron key."""
+        self.c.write_ram(self.sym["MIS_INDEX"], bytes([self.LAST]))
+        h.let_the_game_draw(self.c, self.sym, 4)
+        self.assertEqual(self.byte("MIS_LEAVE_OK"), 0,
+                         "the fixture expected the way out to be shut")
+        before = self.squad_counts()
+        self.press_l()
+        after = self.squad_counts()
+        self.assertEqual(after[1], before[1] + 1, f"{before} -> {after}")
+        self.assertEqual(self.banked("JUMP_SECS"), 0,
+                         "L spooled a landing the HUD was not offering")
+
     def test_the_bar_says_jumping_until_the_last_mission_and_then_landing(self):
         """finishup.md item 1. Read as PIXELS, both halves: a build that said
         LANDING everywhere passes the second on its own. The HUD already says

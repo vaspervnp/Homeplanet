@@ -983,7 +983,7 @@ not needed and should stay unspent.
 | `ESC` | in the TUTORIAL, leave it and go back to the title |
 | `SPACE` | on the title screen, start the game |
 
-`J` **announces** the jump and the drive spools for ten seconds of live battle before it happens; `ESC` calls it off — see "The jump counts down". It **lands** rather than jumping on the last mission, and landing opens the victory screen — see "The end of the journey". Otherwise it jumps when `mis_gate` allows it — the objective met, three waves seen, no
+`J` **announces** the jump and the drive spools for ten seconds of live battle before it happens; `ESC` calls it off — see "The jump counts down". It **lands** rather than jumping on the last mission, and landing opens the victory screen — see "The end of the journey". **On the last mission, with `LAND` on offer, `L` lands too** — it is the squadron key every other time; see "`L` lands as well" under that section. Otherwise it jumps when `mis_gate` allows it — the objective met, three waves seen, no
 enemy flying and **`MIS_JUMP_COST` in the treasury** — and writes the save on
 its way out.
 
@@ -5609,6 +5609,30 @@ than burning — and it is the picture the title screen already draws.
 > set the flag on every exit deliberately; there is no falling out of one.**
 > Caught because the test asserted `JUMP` in mission 1 as well as `LAND` in
 > mission 20 — the half that looks redundant is the half that failed.
+
+#### `L` lands as well, and only then
+
+*"When LAND is available, both L and J will cause the landing."* The word on
+the HUD is `LAND` and the key was `J`, so a player who read the screen and
+pressed `L` got a ship quietly moved to the next squadron — `KEY_L` is half of
+the `K`/`L` pair. So it is a **modal** binding, the same shape as `,`/`.`
+meaning "step the target" or "step the price list" by the mode on screen:
+`squad_move_or_land` (bank 4, beside `mis_is_last`) lands when `mis_is_last`
+and `mis_leave_ok` both say yes, and falls into `squad_move_next` otherwise.
+The rule is *exactly* the HUD's rule for drawing the word, read from the same
+two places, so the key and the word cannot disagree.
+
+**Not in the tutorial.** `mis_index` there is the campaign's — not being
+played — and the stage writes `mis_leave_ok` by hand, so with a save parked on
+mission 20 `L` would have left the tutorial instead of moving a ship. Eight
+bytes of bank 4 for the guard.
+
+The three tests are the three cells that matter, and the one that looks
+redundant is the one an unconditional binding fails: `L` on **mission 1 with
+the way out open** — where `J` would spool — must move a ship and start no
+countdown. Both mutants were built and watched fail. The call site in
+`phase4_commands` is the same three bytes, so the low 16K did not move;
+`DISC.BIN` is **26333 of 26368**.
 
 > **AND `ld (mis_won),a` WENT BESIDE EVERY WRITE OF `mis_failed`, INCLUDING THE
 > ONE THAT SETS IT.** Three sites clear the flag and one sets it to 1 on the

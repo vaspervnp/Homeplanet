@@ -97,7 +97,7 @@ was written to avoid.
 
 ---
 
-## 3. `L` as well as `J`
+## 3. `L` as well as `J` — BUILT
 
 **Asked for:** *"When LAND is available, both L and J will cause the landing."*
 
@@ -127,6 +127,18 @@ both of which already exist, in `phase4_commands` beside the existing `KEY_J`.
 **A guard test that passes on both builds**: `L` still moves a ship between
 squadrons in mission 1. Without it, the day someone makes the binding
 unconditional nothing will notice.
+
+### As built
+
+`squad_move_or_land` in `game/campaignrun.asm`, beside `mis_is_last`, and the
+call site in `phase4_commands` is the same three bytes it was. It asks the
+tutorial flag first — `mis_index` there is the campaign's, which is not being
+played, and the stage writes `mis_leave_ok` by hand — then `mis_is_last`, then
+`mis_leave_ok`, and falls into `squad_move_next` on any no. Three tests in
+`TestTheEndOfTheJourney`: `L` lands on the last mission and moves no ship;
+`L` moves a ship on mission 1 *with the way out open*, which is where an
+unconditional binding would spool; `L` moves a ship on the last mission with
+the gate shut. Each mutant was built and watched fail.
 
 ---
 
@@ -196,7 +208,8 @@ So the order is forced:
 1. ~~**Item 1** (LANDING)~~ — built.
 2. ~~**Item 2** (no wipe)~~ — built; `jfx_land` and `jfx_no_arrival` went
    with it.
-3. **Item 3** (`L`) — ~15 bytes. Fits.
+3. ~~**Item 3** (`L`)~~ — built; 23 bytes of `DISC.BIN`, all of it bank 4,
+   and the low 16K did not move. **26333 of 26368 — 35 free.**
 4. **Item 4** (the descent) — **does not fit; find the room first.** The lever
    is the one that has worked four times running: move data out of the file
    into bank 7, which has **835 bytes free** and costs `DISC.BIN` nothing.
