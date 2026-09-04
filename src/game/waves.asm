@@ -158,6 +158,10 @@ WAVE_SAY_FRAMES     equ 40
 WAVE_MSG_INCOMING   equ 0
 WAVE_MSG_FRIGATE    equ CAMP_UNLOCK_FRIG_BIT + 1
 WAVE_MSG_DESTROYER  equ CAMP_UNLOCK_DEST_BIT + 1
+;  ...and the AUTO RESPONSE's two, after the unlocks so that wave_say_unlock's
+;  bit-to-index arithmetic is untouched. game/retaliate.asm says them.
+WAVE_MSG_AUTO_ON    equ 3
+WAVE_MSG_AUTO_USED  equ 4
 
 ;  Game frames between readings of the fleet's hull. See wave_update.
 WAVE_READ_EVERY     equ 4

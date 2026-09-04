@@ -221,6 +221,10 @@ order_update:
     ld a,KEY_A
     call key_hit
     jr nc,@ord_no_attack
+    ;  Out of a fight A is the AUTO RESPONSE's key -- game/retaliate.asm --
+    ;  and comes back with carry set once it has armed it or said it is used.
+    call order_attack_key
+    jr c,@ord_no_attack
     ld a,ENT_ORDER_ATTACK
     call order_issue
 @ord_no_attack:

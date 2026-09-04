@@ -959,12 +959,15 @@ class TestTheFleetCannotBeAimedAtItself(CombatFixture):
 
 
 class TestASquadronShotAtShootsBack(CombatFixture):
-    """"Aν επιτεθεί εχθρός σε squadron, αμέσως το squadron μπαίνει σε attack
-    mode." game/retaliate.asm: the first hit on any ship of a squadron puts
-    every IDLE ship in it under ATTACK with the shooter as the target.
+    """The AUTO RESPONSE. "Aν επιτεθεί εχθρός σε squadron, αμέσως το squadron
+    μπαίνει σε attack mode" -- and then "να είναι μπόνους και να μπορεί να
+    χρησιμοποιηθεί μόνο μία φορά με το Α ... σε κάθε πίστα". game/retaliate.asm:
+    armed by A out of a fight, the first hit on any ship of a squadron puts
+    every IDLE ship in it under ATTACK with the shooter as the target, and
+    that spends it for the mission.
 
-    Every assertion is BY SLOT and reads the order and the target, because
-    a count of shots or kills is exactly what this feature preserves. The
+    Every assertion is BY SLOT and reads the order and the target, because a
+    count of shots or kills is exactly what this feature preserves. The
     fleet's own weapons are held (ENT_TIMER at 255) so the enemy is the only
     thing firing, and what the fleet does in answer is the whole question.
     """
@@ -987,9 +990,19 @@ class TestASquadronShotAtShootsBack(CombatFixture):
         self.c.write_ram(addr + ENT_TARGET, bytes([target]))
         self.c.write_ram(addr + ENT_TIMER, bytes([timer]))
 
-    def stage(self, victim=0):
+    def arm(self, on=True):
+        h.write_cpu(self.c, self.sym["AUTO_ARMED"], bytes([1 if on else 0]))
+
+    def armed(self):
+        return h.read_bank4(self.c, self.sym["AUTO_ARMED"], 1)[0]
+
+    def used(self):
+        return h.read_bank4(self.c, self.sym["AUTO_USED"], 1)[0]
+
+    def stage(self, victim=0, armed=True):
         """Four IDLE interceptors of squadron 1 on the origin and one hostile
-        in range, aimed at `victim`, ready to fire. Slot 0 stands in for the
+        in range, aimed at `victim`, ready to fire; the response ARMED, as A
+        out of a fight would have left it. Slot 0 stands in for the
         Mothership in the defeat check, as stage_one_fight does."""
         base = self.sym["ENTITIES"]
         for slot in range(ENT_MAX):
@@ -1000,6 +1013,7 @@ class TestASquadronShotAtShootsBack(CombatFixture):
         self.place(self.ENEMY, enemy=True, pos=(0, 0, 600), squad=255, target=victim)
         self.c.write_ram(self.sym["MOTH_SLOT"], bytes([0]))
         self.c.write_ram(self.sym["ORDER_PAUSED"], b"\x00")
+        self.arm(armed)
 
     def order_of(self, slot):
         return self.ent(slot, ENT_ORDER)[0]
@@ -1021,6 +1035,33 @@ class TestASquadronShotAtShootsBack(CombatFixture):
                              f"slot {slot} did not answer the attack")
             self.assertEqual(self.target_of(slot), self.ENEMY,
                              f"slot {slot} is aimed at {self.target_of(slot)}, not the shooter")
+
+    def test_unarmed_a_hit_orders_nobody(self):
+        """The bonus half: without A having armed it, a squadron shot at
+        holds station exactly as it always did."""
+        self.stage(victim=0, armed=False)
+        hull0 = self.let_the_enemy_shoot()
+        self.assertLess(self.hull(0), hull0, "the fixture's enemy never fired")
+        self.assertEqual([self.order_of(s) for s in range(4)], [ENT_ORDER_NONE] * 4,
+                         "the squadron answered an attack with the response unarmed")
+
+    def test_the_first_response_spends_it_for_the_mission(self):
+        """Once. After the squadron has answered, the flags say used, and a
+        SECOND squadron shot at afterwards holds station."""
+        self.stage(victim=0)
+        self.place(6, squad=2, timer=255)
+        self.let_the_enemy_shoot()
+        self.assertEqual(self.order_of(0), ENT_ORDER_ATTACK, "the fixture did not fire")
+        self.assertEqual((self.armed(), self.used()), (0, 1),
+                         "the response was not spent by being used")
+        #  ...now aim the enemy at squadron 2, whose ship is still idle.
+        self.c.write_ram(self.sym["ENTITIES"] + self.ENEMY * ENT_SIZE + ENT_TARGET, bytes([6]))
+        self.c.write_ram(self.sym["ENTITIES"] + self.ENEMY * ENT_SIZE + ENT_ORDER, bytes([ENT_ORDER_ATTACK]))
+        hull6 = self.hull(6)
+        self.c.run_frames(80)
+        self.assertLess(self.hull(6), hull6, "the enemy never turned on squadron 2")
+        self.assertEqual(self.order_of(6), ENT_ORDER_NONE,
+                         "a second squadron answered after the response was used")
 
     def test_working_holding_and_other_squadrons_are_left_alone(self):
         """A harvester keeps mining, a GUARD ship holds, a ship already
@@ -1054,6 +1095,7 @@ class TestASquadronShotAtShootsBack(CombatFixture):
         self.assertGreater(self.shots(), shots0, "the fixture's attacker never fired")
         self.assertEqual(self.order_of(1), ENT_ORDER_NONE,
                          "our own hit on the enemy put the squadron on attack")
+        self.assertEqual(self.armed(), 1, "our own hit spent the response")
 
     def test_a_hit_on_the_mothership_orders_nobody(self):
         """The Mothership is not a squadron; the fleet defends it by being
@@ -1084,3 +1126,118 @@ class TestASquadronShotAtShootsBack(CombatFixture):
         self.c.run_frames(40)
         self.assertEqual([self.order_of(s) for s in range(4)], [ENT_ORDER_NONE] * 4,
                          "the retaliation order outlived its target")
+
+
+class TestTheAKeyOutOfAFight(CombatFixture):
+    """A with nothing hostile flying is the bonus's key: it arms the response
+    and the HUD's message row says AUTO RESPONSE ON, or says it has been
+    USED. With something hostile flying, A is the attack order it always was.
+    """
+
+    def setUp(self):
+        self.c = h.boot_quick(frames=300)       # mission 1: no picket
+        self.c.write_ram(self.sym["ORDER_PAUSED"], b"\x00")
+
+    def press_a(self):
+        self.c.key_down("a")
+        self.c.run_frames(30)
+        self.c.key_up("a")
+        self.c.run_frames(30)
+
+    def armed(self):
+        return h.read_bank4(self.c, self.sym["AUTO_ARMED"], 1)[0]
+
+    def msg(self):
+        return self.c.read_ram(self.sym["WAVE_MSG"], 1)[0], self.c.read_ram(self.sym["WAVE_SAY"], 1)[0]
+
+    def test_a_out_of_a_fight_arms_it_and_says_so(self):
+        self.assertEqual(self.armed(), 0, "the mission began armed")
+        self.press_a()
+        self.assertEqual(self.armed(), 1, "A did not arm the response")
+        msg, say = self.msg()
+        self.assertEqual(msg, self.sym["WAVE_MSG_AUTO_ON"], "the row does not say AUTO RESPONSE ON")
+        self.assertGreater(say, 0, "the message is not being shown")
+
+    def test_a_after_it_has_been_used_says_used_and_does_not_rearm(self):
+        h.write_cpu(self.c, self.sym["AUTO_USED"], b"\x01")
+        self.press_a()
+        self.assertEqual(self.armed(), 0, "A re-armed a response that was used")
+        msg, say = self.msg()
+        self.assertEqual(msg, self.sym["WAVE_MSG_AUTO_USED"], "the row does not say AUTO RESPONSE USED")
+        self.assertGreater(say, 0)
+
+    def test_a_in_a_fight_is_the_attack_order_and_touches_the_bonus_not_at_all(self):
+        #  One hostile flying, far off, and A is what it has always been.
+        addr = self.sym["ENTITIES"] + PLAYER_MAX * ENT_SIZE
+        self.c.write_ram(addr, struct.pack("<hhh", 0, 0, 6000))
+        self.c.write_ram(addr + ENT_CLASS, b"\x00")
+        self.c.write_ram(addr + ENT_HULL, b"\xff")
+        self.c.write_ram(addr + ENT_FLAGS, bytes([F_ACTIVE | F_ENEMY]))
+        self.c.write_ram(addr + ENT_TARGET, b"\xff")
+        self.c.run_frames(4)
+        self.press_a()
+        self.assertEqual(self.armed(), 0, "A in a fight armed the response")
+        orders = {self.ent(s, ENT_ORDER)[0] for s in range(PLAYER_MAX)
+                  if self.flags(s) & F_ACTIVE and self.ent(s, ENT_SQUAD)[0] == 1}
+        self.assertIn(ENT_ORDER_ATTACK, orders, "A in a fight did not issue the attack order")
+        self.assertEqual(self.msg()[1], 0, "A in a fight put a message on the row")
+
+
+class TestTheUnarmedAreHalfTheTime(CombatFixture):
+    """"make enemies attack unarmed ships 50% of the time." cbt_prey_bias used
+    to push a harvester or a corvette CBT_UNARMED_BIAS further off on every
+    search; now cbt_prey_roll flips a coin once a frame into cbt_prey_mask
+    and the search ANDs the bias with it. Driven by calling cbt_find_enemy
+    directly with the mask poked, because the roll is not in the search --
+    so the two halves are two calls rather than a statistic -- and then the
+    coin itself, which has to come up both ways.
+    """
+
+    def setUp(self):
+        self.c = h.boot_quick(frames=300)
+        base = self.sym["ENTITIES"]
+        for slot in range(ENT_MAX):
+            self.c.write_ram(base + slot * ENT_SIZE + ENT_FLAGS, b"\x00")
+
+        def place(slot, enemy, pos, cls):
+            addr = base + slot * ENT_SIZE
+            self.c.write_ram(addr, struct.pack("<hhh", *pos))
+            self.c.write_ram(addr + ENT_CLASS, bytes([cls]))
+            self.c.write_ram(addr + ENT_HULL, b"\xff")
+            self.c.write_ram(addr + ENT_FLAGS, bytes([F_ACTIVE | F_ENEMY if enemy else F_ACTIVE]))
+            self.c.write_ram(addr + ENT_TARGET, b"\xff")
+        #  The harvester is the NEAREST thing to the enemy; the escort a
+        #  little further, well inside the bias.
+        self.HARVESTER, self.ESCORT, self.ENEMY = 0, 1, PLAYER_MAX
+        place(self.HARVESTER, False, (0, 0, 0), self.sym["CLASS_HARVESTER"])
+        place(self.ESCORT, False, (0, 0, 800), 0)
+        place(self.ENEMY, True, (0, 0, -400), 0)
+        self.c.write_ram(self.sym["MOTH_SLOT"], bytes([self.ESCORT]))
+        self.c.write_ram(self.sym["ORDER_PAUSED"], b"\x01")     # nothing moves under the calls
+
+    def search_as_the_enemy(self, mask):
+        """cbt_find_enemy for the enemy, with this frame's coin poked in."""
+        h.write_cpu(self.c, self.sym["CBT_PREY_MASK"], bytes([mask]))
+        ent = self.sym["ENTITIES"] + self.ENEMY * ENT_SIZE
+        self.c.write_ram(self.sym["CBT_ENT"], struct.pack("<H", ent))
+        addr = self.sym["CBT_FIND_ENEMY"]
+        self.c.write_ram(h.STUB, bytes([0xCD, addr & 0xFF, addr >> 8, 0x18, 0xFE]))
+        pc = self.c.pc
+        self.c.set_pc(h.STUB)
+        self.c.run_frames(1)
+        self.c.set_pc(pc)
+        return self.c.read_ram(self.sym["CBT_TARGET"], 1)[0]
+
+    def test_with_the_coin_up_the_escort_is_picked_over_the_nearer_harvester(self):
+        self.assertEqual(self.search_as_the_enemy(0xFF), self.ESCORT)
+
+    def test_with_the_coin_down_the_harvester_is_simply_the_nearest(self):
+        self.assertEqual(self.search_as_the_enemy(0x00), self.HARVESTER)
+
+    def test_the_coin_comes_up_both_ways_over_a_few_seconds(self):
+        self.c.write_ram(self.sym["ORDER_PAUSED"], b"\x00")
+        seen = set()
+        for _ in range(60):
+            self.c.run_frames(5)
+            seen.add(h.read_bank4(self.c, self.sym["CBT_PREY_MASK"], 1)[0])
+        self.assertEqual(seen, {0, 0xFF}, f"the coin only ever came up {seen}")

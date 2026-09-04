@@ -238,7 +238,11 @@ tut_row:
     ld l,a
     ld h,0
     ld de,tut_table
-    add hl,de
+    add hl,de                           ; ...an address in BANK 7, so:
+    ld de,bank7_line
+    ld bc,TUT_STEP_SIZE
+    call bank7_copy                     ; the row, down into the low 16K
+    ld hl,bank7_line
     ret
 
 
@@ -1023,30 +1027,9 @@ tut_draw:
 ;  A gate and an entry act apiece. src/main.asm asserts that there are
 ;  TUT_STEPS of them and that TUT_STEPS is the number printed on the screen.
 ; ----------------------------------------------------------------------------
-tut_table:
-    ;  --- Act 1: looking. No enemies; nothing can go wrong. -----------------
-    defw tut_g_look,    tut_a_none
-    defw tut_g_zoom,    tut_a_none
-    defw tut_g_pan,     tut_a_none
-    defw tut_g_view,    tut_a_none
-    ;  --- Act 2: the fleet --------------------------------------------------
-    defw tut_g_squad,   tut_a_none
-    defw tut_g_info,    tut_a_none
-    defw tut_g_move,    tut_a_none
-    defw tut_g_form,    tut_a_none
-    defw tut_g_split,   tut_a_none
-    defw tut_g_dock,    tut_a_none
-    ;  --- Act 3: the economy ------------------------------------------------
-    defw tut_g_mine,    tut_a_none
-    defw tut_g_build,   tut_a_none
-    ;  --- Act 4: the fight --------------------------------------------------
-    defw tut_g_target,  tut_a_enemy
-    defw tut_g_fight,   tut_a_none
-    defw tut_g_pause,   tut_a_none
-    defw tut_g_salvage, tut_a_none
-    ;  --- Act 5: leaving ----------------------------------------------------
-    defw tut_g_never,   tut_a_ready
-tut_table_end:
+;  tut_table IS IN BANK 7 -- with the words, in game/screentext.asm -- and
+;  tut_row copies the step's four bytes down through bank7_copy. Sixty-eight
+;  bytes of bank 4 for twelve of code, the day the landing needed the room.
 
 
 ; ============================================================================

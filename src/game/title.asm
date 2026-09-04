@@ -87,14 +87,14 @@ title_key:
     ld a,KEY_T
     call key_hit
     jr nc,@title_no_tut
-    call mus_start_solo                 ; the game's mode: one voice, channel C
+    call mus_start                      ; the whole tune in the game too; mus_battle holds it in a fight
     jp tut_enter
 @title_no_tut:
 
     ld a,KEY_SPACE
     call key_hit
     ret nc
-    call mus_start_solo                 ; ...and the campaign gets the same
+    call mus_start                      ; ...and the campaign gets the same
     xor a
     ld (title_shown),a
 
@@ -123,7 +123,10 @@ title_draw:
     xor a
     call scr_fill_rect
 
-    ld hl,title_text
+    ld hl,title_words
+    ld a,0
+    call bank7_fetch                    ; bank 7: title_words[0]
+    ld hl,bank7_line
     ld c,TITLE_Y
     call txt_big
 
@@ -149,7 +152,10 @@ title_draw:
     ld a,(demo_frames)
     and TITLE_BLINK_BIT
     jr z,@title_no_prompt
-    ld hl,title_prompt
+    ld hl,title_words
+    ld a,1
+    call bank7_fetch                    ; bank 7: title_words[1]
+    ld hl,bank7_line
     ld b,TITLE_PROMPT_X
     ld c,TITLE_PROMPT_Y
     call txt_draw
@@ -157,12 +163,18 @@ title_draw:
 
     ;  ...and the tutorial, steady. See TITLE_TUT_Y for why it is here at all
     ;  and why it does not blink.
-    ld hl,title_tut
+    ld hl,title_words
+    ld a,2
+    call bank7_fetch                    ; bank 7: title_words[2]
+    ld hl,bank7_line
     ld b,TITLE_TUT_X
     ld c,TITLE_TUT_Y
     call txt_draw
 
-    ld hl,title_credit
+    ld hl,title_words
+    ld a,3
+    call bank7_fetch                    ; bank 7: title_words[3]
+    ld hl,bank7_line
     ld b,TITLE_CREDIT_X
     ld c,TITLE_CREDIT_Y
 IF DIAG_DISC

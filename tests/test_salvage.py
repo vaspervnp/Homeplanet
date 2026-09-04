@@ -718,3 +718,36 @@ class TestItStaysOutOfTheHarvestersWay(SalvageFixture):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestEveryCorvettePicksItsOwnWreck(SalvageFixture):
+    """"Kάθε salvage πλοίο να διαλέγει δικό του στόχο." Two corvettes and two
+    hulls: each corvette's ENT_TOW must name a different hull, by slot,
+    within a few seconds of T. Before this both went for the first hull in
+    the table and towed it between them.
+    """
+
+    def test_two_corvettes_take_two_hulls(self):
+        a = self.make_corvette()
+        b = self.make_corvette()
+        self.strip_the_fleet({a, b})
+        hulls = []
+        for xyz in [(3000, 0, 3000), (-3000, 0, 3000)]:
+            slot = self.free_slot()
+            self.set_pos(slot, xyz)
+            self.set_ent(slot, ENT_CLASS, CLASS_INTERCEPTOR)
+            self.set_ent(slot, ENT_HULL, 0)
+            self.set_ent(slot, ENT_FLAGS, F_ACTIVE | F_ENEMY | F_DISABLED)
+            hulls.append(slot)
+        self.c.run_frames(4)
+        self.hold("t")
+        picks = {}
+        for _ in range(40):
+            self.c.run_frames(10)
+            picks = {s: self.ent(s, ENT_TOW) & 0x7F for s in (a, b)}
+            if all(v in hulls for v in picks.values()):
+                break
+        else:
+            self.fail(f"the corvettes never both chose a hull: {picks}")
+        self.assertNotEqual(picks[a], picks[b],
+                            f"both corvettes chose the same hull: {picks}")

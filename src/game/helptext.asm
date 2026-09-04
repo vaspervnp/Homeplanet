@@ -14,7 +14,6 @@
 ;  right column BE the orders menu's list.
 ; ----------------------------------------------------------------------------
 
-help_title:
-    defb "HOMEPLANET - CONTROLS",0
-help_prompt:
-    defb "ESC - BACK",0
+;  help_title and help_prompt ARE IN BANK 7 now -- page_words in
+;  game/screentext.asm -- fetched through bank7_fetch by help_draw and the
+;  squadron page. Nothing but their columns is left here.

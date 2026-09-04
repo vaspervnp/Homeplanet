@@ -276,11 +276,19 @@ class TestTheGenerator(WaveFixture):
         that pins SYS_RNG after boot must not have it stirred out from under it
         by the next key it presses."""
         h.dismiss_briefing(self.c)
+        self.c.write_ram(self.sym["ORDER_PAUSED"], b"\x01")    # see below
         h.pin_rng(self.c, 0x5A5A)
         for key in ("z", "x", "p", "f"):
             self.hold(key)
+        #  NOT "still 0x5A5A": cbt_prey_roll draws one byte a playing frame for
+        #  the unarmed-prey coin, so the state moves every frame the battle
+        #  runs. What must not happen is a RE-SEED -- the tick stirred in
+        #  again -- and with the battle paused nothing draws at all, so the
+        #  value has to be exactly the seed. The coin's own tests are in
+        #  test_combat.
         self.assertEqual(self.word("SYS_RNG"), 0x5A5A,
                          "something re-seeded the generator after the first key")
+        self.assertEqual(self.byte("SYS_RAND_SEEDED"), 1)
 
 
 class TestTheClock(WaveFixture):
@@ -322,7 +330,10 @@ class TestTheClock(WaveFixture):
             self.force_wave()
             gaps.append(self.word("WAVE_NEXT") - self.word("MIS_TIMER"))
         for gap in gaps:
-            self.assertGreaterEqual(gap, WAVE_GAP_MIN - 4)
+            #  WAVE_NEXT is read a few game frames after wave_send wrote it
+            #  and mis_timer has moved on by then; a game frame is seven to
+            #  ten ticks, so the slack is a few of them.
+            self.assertGreaterEqual(gap, WAVE_GAP_MIN - 64)
             self.assertLessEqual(gap, WAVE_GAP_MAX)
         self.assertGreater(len(set(gaps)), 1,
                            f"the spacing is not random: {gaps}")

@@ -94,9 +94,12 @@ class TestEveryMissionFieldsResources(MarkFixture):
     only exists in five missions out of eight is not one."""
 
     def test_no_mission_fields_none(self):
-        base = self.sym["MISSION_TABLE"]
+        #  The table is in BANK 7: read what the build put on the disc.
+        with open("build/bank7.raw", "rb") as f:
+            bank7 = f.read()
+        base = self.sym["MISSION_TABLE"] - 0x4000
         for m in range(MIS_COUNT):
-            n = h.read_bank4(self.c, base + m * MIS_SIZE + MIS_PATCH_COUNT, 1)[0]
+            n = bank7[base + m * MIS_SIZE + MIS_PATCH_COUNT]
             self.assertGreater(n, 0, f"mission {m + 1} fields no resource patches")
 
     def test_the_first_mission_actually_lays_them_out(self):

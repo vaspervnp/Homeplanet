@@ -500,7 +500,7 @@ bank4_start:
     include "game/classdata.asm"
     include "game/formdata.asm"
     include "game/homeplanet.asm"
-    include "game/campaign.asm"
+;  (game/campaign.asm -- the mission table and its columns -- is in BANK 7 now)
     include "game/helptext.asm"
 ;  The title screen RUNS from the bank. Nothing pages bank 4 out, so #4000
 ;  upwards is ordinary executable RAM -- and this is code that runs once,
@@ -560,6 +560,12 @@ bank4_start:
 ;  is called from cbt_fire_if_able, which is simulation, and nothing pages
 ;  bank 4 out during the simulation.
     include "game/retaliate.asm"
+;  The Mothership setting down on the planet, before the victory page, and
+;  the banner across the middle of the view when the yard learns a class.
+;  Both bank code by the narrow rule: the landing stops the world, the banner
+;  is drawn from wave_draw with the window at rest.
+    include "game/landing.asm"
+    include "game/banner.asm"
 ;  The tutorial. Bank code by the narrow rule: tut_enter runs from a keypress
 ;  on the title screen, tut_update from the very top of demo_update and
 ;  tut_draw from its very end, and none of the three can be reached from
@@ -603,11 +609,31 @@ bank4_end:
 mini_shown:         defb 0
 ;  The shooter's slot, for the frame cbt_retaliate is walking the fleet.
 cbt_avenge:         defb 0
+;  The AUTO RESPONSE: armed by A out of a fight, used by the first hit.
+;  Both cleared by mis_setup: every mission starts with it off.
+auto_armed:         defb 0
+auto_used:          defb 0
+;  This frame's coin for the unarmed-prey bias: #FF applies it, 0 does not.
+cbt_prey_mask:      defb 0
+;  The landing sequence's step counter, and the unlock banner's message and
+;  the tick it went up on. See game/landing.asm and game/banner.asm.
+land_left:          defb 0
+ban_msg:            defb 0
+ban_tick0:          defb 0
+ban_rect:           defs 4
 ;  The chase: which way the player is steering this step (0 straight, 1 left,
 ;  2 right), the yaw view mini_blit is to draw, and one block's size.
 mini_bank:          defb 0
 mini_view:          defb 0
 mini_bsz:           defw 0
+;  ...the torpedo: steps of flight so far (0 = none in the air), where it was
+;  aimed on the lateral axis, and how many have landed.
+;  ...which class mini_blit draws: the chase's interceptor, the landing's
+;  Mothership.
+mini_cls:           defb 0
+mini_torp:          defb 0
+mini_torp_x:        defb 0
+mini_hits:          defb 0
 ;  The game-over page's and the squadron page's scratch. Every byte is written
 ;  before it is read -- over_draw and over_fires set theirs up per frame, the
 ;  breakdown tallies its per row -- so they need no starting value and were
@@ -789,7 +815,6 @@ bank4_limit:
 ;  TXT_BIG_W_BYTES is exactly the 80-byte line. Checked here rather than beside
 ;  txt_big because ASSERT is evaluated where it stands and the strings are in
 ;  the bank, which is included further down than the code that draws them.
-    assert (title_credit - title_text - 1) * TXT_BIG_W_BYTES == SCR_BYTES_PER_LINE, "the title no longer spans the screen"
 
 ;  THE PLANET IS THE ONLY THING ON THIS SCREEN THAT IS NOT CLIPPED BY ANYTHING.
 ;  Its interior goes down through scr_fill_rect, which honours no clip at all
@@ -818,9 +843,7 @@ bank4_limit:
 ;  WORD and not a different layout, and that is only true while they are equal.
     assert mis_word_land_end - mis_word_land == mis_word_jump_end - mis_word_jump, "LAND and JUMP are different lengths and share a position"
 
-    assert HUD_SAY_X + (wave_say_text_1 - wave_say_text - 1) * TXT_CHAR_W_BYTES <= HUD_MOTH_X, "INCOMING runs into the Mothership's hull"
-    assert HUD_SAY_X + (wave_say_text_2 - wave_say_text_1 - 1) * TXT_CHAR_W_BYTES <= HUD_MOTH_X, "the Frigate unlock message runs into the Mothership's hull"
-    assert HUD_SAY_X + (wave_say_text_end - wave_say_text_2 - 1) * TXT_CHAR_W_BYTES <= HUD_MOTH_X, "the Destroyer unlock message runs into the Mothership's hull"
+;  (the message row's asserts are at the bottom of this file: the words are in bank 7)
 
 ;  ...and there is one message for INCOMING plus one per unlock bit, in that
 ;  order, because wave_say_unlock turns a bit number into an index. A class
@@ -942,6 +965,11 @@ bank7_start:
 ;  test everything else in this bank passes. It is what paid for the vortex
 ;  chase; see game/enemylayouts.asm.
     include "game/enemylayouts.asm"
+;  ...and the mission table itself, with its fare column, its patch layouts and
+;  the derelict's position. Four hundred and thirty bytes that only mis_setup,
+;  mis_jump_fare and mis_spawn_derelict ever read, each through bank7_copy
+;  into somewhere that is not the window; mis_descriptor hands out the copy.
+    include "game/campaign.asm"
 ;  ...and the twelve zoom records, for the same reason and by the same road.
 ;  They are 240 bytes of pure table read by ONE routine, order_apply_zoom, on a
 ;  keypress -- and every one of its five LDIRs already had a low-16K
@@ -1223,8 +1251,6 @@ ENDIF
 ;  the same way the screen-space grid in phase4_group was killed.
     assert MENU_TOP + (MENU_COUNT - 1) * MENU_STEP + TXT_CHAR_H <= HUD_TOP, "the orders menu's last row is drawn inside the HUD strip"
     assert MENU_TITLE_Y + TXT_CHAR_H <= MENU_TOP, "the orders menu's title runs into its first row"
-    assert MENU_PROMPT_X + (menu_bar - menu_prompt - 1) * TXT_CHAR_W_BYTES <= SCR_BYTES_PER_LINE, "the orders menu's prompt runs off the screen"
-    assert MENU_MARK_X + (menu_prompt - menu_title - 1) * TXT_CHAR_W_BYTES <= MENU_PROMPT_X, "the orders menu's title runs into its prompt"
 
 ;  THE MENU IS TWO PARALLEL TABLES NOW -- the key ids in bank 4 and the words
 ;  in bank 7 -- and these two asserts are what stands where "the key id and its
@@ -1344,7 +1370,6 @@ ENDIF
 ;  SCREEN edge and not at a field, so an over-length instruction is silently
 ;  written across the step counter beside it.
 ; ----------------------------------------------------------------------------
-    assert (tut_table_end - tut_table) / TUT_STEP_SIZE == TUT_STEPS, "the tutorial's step table is not TUT_STEPS rows"
 
 ;  The counter says "/17" in so many bytes, so the number of steps is on the
 ;  screen as a literal and has to agree with the table. There is no arithmetic
@@ -1383,7 +1408,6 @@ ENDIF
 ;  clips at the screen edge and nowhere else.
     assert TITLE_PROMPT_Y + TXT_CHAR_H <= TITLE_TUT_Y, "the tutorial prompt runs into PRESS SPACE TO START"
     assert TITLE_TUT_Y + TXT_CHAR_H <= TITLE_CREDIT_Y, "the tutorial prompt runs into the credit line"
-    assert TITLE_TUT_X + (title_tut_end - title_tut - 1) * TXT_CHAR_W_BYTES <= SCR_BYTES_PER_LINE, "the tutorial prompt runs off the screen"
 
 ;  The formation names are indexed by WALKING terminators, so a list shorter
 ;  than FORM_COUNT does not draw the wrong word -- it walks off the end of the
@@ -1393,7 +1417,6 @@ ENDIF
 ;  tests/test_squadinfo.TestTheFormation.test_every_formation_has_its_own_name
 ;  presses `F` FORM_COUNT times and reads a different real word off the screen
 ;  each time. This much can be asserted, and it is the floor:
-    assert info_form_names_end - info_form_names >= FORM_COUNT * 2, "there are fewer formation names than FORM_COUNT"
     assert INFO_NUM_X + 2 * TXT_CHAR_W_BYTES <= INFO_FORM_X, "the squadron number would run into the formation name"
     assert INFO_FORM_X + 6 * TXT_CHAR_W_BYTES <= INFO_PROMPT_X, "the formation name would run into the ESC prompt"
 
@@ -1475,6 +1498,30 @@ MG_SWING            equ (MG_X_MAX - MG_X_MID) / 4
     assert mini_words_end - mini_say_steer <= B7_BUF_SIZE, "the chase's steer line does not fit the bank 7 buffer"
     assert (SCR_BYTES_PER_LINE - (mini_words_end - mini_say_steer - 1) * TXT_CHAR_W_BYTES) / 2 == MG_STEER_X, "the chase's steer line is not centred"
 
+;  The unlock banner's two lines, in bank 7: centred, and inside the buffer.
+    assert (SCR_BYTES_PER_LINE - (ban_destroyer - ban_frigate - 1) * TXT_CHAR_W_BYTES) / 2 == BAN_FRIGATE_X, "the frigate banner is not centred"
+    assert (SCR_BYTES_PER_LINE - (ban_words_end - ban_destroyer - 1) * TXT_CHAR_W_BYTES) / 2 == BAN_DESTROYER_X, "the destroyer banner is not centred"
+    assert ban_destroyer - ban_frigate <= B7_BUF_SIZE, "the frigate banner does not fit the bank 7 buffer"
+    assert ban_words_end - ban_destroyer <= B7_BUF_SIZE, "the destroyer banner does not fit the bank 7 buffer"
+
+;  The tutorial's step table, in bank 7.
+    assert (tut_table_end - tut_table) / TUT_STEP_SIZE == TUT_STEPS, "the tutorial's step table is not TUT_STEPS rows"
+
+;  The static pages' small words, in bank 7.
+
+    assert MENU_PROMPT_X + (menu_prompt_end - menu_prompt - 1) * TXT_CHAR_W_BYTES <= SCR_BYTES_PER_LINE, "the orders menu's prompt runs off the screen"
+    assert MENU_MARK_X + (menu_prompt - menu_title - 1) * TXT_CHAR_W_BYTES <= MENU_PROMPT_X, "the orders menu's title runs into its prompt"
+    assert info_form_names_end - info_form_names >= FORM_COUNT * 2, "there are fewer formation names than FORM_COUNT"
+
+;  The title's and the message row's words, in bank 7.
+    assert (title_prompt - title_text - 1) * TXT_BIG_W_BYTES == SCR_BYTES_PER_LINE, "the title no longer spans the screen"
+    assert TITLE_TUT_X + (title_tut_end - title_tut - 1) * TXT_CHAR_W_BYTES <= SCR_BYTES_PER_LINE, "the tutorial prompt runs off the screen"
+    assert HUD_SAY_X + (wave_say_text_1 - wave_say_text - 1) * TXT_CHAR_W_BYTES <= HUD_MOTH_X, "INCOMING runs into the Mothership's hull"
+    assert HUD_SAY_X + (wave_say_text_2 - wave_say_text_1 - 1) * TXT_CHAR_W_BYTES <= HUD_MOTH_X, "the Frigate unlock message runs into the Mothership's hull"
+    assert HUD_SAY_X + (wave_say_text_3 - wave_say_text_2 - 1) * TXT_CHAR_W_BYTES <= HUD_MOTH_X, "the Destroyer unlock message runs into the Mothership's hull"
+    assert HUD_SAY_X + (wave_say_text_4 - wave_say_text_3 - 1) * TXT_CHAR_W_BYTES <= HUD_MOTH_X, "AUTO RESPONSE ON runs into the Mothership's hull"
+    assert HUD_SAY_X + (wave_say_text_end - wave_say_text_4 - 1) * TXT_CHAR_W_BYTES <= HUD_MOTH_X, "AUTO RESPONSE USED runs into the Mothership's hull"
+
 ;  The game-over fire table, in bank 7 -- down here for the reason every bank-7
 ;  assert is: ASSERT is evaluated where it stands.
     assert over_fire_table_end - over_fire_table == OVER_FIRE_COUNT * 3, "the fire table is not OVER_FIRE_COUNT entries long"
@@ -1488,7 +1535,8 @@ MG_SWING            equ (MG_X_MAX - MG_X_MID) / 4
     assert (SCR_BYTES_PER_LINE - (mini_intro_2 - mini_intro_1 - 1) * TXT_CHAR_W_BYTES) / 2 == MG_INTRO_1_X, "the chase intro's first line is not centred"
     assert (SCR_BYTES_PER_LINE - (mini_intro_3 - mini_intro_2 - 1) * TXT_CHAR_W_BYTES) / 2 == MG_INTRO_2_X, "the chase intro's second line is not centred"
     assert (SCR_BYTES_PER_LINE - (mini_intro_4 - mini_intro_3 - 1) * TXT_CHAR_W_BYTES) / 2 == MG_INTRO_3_X, "the chase intro's third line is not centred"
-    assert (SCR_BYTES_PER_LINE - (mini_intro_go - mini_intro_4 - 1) * TXT_CHAR_W_BYTES) / 2 == MG_INTRO_4_X, "the chase intro's fourth line is not centred"
+    assert (SCR_BYTES_PER_LINE - (mini_intro_5 - mini_intro_4 - 1) * TXT_CHAR_W_BYTES) / 2 == MG_INTRO_4_X, "the chase intro's fourth line is not centred"
+    assert (SCR_BYTES_PER_LINE - (mini_intro_go - mini_intro_5 - 1) * TXT_CHAR_W_BYTES) / 2 == MG_INTRO_5_X, "the chase intro's fifth line is not centred"
     assert (SCR_BYTES_PER_LINE - (mini_intro_words_end - mini_intro_go - 1) * TXT_CHAR_W_BYTES) / 2 == MG_INTRO_GO_X, "the chase intro's prompt is not centred"
     assert mini_intro_3 - mini_intro_2 <= B7_BUF_SIZE, "a chase intro line does not fit the bank 7 buffer"
     assert MG_INTRO_Y + (MG_INTRO_LINES - 1) * MG_INTRO_STEP + TXT_CHAR_H <= MG_INTRO_GO_Y, "the chase intro's lines run into its prompt"

@@ -291,6 +291,91 @@ over_fire_table:
     defb    9,   20, 4
 over_fire_table_end:
 
+; ----------------------------------------------------------------------------
+;  ban_words -- the unlock banner, one line a class, in the order of
+;  campaign_unlocks' bits. Centred by hand in game/banner.asm and asserted.
+; ----------------------------------------------------------------------------
+ban_words:
+ban_frigate:    defb "THE YARD CAN BUILD THE FRIGATE",0
+ban_destroyer:  defb "THE YARD CAN BUILD THE DESTROYER",0
+ban_words_end:
+
+; ----------------------------------------------------------------------------
+;  title_words -- the title screen's four lines, in the order title_draw
+;  fetches them: the name (txt_big, ten glyphs), the prompt, the key line,
+;  the credit. src/main.asm asserts the name still spans the screen.
+; ----------------------------------------------------------------------------
+title_words:
+title_text:     defb "HOMEPLANET",0
+title_prompt:   defb "PRESS SPACE TO START",0
+title_tut:      defb "T TUTORIAL  M MUSIC",0
+title_tut_end:
+title_credit:   defb "REVIVE8BIT - 2026 - VASPER",0
+title_credit_end:
+
+; ----------------------------------------------------------------------------
+;  wave_say_text -- the HUD message row's five things, indexed by wave_msg.
+; ----------------------------------------------------------------------------
+wave_say_text:      defb "INCOMING",0
+wave_say_text_1:    defb "YARD: FRIGATE",0
+wave_say_text_2:    defb "YARD: DESTROYER",0
+wave_say_text_3:    defb "AUTO RESPONSE ON",0
+wave_say_text_4:    defb "AUTO RESPONSE USED",0
+wave_say_text_end:
+
+; ----------------------------------------------------------------------------
+;  page_words -- the small words of the static pages: the help page's title
+;  and its shared ESC - BACK prompt, the orders menu's title and prompt, and
+;  the four formation names the squadron page prints. Indexed by the PAGE_*
+;  equates; the formation names are the last four, in FORM order.
+; ----------------------------------------------------------------------------
+PAGE_HELP_TITLE     equ 0
+PAGE_HELP_PROMPT    equ 1
+PAGE_MENU_TITLE     equ 2
+PAGE_MENU_PROMPT    equ 3
+PAGE_FORM_0         equ 4
+page_words:
+help_title:         defb "HOMEPLANET - CONTROLS",0
+help_prompt:        defb "ESC - BACK",0
+menu_title:         defb "ORDERS",0
+menu_prompt:        defb "UP/DOWN  ENTER  ESC",0
+menu_prompt_end:
+info_form_names:    defb "LOOSE",0
+                    defb "WEDGE",0
+                    defb "SPHERE",0
+                    defb "WALL",0
+info_form_names_end:
+page_words_end:
+
+; ----------------------------------------------------------------------------
+;  tut_table -- the tutorial's steps: (gate, entry act) per row, in bank 4
+;  code addresses. Data, so it lives here; tut_row copies a row down.
+; ----------------------------------------------------------------------------
+tut_table:
+    ;  --- Act 1: looking. No enemies; nothing can go wrong. -----------------
+    defw tut_g_look,    tut_a_none
+    defw tut_g_zoom,    tut_a_none
+    defw tut_g_pan,     tut_a_none
+    defw tut_g_view,    tut_a_none
+    ;  --- Act 2: the fleet --------------------------------------------------
+    defw tut_g_squad,   tut_a_none
+    defw tut_g_info,    tut_a_none
+    defw tut_g_move,    tut_a_none
+    defw tut_g_form,    tut_a_none
+    defw tut_g_split,   tut_a_none
+    defw tut_g_dock,    tut_a_none
+    ;  --- Act 3: the economy ------------------------------------------------
+    defw tut_g_mine,    tut_a_none
+    defw tut_g_build,   tut_a_none
+    ;  --- Act 4: the fight --------------------------------------------------
+    defw tut_g_target,  tut_a_enemy
+    defw tut_g_fight,   tut_a_none
+    defw tut_g_pause,   tut_a_none
+    defw tut_g_salvage, tut_a_none
+    ;  --- Act 5: leaving ----------------------------------------------------
+    defw tut_g_never,   tut_a_ready
+tut_table_end:
+
 mini_intro_words:
 mini_intro_1:
     defb "A VEKHAR IS IN THE JUMP WITH US.",0
@@ -298,7 +383,8 @@ mini_intro_2:
     defb "LEFT AND RIGHT STEER INTO ITS WAKE.",0
 mini_intro_3:
     defb "CLOSE ON IT BEFORE THE TUNNEL ENDS.",0
-mini_intro_4:
+mini_intro_4: defb "DODGE ITS TORPEDOES. THREE HITS LOSE.",0
+mini_intro_5:
     defb "LOSE IT, AND THEY WILL BE WAITING.",0
 mini_intro_go:
     defb "ENTER - BEGIN",0

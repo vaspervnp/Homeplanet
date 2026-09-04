@@ -22,10 +22,9 @@
 ;  would go on working while giving the wrong orders.
 ; ----------------------------------------------------------------------------
 
-menu_title:
-    defb "ORDERS",0
-menu_prompt:
-    defb "UP/DOWN  ENTER  ESC",0
+;  menu_title and menu_prompt are in BANK 7 with the rest of the page words --
+;  page_words in game/screentext.asm. The bar and the blank stay: they are
+;  drawn seventeen times a frame.
 menu_bar:
     defb ">",0
 menu_blank:

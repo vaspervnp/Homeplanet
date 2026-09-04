@@ -71,15 +71,20 @@ info_draw:
     ld de,squad_form
     add hl,de
     ld a,(hl)
-    ld hl,info_form_names
-    call str_index                      ; the walker ctx_class_name uses
+    add a,PAGE_FORM_0                   ; the formation's name, in bank 7
+    ld hl,page_words
+    call bank7_fetch
+    ld hl,bank7_line
     ld b,INFO_FORM_X
     ld c,INFO_TITLE_Y
     call txt_draw
 
     ;  "ESC - BACK" is the help page's string. One prompt, so the two pages
     ;  cannot come to disagree about how you get out of them.
-    ld hl,help_prompt
+    ld hl,page_words
+    ld a,PAGE_HELP_PROMPT
+    call bank7_fetch
+    ld hl,bank7_line
     ld b,INFO_PROMPT_X
     ld c,INFO_TITLE_Y
     call txt_draw
@@ -325,10 +330,5 @@ info_text_pct:      defb "%",0
 ;  assembler put next. Nothing at build time can count terminators, so the
 ;  guard is TestTheFormation in tests/test_squadinfo.py, which presses `F`
 ;  round the cycle and reads a different real word off the screen each time.
-info_form_names:
-    defb "LOOSE",0
-    defb "WEDGE",0
-    defb "SPHERE",0
-    defb "WALL",0
-info_form_names_end:
+;  info_form_names is in BANK 7 -- page_words in game/screentext.asm.
 

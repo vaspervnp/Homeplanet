@@ -449,11 +449,22 @@ snd_fire:
 snd_explosion:
     ld hl,snd_fx_explosion
     ld de,snd_voice_b
-    jr snd_start
+    jr snd_start_b
 
 snd_hit:
     ld hl,snd_fx_hit
     ld de,snd_voice_b
+    ;  ...and fall through.
+
+;  Both B effects come through here: B is the NOISE generator's for as long as
+;  an effect is on it, whatever the tune had made of it. The tune's harmony is
+;  a TONE on B and mus_battle gives the bit back once the effect has ended and
+;  nothing is being shot at -- an explosion under the harmony was otherwise a
+;  tone, which is what four tests said the day the game got the whole tune.
+snd_start_b:
+    ld a,SND_MIX_B_NOISE
+    ld (snd_mix_mask_b),a
+    ;  ...and fall into snd_start.
     ; fall through -- nothing may be inserted between here and snd_start
 
 
@@ -738,6 +749,9 @@ mus_muted:          defb 0
 ;  pause of the stream.
 mus_ducked:         defb 0
 mus_duck_vol:       defb 0
+mus_held:           defb 0              ; a fight is on: notes are not written
+mus_shots_seen:     defb 0              ; cbt_shots as of the last frame
+mus_quiet:          defb 0              ; game frames until the fight counts as over
 
 mus_v0:             defw 0
 mus_v1:             defw 0

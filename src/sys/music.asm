@@ -157,6 +157,7 @@ mus_update:
     ret z
 
     call mus_duck
+    call mus_battle                     ; bank 4: silent while shots are landing
 
     ;  How many 50 Hz ticks since the last call. The counter is one byte and
     ;  free-runs, so the subtraction wraps correctly for anything under five
@@ -416,9 +417,13 @@ mus_write_block:
     ret nz
 
 @mus_wb_free:
+    ld a,(mus_held)
+    or a
+    jr nz,@mus_wb_idle                  ; a fight: the stream advances, silently
     ld a,(mus_note)
     or a
     jr nz,@mus_wb_sound
+@mus_wb_idle:
 
     ld (hl),0                           ; timer 0: idle, and snd_update mutes it
     ret

@@ -31,6 +31,7 @@
 ;  Uses: everything
 ; ----------------------------------------------------------------------------
 wave_draw:
+    call unlock_banner                  ; the centre-screen unlock line, if one is up
     ;  The tutorial owns this row outright while it is running, and wave_dirty
     ;  goes with it -- one dirty flag for row C whoever is drawing there, which
     ;  is what makes the coupling with phase4_hud and mis_wipe free. The row is
@@ -145,7 +146,8 @@ wave_draw:
 
     ld a,(wave_msg)
     ld hl,wave_say_text
-    call str_index                      ; the walker ctx_class_name uses
+    call bank7_fetch                    ; the words are in bank 7
+    ld hl,bank7_line
     ld b,HUD_SAY_X
     ld c,HUD_ROW_C_Y
     call txt_draw
@@ -241,6 +243,7 @@ wave_say_unlock:
     jr nc,@wave_unlock_bit
     ld a,b                              ; bit 0 -> message 1, bit 1 -> 2
     ld (wave_msg),a
+    call ban_say                        ; ...and across the middle of the view
     ld a,WAVE_SAY_FRAMES
     ld (wave_say),a
     ret
@@ -284,7 +287,77 @@ wave_hp_sign:       defb "%",0
 ;  prefix says who is talking in five characters instead of eight -- and both
 ;  messages then read the same way, which "FRIGATE UNLOCKED" beside "YARD:
 ;  DESTROYER" would not have.
-wave_say_text:      defb "INCOMING",0
-wave_say_text_1:    defb "YARD: FRIGATE",0
-wave_say_text_2:    defb "YARD: DESTROYER",0
-wave_say_text_end:
+;  (wave_say_text is in BANK 7 now, in game/screentext.asm)
+
+
+; ----------------------------------------------------------------------------
+;  mus_battle -- hold the tune while there is shooting, let it back afterwards
+;  Uses: AF, HL
+;
+;  "H μουσική μέσα στο παιχνίδι να είναι ολόκληρη όπως και στο μενού. Όταν
+;  γίνεται επίθεση να σταματάει." A fight is SHOTS: cbt_shots moving. Every
+;  shot rearms MUS_QUIET_FRAMES of silence, so the tune comes back a few
+;  seconds after the last one, and it does not restart -- mus_update goes on
+;  advancing the three streams while mus_held is set and mus_write_block
+;  writes an idle block instead of the note, so it comes back in time with
+;  itself. The transition IN zeroes the three voices' timers, because a note
+;  already sounding would otherwise ring for the rest of its MUS_TIMER; and it
+;  gives channel B back to the noise generator, because that is where the
+;  explosions are. Bank 4 code called once a frame from mus_update, which is
+;  the low 16K and had no page to spare.
+; ----------------------------------------------------------------------------
+MUS_QUIET_FRAMES    equ 30              ; ~4-6 s of no shooting before it returns
+
+mus_battle:
+    ;  A fight is a SHOT or a DEATH -- the two counters cbt_update keeps,
+    ;  folded into one byte so one shadow sees both. A death without a shot
+    ;  is the ambush's toll, and an explosion under the harmony would be a
+    ;  tone: B has to be the noise voice by then.
+    ld a,(cbt_shots)
+    ld hl,cbt_kills
+    add a,(hl)
+    ld hl,mus_shots_seen
+    cp (hl)
+    ld (hl),a
+    jr z,@mus_no_shot
+    ld a,MUS_QUIET_FRAMES
+    ld (mus_quiet),a
+    jr @mus_battle_state
+@mus_no_shot:
+    ld hl,mus_quiet
+    ld a,(hl)
+    or a
+    jr z,@mus_battle_state
+    dec (hl)
+@mus_battle_state:
+    ld a,(mus_quiet)
+    or a
+    ld hl,mus_held
+    jr z,@mus_calm
+    ;  a fight: hold, and on the way in silence what is sounding
+    ld a,(hl)
+    or a
+    ret nz                              ; already held
+    ld (hl),1
+    ld a,SND_MIX_B_NOISE
+    ld (snd_mix_mask_b),a
+    xor a
+    ld (snd_voice_a),a
+    ld (snd_voice_b),a
+    ld (snd_voice_c),a
+    ret
+@mus_calm:
+    ld (hl),0
+    ;  B goes back to being a TONE voice for the harmony once nothing is
+    ;  sounding on it -- snd_start_b took it for the noise generator, and an
+    ;  explosion is not always inside a fight (the ambush's toll, for one).
+    ;  Every frame, because it is two loads and a compare.
+    ld a,(mus_solo)
+    or a
+    ret nz                              ; solo keeps B for the noise
+    ld a,(snd_voice_b)                  ; +0 timer: an effect still on it
+    or a
+    ret nz
+    ld a,SND_MIX_B_TONE
+    ld (snd_mix_mask_b),a
+    ret

@@ -1486,36 +1486,59 @@ class TestTheMusicUnderTheGame(unittest.TestCase):
         self.c.key_up(key)
         self.c.run_frames(frames)
 
-    def test_a_mission_has_music_and_it_is_the_solo_mode(self):
+    def test_a_mission_has_music_and_it_is_the_whole_tune(self):
+        """"H μουσική μέσα στο παιχνίδι να είναι ολόκληρη όπως και στο μενού.
+        Όταν γίνεται επίθεση να σταματάει." Three voices, and mus_battle holds
+        them while there is shooting -- see the two tests below."""
         self.assertEqual(self.on(), 1, "the mission came up silent")
-        self.assertEqual(self.c.read_ram(self.sym["MUS_SOLO"], 1)[0], 1,
-                         "the game is running the menu's three-voice mode")
+        self.assertEqual(self.c.read_ram(self.sym["MUS_SOLO"], 1)[0], 0,
+                         "the game is still running the one-voice mode")
 
-    def test_only_channel_C_is_filled(self):
-        """A and B are the shots and the explosions. Filling them would not
-        share the chip, it would fight for it: an effect takes a channel by
-        priority and the music only rewrites a block at a NOTE boundary, so a
-        shot would silence a voice for whole seconds.
+    def shoot(self):
+        """One shot, as cbt_update would count it."""
+        n = self.c.read_ram(self.sym["CBT_SHOTS"], 1)[0]
+        self.c.write_ram(self.sym["CBT_SHOTS"], bytes([(n + 1) & 0xFF]))
 
-        Followed by the STREAM POINTERS, which is the only place the answer is
-        unambiguous: voice A's block is written by snd_fire as well, so a live
-        timer there says nothing about who put it in.
-        """
+    def held(self):
+        return self.c.read_ram(self.sym["MUS_HELD"], 1)[0]
+
+    def test_a_shot_holds_the_tune_and_the_quiet_brings_it_back_in_time(self):
+        self.c.run_frames(60)
+        self.assertEqual(self.held(), 0, "the tune was held with nobody shooting")
+        v = int.from_bytes(self.c.read_ram(self.sym["MUS_V0"], 2), "little")
+        self.shoot()
+        h.let_the_game_draw(self.c, self.sym, 2)
+        self.assertEqual(self.held(), 1, "a shot did not hold the tune")
+        self.assertEqual(self.c.read_ram(self.sym["SND_VOICE_A"], 1)[0], 0,
+                         "voice A went on sounding into the fight")
+        self.assertEqual(self.c.read_ram(self.sym["SND_VOICE_B"], 1)[0], 0,
+                         "voice B went on sounding into the fight")
+        #  ...held, not stopped: the streams go on advancing so it comes back
+        #  where it would have been, and it comes back once the quiet has run.
+        h.let_the_game_draw(self.c, self.sym, self.sym["MUS_QUIET_FRAMES"] + 4)
+        self.assertEqual(self.held(), 0, "the tune did not come back after the quiet")
+        self.assertNotEqual(int.from_bytes(self.c.read_ram(self.sym["MUS_V0"], 2), "little"), v,
+                            "the bass stream stood still while held: it would come back late")
+
+    def test_all_three_streams_advance_in_the_game(self):
+        """It was one voice, because A and B are the shots and the explosions
+        and an effect takes a channel by priority. Now the FIGHT holds the
+        tune instead, so out of one all three streams run. Followed by the
+        STREAM POINTERS, which is the only place the answer is unambiguous."""
         v0, v1, v2 = (int.from_bytes(self.c.read_ram(self.sym[n], 2), "little")
                       for n in ("MUS_V0", "MUS_V1", "MUS_V2"))
         self.c.run_frames(600)
         after = tuple(int.from_bytes(self.c.read_ram(self.sym[n], 2), "little")
                       for n in ("MUS_V0", "MUS_V1", "MUS_V2"))
         self.assertNotEqual(after[0], v0, "the bass stream never advanced")
-        self.assertEqual(after[1], v1, "the harmony stream advanced in game")
-        self.assertEqual(after[2], v2, "the lead stream advanced in game")
+        self.assertNotEqual(after[1], v1, "the harmony stream never advanced in game")
+        self.assertNotEqual(after[2], v2, "the lead stream never advanced in game")
 
     def test_the_noise_generator_is_still_open_for_explosions(self):
-        """The menu's mode makes B a TONE voice, because the tune's harmony is
-        on it. In the game the music is on C, B is the noise voice again, and
-        taking the noise bit away would silence every ship that dies.
-
-        read_psg last and once: it leaves interrupts off.
+        """The tune makes B a TONE voice, because its harmony is on it. An
+        explosion takes it back for the noise generator the moment it starts
+        (snd_start_b), and taking the noise bit away would silence every ship
+        that dies. read_psg last and once: it leaves interrupts off.
         """
         from tests.test_music import read_psg
 

@@ -41,6 +41,8 @@ class TitleFixture(unittest.TestCase):
         #  briefing=True: the harness would otherwise press ENTER past both
         #  this and the briefing behind it before the test got a look.
         self.c = h.boot_quick(frames=400, briefing=True)
+        #  ...and wait for the title rather than trust the count.
+        h.wait_for_title(self.c)
 
     def tearDown(self):
         h.close(getattr(self, "c", None))
@@ -49,8 +51,12 @@ class TitleFixture(unittest.TestCase):
         return h.read_bank4(self.c, self.sym[name], size)
 
     def string(self, name, limit=40):
-        raw = self.banked(name, limit)
-        return raw.split(b"\x00")[0]
+        #  BANK 7: the title's words went across with the rest of the text,
+        #  so this is what the build put on the disc, not the window.
+        with open("build/bank7.raw", "rb") as f:
+            bank7 = f.read()
+        off = self.sym[name] - 0x4000
+        return bank7[off:off + limit].split(b"\x00")[0]
 
     def row_ink(self, y):
         """Lit pixels on one scanline of the visible screen."""
@@ -537,23 +543,25 @@ class TestTheMusic(TitleFixture):
         self.assertEqual(self.banked("TITLE_SHOWN")[0], 1,
                          "M started the game")
 
-    def test_the_game_gets_the_tune_too_but_on_one_voice(self):
-        """It used to stop dead at SPACE, and these two tests said so -- "the
-        music followed the fleet into the game" was the failure message. The
-        game has it now, on channel C alone: A and B are the shots and the
-        explosions, and C is what section 12 keeps for alerts and the jump.
+    def test_the_game_gets_the_whole_tune_too(self):
+        """It used to stop dead at SPACE, then it followed the fleet in on one
+        voice, and now it is the menu's whole tune: "H μουσική μέσα στο
+        παιχνίδι να είναι ολόκληρη όπως και στο μενού." What makes that
+        possible with A and B being the shots and the explosions is that a
+        fight HOLDS it -- see mus_battle, and tests/test_sound.py.
         """
         self.tap(cpc.KEY_SPACE, frames=25)
         self.c.run_frames(60)
         self.assertEqual(self.on(), 1, "the game came up silent")
-        self.assertEqual(self.c.read_ram(self.sym["MUS_SOLO"], 1)[0], 1,
-                         "the game is running the menu's three-voice mode")
+        self.assertEqual(self.c.read_ram(self.sym["MUS_SOLO"], 1)[0], 0,
+                         "the game is still running the one-voice mode")
 
     def test_and_the_tutorial_does_too(self):
         self.tap("t", frames=25)
         self.c.run_frames(60)
-        self.assertEqual(self.c.read_ram(self.sym["MUS_SOLO"], 1)[0], 1,
-                         "the tutorial kept the menu's three-voice mode")
+        self.assertEqual(self.on(), 1, "the tutorial came up silent")
+        self.assertEqual(self.c.read_ram(self.sym["MUS_SOLO"], 1)[0], 0,
+                         "the tutorial is running the one-voice mode")
 
     def test_a_mute_on_the_menu_survives_into_the_game(self):
         """One key with one meaning, and one ANSWER: a player who asked for

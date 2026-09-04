@@ -23,7 +23,9 @@ sym = h.symbols()
 
 c = cpc.CPC()
 c.run_frames(h.BOOT_FRAMES)
-if not c.insert_disc(h.DSK):
+with open(h.DSK, "rb") as f:               # BYTES: handed the path, cpcemu writes the image back on close
+    _image = f.read()
+if not c.insert_disc(_image):
     raise SystemExit("insert_disc failed")
 
 w, hgt = c.image(aspect=True).size

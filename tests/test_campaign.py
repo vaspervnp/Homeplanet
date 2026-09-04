@@ -72,8 +72,12 @@ class CampaignFixture(unittest.TestCase):
 
     def descriptor(self, index):
         """A mission row, read out of bank 4 through the CPU's view."""
-        base = self.sym["MISSION_TABLE"] + index * MIS_SIZE
-        return h.read_bank4(self.c, base, MIS_SIZE)
+        #  The table is in BANK 7 now, so this is what the build put on the
+        #  disc rather than the CPU's view of the window.
+        with open("build/bank7.raw", "rb") as f:
+            bank7 = f.read()
+        base = self.sym["MISSION_TABLE"] - 0x4000 + index * MIS_SIZE
+        return bank7[base:base + MIS_SIZE]
 
     # -- playing ------------------------------------------------------------
     def hold(self, key, frames=25):
@@ -381,12 +385,13 @@ class TestTheWayOut(CampaignFixture):
         for harness.clear_the_way_out to top a purse up to; it is the wrong
         thing for a test that wants to be one unit short of THIS jump.
 
-        Bank 4, so read_bank4 and not read_ram: mission_fare lives beside
-        mission_table and the window has a sprite library in it a tenth of the
-        time.
+        BANK 7, so off build/bank7.raw: mission_fare lives beside
+        mission_table, which went across with the rest of campaign.asm.
         """
-        addr = self.sym["MISSION_FARE"] + self.byte("MIS_INDEX") * 2
-        return int.from_bytes(h.read_bank4(self.c, addr, 2), "little")
+        with open("build/bank7.raw", "rb") as f:
+            bank7 = f.read()
+        addr = self.sym["MISSION_FARE"] - 0x4000 + self.byte("MIS_INDEX") * 2
+        return int.from_bytes(bank7[addr:addr + 2], "little")
 
     def pay_the_fare(self, over=True):
         """The treasury the drive is fuelled out of. `over=False` leaves the
@@ -569,6 +574,7 @@ class TestFleetPersistence(CampaignFixture):
         before, _ = self.fleet()
         self.assertGreater(before, 5)
         self.c.run_frames(120)
+        h.clear_the_way_out(self.c)          # or J is refused and this watches mission 1
         self.hold("j", frames=25)
         after, _ = self.fleet()
         self.assertEqual(after, before, "the fleet changed size crossing a jump")
@@ -576,8 +582,10 @@ class TestFleetPersistence(CampaignFixture):
     def test_losses_are_permanent(self):
         """'Ό,τι χάνεται, χάνεται οριστικά.'"""
         self.c.run_frames(120)
+        h.clear_the_way_out(self.c)          # or J is refused and this watches mission 1
         self.hold("j", frames=25)                 # mission 2
         self.c.run_frames(120)
+        h.clear_the_way_out(self.c)          # or J is refused and this watches mission 1
         self.hold("j", frames=25)                 # mission 3, with a picket
 
         before, _ = self.fleet()
@@ -593,6 +601,7 @@ class TestFleetPersistence(CampaignFixture):
         self.assertEqual(killed, 2)
 
         self.assertTrue(self.play_until_complete())
+        h.clear_the_way_out(self.c)          # or J is refused and this watches mission 1
         self.hold("j", frames=25)
         after, _ = self.fleet()
         self.assertEqual(after, before - 2,
@@ -633,8 +642,10 @@ class TestFleetPersistence(CampaignFixture):
         campaign ended with "the Mothership was lost".
         """
         self.c.run_frames(120)
+        h.clear_the_way_out(self.c)          # or J is refused and this watches mission 1
         self.hold("j", frames=25)                 # mission 2
         self.c.run_frames(120)
+        h.clear_the_way_out(self.c)          # or J is refused and this watches mission 1
         self.hold("j", frames=25)                 # mission 3, with a picket
 
         killed = 0
@@ -648,6 +659,7 @@ class TestFleetPersistence(CampaignFixture):
         self.assertEqual(killed, 2)
 
         self.assertTrue(self.play_until_complete())
+        h.clear_the_way_out(self.c)          # or J is refused and this watches mission 1
         self.hold("j", frames=25)                 # mission 4 lays out its own enemies
 
         slot = self.byte("MOTH_SLOT")
@@ -666,6 +678,7 @@ class TestFleetPersistence(CampaignFixture):
         self.c.write_ram(self.sym["ENTITIES"] + slot * ENT_SIZE + ENT_HULL, bytes([77]))
 
         self.c.run_frames(120)
+        h.clear_the_way_out(self.c)          # or J is refused and this watches mission 1
         self.hold("j", frames=25)
 
         hulls = [self.ent(s, ENT_HULL) for s in range(ENT_MAX)
@@ -1161,9 +1174,15 @@ class TestTheJumpCountsDown(unittest.TestCase):
         was = self.byte("MIS_INDEX")
         self.assertEqual(self.banked("JUMP_SECS"), 0)
         self.press("j")
-        self.assertEqual(self.banked("JUMP_SECS"),
-                         self.sym["JUMP_COUNT_SECS"] - 1,
-                         "J did not start the countdown at JUMP_COUNT_SECS")
+        #  Sixty frames after the key went down is a second and a bit of
+        #  ticks, less however long the key took to be seen -- so the count
+        #  has either just started or just ticked once. It used to assert
+        #  exactly one tick and became a test of the frame rate.
+        secs = self.banked("JUMP_SECS")
+        self.assertIn(secs, (self.sym["JUMP_COUNT_SECS"], self.sym["JUMP_COUNT_SECS"] - 1),
+                      "J did not start the countdown at JUMP_COUNT_SECS")
+        self.c.run_frames(60)
+        self.assertLess(self.banked("JUMP_SECS"), secs, "the countdown is not counting")
         self.assertEqual(self.byte("MIS_INDEX"), was,
                          "J jumped immediately instead of announcing")
 
@@ -1236,3 +1255,66 @@ class TestTheJumpCountsDown(unittest.TestCase):
         self.press("j")
         self.assertLessEqual(self.banked("JUMP_SECS"), secs,
                              "a second J put the countdown back up")
+
+
+class _Landing:
+    """finishup.md item 4: the Mothership sets down on the planet before the
+    victory page. game/landing.asm: its own loop, the planet where the page
+    draws it, the ship crossing towards it and getting smaller, then gone.
+    Mixed into TestTheEndOfTheJourney below so its fixture is shared without
+    its tests being run twice.
+    """
+
+    def test_the_landing_takes_its_time_and_then_the_page_comes(self):
+        self.at_mission(self.LAST)
+        self.c.key_down("j")
+        self.c.run_frames(40)
+        self.c.key_up("j")
+        h.skip_the_countdown(self.c)
+        #  The landing is LAND_STEPS of MG_STEP_TICKS: seen counting down, and
+        #  the page only after it.
+        seen = []
+        for _ in range(400):
+            self.c.run_frames(5)
+            left = self.banked("LAND_LEFT")
+            if left and (not seen or seen[-1] != left):
+                seen.append(left)
+            if self.banked("MIS_WON"):
+                break
+        else:
+            self.fail("the landing never ended in the victory page")
+        self.assertGreater(len(seen), 5, f"the landing was not seen stepping: {seen}")
+        self.assertEqual(seen, sorted(seen, reverse=True), f"the landing counted the wrong way: {seen}")
+
+    def test_the_planet_and_the_ship_are_on_the_screen_while_it_lands(self):
+        self.at_mission(self.LAST)
+        self.c.key_down("j")
+        self.c.run_frames(40)
+        self.c.key_up("j")
+        h.skip_the_countdown(self.c)
+        for _ in range(400):
+            self.c.run_frames(5)
+            left = self.banked("LAND_LEFT")
+            if 0 < left < self.sym["LAND_STEPS"] - 3:
+                break
+        else:
+            self.fail("never caught the landing in progress")
+        self.c.run_frames(10)
+        ram = self.c.read_ram(h.front_buffer(self.c), 0x4000)
+        #  The planet's limb is ink 2, on the page's own centre line...
+        cy = self.sym["OVER_PLANET_CY"]
+        limb = sum(1 for x in range(80) if ram[h.screen_offset(cy, x)] & 0x0F)
+        self.assertGreater(limb, 0, "no planet on the landing screen")
+        #  ...and the ship is ink 1 somewhere above it, on its way down.
+        white = 0
+        for y in range(self.sym["LAND_Y0"] - 10, cy):
+            for x in range(80):
+                b = ram[h.screen_offset(y, x)]
+                white += bin(b & 0xF0 & ~((b & 0x0F) << 4)).count("1")
+        self.assertGreater(white, 0, "no ship on the landing screen")
+
+
+TestTheEndOfTheJourney.test_the_landing_takes_its_time_and_then_the_page_comes = \
+    _Landing.test_the_landing_takes_its_time_and_then_the_page_comes
+TestTheEndOfTheJourney.test_the_planet_and_the_ship_are_on_the_screen_while_it_lands = \
+    _Landing.test_the_planet_and_the_ship_are_on_the_screen_while_it_lands

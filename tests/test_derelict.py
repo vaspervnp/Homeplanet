@@ -145,8 +145,12 @@ class DerelictFixture(unittest.TestCase):
                 == (F_ACTIVE | F_ENEMY)}
 
     def descriptor(self, index):
-        base = self.sym["MISSION_TABLE"] + index * MIS_SIZE
-        return h.read_bank4(self.c, base, MIS_SIZE)
+        #  The table is in BANK 7 now, so this is what the build put on the
+        #  disc rather than the CPU's view of the window.
+        with open("build/bank7.raw", "rb") as f:
+            bank7 = f.read()
+        base = self.sym["MISSION_TABLE"] - 0x4000 + index * MIS_SIZE
+        return bank7[base:base + MIS_SIZE]
 
     # -- pressing -----------------------------------------------------------
     def hold(self, key, frames=HOLD, release=RELEASE):
@@ -174,10 +178,27 @@ class DerelictFixture(unittest.TestCase):
         #  mission cannot be left before its third wave or with anything
         #  hostile flying. tests/test_campaign.TestTheWayOut is the rule.
         h.clear_the_way_out(self.c)
+        #  ...and a whole Mothership, because these jumps are the road and
+        #  not the test. J spools for ten seconds of live battle now, and
+        #  eight of those in a row left the base at 15 hull on arrival at
+        #  mission 9 -- where the picket killed it in the frames before
+        #  clear_the_board, the campaign ended, and the tow it was about to
+        #  test never began. Reported as "the hull was never delivered".
+        self.set_ent(self.byte("MOTH_SLOT"), ENT_HULL, 255)
         was = self.byte("MIS_INDEX")
         self.hold("j", frames=40, release=40)
+        #  ...and FREEZE the battle for the arrival. A picket spawns on top of
+        #  the fleet -- THE GATE's twelve, COLD IRON's bombers -- and in the
+        #  second or two of settling before a test has cleared the board it
+        #  took a dozen ships and, from mission 9, the Mothership. The pause
+        #  is set here, before the spool: wait_out_the_countdown lifts it for
+        #  the ten seconds of live battle and puts it back for the arrival,
+        #  and it is lifted again below, so the test that follows sees the
+        #  world it always saw -- with a few frames of exposure, not a hundred.
+        self.c.write_ram(self.sym["ORDER_PAUSED"], b"\x01")
         h.dismiss_briefing(self.c)
         self.settle_after_a_jump()
+        self.c.write_ram(self.sym["ORDER_PAUSED"], b"\x00")
         self.assertEqual(self.byte("MIS_INDEX"), was + 1,
                          "the jump was refused, so nothing after this means anything")
 
@@ -1070,3 +1091,83 @@ class TestTheBriefingSaysSo(BarFixture):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestTheUnlockBanner(DerelictFixture):
+    """"βγάλε ένα σχετικό μήνυμα στο κέντρο της οθόνης για την νέα δυνατότητα."
+    game/banner.asm: one line across the middle of the view for BAN_TICKS,
+    erased by the dirty list like a ship. Driven by ban_say's own state
+    rather than by a tow, which the tow tests above already prove reaches
+    wave_say_unlock -- and wave_say_unlock calls ban_say.
+    """
+
+    FIRST_CHAR, LAST_CHAR, CHAR_H = 32, 95, 8
+
+    def row(self, y, x0, cells):
+        ram = self.c.read_ram(h.front_buffer(self.c), 0x4000)
+        font = bytes(self.c.read_ram(
+            self.sym["TXT_FONT"], (self.LAST_CHAR - self.FIRST_CHAR + 1) * self.CHAR_H))
+        out = []
+        for bx in range(x0, x0 + cells * 2, 2):
+            cell = []
+            for r in range(self.CHAR_H):
+                a = ram[h.screen_offset(y + r, bx)]
+                b = ram[h.screen_offset(y + r, bx + 1)]
+                cell.append(((a | (a << 4)) & 0xF0) | (((b | (b << 4)) & 0xF0) >> 4))
+            best, bd = " ", 999
+            for ci in range(self.FIRST_CHAR, self.LAST_CHAR + 1):
+                g = font[(ci - self.FIRST_CHAR) * self.CHAR_H:(ci - self.FIRST_CHAR + 1) * self.CHAR_H]
+                d = sum(bin(p ^ q).count("1") for p, q in zip(g, cell))
+                if d < bd:
+                    bd, best = d, chr(ci)
+            out.append(best if bd <= 2 else "?")
+        return "".join(out)
+
+    def banner_rows(self):
+        y = self.sym["BAN_Y"]
+        return (self.row(y, self.sym["BAN_FRIGATE_X"], 30),
+                self.row(y, self.sym["BAN_DESTROYER_X"], 32))
+
+    def say(self, msg):
+        h.write_cpu(self.c, self.sym["BAN_MSG"], bytes([msg]))
+        h.write_cpu(self.c, self.sym["BAN_TICK0"], self.c.read_ram(self.sym["SYS_TICK_50HZ"], 1))
+
+    def test_the_frigate_line_is_across_the_middle_and_then_gone_from_both_buffers(self):
+        self.c.write_ram(self.sym["ORDER_PAUSED"], b"\x00")
+        self.say(1)
+        h.let_the_game_draw(self.c, self.sym, 3)
+        self.assertEqual(self.banner_rows()[0], "THE YARD CAN BUILD THE FRIGATE")
+        #  ...for BAN_TICKS, and then the dirty list takes it off BOTH buffers.
+        self.c.run_frames(self.sym["BAN_TICKS"] + 10)
+        h.let_the_game_draw(self.c, self.sym, 4)
+        #  The WORDS, not "nothing lit": the fleet sits in the middle of the
+        #  view and is drawn there every frame.
+        for buf in (0x8000, 0xC000):
+            front = h.front_buffer(self.c)
+            if front != buf:
+                h.let_the_game_draw(self.c, self.sym, 1)
+            self.assertNotEqual(self.banner_rows()[0], "THE YARD CAN BUILD THE FRIGATE",
+                                f"the banner is still on buffer {buf:#x}")
+
+    def test_the_destroyer_line_names_the_destroyer(self):
+        self.c.write_ram(self.sym["ORDER_PAUSED"], b"\x00")
+        self.say(2)
+        h.let_the_game_draw(self.c, self.sym, 3)
+        self.assertEqual(self.banner_rows()[1], "THE YARD CAN BUILD THE DESTROYER")
+
+    def test_delivering_the_hull_puts_it_up(self):
+        """The real door: towing the frigate hull home calls wave_say_unlock,
+        which says it. Asserted on the state, because the tow above is long."""
+        self.jump_to(self.sym["MIS_DERELICT_FROM"])
+        hull = self.derelicts().pop()
+        corvette = self.make_corvette()
+        self.clear_the_board({corvette})
+        self.hold("t")
+        for _ in range(80):
+            self.c.run_frames(30)
+            if not (self.ent(hull, ENT_FLAGS) & F_ACTIVE):
+                break
+        else:
+            self.fail("the hull was never delivered")
+        self.assertEqual(h.read_bank4(self.c, self.sym["BAN_MSG"], 1)[0], 1,
+                         "the delivery did not put the banner up")

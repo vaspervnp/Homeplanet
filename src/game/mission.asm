@@ -249,6 +249,16 @@ mis_timer:          defw 0              ; 50 Hz TICKS since mis_setup; see above
 ;  hold, which is up to five seconds of wave clock nobody asked for.
 mis_tick_last:      defb 0
 mis_desc:           defw 0
+;  The mission being played: its whole row out of mission_table, copied down
+;  by mis_setup, and what every mis_descriptor caller reads. The table is in
+;  BANK 7 and this is the only copy of any row anywhere the CPU can read it
+;  with bank 4 up. IN THE LOW 16K, AND INSIDE THE IMAGE, for two reasons that
+;  each cost an hour: it is filled by bank7_copy, whose destination must not
+;  be in the window -- after bank4_end it wrote the row back into bank 7 on top
+;  of the table -- and declared after code_end it took twenty bytes off the
+;  test scratch the low 16K's `free:` figure protects. Here it sits in the
+;  alignment slack before gen/tables.asm and costs neither.
+mis_cur:            defs MIS_SIZE, 0
 mis_src:            defw 0
 mis_scan:           defb 0
 mis_left:           defb 0

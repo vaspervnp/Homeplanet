@@ -7,19 +7,13 @@
 
 ;  Ten letters, and txt_big is 8 bytes a glyph, so this is exactly the 80-byte
 ;  width of the screen. The assert in title.asm holds it to that.
-title_text:
-    defb "HOMEPLANET",0
 
 ;  26 characters at 2 bytes each is 52, leaving 28 -- 14 bytes of margin each
 ;  side, which is TITLE_CREDIT_X.
-title_credit:
-    defb "REVIVE8BIT - 2026 - VASPER",0
 
 TITLE_CREDIT_X      equ 14
 
 ;  20 characters at 2 bytes is 40, so 20 bytes of margin each side.
-title_prompt:
-    defb "PRESS SPACE TO START",0
 
 TITLE_PROMPT_X      equ 20
 
@@ -27,9 +21,6 @@ TITLE_PROMPT_X      equ 20
 ;  the key the same way the line above it does -- "PRESS SPACE TO START" and
 ;  "T FOR THE TUTORIAL" are the same sentence about two keys, and the whole
 ;  point is that one is not more discoverable than the other.
-title_tut:
-    defb "T TUTORIAL  M MUSIC",0
-title_tut_end:
 
 ;  19 characters at 2 bytes is 38, so 21 bytes of margin each side -- and this
 ;  is 20, deliberately. A CHARACTER CELL IS TWO BYTES, so every screen decoder
@@ -54,6 +45,9 @@ TITLE_TUT_X         equ 20
 ;      pixel), y, sprite, width in bytes, height ------------------------------
 ;      The Mothership leads with the frigate's hull -- the same stand-in the
 ;      game itself uses until the class has art of its own.
+;  THE FOUR STRINGS ARE IN BANK 7 -- title_words in game/screentext.asm, fetched
+;  a line at a time by title_draw through bank7_fetch. Only their columns stay.
+
 title_ship_table:
     defw   36
     defb  104

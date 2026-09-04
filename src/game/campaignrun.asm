@@ -29,9 +29,12 @@ mis_init:
     ld (mis_leave_ok),a
     ld (mis_failed),a
     ld (mis_won),a
+    ld (auto_armed),a                   ; ...and a new campaign starts unarmed
+    ld (auto_used),a
     ld (jump_secs),a                    ; ...and no jump is being counted down
     ld (mini_active),a                  ; ...and so is the chase's flag
     ld (mini_shown),a                   ; ...and its intro is unread again
+    ld (ban_msg),a                      ; ...and no unlock banner is up
     ld (mis_saved),a                    ; nothing banked yet
     ld (campaign_unlocks),a             ; ...and nothing reverse-engineered
     ld hl,0
@@ -121,9 +124,26 @@ mis_wipe_screen:
 
 ; ----------------------------------------------------------------------------
 ;  mis_descriptor -- HL -> the current mission's descriptor
-;  Uses: AF, DE, HL
+;  Uses: HL
+;
+;  THE COPY, not the table. mission_table is in bank 7 and mis_setup brings the
+;  row being played down into mis_cur before anything reads it; the briefing,
+;  the objective check and the setup itself all read that. Nothing else may
+;  read the table, because nothing else can -- see mis_row_in_bank7.
 ; ----------------------------------------------------------------------------
 mis_descriptor:
+    ld hl,mis_cur
+    ret
+
+
+; ----------------------------------------------------------------------------
+;  mis_row_in_bank7 -- HL -> the current mission's row, IN BANK 7
+;  Uses: AF, DE, HL
+;
+;  An address in a bank that is not under the window. The only thing that may
+;  be done with it is to hand it to bank7_copy, which mis_setup does.
+; ----------------------------------------------------------------------------
+mis_row_in_bank7:
     ld a,(mis_index)
     ld l,a
     ld h,0
@@ -185,6 +205,18 @@ mis_setup:
     call mis_clear_enemies
     call mis_spawn_derelict
 
+    ;  A fresh AUTO RESPONSE every mission, and OFF: "Kάθε πίστα ξεκινάει
+    ;  με autoresponse off." An arm made before the jump does not carry --
+    ;  see game/retaliate.asm.
+    xor a
+    ld (auto_armed),a
+    ld (auto_used),a
+
+    ;  The row, down from bank 7 into the one copy everything reads.
+    call mis_row_in_bank7
+    ld de,mis_cur
+    ld bc,MIS_SIZE
+    call bank7_copy
     call mis_descriptor
     ld (mis_desc),hl
 
@@ -277,8 +309,7 @@ mis_setup:
     ld b,h
     ld hl,eco_patches
     ex de,hl
-    ldir                                ; from the descriptor into the patches
-    ret
+    jp bank7_copy                       ; the layouts are in bank 7 with the row
 
 
 ; ----------------------------------------------------------------------------
@@ -359,7 +390,7 @@ mis_spawn_derelict:
     ex de,hl
     ld hl,derelict_pos
     ld bc,6
-    ldir
+    call bank7_copy                     ; six bytes out of bank 7, into the low 16K
     pop hl
 
     ;  Squadron, order and target come out right for free, and the class does
@@ -804,10 +835,11 @@ mis_jump_fare:
     ld h,0
     add hl,hl
     ld de,mission_fare
-    add hl,de
-    ld e,(hl)
-    inc hl
-    ld d,(hl)
+    add hl,de                           ; ...an address in bank 7, so:
+    ld de,bank7_line
+    ld bc,2
+    call bank7_copy
+    ld de,(bank7_line)
     ret
 
 
@@ -1073,7 +1105,9 @@ mis_jump_now:
     ;
     ;  Nothing arms jfx_armed on this path either, so the seventeen-second
     ;  reveal that copy existed to prevent has nothing to fire from.
-    ;  finishup.md item 4 is what goes here instead.
+    ;  What goes here instead is the LANDING: game/landing.asm, the
+    ;  Mothership setting down on the planet the victory page then shows.
+    call land_run
 
     ;  ...and that is the whole of it. mis_index is NOT advanced -- there is no
     ;  twentieth-first row -- and the save is NOT written, because over_key

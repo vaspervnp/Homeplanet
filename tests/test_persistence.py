@@ -42,7 +42,9 @@ class DiscFixture(unittest.TestCase):
         """A cold 6128 with our disc in the drive, sitting at the BASIC prompt."""
         c = cpc.CPC()
         c.run_frames(h.BOOT_FRAMES)
-        if not c.insert_disc(h.DSK):
+        with open(h.DSK, "rb") as f:          # BYTES: handed the path, cpcemu writes the image back on close
+            image = f.read()
+        if not c.insert_disc(image):
             raise RuntimeError(f"insert_disc failed for {h.DSK}")
         return c
 

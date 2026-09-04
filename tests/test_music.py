@@ -127,7 +127,9 @@ class PlayerFixture(unittest.TestCase):
         """
         c = cpc.CPC()
         c.run_frames(h.BOOT_FRAMES)
-        self.assertTrue(c.insert_disc(h.DSK), "insert_disc failed")
+        with open(h.DSK, "rb") as f:          # BYTES: handed the path, cpcemu writes the image back on close
+            image = f.read()
+        self.assertTrue(c.insert_disc(image), "insert_disc failed")
         c.type_text("|DISC\n")
         c.run_frames(60)
         c.type_text(f'RUN"{self.TUNE}\n')

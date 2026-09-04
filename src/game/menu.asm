@@ -196,12 +196,18 @@ menu_draw:
     ;  to give an order about.
     call static_wipe
 
-    ld hl,menu_title
+    ld hl,page_words
+    ld a,PAGE_MENU_TITLE
+    call bank7_fetch
+    ld hl,bank7_line
     ld b,MENU_MARK_X
     ld c,MENU_TITLE_Y
     call txt_draw
 
-    ld hl,menu_prompt
+    ld hl,page_words
+    ld a,PAGE_MENU_PROMPT
+    call bank7_fetch
+    ld hl,bank7_line
     ld b,MENU_PROMPT_X
     ld c,MENU_TITLE_Y
     call txt_draw

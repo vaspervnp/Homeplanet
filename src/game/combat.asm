@@ -59,6 +59,7 @@ cbt_init:
 ;  Uses: everything
 ; ----------------------------------------------------------------------------
 cbt_update:
+    call cbt_prey_roll                  ; bank 4: this frame's coin for the unarmed
     call cbt_age_explosions
     call cbt_retarget_one
     call cbt_move_enemies
@@ -874,7 +875,16 @@ cbt_find_enemy:
     ld d,0
     ld hl,cbt_prey_bias
     add hl,de
-    add a,(hl)
+    ;  ...HALF THE TIME. "make enemies attack unarmed ships 50% of the time":
+    ;  cbt_prey_mask is #FF or 0 for the frame, rolled by cbt_prey_roll, and
+    ;  ANDed with the class's bias here -- so on the frames it is 0 an unarmed
+    ;  ship is simply the nearest target it is, and on the others the escort
+    ;  takes the shot as before. Per FRAME, not per search, because the roll
+    ;  is bank 4 code and this loop is the low 16K's busiest.
+    ld d,a
+    ld a,(cbt_prey_mask)
+    and (hl)
+    add a,d
     jr nc,@cbt_prey_fits
     ld a,255                            ; cbt_distance saturates; so does this
 @cbt_prey_fits:
@@ -920,7 +930,7 @@ cbt_find_enemy:
 ;  every unarmed ship to "infinitely far" and they would stop being targets at
 ;  all rather than being poor ones.
 ; ----------------------------------------------------------------------------
-CBT_UNARMED_BIAS    equ 96
+CBT_UNARMED_BIAS    equ 96              ; ...applied on half the frames; see cbt_prey_mask
 
 cbt_prey_bias:
     defb 0                              ; interceptor

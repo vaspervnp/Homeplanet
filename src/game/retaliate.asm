@@ -1,40 +1,38 @@
 ; ============================================================================
-;  retaliate.asm -- a squadron that is shot at shoots back
+;  retaliate.asm -- AUTO RESPONSE: a squadron that is shot at shoots back, once
 ; ============================================================================
 ;  "Aν επιτεθεί εχθρός σε squadron, αμέσως το squadron μπαίνει σε attack mode."
+;  ...and then: "Η αυτόματη επίθεση να είναι μπόνους και να μπορεί να
+;  χρησιμοποιηθεί μόνο μία φορά με το Α, όπως η απλή επίθεση, σε κάθε πίστα."
 ;
-;  Until this, a squadron holding station under fire held station: the ships
-;  fired at whatever was in CBT_RANGE, but nothing closed on the attacker, so
-;  a wave that came in on a formation's edge picked the ships off one by one
-;  while the rest sat a formation-width away out of range -- item 3 of "A
-;  fleet has to be able to concentrate", arriving without the player having
-;  pressed A. Now the first hit on any ship of a squadron puts every IDLE ship
-;  in it under ENT_ORDER_ATTACK with the shooter as the target, which is
-;  exactly what `A` with that target picked would have written. Everything
-;  downstream is the attack order's own machinery: cbt_move_enemies closes
-;  them, cbt_fire_if_able re-acquires when the shooter dies and SPENDS the
-;  order when nothing is left, so the squadron comes home by itself.
+;  So it is a BONUS, armed by the player and spent by the enemy. Press A with
+;  nothing hostile flying and, if the mission's one response is still unused,
+;  it is ARMED and the HUD's message row says AUTO RESPONSE ON; the first hit
+;  an enemy then lands on any ship of a squadron puts every IDLE ship in that
+;  squadron under ENT_ORDER_ATTACK with the shooter as the target -- byte for
+;  byte what `A` with that target picked would have written -- and the
+;  response is USED for the rest of the mission. Press A with nothing hostile
+;  flying after that and the row says AUTO RESPONSE USED. With something
+;  hostile flying, A is the attack order it has always been, and nothing here
+;  is consulted. mis_setup clears both flags, so "once a mission" is true by
+;  construction.
 ;
-;  Only IDLE ships. A harvester keeps mining and a corvette keeps towing --
-;  an `R` that emptied the fields each time a shot landed would stop the
-;  economy, which is the same argument order_release_attack makes -- a GUARD
-;  ship was told to hold and holds, and a ship already ATTACKING keeps the
-;  target the player or a previous hit gave it. The Mothership is never
-;  ordered: its ENT_SQUAD is SQUAD_NONE and the victim's squadron is never
-;  that, so the compare excludes it for nothing. And a hit ON the Mothership
-;  answers nothing, for the same reason the orders that tell a squadron where
-;  to be do not apply to it: it is not a squadron. The fleet defends it by
-;  being stationed on it.
+;  "In battle" is mis_count_hostiles, the same predicate the jump gate and
+;  the repair ask: wave ships count, wrecks do not.
 ;
-;  Not in the tutorial. Step 14 is the lesson that `A` attacks, and a stage
-;  that gave the order for the player would be teaching a key that was never
-;  pressed.
+;  Everything downstream of the response is the attack order's own machinery:
+;  cbt_move_enemies closes the squadron, cbt_fire_if_able re-acquires when the
+;  shooter dies and SPENDS the order when nothing is left, so it comes home by
+;  itself. Only IDLE ships -- a harvester keeps mining, a corvette keeps
+;  towing, a GUARD ship holds, a ship already attacking keeps its target. The
+;  Mothership is never ordered (its ENT_SQUAD is SQUAD_NONE and the victim's
+;  squadron never is) and a hit ON the Mothership answers nothing: it is not a
+;  squadron. Not in the tutorial, where step 14 teaches that A attacks.
 ;
 ;  IN BANK 4, called from the low 16K's cbt_fire_if_able -- legal by the
-;  narrow rule, because nothing pages bank 4 out during the simulation. It
-;  runs once per HIT on a friendly ship, not per frame, and a 56-slot walk at
-;  ~60 T a slot is ~3,400 T -- a hit costs a snd_fire and a damage lookup
-;  already, and hits are rate-limited by CBT_COOLDOWN per shooter.
+;  narrow rule, because nothing pages bank 4 out during the simulation -- and
+;  from order_update's A. The armed check is the first thing cbt_retaliate
+;  does, so on every hit of an ordinary mission it is a load and a RET.
 ;
 ;  THE SHOOTER'S SLOT IS ARITHMETIC ON cbt_index, which counts DOWN from
 ;  ENT_MAX and is decremented after the slot is done, so while cbt_ent is
@@ -56,6 +54,9 @@
 ;  Uses: everything
 ; ----------------------------------------------------------------------------
 cbt_retaliate:
+    ld a,(auto_armed)
+    or a
+    ret z                               ; not armed: the ordinary game
     ld a,(tut_active)
     or a
     ret nz
@@ -101,10 +102,65 @@ cbt_retaliate:
     ld a,(cbt_avenge)
     ld (hl),a
     dec hl
+    ;  ...and the response is SPENT by the first ship it orders. Not on the
+    ;  hit: a hit on a squadron with nothing idle in it would use the bonus
+    ;  up for nothing.
+    xor a
+    ld (auto_armed),a
+    inc a
+    ld (auto_used),a
     jr @cbt_ret_next
 @cbt_ret_empty:
     inc hl                              ; ...so every path leaves HL at ORDER
 @cbt_ret_next:
     add hl,de
     djnz @cbt_ret_slot
+    ret
+
+
+; ----------------------------------------------------------------------------
+;  order_attack_key -- A: the attack order in a fight, the bonus out of one
+;  Out: CF set if the attack order should NOT be issued (handled here)
+;  Uses: everything
+;
+;  Out of a fight there is nothing to attack, so A is the bonus's key: it arms
+;  the response and says so, or says it has been used. In a fight it is the
+;  attack order and this returns with carry clear before touching anything.
+; ----------------------------------------------------------------------------
+order_attack_key:
+    call mis_count_hostiles
+    or a
+    ret nz                              ; in a fight: A attacks, as always (CF clear)
+    ld a,(auto_used)
+    or a
+    ld a,WAVE_MSG_AUTO_USED
+    jr nz,@auto_say
+    ld a,1
+    ld (auto_armed),a
+    ld a,WAVE_MSG_AUTO_ON
+@auto_say:
+    ld (wave_msg),a
+    ld a,WAVE_SAY_FRAMES
+    ld (wave_say),a
+    scf
+    ret
+
+
+; ----------------------------------------------------------------------------
+;  cbt_prey_roll -- this frame's coin: does the unarmed bias apply?
+;  Uses: AF, HL
+;
+;  "make enemies attack unarmed ships 50% of the time." cbt_prey_bias pushes a
+;  harvester or a corvette CBT_UNARMED_BIAS further off than it is, so an
+;  escort in reach takes the shot; that made the miners safe as long as
+;  anything armed was near, which was the whole design and then too much of
+;  it. The mask is one bit of sys_rand widened to a byte, and the search ANDs
+;  the class's bias with it. Once a frame from cbt_update, in bank 4 because
+;  the low 16K had eleven bytes of slack and the call is three of them.
+; ----------------------------------------------------------------------------
+cbt_prey_roll:
+    call sys_rand
+    rlca                                ; bit 7 into the carry
+    sbc a,a                             ; #FF if it was set, 0 if not
+    ld (cbt_prey_mask),a
     ret

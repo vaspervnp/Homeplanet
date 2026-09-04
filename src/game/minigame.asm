@@ -125,7 +125,7 @@ MG_EVERY            equ 4
 ;  whole number of vertical blanks whatever the drawing cost -- and the tunnel
 ;  is therefore MG_STEPS * MG_STEP_TICKS / 50 seconds, 14.4, by arithmetic
 ;  rather than by measurement.
-MG_STEPS            equ 80
+MG_STEPS            equ 240             ; "Η διάρκεια να είναι 3 φορές περισσότερη": 33.6 s
 MG_STEP_TICKS       equ 7
 
 ;  The closing distance: where it starts, how fast it falls while the enemy is
@@ -137,8 +137,41 @@ MG_STEP_TICKS       equ 7
 ;  Two thirds of a fifteen-second chase, and the rest of it is recoverable
 ;  because the distance is capped rather than lost.
 MG_DIST0            equ 102
-MG_CLOSE            equ 3
+MG_CLOSE            equ 2               ; was 3 over 80 steps; see the note below
 MG_OPEN             equ 1
+
+;  THE TUNNEL IS THREE TIMES AS LONG NOW and the closing rate came down with it,
+;  or the chase would have been won in the first third: to reach zero from 102
+;  in MG_STEPS steps the player has to be lined up for f of them, where
+;  240*(2f - (1-f)) = 102, so f = 0.48 -- against 0.62 over the old eighty at
+;  MG_CLOSE 3. A little easier to CLOSE, on purpose, because the torpedoes
+;  below are what the extra time is for: dodging one pulls you off the line.
+
+;  THE TORPEDOES. "ο εχθρός να ρίχνει τορπίλες προς τα πίσω (όταν είναι σε
+;  μεγάλη απόσταση) σε τυχαία διαστήματα που ο παίκτης πρέπει να αποφύγει. Αν
+;  χτυπηθεί τρεις φορές, χάνει." While the distance is at or beyond
+;  MG_TORP_FAR -- the far tier, so "far" on the screen is "far" in the rule --
+;  each step rolls sys_rand against MG_TORP_P and fires one astern, at the
+;  enemy's lateral position as it was on that step. It comes down the shaft
+;  for MG_TORP_STEPS steps, growing as it nears, and on arrival it is a HIT if
+;  the player is within MG_TORP_HIT units of where it was aimed; the third
+;  hit is the loss, exactly as the tunnel running out is. One in the air at a
+;  time: the shaft is one lane and two would read as a stream.
+;  MG_TORP_P is 20/256 a step, so a torpedo about every thirteen steps, ~1.8 s,
+;  while it is far. Twelve steps of flight is 1.7 s, and MG_STEER is 8 units a
+;  step, so a player who moves the moment it appears has 96 units of room
+;  against a 16-unit hit radius: it is dodgeable, and only by moving.
+MG_TORP_FAR         equ MG_TIER_FAR
+MG_TORP_P           equ 20
+MG_TORP_STEPS       equ 12
+MG_TORP_HIT         equ 16
+MG_HITS_MAX         equ 3
+MG_TORP_PEN         equ 3               ; the alarm ink: it is one
+MG_TORP_RISE        equ 3               ; lines down the shaft per step of flight
+MG_HITS_X           equ 8               ; where the hit marks are drawn...
+MG_HITS_Y           equ MG_BODY_Y + 2   ; ...inside the band the step clears
+MG_HITS_STEP        equ 8
+MG_HITS_H           equ 6
 
 ;  ...and 10% to 50% of the fleet, as 256ths, so the count is one mul_u8 and a
 ;  shift -- the same arithmetic wave_frac_of does for a repair's price.
@@ -251,12 +284,13 @@ MG_HOLD             equ 100
 MG_INTRO_1_X        equ 8
 MG_INTRO_2_X        equ 5
 MG_INTRO_3_X        equ 5
-MG_INTRO_4_X        equ 6
+MG_INTRO_4_X        equ 3
+MG_INTRO_5_X        equ 6
 MG_INTRO_GO_X       equ 27
-MG_INTRO_Y          equ 48
+MG_INTRO_Y          equ 40
 MG_INTRO_STEP       equ 16
 MG_INTRO_GO_Y       equ 128
-MG_INTRO_LINES      equ 4
+MG_INTRO_LINES      equ 5
 
 MG_MSG_RUN          equ 0
 MG_MSG_WON          equ 1
@@ -311,6 +345,9 @@ mini_run:
     ld (mini_dist),a
     ld a,MG_STEPS
     ld (mini_left),a
+    xor a
+    ld (mini_torp),a                    ; nothing in the air
+    ld (mini_hits),a                    ; ...and nothing has landed
     ld a,(sys_tick_50hz)
     ld (mini_t0),a
 
@@ -349,6 +386,8 @@ mini_run:
     call mini_steer
     call mini_close
     jr c,@mg_caught
+    call mini_torpedo
+    jr c,@mg_lost                       ; the third hit
     call mini_draw
     call mini_wait
 
@@ -368,7 +407,9 @@ mini_run:
     dec (hl)
     jr nz,@mg_step
 
-    ;  The tunnel ran out with it still ahead of us.
+    ;  The tunnel ran out with it still ahead of us -- or the third torpedo
+    ;  landed, which costs the same: the ambush, sized on the distance.
+@mg_lost:
     call mini_penalty
     call snd_hit
     ld a,MG_MSG_LOST
@@ -761,7 +802,133 @@ mini_blank:
 mini_draw:
     call mini_clear
     call mini_rings
-    jp mini_ships
+    call mini_ships
+    call mini_hit_marks
+    ;  ...and fall into the torpedo, drawn last so it is over both ships.
+
+
+; ----------------------------------------------------------------------------
+;  mini_torp_draw -- the torpedo in flight, if there is one
+;  Uses: everything
+;
+;  A byte wide in the alarm ink, growing from two lines to eight as it comes
+;  down the shaft, at the same screen x the enemy would be drawn at for that
+;  lateral position -- so where it is aimed and where it is drawn cannot come
+;  to disagree. Nothing here clips in X: the lateral axis is 40..216 and
+;  mini_x is inside it too, so the sum stays within 72..248 by construction.
+; ----------------------------------------------------------------------------
+mini_torp_draw:
+    ld a,(mini_torp)
+    or a
+    ret z
+    ld b,a                              ; progress, 1..MG_TORP_STEPS
+    add a,a
+    add a,b                             ; * MG_TORP_RISE (3)
+    add a,MG_CY
+    ld c,a                              ; y
+    ld a,b
+    srl a
+    add a,2
+    ld e,a                              ; lines: 2 + progress/2, so 2..8
+
+    ;  A whole BYTE wide -- four pixels of the alarm ink, all four planes set,
+    ;  through scr_fill_rect rather than four gfx_vlines. Two pixels was a
+    ;  scratch on the screen at 320x200 and the thing exists to be seen coming.
+    ld a,(mini_torp_x)
+    ld hl,mini_x
+    sub (hl)
+    sra a
+    add a,MG_CX
+    srl a
+    srl a                               ; pixel -> byte column
+    ld b,a
+    ld d,1
+    ld a,#FF                            ; pen 3 in every pixel of the byte
+    jp scr_fill_rect
+
+
+; ----------------------------------------------------------------------------
+;  mini_hit_marks -- one red mark per torpedo that has landed
+;  Uses: everything
+;
+;  Top left of the band, which the step clears, so they cost nothing to keep
+;  right: they are drawn from mini_hits every step and there is no shadow.
+; ----------------------------------------------------------------------------
+mini_hit_marks:
+    ld a,(mini_hits)
+    or a
+    ret z
+    ld b,a
+    ld hl,MG_HITS_X
+@mg_mark:
+    push bc
+    push hl
+    ld c,MG_HITS_Y
+    ld b,MG_HITS_H
+    ld a,MG_TORP_PEN
+    call gfx_vline
+    pop hl
+    ld de,MG_HITS_STEP
+    add hl,de
+    pop bc
+    djnz @mg_mark
+    ret
+
+
+; ----------------------------------------------------------------------------
+;  mini_torpedo -- one step of the torpedo: launch, fly, land
+;  Out: CF set if the third hit has just landed
+;  Uses: everything
+;
+;  Every exit sets the carry deliberately. It is the answer, and this file's
+;  own history (mis_is_last, mis_derelict_wanted) is what happens when a `cp`
+;  is left to decide it.
+; ----------------------------------------------------------------------------
+mini_torpedo:
+    ld hl,mini_torp
+    ld a,(hl)
+    or a
+    jr nz,@mg_torp_fly
+
+    ;  Nothing in the air. Only while it is far, and only on a roll.
+    ld a,(mini_dist)
+    cp MG_TORP_FAR
+    jr c,@mg_torp_none                  ; it is running, not fighting
+    call sys_rand
+    cp MG_TORP_P
+    jr nc,@mg_torp_none
+    ld a,(mini_ex)
+    ld (mini_torp_x),a                  ; aimed at where it is NOW
+    ld a,1
+    ld (mini_torp),a
+    call snd_fire
+@mg_torp_none:
+    or a
+    ret
+
+@mg_torp_fly:
+    inc (hl)
+    ld a,(hl)
+    cp MG_TORP_STEPS + 1
+    jr c,@mg_torp_none                  ; still coming
+    ld (hl),0                           ; ...it has arrived: hit or miss
+
+    ld a,(mini_torp_x)
+    ld hl,mini_x
+    sub (hl)
+    jr nc,@mg_torp_gap
+    neg
+@mg_torp_gap:
+    cp MG_TORP_HIT
+    jr nc,@mg_torp_none                 ; dodged
+
+    ld hl,mini_hits
+    inc (hl)
+    call snd_hit
+    ld a,(mini_hits)
+    cp MG_HITS_MAX
+    ccf                                 ; CF was "below the max": invert it
+    ret
 
 
 ; ----------------------------------------------------------------------------
@@ -947,6 +1114,7 @@ mini_intro_xy:
     defb MG_INTRO_2_X, MG_INTRO_Y + MG_INTRO_STEP
     defb MG_INTRO_3_X, MG_INTRO_Y + 2 * MG_INTRO_STEP
     defb MG_INTRO_4_X, MG_INTRO_Y + 3 * MG_INTRO_STEP
+    defb MG_INTRO_5_X, MG_INTRO_Y + 4 * MG_INTRO_STEP
 
 
 ; ----------------------------------------------------------------------------
@@ -1110,6 +1278,8 @@ mini_hedge:
 ;  Uses: everything
 ; ----------------------------------------------------------------------------
 mini_ships:
+    xor a
+    ld (mini_cls),a                     ; CLASS_INTERCEPTOR, both of them
     ;  Theirs. How far off the middle of the tunnel it is drawn is the same
     ;  number the distance rule reads, halved -- so "line it up in the middle"
     ;  is the whole of the instruction and the screen cannot disagree with the
@@ -1236,9 +1406,15 @@ mini_blit:
 
     ;  The interceptor's row of class_sprite, which is the first one, and view
     ;  MG_VIEW at pre-shift 0.
+    ;  The class's row of class_sprite -- mini_cls, which the chase sets to
+    ;  the interceptor and the landing to the Mothership -- and the tier's
+    ;  entry in it.
     pop hl
-    add hl,hl
-    ld de,class_sprite
+    add hl,hl                           ; tier * 2
+    push hl
+    ld a,(mini_cls)
+    call class_sprite_addr              ; HL = &class_sprite[class]
+    pop de
     add hl,de
     ld e,(hl)
     inc hl
@@ -1260,7 +1436,12 @@ mini_blit:
 @mg_view_base:
     ld (spr_src),de
 
-    ld a,(class_bank)
+    ld a,(mini_cls)
+    ld e,a
+    ld d,0
+    ld hl,class_bank
+    add hl,de
+    ld a,(hl)                           ; ...and the bank that class is in
     jp spr_blit_banked
 
 ;  Steering -> view: straight, left, right.

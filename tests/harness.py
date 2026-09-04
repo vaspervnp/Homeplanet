@@ -185,7 +185,7 @@ def dismiss_title(c: cpc.CPC) -> None:
     raise RuntimeError("could not get past the title screen")
 
 
-def wait_for_briefing(c: cpc.CPC, frames: int = 2400) -> bool:
+def wait_for_briefing(c: cpc.CPC, frames: int = 5600) -> bool:
     """Give a briefing that is on its way a chance to appear.
 
     A jump is not instant, and it is now a long way from it. mis_jump runs the
@@ -222,10 +222,12 @@ def wait_for_briefing(c: cpc.CPC, frames: int = 2400) -> bool:
     ticks, two seconds of result and two black frames, so about 830 emulator
     frames during which mis_index has already moved and no briefing is up. That
     is exactly the state this routine exists to wait out, and it is why the
-    bound is 2400 rather than 600: at 600 the jump out of mission 4 read as a
-    refusal in tests/test_regions.py, which walks the whole campaign. It costs
-    nothing when there is no chase -- the poll returns the moment the briefing
-    appears.
+    bound is 5600 rather than 600: at 600 the jump out of mission 4 read as a
+    refusal in tests/test_regions.py, which walks the whole campaign, and at
+    2400 it did again the day the tunnel became three times as long -- 240
+    steps of seven ticks is 1680 frames of chase before the intro page, the
+    result and the drawing are counted. It costs nothing when there is no
+    chase -- the poll returns the moment the briefing appears.
 
     ...AND THE FIRST CHASE OF A CAMPAIGN OPENS ON A PAGE THAT WAITS FOR ENTER
     -- mini_intro, before the jump out of mission MG_EVERY. A caller that only
@@ -247,8 +249,38 @@ def wait_for_briefing(c: cpc.CPC, frames: int = 2400) -> bool:
             c.key_down(cpc.KEY_ENTER)
             c.run_frames(5)
             c.key_up(cpc.KEY_ENTER)
+            win_the_chase(c, sym)
         c.run_frames(5)
     return False
+
+
+def win_the_chase(c: cpc.CPC, sym: dict) -> None:
+    """Line the player up and put the enemy within a step of caught.
+
+    A caller that is only passing THROUGH a chase would otherwise lose it --
+    nobody is steering -- and a lost chase is the ambush: 10% to 50% of the
+    fleet, and 50% exactly for a player who never moves, because the distance
+    never falls. Every campaign walk in the suite then arrived at THE NEBULA
+    with half a fleet and lost the Mothership to the picket that spawns on top
+    of it, which read as "the jump was refused" two missions later. The
+    torpedoes made it certain rather than likely: three hits on a ship that
+    does not dodge is the loss inside the first ten seconds.
+
+    So the walk WINS: mini_x is set to mini_ex and the distance to MG_CLOSE,
+    which mini_close turns into the catch on the next step. Written through
+    the window because the chase's state is bank 4; harmless on the intro
+    page, where mini_run has already initialised it. tests/test_minigame.py's
+    ChaseFixture drives its chases itself and never comes through here while
+    one is running, so the chase's own tests are untouched -- and so are
+    tools/balance.py and tools/waverate.py, which do, and therefore measure a
+    campaign whose player wins the chases.
+    """
+    try:
+        ex = read_cpu(c, sym["MINI_EX"], 1)[0]
+        write_cpu(c, sym["MINI_X"], bytes([ex]))
+        write_cpu(c, sym["MINI_DIST"], bytes([sym["MG_CLOSE"]]))
+    except KeyError:
+        pass
 
 
 def dismiss_briefing(c: cpc.CPC) -> None:
@@ -601,8 +633,15 @@ def boot_disc(frames: int = 400, program: str = "DISC") -> cpc.CPC:
     """
     c = cpc.CPC()
     c.run_frames(BOOT_FRAMES)
-    if not c.insert_disc(DSK):
-        raise RuntimeError(f"insert_disc failed for {DSK}")
+    #  BYTES, as boot_quick does, and not the path: handed the path, cpcemu
+    #  writes the image back on close -- as forty tracks, which is 194816
+    #  bytes against the 204544 the build minted. That is the "half-built
+    #  image in the middle of a suite" this file's notes never traced: it was
+    #  every boot_disc, and test_persistence, which reads the real image, was
+    #  simply the first to run after one.
+    with open(DSK, "rb") as f:
+        if not c.insert_disc(f.read()):
+            raise RuntimeError(f"insert_disc failed for {DSK}")
     c.type_text("|DISC\n")
     c.run_frames(60)
     c.type_text(f'RUN"{program}\n')

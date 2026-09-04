@@ -142,7 +142,7 @@ the gate shut. Each mutant was built and watched fail.
 
 ---
 
-## 4. The Mothership sets down on the planet
+## 4. The Mothership sets down on the planet — BUILT
 
 **Asked for:** *"There should be a sequence of the mothership landing on the
 planet before the end screen."*
@@ -210,7 +210,11 @@ So the order is forced:
    with it.
 3. ~~**Item 3** (`L`)~~ — built; 23 bytes of `DISC.BIN`, all of it bank 4,
    and the low 16K did not move. **26333 of 26368 — 35 free.**
-4. **Item 4** (the descent) — **does not fit; find the room first.** The lever
+4. ~~**Item 4** (the descent)~~ — built, in `game/landing.asm`, after the
+   mission table went to bank 7 and paid for it. See CLAUDE.md "The
+   Mothership sets down first". What was built is section 4's shape minus the
+   growing planet: the disc stays the page's size and the ship shrinks into
+   it, which is the half of the statement that reads at 320×200. The lever
    is the one that has worked four times running: move data out of the file
    into bank 7, which has **835 bytes free** and costs `DISC.BIN` nothing.
    `class_name`, the context bar's words and `game/overtext.asm` are all still

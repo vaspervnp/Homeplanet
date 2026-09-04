@@ -337,9 +337,35 @@ slv_tow_step:
     jp slv_deliver
 
 @slv_outbound:
-    call slv_find_wreck
+    ;  ITS OWN WRECK. "Kάθε salvage πλοίο να διαλέγει δικό του στόχο." The pick
+    ;  is remembered in ENT_TOW with bit 7 set -- "chosen, not yet in hand" --
+    ;  which the cp ENT_MAX above reads as "nothing in hand", as it should. It
+    ;  is kept while the hull is still a wreck and no OTHER corvette has
+    ;  claimed it; otherwise a fresh one is chosen, and slv_find_free_wreck
+    ;  skips every hull another corvette has chosen or holds. Before this every
+    ;  corvette went for the first wreck in the table, and two of them towed
+    ;  one hull between them while the rest lay where they were.
+    ld a,(hl)
+    bit 7,a
+    jr z,@slv_pick
+    and #7F
+    ld (slv_wreck),a
+    call slv_is_wreck
+    jr nc,@slv_pick                     ; gone: delivered, or swept
+    ld a,(slv_wreck)
+    call slv_claimed_by_another
+    jr nc,@slv_go                       ; still ours to fetch
+@slv_pick:
+    call slv_find_free_wreck
     jr nc,@slv_nothing_to_tow
     ld (slv_wreck),a
+    or #80
+    ld hl,(eco_ent)
+    ld de,ENT_TOW
+    add hl,de
+    ld (hl),a                           ; remembered
+@slv_go:
+    ld a,(slv_wreck)
     call ent_addr
     ld (eco_patch_ptr),hl
     call eco_at_target
@@ -350,7 +376,7 @@ slv_tow_step:
     ld de,ENT_TOW
     add hl,de
     ld a,(slv_wreck)
-    ld (hl),a
+    ld (hl),a                           ; in hand: bit 7 clear
     ret
 
 ;  Nothing adrift anywhere, so the order is SPENT -- and that is not tidiness,
@@ -535,6 +561,92 @@ slv_is_wreck:
 ;  claim is state -- a mark on the wreck that goes stale the moment the corvette
 ;  that made it is shot down, leaving a hull nothing will ever tow.
 ; ----------------------------------------------------------------------------
+; ----------------------------------------------------------------------------
+;  slv_find_free_wreck -- A = the first wreck no other corvette has claimed
+;  Out: CF set and A = its slot, or CF clear
+;  Uses: everything
+; ----------------------------------------------------------------------------
+slv_find_free_wreck:
+    ld hl,entities + ENT_PLAYER_MAX * ENT_SIZE + ENT_FLAGS
+    ld c,ENT_PLAYER_MAX
+    ld b,ENT_ENEMY_MAX
+@slv_free_one:
+    ld a,(hl)
+    and SLV_WRECK_FLAGS
+    cp SLV_WRECK_FLAGS
+    jr nz,@slv_free_next
+    push bc
+    push hl
+    ld a,c
+    call slv_claimed_by_another
+    pop hl
+    pop bc
+    jr nc,@slv_free_found
+@slv_free_next:
+    ld de,ENT_SIZE
+    add hl,de
+    inc c
+    djnz @slv_free_one
+    or a
+    ret
+@slv_free_found:
+    ld a,c
+    scf
+    ret
+
+
+; ----------------------------------------------------------------------------
+;  slv_claimed_by_another -- has a corvette other than (eco_ent) claimed wreck A?
+;  In : A = a wreck's slot
+;  Out: CF set if some other corvette's ENT_TOW names it, chosen or in hand
+;  Uses: everything
+;
+;  Walks the player's region: ACTIVE, class SALVAGE, not the ship asking, and
+;  ENT_TOW & #7F equal to A. ENT_NO_TARGET & #7F is 127, which no slot is.
+; ----------------------------------------------------------------------------
+slv_claimed_by_another:
+    ld (slv_claim),a
+    ld hl,entities
+    ld b,ENT_PLAYER_MAX
+@slv_claim_one:
+    push hl
+    ld de,ENT_FLAGS
+    add hl,de
+    ld a,(hl)
+    and ENT_F_ACTIVE
+    jr z,@slv_claim_pop
+    ld de,ENT_CLASS - ENT_FLAGS
+    add hl,de                           ; -> ENT_CLASS (two back)
+    ld a,(hl)
+    cp CLASS_SALVAGE
+    jr nz,@slv_claim_pop
+    pop hl
+    push hl
+    ld de,(eco_ent)
+    or a
+    sbc hl,de
+    jr z,@slv_claim_pop                 ; the ship asking
+    add hl,de
+    ld de,ENT_TOW
+    add hl,de
+    ld a,(hl)
+    and #7F
+    ld hl,slv_claim
+    cp (hl)
+    jr z,@slv_claim_yes
+@slv_claim_pop:
+    pop hl
+    ld de,ENT_SIZE
+    add hl,de
+    djnz @slv_claim_one
+    or a
+    ret
+@slv_claim_yes:
+    pop hl
+    scf
+    ret
+
+
 slv_find_wreck:
     ld hl,entities + ENT_FLAGS
     ld de,ENT_SIZE
@@ -567,3 +679,4 @@ slv_index:          defb 0
 slv_wreck:          defb 0
 slv_wrecks:         defb 0
 slv_corvette:       defb 0
+slv_claim:          defb 0

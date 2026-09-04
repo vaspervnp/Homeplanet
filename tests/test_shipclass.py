@@ -484,12 +484,13 @@ class TestTheBanks(ClassFixture):
         comparing it with the disc image, which only matches if bank 4 is
         under the window."""
         self.boot()
-        want = bytes(self.banked("MISSION_TABLE", 12))
+        #  class_tag is the sentinel now: the mission table went to bank 7.
+        want = bytes(self.banked("CLASS_TAG", 12))
         for _ in range(6):
             h.run_to_stable_point(self.c, self.sym)
-            self.assertEqual(bytes(self.banked("MISSION_TABLE", 12)), want)
+            self.assertEqual(bytes(self.banked("CLASS_TAG", 12)), want)
             self.c.run_frames(7)
-        self.assertTrue(want.startswith(b"THE TEST"),
+        self.assertTrue(want.startswith(b"INT\x00MTH"),
                         f"bank 4 is not under the window at all: {want!r}")
 
     def test_a_frame_with_every_class_in_it_still_leaves_bank_4_up(self):
@@ -503,7 +504,7 @@ class TestTheBanks(ClassFixture):
             self.c.write_ram(base + slot * ENT_SIZE + ENT_CLASS, bytes([i]))
         self.c.run_frames(60)
         h.run_to_stable_point(self.c, self.sym)
-        self.assertTrue(bytes(self.banked("MISSION_TABLE", 8)).startswith(b"THE TEST"),
+        self.assertTrue(bytes(self.banked("CLASS_TAG", 8)).startswith(b"INT\x00MTH"),
                         "bank 4 was left paged out after a mixed-class frame")
         self.assertEqual(self.byte("MIS_FAILED"), 0)
 

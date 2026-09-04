@@ -186,12 +186,15 @@ and prints how many bytes are left in the low 16K and in every bank. Watch all
 of them, and watch the "hand-written code ends at" figure rather than `free:` —
 see "Where 700 bytes came from" for why the second one lies.
 
-**Today: low 16K 405, bank 4 1150, bank 7 12826 of 13312, `DISC.BIN` 26356 of
-26368 so 12 of headroom.** (The paragraph below was written at 700; the levers
-it names have been pulled four more times since -- the class names, the
-game-over fire table and two pages' scratch went across for the retaliation
-and the chase's tilt -- and the next big one is `mission_table`, 400 bytes of
-bank 4 that only `mis_setup` reads.) `DISC.BIN` had been the binding constraint at 201
+**Today: low 16K 405, bank 4 1149, bank 7 13768 of 13824, `DISC.BIN` 26343 of
+26368 so 25 of headroom — and bank 7 has 56.** Both ceilings are close now;
+the next room is `minigame2.md`'s fourth track per bank, or the chase moving
+to bank 7 to run from there. (The paragraph below was written at 700; the levers
+it names have been pulled five more times since -- the class names, the
+game-over fire table, two pages' scratch and the whole mission table went
+across, for the auto response and the chase's tilt and torpedoes -- and the
+next one is not data at all: `minigame2.md` makes the case for running a
+minigame FROM bank 7.) `DISC.BIN` had been the binding constraint at 201
 until the menu's and the help page's words went to bank 7 — see "...and then
 the menu's and the help page's words followed them", which is also where the
 next lever is: **bank 7 still has 2315 bytes that `lib_load` reads and throws
@@ -1969,8 +1972,20 @@ happily with two of its clauses deleted.
 > tracks. The victim is always `test_persistence`, which runs immediately after
 > `test_music` alphabetically and is the only module that reads the real image.
 >
-> **What invokes the rebuild is NOT identified**, and these have been ruled
-> out: no test calls `harness.build()`; there is no hook, watcher or cron; the
+> **IDENTIFIED, at last: it was never a rebuild.** `cpcemu.insert_disc`
+> handed a PATH writes the image back on close — as forty tracks, which is
+> 194816 bytes against the 204544 the build minted, the two empty tracks at
+> the end gone and, worse, the FDC's view of the rest not what
+> `discbanks.py` wrote. `boot_disc`, `test_persistence`, `test_music` and
+> `tools/record.py` all inserted by path; `boot_quick` always inserted bytes,
+> which is why it never saw it. Every insert is bytes now. `make` then
+> believed the newer `.dsk` was up to date, which is why only `make clean`
+> or `rm -f build/homeplanet.dsk` ever cured it. The paragraph below is kept
+> for the shape of the investigation; its list of things ruled out was
+> right, and the one thing not on it was the emulator.
+>
+> **What invokes the rebuild was NOT identified** at the time, and these had
+> been ruled out: no test calls `harness.build()`; there is no hook, watcher or cron; the
 > other Claude sessions on this machine are in other repositories; the
 > `.claude/worktrees` checkout has its own `build/` and has not been touched
 > for days; and cpcemu does **not** write the image back — `boot_disc` leaves
@@ -2788,51 +2803,64 @@ balance triangle changes nothing about the campaign as authored**, because the
 Vekhar field interceptors and nothing else. It will start to matter the moment
 `campaign.asm` gets a class column.
 
-### A squadron shot at shoots back
+### The AUTO RESPONSE: a squadron shot at shoots back, once a mission
 
-*"Aν επιτεθεί εχθρός σε squadron, αμέσως το squadron μπαίνει σε attack mode."*
+*"Aν επιτεθεί εχθρός σε squadron, αμέσως το squadron μπαίνει σε attack mode"*
+— and then: *"Η αυτόματη επίθεση να είναι μπόνους και να μπορεί να
+χρησιμοποιηθεί μόνο μία φορά με το Α ... σε κάθε πίστα. Να βγαίνει ένα μήνυμα
+Auto Response On όταν είναι διαθέσιμο και δεν είσαι σε μάχη. Αν είσαι σε μάχη,
+τότε το A δουλεύει όπως πάντα. Aν δεν είναι διαθέσιμο να βγαίνει Auto Response
+Used."*
 
-`game/retaliate.asm`, bank 4, called from both exits of the damage site in
-`cbt_fire_if_able` — a ship shot dead is an attack on its squadron exactly as
-a ship shot is. The first hit on any ship of a squadron puts **every IDLE ship
-in it** under `ENT_ORDER_ATTACK` with the **shooter** as the target, which is
-byte for byte what `A` with that target picked would have written. Everything
-after that is the attack order's own machinery: `cbt_move_enemies` closes
-them, `cbt_fire_if_able` re-acquires when the shooter dies and spends the
-order when nothing is left, so the squadron comes home by itself.
+`game/retaliate.asm`, bank 4. **A BONUS, armed by the player and spent by the
+enemy.** `A` with nothing hostile flying — `mis_count_hostiles`, the jump
+gate's own predicate — arms it and the HUD's message row says `AUTO RESPONSE
+ON`; the first hit an enemy then lands on any ship of a squadron puts **every
+IDLE ship in that squadron** under `ENT_ORDER_ATTACK` with the **shooter** as
+the target, byte for byte what `A` with that target picked would have written,
+and the response is used for the rest of the mission — `A` out of a fight
+then says `AUTO RESPONSE USED`. In a fight `A` is the attack order it always
+was and nothing here is consulted. `mis_setup` clears both flags — *"Kάθε
+πίστα ξεκινάει με autoresponse off"* — so "once a mission, and off at the
+start" is true by construction. (An arm that carried across the jump was
+tried for a day, as the way to meet a picket that spawns on top of the
+fleet; the owner wanted the switch off on arrival.)
 
-- **Only IDLE.** A harvester keeps mining and a corvette keeps towing — the
-  same argument `order_release_attack` makes — a GUARD ship holds, and a ship
-  already attacking keeps its target.
+- **Spent by the first ship it orders, not by the hit.** A hit on a squadron
+  with nothing idle in it would otherwise use the bonus up for nothing.
+- **Only IDLE**, for the reason `order_release_attack` gives: a harvester
+  keeps mining, a corvette keeps towing, a GUARD ship holds, a ship already
+  attacking keeps its target.
 - **The Mothership is excluded for nothing**: its `ENT_SQUAD` is `SQUAD_NONE`
-  and the victim's squadron never is, so the compare does it. A hit *on* the
-  Mothership answers nothing, for the reason the orders that tell a squadron
-  where to be do not apply to it: it is not a squadron.
-- **The shooter's side is the guard**, tested on `ENT_F_ENEMY` of `cbt_ent`.
-  Our own hits on an enemy must order nobody, and the test for it gives the
-  enemy `ENT_SQUAD` 1 on purpose — a build that walked on every hit would
-  read that as squadron 1 being attacked.
-- **Not in the tutorial**: step 14 teaches that `A` attacks, and a stage that
-  gave the order for the player would be teaching a key never pressed.
-- **The shooter's slot is `ENT_MAX - cbt_index`**, because `cbt_update`'s
-  counter counts DOWN and is decremented after the slot. The only thing here
-  that reaches into that loop's state.
+  and the victim's never is. A hit *on* it answers nothing — it is not a
+  squadron.
+- **The shooter's side is the guard.** The test gives the enemy `ENT_SQUAD` 1
+  on purpose: a build that walked on every hit would read our own hit as
+  squadron 1 being attacked.
+- **Not in the tutorial**: step 14 teaches that `A` attacks.
+- **The shooter's slot is `ENT_MAX - cbt_index`**, because that counter counts
+  DOWN and is decremented after the slot.
+- **The two messages are 3 and 4** in `wave_say_text`, after the unlocks, so
+  `wave_say_unlock`'s bit-to-index arithmetic is untouched. `AUTO RESPONSE
+  USED` is eighteen characters and ends on the byte `BASE` begins at; the inks
+  differ and it reads.
 
-It is ~3,400 T per HIT on a friendly ship, not per frame. Five tests by slot,
-three mutants watched fail: no hooks, no side guard, no `SQUAD_NONE` guard.
+Everything after the response is the attack order's own machinery — closing,
+re-acquiring, spending itself — so the squadron comes home by itself. On
+every hit of an ordinary mission the armed check is a load and a `RET`.
 
-**One existing test failed and it was the "too slow to have done it yet"
-shape again.** `TestBothSidesLookInTheRightPlace` sampled at a fixed 400
-frames, which used to be long enough for the round-robin to reach everybody —
-and is now long enough for mission 3's fight to be OVER: the picket closes,
-the fleet answers, and by frame 350 all four hostiles are wrecks and every
-attack order has spent itself. It samples at the first moment both sides are
-aiming now.
+Ten tests by slot in `test_combat`, and the three mutants of the first version
+— no hooks, no side guard, no `SQUAD_NONE` guard — were each watched fail.
+**One existing test failed and it was the "too slow to have done it yet" shape
+again.** `TestBothSidesLookInTheRightPlace` sampled at a fixed 400 frames,
+which is now after mission 3's fight is OVER once the fleet answers; it
+samples at the first moment both sides are aiming.
 
-**Balance, `tools/balance.py --rebuild`: all twenty missions, Mothership
-alive, ending 30 ships / 7595 hull** (33 / 7378 before, with the chase now
-taking its toll at 5, 9, 13 and 17 because the script does not steer). The
-difference is inside what the chase costs, not a swing to explain.
+**Balance, measured with the always-on first version** (`tools/balance.py
+--rebuild`): all twenty missions, Mothership alive, ending 30 ships / 7595
+hull against 33 / 7378 before, the difference being inside what the chase
+costs. The armed version fires at most once a mission and only when asked, so
+it is inside that.
 
 ### Never trust a slot index, part two: `moth_slot`
 
@@ -3154,6 +3182,32 @@ have a note without it and every explosion pays the same. The floor
 > rather than queued**, so the three voices stay in time with each other. The
 > test read the bass's period where it wanted the sweep: *"the period is 1703,
 > outside the 55..715 the in's own descriptor can reach"*.
+
+#### ...and now the whole tune, held while there is shooting
+
+*"H μουσική μέσα στο παιχνίδι να είναι ολόκληρη όπως και στο μενού. Όταν
+γίνεται επίθεση να σταματάει."* `title_key` calls `mus_start` for the game and
+the tutorial now, not `mus_start_solo`, and **`mus_battle`** (bank 4, in
+`game/wavesdraw.asm`, called from `mus_update`) HOLDS it: a fight is
+`cbt_shots + cbt_kills` moving, every shot or death rearms `MUS_QUIET_FRAMES`
+of silence, and while held `mus_write_block` writes an idle block instead of
+the note. **Held, not stopped**: the three streams go on advancing, so the tune
+comes back where it would have been, in time with itself. On the way in the
+three voices' timers are zeroed, or a note already sounding would ring for
+the rest of its `MUS_TIMER`.
+
+**Channel B is the noise generator's the moment an effect takes it.** The
+harmony is a TONE on B; `snd_explosion` and `snd_hit` now come through
+`snd_start_b`, which writes `SND_MIX_B_NOISE` before falling into `snd_start`,
+and `mus_battle` gives the bit back to the tone every frame that nothing is
+sounding on B and nothing is being shot at. Four tests that call the effects
+directly through a stub — no game frame runs, so no fight predicate could —
+said an explosion under the harmony was a tone, which is what would have
+happened to the ambush's toll, a death with no shot before it. `mus_duck` is
+solo-only and stays for the mode nothing uses now.
+
+Costs the low 16K nine bytes, in the slack before the tables: the `call
+mus_battle` and the held check in `mus_write_block`.
 
 #### `M` is the mute everywhere, so the squadron pair moved to `K` and `L`
 
@@ -4788,6 +4842,59 @@ error because somebody will quote it. It reads `MIS_COUNT` out of the symbol
 file now, the way `ENT_MAX` above it already did.
 
 
+### The mission table is in bank 7, and the 27th sector with it
+
+`game/campaign.asm` — the twenty rows, the fare column, the patch layouts, the
+derelict's position — is assembled into bank 7 with the briefings and the
+enemy layouts, and the chase's torpedoes are what the 430 bytes paid for.
+Nothing there is code and nothing there is read while the world moves:
+`mis_setup` copies the row being played into **`mis_cur`** through
+`bank7_copy` and `mis_descriptor` hands that copy out, so the briefing, the
+objective check and the setup itself read one twenty-byte buffer; the patch
+layout is `bank7_copy`'d into `eco_patches` where an `LDIR` was; the
+derelict's six bytes and the fare's two the same way. `mis_row_in_bank7` is
+the old arithmetic, and the only thing that may be done with its answer is
+hand it to `bank7_copy`.
+
+> **`mis_cur` WENT AFTER `bank4_end` FIRST, AND THAT IS THE WINDOW.** The copy
+> ran with bank 7 paged in and wrote the row back into bank 7 on top of the
+> table — the trap `bank7_copy`'s own header describes, walked into by the
+> person who had just re-read it. `test_shipclass` saw bank 7 disagree with
+> `build/bank7.raw` and ten tests about patches and derelicts read a mission
+> that no longer said what it had said. Then it went after `code_end` and took
+> twenty bytes off the test scratch (`free:` 405 → 385, under the floor). It
+> is in `game/mission.asm` beside `mis_desc`, inside the image, in the
+> alignment slack before `gen/tables.asm`, where it costs neither.
+
+**Bank 7 overflowed by 48 bytes and `LIB_SECTORS` is 27 now** — the third
+track of each bank was reserved and two thirds read; it is all read. Three
+more sectors a boot, and the size the build prints against is 13824.
+
+**The five tests that read `MISSION_TABLE` read `build/bank7.raw`** now, and
+`test_shipclass`'s "is bank 4 under the window" sentinel is `class_tag`.
+
+> **Two fixtures were rescued the same day, and both were the road, not the
+> test.** `TestFleetPersistence` held `J` without opening the way out, so
+> every one of its "jumps" was refused and it had been watching mission 1 —
+> harmlessly, until `wait_for_briefing`'s bound grew past a minute, a wave
+> arrived inside it, and *"the damaged ship came out of the jump repaired"*
+> reported a ship the wave had killed. It clears the way out first now.
+> `test_derelict`'s `jump_once` pauses the battle for the arrival: a picket
+> spawns on top of the fleet — THE GATE's twelve, COLD IRON's bombers — and in
+> the second or two of settling before a test cleared the board it took a
+> dozen ships and, from mission 9, the Mothership. `wait_out_the_countdown`
+> lifts the pause for the spool and puts it back; `jump_once` lifts it again
+> before returning, so the exposure is a few frames rather than a hundred.
+>
+> **And a pre-existing failure came out from under it.** `test_derelict`'s
+> mission-9 tow had been failing since the countdown: eight jumps of ten
+> seconds' live battle left the fixture's Mothership at 15 hull, mission 9's
+> picket killed it in the frames before `clear_the_board`, the campaign
+> ended, and the tow it was about to test never began — reported as *"the
+> hull was never delivered"*. Bisected across three builds in a worktree
+> before it was traced: it failed identically on the commit before the
+> response. The fixture heals the Mothership before each of its jumps now.
+
 ### The homeplanet, as a horizon under the last mission
 
 The campaign is a journey to a planet and the planet was never on the screen
@@ -4924,6 +5031,26 @@ interceptor, full price and not half. Measured: mission 3, a corvette at 90 RU,
 four hostiles, all four crippled and fetched, **+140 RU in 780 emulator
 frames**. Half would be five tows to break even and the corvette is an ornament
 again.
+
+#### Every corvette picks its own wreck
+
+*"Kάθε salvage πλοίο να διαλέγει δικό του στόχο."* `slv_find_wreck` handed
+every outbound corvette the first wreck in the table, so two of them towed
+one hull between them while the rest lay where they were. The pick is
+remembered now in `ENT_TOW` with **bit 7 set** — "chosen, not yet in hand" —
+which the `cp ENT_MAX` at the top of `slv_tow_step` reads as "nothing in
+hand", as it should; it is kept while the hull is still a wreck and no other
+corvette has claimed it, and `slv_find_free_wreck` skips every hull another
+corvette has chosen or holds (`slv_claimed_by_another` walks the player's
+region for a corvette whose `ENT_TOW & #7F` names it; `ENT_NO_TARGET & #7F`
+is 127, which no slot is). `test_salvage.TestEveryCorvettePicksItsOwnWreck`
+places two hulls and two corvettes and asserts the two picks differ, by slot.
+
+The static pages' small words — the help page's title and its shared `ESC -
+BACK`, the orders menu's title and prompt, the four formation names — went to
+bank 7 as `page_words` the same day, for the room, and so did the tutorial's
+step table: `tut_row` copies a step's four bytes down through `bank7_copy`,
+sixty-eight bytes of bank 4 for twelve of code.
 
 #### A wreck keeps ENEMY, and that is what makes four things free
 
@@ -5625,6 +5752,48 @@ bytes of `defb 0` that are written before they are read — moved after
 `bank4_end`. `tests/test_gameover.py` reads the fire table off
 `build/bank7.raw` now, as every bank-7 test does.
 
+#### Torpedoes astern, and a tunnel three times as long
+
+*"ο εχθρός να ρίχνει τορπίλες προς τα πίσω (όταν είναι σε μεγάλη απόσταση) σε
+τυχαία διαστήματα που ο παίκτης πρέπει να αποφύγει. Αν χτυπηθεί τρεις φορές,
+χάνει. Η διάρκεια του mini παιχνιδιού να είναι 3 φορές περισσότερη."*
+
+`MG_STEPS` is 240 (33.6 s) and `MG_CLOSE` came down from 3 to 2 with it, or
+the chase was won in the first third: the lined-up fraction needed is 0.48
+against the old 0.62, easier on purpose because the torpedoes are what the
+time is for. `mini_torpedo` runs once a step: while `mini_dist` is at or past
+`MG_TORP_FAR` (the far tier, so "far" on the screen is "far" in the rule)
+`sys_rand` is rolled against `MG_TORP_P` and one is fired at the enemy's
+lateral position *as it was on that step*; it flies `MG_TORP_STEPS` steps
+down the shaft, drawn a byte wide in the alarm ink and growing from two
+lines to eight, and on arrival it is a hit if the player is within
+`MG_TORP_HIT` units of where it was aimed. One in the air at a time; a red
+mark per hit top left of the band; the third hit is the loss, through the
+same `@mg_lost` the tunnel running out takes, so the ambush is sized on the
+distance as before. The intro page has a fifth line. `wait_for_briefing`'s
+bound went to 5600 frames, because 240 steps of seven ticks is 1680 frames
+before anything else is counted — the same bound that caught the first chase
+at 600.
+
+**And every campaign walk in the suite WINS its chases now** —
+`harness.win_the_chase`, from `wait_for_briefing`: with nobody steering a
+chase is lost at the full distance, which is the 50% ambush, and with the
+torpedoes it is lost inside ten seconds; every walk then reached THE NEBULA
+with half a fleet, lost the Mothership to the picket that spawns on top of
+it, and reported *"the jump was refused"* two missions later.
+`tools/balance.py` and `tools/waverate.py` come through the same helper, so
+they measure a player who wins the chases. `ChaseFixture` never does.
+
+**Every exit of `mini_torpedo` sets the carry deliberately**, because the
+carry IS its answer and `mis_is_last` is what happens otherwise. Eight tests
+in `test_mini_bin.TestTorpedoes`, each on a fresh MINI.BIN, arranging the
+chase on the intro page — the one moment its state can be written with
+nothing drawing.
+
+`minigame2.md` designs the second minigame, an R-Type, and where its room is:
+**bank 7 as executable RAM**, which is the first lever that moves CODE out of
+`DISC.BIN` rather than data.
+
 **A step is about ten emulator frames and the picture shows at the NEXT
 boundary.** `mini_wait` flips and then paces `MG_STEP_TICKS`; the draw of the
 following step begins after `mini_left` is decremented. So a test that reads
@@ -5670,6 +5839,33 @@ of headroom the libload section quotes, and the next file added to the image
 has to look at that figure first. The content test in `test_shipclass` is the
 net if one does not.
 
+### The unarmed are prey half the time
+
+*"make enemies attack unarmed ships 50% of the time."* `cbt_prey_bias` pushed
+a harvester or a corvette `CBT_UNARMED_BIAS` further off on every search, so
+an escort in reach always took the shot — the miners were safe as long as
+anything armed was near, which was the design and then too much of it.
+`cbt_prey_roll` (bank 4, `game/retaliate.asm`) flips one bit of `sys_rand`
+into `cbt_prey_mask` once a frame from the top of `cbt_update`, and
+`cbt_find_enemy` ANDs the class's bias with it: on the frames it is 0 an
+unarmed ship is simply the nearest target it is. Per FRAME rather than per
+search, because the roll is bank 4 code and the search is the low 16K's
+busiest loop — which had eleven bytes of slack, and the call and the AND are
+eight of them. Tested by calling `cbt_find_enemy` through a stub with the
+mask poked each way, and by watching the coin come up both ways.
+
+### The unlock banner, across the middle of the view
+
+*"βγάλε ένα σχετικό μήνυμα στο κέντρο της οθόνης για την νέα δυνατότητα."*
+`game/banner.asm`: `wave_say_unlock` calls `ban_say`, and `unlock_banner`
+draws `THE YARD CAN BUILD THE FRIGATE` (or `... DESTROYER`) at `BAN_Y` for
+`BAN_TICKS` — every frame, into the buffer being drawn, and hands the
+rectangle to `phase4_add_rect` so the next pass through that buffer erases
+it exactly as it erases a ship. Nothing knows about buffers; the dirty list
+does, and when the ticks run out the line is simply not drawn again. Called
+from the top of `wave_draw`, because the low 16K had no room for a call and
+`wave_draw` is bank 4 and already runs once a frame. The words are in bank 7.
+
 ### The end of the journey
 
 **On the last mission the key is `LAND`, and landing is the ending.** It used
@@ -5703,6 +5899,34 @@ would be three chances for them to disagree.
   so the two strips cannot disagree. The words are both seven characters and
   the seconds are drawn at a fixed x after them, so `src/main.asm` asserts the
   lengths are equal — "seven and seven" is luck until it is a rule.
+
+#### The Mothership sets down first
+
+finishup.md item 4, built. `game/landing.asm`, bank 4, called from the
+`@mis_land` path before `mis_won` is set: its own loop like the chase's,
+`LAND_STEPS` steps of `MG_STEP_TICKS` paced on the tick through `mini_wait`.
+Every step blanks the back buffer, draws the planet where the victory page
+draws it — so the page that follows is the same picture with the ship gone
+into it — and blits the Mothership on a line from the top left towards the
+disc's face, tier C, then B, then A, and not at all for the last steps: it is
+down. `snd_jump_in` plays under it, the drive winding down. **Not an
+atmosphere**, as finishup.md argued: there is nothing in four inks to draw
+air with, and "the world got closer and the ship got smaller against it" is
+the statement the whole campaign makes.
+
+It and the banner cost about 220 bytes of bank 4, and two more levers paid:
+the title screen's four strings and the HUD message row's five went to bank
+7 (`title_words`, `wave_say_text` in `game/screentext.asm`), fetched a line
+at a time — the title screen runs at two frames a second and four fetches
+are nothing, and the message row is redrawn only when it changes. Their
+asserts moved to the bottom of `src/main.asm` with every other bank-7
+assert, and the title's *"still spans the screen"* one had to learn that the
+credit no longer follows the name.
+
+`mini_blit` learned a CLASS for it — `mini_cls`, the interceptor for the
+chase and the Mothership here — and reads the bank and the row of
+`class_sprite` from the class tables, so the landing has no sprite address
+in it. `tools/record_landing.py` records it to `build/landing.mp4`.
 
 **THE TWO ENDINGS ARE ONE PAGE.** They were nearly two files. Everything is
 shared — the 200-line wipe, a big word in `txt_big`, three centred lines, the

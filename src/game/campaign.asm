@@ -1,8 +1,13 @@
 ; ============================================================================
 ;  game/campaign.asm -- the eight missions, as data (Homeplanet.md section 10)
 ; ============================================================================
-;  IN BANK 4, with the sprites, which is where section 11 says mission data
-;  and text belong. Nothing here is code; adding a mission is adding a row.
+;  IN BANK 7, with the briefings and the enemy layouts: raw sectors that
+;  lib_load reads every boot and that cost DISC.BIN nothing. It was bank 4
+;  until the day the chase's torpedoes needed four hundred bytes; nothing here
+;  is code, nothing here is read while the world moves, and every reader goes
+;  through bank7_copy -- mis_setup copies the row into mis_cur and the patches
+;  into eco_patches, mis_jump_fare fetches its word, mis_spawn_derelict its
+;  six bytes. Adding a mission is adding a row.
 ;
 ;  The premises are the design's. What is NOT here is the writing and the
 ;  balance: the briefing screens section 10 asks for ("σύντομο κείμενο

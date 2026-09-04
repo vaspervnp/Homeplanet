@@ -100,7 +100,7 @@ LIB_BANKS           equ 3               ; banks 5, 6 and 7
 ;
 ;  The assert in src/main.asm is what stops this being set too low; nothing
 ;  stops it being set too high except this comment.
-LIB_SECTORS         equ 26
+LIB_SECTORS         equ 27              ; ALL of the three tracks: the mission table needed the 27th
 
 LIB_FIRST_SECTOR    equ #C1
 LIB_LAST_SECTOR     equ #C9

@@ -89,12 +89,18 @@ help_draw:
     ;  fleet counts while the keys are up.
     call static_wipe
 
-    ld hl,help_title
+    ld hl,page_words
+    ld a,PAGE_HELP_TITLE
+    call bank7_fetch
+    ld hl,bank7_line
     ld b,HELP_COL1_X
     ld c,HELP_TITLE_Y
     call txt_draw
 
-    ld hl,help_prompt
+    ld hl,page_words
+    ld a,PAGE_HELP_PROMPT
+    call bank7_fetch
+    ld hl,bank7_line
     ld b,HELP_PROMPT_X
     ld c,HELP_TITLE_Y
     call txt_draw
