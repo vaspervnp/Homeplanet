@@ -140,6 +140,10 @@ ENT_ORDER_DOCK      equ 5
 ;  picks something up, brings it back and is paid for it -- so phase4_fly has to
 ;  skip it for the same reason, and eco_run_workers walks it in the same loop.
 ENT_ORDER_TOW       equ 6
+;  Flown by the player: V, in game/pilot.asm. phase4_fly steps over it with
+;  the three above it -- everything from HARVEST up steers itself -- and
+;  nothing else in the game knows it is there.
+ENT_ORDER_PILOT     equ 7
 
 ;  ENT_TARGET holds a slot index; this means nobody.
 ENT_NO_TARGET       equ #FF

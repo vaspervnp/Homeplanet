@@ -671,22 +671,26 @@ phase4_fly:
     ;  this, phase4_fly drags it back towards its slot exactly as fast as
     ;  eco_update pushes it towards the patch -- both step by PHASE4_STEP --
     ;  and the harvester sits there vibrating while the RU never moves.
+    ;  ...and a Salvage Corvette out fetching a wreck, which is the same
+    ;  journey with a different cargo -- slv_tow_step steps it by PHASE4_STEP
+    ;  out of eco_update, exactly as the harvester is stepped. Same again for
+    ;  a ship told to attack: cbt_move_enemies now closes it on its target,
+    ;  and two systems stepping the same ship by PHASE4_STEP in different
+    ;  directions cancel exactly. And for a ship the PLAYER is flying -- V,
+    ;  game/pilot.asm -- which steers itself by definition.
+    ;
+    ;  ONE COMPARE FOR ALL OF THEM BUT ATTACK: every order from HARVEST up is
+    ;  a ship steered by something other than its formation slot, and the
+    ;  asserts under src/main.asm's table invariants say so. DOCK is in the
+    ;  range and nothing has ever written it.
     ld hl,(phase4_ent)
     ld de,ENT_ORDER
     add hl,de
     ld a,(hl)
-    cp ENT_ORDER_HARVEST
-    jr z,@p4_next_fly
-    ;  ...and a Salvage Corvette out fetching a wreck, which is the same
-    ;  journey with a different cargo -- slv_tow_step steps it by PHASE4_STEP
-    ;  out of eco_update, exactly as the harvester is stepped.
-    cp ENT_ORDER_TOW
-    jr z,@p4_next_fly
-    ;  Same again for a ship told to attack: cbt_move_enemies now closes it on
-    ;  its target, and two systems stepping the same ship by PHASE4_STEP in
-    ;  different directions cancel exactly.
     cp ENT_ORDER_ATTACK
     jr z,@p4_next_fly
+    cp ENT_ORDER_HARVEST
+    jr nc,@p4_next_fly
 
     ld hl,(phase4_ent)
     ld de,ENT_SQUAD

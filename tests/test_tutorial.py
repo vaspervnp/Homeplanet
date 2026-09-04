@@ -455,6 +455,14 @@ class TestTheCampaignIsNotTouched(TutFixture):
                          "the tutorial moved the campaign's mission index")
         self.assertEqual(self.byte("CAMPAIGN_UNLOCKS"), self.UNLOCKS)
 
+    def test_v_does_not_fly_a_ship_on_the_stage(self):
+        """The stage teaches SPACE as the pause; a flown ship would make it
+        the gun. game/pilot.asm refuses while tut_active is set."""
+        self.enter_tutorial()
+        self.c.run_frames(60)
+        self.hold("v")
+        self.assertEqual(self.byte("PILOT_SLOT"), self.sym["ENT_NO_TARGET"], "V flew a ship in the tutorial")
+
     def test_the_campaign_comes_back_when_the_tutorial_is_left(self):
         self.enter_tutorial()
         self.c.run_frames(60)

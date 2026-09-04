@@ -112,6 +112,11 @@ order_pending:      defb 0
 order_index:        defb 0
 moth_slot:          defb 0
 
+;  Which ship V is flying, or ENT_NO_TARGET. Down here with moth_slot so a
+;  test can read it with read_ram while the code that writes it is bank 4
+;  (game/pilot.asm); phase4_fly does not read it -- it reads the ORDER.
+pilot_slot:         defb ENT_NO_TARGET
+
 ;  The camera's "right" direction on the Y=0 plane, per octant of yaw, already
 ;  scaled to one frame's movement. Forward is the entry two octants on.
 order_octant_step:

@@ -331,6 +331,15 @@ low_end:
 ;  not exist today -- which is exactly the kind of thing that stops being true
 ;  quietly.
     assert ENT_TOW != ENT_LOAD, "the tow and the harvester's hold share a byte"
+;  phase4_fly steps over every order from HARVEST up with ONE compare: those
+;  are the ships steered by something other than their formation slot, and
+;  ATTACK, which is below them, is compared on its own. Add an order that
+;  wants flying to its slot and it has to go below HARVEST.
+    assert ENT_ORDER_TOW > ENT_ORDER_HARVEST, "phase4_fly's one-compare skip needs TOW above HARVEST"
+    assert ENT_ORDER_PILOT > ENT_ORDER_HARVEST, "phase4_fly's one-compare skip needs PILOT above HARVEST"
+    assert ENT_ORDER_DOCK > ENT_ORDER_HARVEST, "phase4_fly's one-compare skip needs DOCK above HARVEST"
+    assert ENT_ORDER_ATTACK < ENT_ORDER_HARVEST, "ATTACK is compared on its own below the range"
+    assert ENT_ORDER_GUARD < ENT_ORDER_HARVEST && ENT_ORDER_MOVE < ENT_ORDER_HARVEST, "a guarding or moving ship is flown to its slot"
     assert ENT_TOW < ENT_SIZE, "ENT_TOW is outside the entity record"
 
 ;  Mission 8's objective is MIS_OBJ_SURVIVE, which is a countdown on the same
@@ -596,6 +605,10 @@ ENDIF
 ;  is called from cbt_fire_if_able, which is simulation, and nothing pages
 ;  bank 4 out during the simulation.
     include "game/retaliate.asm"
+;  V: fly one ship yourself. Runs from order_update on a keypress and once a
+;  frame while flying, with the window at rest; its one byte of watched state,
+;  pilot_slot, is in game/order.asm in the low 16K.
+    include "game/pilot.asm"
 ;  The Mothership setting down on the planet, before the victory page, and
 ;  the banner across the middle of the view when the yard learns a class.
 ;  Both bank code by the narrow rule: the landing stops the world, the banner
@@ -644,6 +657,8 @@ bank4_end:
 ;  -- and cleared by mis_init with the rest of the chase's flags.
 ;  The shooter's slot, for the frame cbt_retaliate is walking the fleet.
 cbt_avenge:         defb 0
+;  The ship being flown, for the frame pilot_frame is steering it.
+pilot_ent:          defw 0
 ;  The AUTO RESPONSE: armed by A out of a fight, used by the first hit.
 ;  Both cleared by mis_setup: every mission starts with it off.
 auto_armed:         defb 0
@@ -1182,6 +1197,7 @@ ENDIF
     assert ctx_text_play_end - ctx_text_play <= CTX_BAR_CHARS + 2, "the playing line is wider than the screen"
     assert ctx_text_disc_end - ctx_text_disc <= CTX_BAR_CHARS + 2, "the move disc line is wider than the screen"
     assert ctx_text_tutorial_end - ctx_text_tutorial <= CTX_BAR_CHARS + 2, "the tutorial line is wider than the screen"
+    assert ctx_text_pilot_end - ctx_text_pilot <= CTX_BAR_CHARS + 2, "the pilot's line is wider than the screen"
     assert (ctx_text_pause_tail - ctx_text_paused - 1) * TXT_CHAR_W_BYTES <= CTX_PAUSE_TAIL_X, "PAUSED runs into the rest of its line"
     assert CTX_PAUSE_TAIL_X + (ctx_text_pause_end - ctx_text_pause_tail - 2) * TXT_CHAR_W_BYTES <= SCR_BYTES_PER_LINE, "the paused line is wider than the screen"
     assert (ctx_text_recycle_tail - ctx_text_recycle - 1) * TXT_CHAR_W_BYTES <= CTX_RECYCLE_TAIL_X, "RECYCLE? runs into the rest of its line"

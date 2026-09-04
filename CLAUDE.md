@@ -186,8 +186,9 @@ and prints how many bytes are left in the low 16K and in every bank. Watch all
 of them, and watch the "hand-written code ends at" figure rather than `free:` —
 see "Where 700 bytes came from" for why the second one lies.
 
-**Today: low 16K 402, bank 4 2331, bank 6 14210 and bank 7 15309 of 16384,
-`DISC.BIN` 25183 of 26368 so 1185 of headroom.** The chase runs from bank 7 now — see "The chase
+**Today: low 16K 402, bank 4 1954, bank 6 14210 and bank 7 15324 of 16384,
+`DISC.BIN` 25558 of 26368 so 810 of headroom.** The pilot's 375 bytes of bank 4
+are the newest thing in those figures. The chase runs from bank 7 now — see "The chase
 runs from bank 7" — which is the first lever that moved CODE out of the
 file, and the R-Type in `minigame2.md` has 1178 bytes of bank 7 to fit in. (The paragraph below was written at 700; the levers
 it names have been pulled five more times since -- the class names, the
@@ -995,6 +996,7 @@ not needed and should stay unspent.
 | `I` | what the selected squadron is made of; `ESC` goes back |
 | `?` | the key list; `ESC` goes back |
 | `ESC` | in the TUTORIAL, leave it and go back to the title |
+| `V` | **fly the selected squadron's lead ship yourself**: the arrows turn, climb and dive it, `SPACE` fires its gun, the camera rides behind it. `V` again, or its death, hands it back. Not the Mothership, not in the tutorial — see "V: you are the interceptor" |
 | `SPACE` | on the title screen, start the game |
 
 `J` **announces** the jump and the drive spools for ten seconds of live battle before it happens; `ESC` calls it off — see "The jump counts down". It **lands** rather than jumping on the last mission, and landing opens the victory screen — see "The end of the journey". **On the last mission, with `LAND` on offer, `L` lands too** — it is the squadron key every other time; see "`L` lands as well" under that section. Otherwise it jumps when `mis_gate` allows it — the objective met, three waves seen, no
@@ -4159,6 +4161,20 @@ failed to appear.
 > reveal must already be the picture, near enough. It was checked by putting the
 > old code back and watching it fail.
 
+> **AND `runs()` WAS READ A FRAME TOO EARLY, which a longer boot exposed.**
+> `sample_sweep` read the runs on the first sample whose MODE said reveal,
+> and the mode goes up a game frame before the first masked frame is drawn —
+> `phase4_vis` still held the projection of the frame before, and the fleet
+> takes one more formation step on the frame the reveal is armed. Which of
+> the two projections the first sample caught depended on the boot's length:
+> `LIB_SECTORS` 32 added fifteen sectors a boot and
+> `test_a_ship_is_hidden_until_its_own_bar_has_gone_by` reported
+> `checked == 0` from that commit on, for a reveal that was drawn exactly
+> right. Bisected in a worktree across three commits; the pilot work it
+> surfaced under had nothing to do with it. The runs are read on the first
+> sample that has a BAR on the screen now, because a bar is proof the
+> projection it was drawn from is the one in the list.
+
 #### The reveal masks the DIRTY RECTANGLES, not the screen
 
 The obvious full-width fill is most of the screen every frame at ~35 T a byte,
@@ -5941,6 +5957,90 @@ meant to move out of the low 16K to pay for it had been bank 4 all along —
 and `order_home`, 54 bytes read once at boot, went to bank 7 behind a
 `bank7_copy` in `order_init` instead. Looked at on the machine, off
 `MINI.BIN`: the rings, the tilt, a torpedo in flight, the words.
+
+### V: you are the interceptor
+
+`future.md` item 1, built. `game/pilot.asm`, bank 4: `V` on a selected
+squadron takes its **lead ship** — the first one flying, in slot order — and
+the cursor keys steer THAT ship, `SPACE` fires its gun, and the camera rides
+behind it. `V` again, or the ship's death, hands it back to the squadron. The
+rest of the fleet goes on doing what it was ordered to.
+
+**It is an entity like any other, under an order the AI does not own**, and
+that is the whole of the design. `ENT_ORDER_PILOT` is one more value
+`phase4_fly` steps over — `cbt_move_enemies` only ever moves the enemy and
+ATTACK, `cbt_retarget_one` keeps giving it the nearest hostile, which is what
+a pilot's auto-aim wants, and `cbt_fire_if_able` is what actually fires, so
+the gun, the cooldown and the damage matrix are the ship's own. `pilot_frame`
+runs from `order_update` in the slot the cursor keys' owner takes (below the
+disc, above the pan), so it runs BEFORE `phase4_fly` and `cbt_update` and
+re-asserts the order under whatever `A`, `G`, `R` or `H` wrote that frame.
+
+#### Which way is forward, and it had never been asked
+
+Nothing in the game had ever MOVED a ship along its yaw: the fleet's yaws are
+static, and the waves' `angle + 128` "faces inward" was checked at one camera
+angle. `tools/mkships.py` renders view 0 **nose-on** and yaw 90° "broadside-
+to-the-right", and the camera matrix `Rx(pitch)·Ry(yaw)` looks along world
+`(-sin c, cos c)` at `cam_yaw` c — so a ship with `ENT_YAW` y has its nose
+along world **`(sin y, -cos y)`**, whatever the camera does, and a camera at
+**`y + 128`** looks along exactly that vector, which is what a chase camera IS.
+The view drawn is therefore 3, tail-on. `LEFT` is yaw *increasing*: at view 3
+the nose swings to camera −x as the view angle grows. (`order_camera`'s LEFT
+takes `cam_yaw` the other way; that is an orbit.) Worked out from the two
+conventions, then checked by flying: `test_it_flies_straight_along_its_heading`
+puts yaw 0 at −Z and yaw 64 at +X, exactly.
+
+> **The waves face the wrong way for half the circle.** `wave_place` writes
+> `angle + 128` where `(sin y, -cos y)` wants `-angle`. Nobody could see it:
+> head-on and tail-on differ only in which side the shading is on. Left as
+> it is, noted here, one `neg` if anyone cares.
+
+#### The gun is held by its own cooldown
+
+`cbt_fire_if_able` fires when `ENT_TIMER` is zero, so the pilot writes a 1
+into a timer that has reached zero and the battle's own decrement takes it
+back to zero by the next frame: the ship is always ready and never fires.
+`SPACE` leaves the zero where it is for one frame and the ship fires if
+anything hostile is in `CBT_RANGE`, exactly as it would have on its own. A
+real cooldown after a shot counts down untouched, so hammering `SPACE` is one
+shot per `CBT_COOLDOWN`. Driven through a stub — `pilot_frame` then
+`cbt_update`, with the edge poked into `key_hits` — so each frame is one frame:
+no shot without SPACE, one shot with it, none inside the cooldown, and the
+target it aims at is the enemy. And end to end, flying a circle round an enemy
+under a held LEFT: measured, the flown ship and the enemy trade 24 a shot at
+the same rate and **ours dies on the twenty-fifth tap** — twelve taps is what
+the test uses.
+
+#### What it costs and what it does not do
+
+- **200 a frame against `PHASE4_STEP`'s 150.** `PILOT_STEP_HALF` is 100 and
+  doubled, because `cam_mul7`'s product has to stay inside a signed byte and
+  127 × 150 does not. A pilot flies harder than the autopilot — it can pick,
+  and leave, a fight the AI would have to sit in — and that is the only bonus
+  flying gives; the gun is the gun. `PILOT_TURN` 6 is a circle in about six
+  seconds; `PILOT_CLIMB` 100 a frame against `WAVE_RISE`'s ±508.
+- **`SPACE` is the trigger, not the pause**, while a ship is being flown; the
+  bar says `ARROWS FLY SPACE FIRE V BACK` and pausing means `V` first. A pause
+  entered BEFORE `V` is still left with `SPACE`, and the bar says `PAUSED`
+  there — `CTX_PILOT` sits below `CTX_PAUSED` in `ctx_classify` for that.
+- **Not the Mothership** (`order_have_squadron`), **not in the tutorial**
+  (it teaches `SPACE` as the pause), and **handed back before a jump**:
+  `mis_jump_now` calls `pilot_end` first, because `fleet_save` carries
+  `ENT_ORDER` and `fleet_restore` packs the slots down — a PILOT order saved
+  would arrive under a `pilot_slot` naming some other ship. `mis_init` clears
+  the slot for a new campaign.
+- **`phase4_fly` got cheaper.** Three `cp`/`jr z` pairs for HARVEST, TOW and
+  ATTACK became `cp ATTACK : jr z` and `cp HARVEST : jr nc`, with five asserts
+  in `src/main.asm` pinning which orders sit above HARVEST. The hand-written
+  low 16K ends three bytes EARLIER than before the feature; `pilot_slot` is in
+  `game/order.asm` in the alignment slack, so tests read it with `read_ram`.
+- **375 bytes of bank 4, 15 of bank 7** (`V   FLY A SHIP` on the help page,
+  `HELP_ROWS` 12), nothing per frame while not flying but three `cp`s.
+
+**Looked at**, `build/shots/pilot-*.png`: the ship sits centred with the bar
+above it, and holding LEFT swings the lattice and the Mothership across the
+right of the screen, which is what turning left looks like from behind.
 
 ### The run: an R-Type between the jumps
 

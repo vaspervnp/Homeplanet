@@ -39,6 +39,8 @@ mis_init:
     ld (ban_msg),a                      ; ...and no unlock banner is up
     ld (mis_saved),a                    ; nothing banked yet
     ld (campaign_unlocks),a             ; ...and nothing reverse-engineered
+    ld a,ENT_NO_TARGET
+    ld (pilot_slot),a                   ; ...and nobody is flying anything
     ld hl,0
     ld (mis_timer),hl
     ;  ...and the mark the delta is measured from, or the first frame of the
@@ -1038,6 +1040,12 @@ mis_jump_tick:
 ;  Uses: everything
 ; ----------------------------------------------------------------------------
 mis_jump_now:
+    ;  A ship being flown is handed back FIRST, before anything below moves:
+    ;  fleet_save carries ENT_ORDER, and fleet_restore packs the slots down,
+    ;  so a PILOT order saved here would arrive under a pilot_slot that names
+    ;  some other ship. game/pilot.asm.
+    call pilot_end
+
     ;  THE LAST MISSION LANDS INSTEAD OF JUMPING. This used to refuse -- the
     ;  campaign simply had no twenty-first row -- so a player who fought
     ;  through all twenty was left flying around a cleared board with a key

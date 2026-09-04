@@ -19,6 +19,13 @@ Everything below is bank 4 code with its words in bank 7.
 
 ## 1. Direct control of one ship — `V`, and you are the interceptor
 
+**BUILT.** `game/pilot.asm`; CLAUDE.md "V: you are the interceptor". Two
+things below were wrong in the useful way: the yaw convention had never been
+asked — nothing moved along it — and the answer was `(sin y, -cos y)` with the
+chase camera at `y + 128`, not "step along the camera axes"; and the gun did
+not need `cbt_find_enemy` calling by hand, only a timer parked at one. 375
+bytes of bank 4, not 180. Item 7 is the next thing this makes possible.
+
 **What.** Press `V` on a selected squadron and the camera drops onto its lead
 ship, the cursor keys steer THAT ship, and `SPACE` (or `A`) fires its gun on
 the edge. `V` again — or its death — hands the squadron back to the AI. The

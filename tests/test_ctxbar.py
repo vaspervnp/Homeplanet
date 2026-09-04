@@ -553,6 +553,46 @@ class TestTheKeysAreBlue(BarFixture):
         check("the build panel")
 
 
+class TestFlyingAShip(BarFixture):
+    """V hands the arrows and SPACE to one ship (game/pilot.asm), which is two
+    keys changing meaning at once -- the exact thing this bar exists to say."""
+
+    def test_v_puts_the_flying_line_up_in_the_right_inks(self):
+        self.hold("v")
+        self.assertLess(self.byte("PILOT_SLOT"), self.sym["ENT_PLAYER_MAX"], "V did not take a ship")
+        self.assertEqual(self.banked("CTX_KEY"), self.sym["CTX_PILOT"])
+        self.assert_reads([
+            ("ARROWS", PEN_BLUE), ("FLY", PEN_WHITE),
+            ("SPACE", PEN_BLUE), ("FIRE", PEN_WHITE),
+            ("V", PEN_BLUE), ("BACK", PEN_WHITE),
+        ])
+
+    def test_space_is_the_gun_and_the_line_stays(self):
+        self.hold("v")
+        self.hold(cpc.KEY_SPACE)
+        self.assertEqual(self.byte("ORDER_PAUSED"), 0, "SPACE paused the game while flying")
+        self.assertIn("SPACE FIRE", self.strip_text())
+
+    def test_v_again_puts_the_playing_line_back(self):
+        self.hold("v")
+        self.hold("v")
+        self.assertEqual(self.byte("PILOT_SLOT"), self.sym["ENT_NO_TARGET"])
+        self.assertIn("ESC MENU", self.strip_text())
+        self.assertNotIn("FLY", self.strip_text())
+
+    def test_a_pause_entered_first_outranks_it_and_space_resumes(self):
+        """SPACE is the resume while paused whatever else is going on, and
+        the bar has to name THAT rather than the gun."""
+        self.hold(cpc.KEY_SPACE)
+        self.hold("v")
+        self.assertLess(self.byte("PILOT_SLOT"), self.sym["ENT_PLAYER_MAX"])
+        text = self.strip_text()
+        self.assertTrue(text.startswith("PAUSED"), f"the bar reads {text!r}")
+        self.hold(cpc.KEY_SPACE)
+        self.assertEqual(self.byte("ORDER_PAUSED"), 0, "SPACE did not resume")
+        self.assertIn("SPACE FIRE", self.strip_text())
+
+
 class TestTheFullScreenPages(BarFixture):
 
     def test_the_help_page_takes_the_bar_down(self):

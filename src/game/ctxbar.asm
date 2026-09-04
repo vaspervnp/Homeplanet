@@ -83,6 +83,7 @@ CTX_BUILD           equ 4
 CTX_RECYCLE         equ 5               ; `Y` is armed and asking again
 CTX_JUMPING         equ 6               ; the drive is spooling, ESC calls it off
 CTX_TUTORIAL        equ 7               ; ...and in the tutorial ESC leaves it
+CTX_PILOT           equ 8               ; V: the arrows fly a ship and SPACE fires
 
 ;  How many characters fit on one line, which is the only real constraint on
 ;  the words below -- txt_draw clips at the screen edge rather than wrapping,
@@ -163,6 +164,9 @@ ctx_bar:
     jr z,ctx_draw_jumping
     cp CTX_TUTORIAL
     ld hl,ctx_text_tutorial
+    jp z,ctx_line
+    cp CTX_PILOT
+    ld hl,ctx_text_pilot
     jp z,ctx_line
     ld hl,ctx_text_play
     ;  ...and fall through
@@ -630,9 +634,16 @@ ctx_classify:
 
     ld a,(order_paused)
     or a
-    ld a,CTX_PLAYING
-    jr z,@ctx_set
     ld a,CTX_PAUSED
+    jr nz,@ctx_set
+    ;  ...and a ship being flown, BELOW the pause: SPACE is the trigger while
+    ;  flying and the resume while paused, and the bar names whichever it is
+    ;  right now. game/pilot.asm.
+    ld a,(pilot_slot)
+    cp ENT_MAX
+    ld a,CTX_PILOT
+    jr c,@ctx_set
+    ld a,CTX_PLAYING
 @ctx_set:
     ld (ctx_key),a
     ret
@@ -672,6 +683,17 @@ ctx_text_tutorial:
     defb "?",0,"KEYS",0
     defb 0
 ctx_text_tutorial_end:
+
+;  A ship being flown. FLY is the arrows' word because they do two things at
+;  once -- turn, and climb -- and the line has no room to say both; BACK is
+;  what V does the second time, which is the one thing about this mode a
+;  player has to be told, because every other key on the screen still works.
+ctx_text_pilot:
+    defb "ARROWS",0,"FLY",0
+    defb "SPACE",0,"FIRE",0
+    defb "V",0,"BACK",0
+    defb 0
+ctx_text_pilot_end:
 
 ctx_text_jumping:
     defb "JUMPING",0

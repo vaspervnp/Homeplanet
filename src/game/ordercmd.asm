@@ -58,10 +58,20 @@ order_update:
     ld a,(disc_active)
     or a
     jr nz,@ord_disc_has_cursors
+    ;  ...then a ship being FLOWN. Below the disc, so a disc opened while
+    ;  flying still takes the arrows -- the bar says so, because the disc
+    ;  outranks the pilot there too -- and above the pan, because V is a mode
+    ;  the player is looking at and P is an offset they may have forgotten.
+    ld a,(pilot_slot)
+    cp ENT_MAX
+    jr c,@ord_pilot_has_cursors
     ld a,(pan_active)
     or a
     jr nz,@ord_pan_has_cursors
     call order_camera
+    jr @ord_shared
+@ord_pilot_has_cursors:
+    call pilot_frame                    ; game/pilot.asm: steer, fly, aim the camera
     jr @ord_shared
 @ord_disc_has_cursors:
     ld hl,disc_pos
@@ -82,11 +92,28 @@ order_update:
     ld a,KEY_SPACE
     call key_hit
     jr nc,@ord_no_pause
+    ;  A PILOT'S SPACE IS THE TRIGGER, not the pause -- pilot_frame has just
+    ;  read the same edge and left the gun ready. Resuming is still SPACE:
+    ;  a pause entered before V was pressed has to be leavable without
+    ;  handing the ship back first, and the bar says SPACE RESUME there.
+    ld a,(order_paused)
+    or a
+    jr nz,@ord_toggle_pause
+    ld a,(pilot_slot)
+    cp ENT_MAX
+    jr c,@ord_no_pause
+@ord_toggle_pause:
     ld hl,order_paused
     ld a,(hl)
     xor 1
     ld (hl),a
 @ord_no_pause:
+
+    ;  V: fly the selected squadron's lead ship yourself, and V again to hand
+    ;  it back. game/pilot.asm, and future.md item 1.
+    ld a,KEY_V
+    call key_hit
+    call c,pilot_toggle
 
     ld a,KEY_ENTER
     call key_hit
@@ -558,6 +585,15 @@ order_toggle_view:
 ;  Uses: everything
 ; ----------------------------------------------------------------------------
 order_focus:
+    ;  A ship being flown is what the camera rides. Its position and not a
+    ;  station, so the view follows it a frame behind -- pilot_frame moved it
+    ;  earlier in this same frame, so in fact not even that.
+    ld a,(pilot_slot)
+    cp ENT_MAX
+    jr nc,@ord_focus_no_pilot
+    call ent_addr                       ; ENT_X is offset 0
+    jr @ord_focus_copy
+@ord_focus_no_pilot:
     ld a,(sel_mothership)
     or a
     jr z,@ord_focus_squadron

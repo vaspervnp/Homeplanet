@@ -129,6 +129,7 @@ KEY_O               equ 4*8 + 2         ; split by class; line 4 is 0 9 O I L K 
 ;  and T was the only unclaimed letter in the game with the right initial --
 ;  H already means "the harvesters go to work" and this is its sibling.
 KEY_T               equ 6*8 + 3
+KEY_V               equ 6*8 + 7         ; fly a ship yourself; line 6 is 6 5 R T G F B V
 
 ;  Recycle: the selected squadron is broken up for RU. Every letter of SCRAP
 ;  and of DECOMMISSION was already taken -- S, C, R, A, P, D, E, O, M, I, N all

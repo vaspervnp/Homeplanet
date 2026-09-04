@@ -111,6 +111,7 @@ help_words:
     defb "D C DIVIDE/COMBINE",0
     defb "K L MOVE ONE SHIP",0
     defb "M   MUSIC ON/OFF",0
+    defb "V   FLY A SHIP",0
 help_words_end:
 
 ; ----------------------------------------------------------------------------

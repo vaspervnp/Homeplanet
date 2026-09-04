@@ -268,11 +268,21 @@ class WipeFixture(unittest.TestCase):
                 if seen:
                     break
             else:
-                if runs is None:
-                    runs = self.runs()
                 base = h.front_buffer(self.c)
                 ram = self.buffer(base)
                 bars = self.bar_columns(ram)
+                #  ...AND NOT BEFORE THE FIRST BAR IS ON THE SCREEN. The mode
+                #  flag goes up a game frame before the first masked frame is
+                #  drawn, and phase4_vis still holds the projection of the
+                #  frame BEFORE -- the fleet takes one more formation step on
+                #  the frame the reveal is armed -- so runs read on the mode
+                #  alone are a byte out from every bar that follows. Which of
+                #  the two projections the first sample caught depended on the
+                #  boot's length: fifteen more sectors a boot (LIB_SECTORS 32)
+                #  moved it, and this test reported `checked == 0` for a
+                #  reveal that was drawn exactly right.
+                if runs is None and bars:
+                    runs = self.runs()
                 seen.append((self.col(), base, bars,
                              self.lit_columns(ram), self.lit_count(ram)))
                 if bars:
