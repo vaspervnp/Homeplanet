@@ -55,10 +55,21 @@ SPRITE_STAGE_MIN    equ #8000           ; first address the #4000 paging spares
 ;  -- keeps working perfectly. Assert it rather than rediscover it.
 AMSDOS_WORKSPACE    equ #A700
 
+;  MINI.BIN is this file assembled a second time -- see MINI_ONLY in
+;  src/main.asm. src/minidisc.asm sets it and includes this; here it only
+;  decides which image is wrapped and what the file on the disc is called.
+    ifndef MINI_ONLY
+MINI_ONLY           equ 0
+    endif
+
     org GAME_LOAD
 
 game_image:
+IF MINI_ONLY
+    incbin "build/mini/home.raw"
+ELSE
     incbin "build/home.raw"
+ENDIF
 game_image_end:
 
 ;  Run-length coded by tools/packsprites.py, which explains the format and
@@ -75,7 +86,11 @@ game_image_end:
 ;  4% of that. The day the bank has sprites in it again -- a ninth class that
 ;  does not fit banks 5-7 -- it pays for itself once more.
 sprite_image:
+IF MINI_ONLY
+    incbin "build/mini/sprites.rle"
+ELSE
     incbin "build/sprites.rle"
+ENDIF
 sprite_image_end:
 
 ; ----------------------------------------------------------------------------
@@ -197,7 +212,18 @@ disc_stub_end:
 
     run disc_stub
 
+IF MINI_ONLY
+    print "MINI.BIN:", disc_stub_end - GAME_LOAD, "bytes, exec at", {hex}disc_stub
+
+    ;  INTO the same image, after DISC.BIN: -eo is what lets a second save
+    ;  add to a .dsk that already exists. The Makefile mints the image fresh
+    ;  every build, so the order of the two assemblies is what puts DISC.BIN
+    ;  first in the catalogue.
+    save "MINI.BIN", GAME_LOAD, disc_stub_end - GAME_LOAD, DSK, "build/homeplanet.dsk"
+    save "build/mini/disc.raw", GAME_LOAD, disc_stub_end - GAME_LOAD
+ELSE
     print "DISC.BIN:", disc_stub_end - GAME_LOAD, "bytes, exec at", {hex}disc_stub
 
     save "DISC.BIN", GAME_LOAD, disc_stub_end - GAME_LOAD, DSK, "build/homeplanet.dsk"
     save "build/disc.raw", GAME_LOAD, disc_stub_end - GAME_LOAD
+ENDIF

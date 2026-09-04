@@ -20,6 +20,9 @@ make dsk-list   # AMSDOS catalogue of the built disc
 make clean
 ```
 
+The disc also carries **`MINI.BIN`** — `RUN"MINI` plays the vortex chase on
+its own, in a loop, with no campaign in front of it. See "MINI.BIN" below.
+
 ```bash
 python3 tools/run.py --shots 6 --every 5     # a strip of frames, to see motion
 python3 tools/run.py --disc                  # boot from the .dsk like a user
@@ -5541,6 +5544,41 @@ which is harmless.
 
 `DISC.BIN` is **26310 of 26368 — 58 bytes** after this. The words are in bank 7
 and cost nothing; the page's code is what is left.
+
+### MINI.BIN: the chase on its own, on the same disc
+
+*"make me a bin to test only the minigame"* — and then *"in the same disk"*.
+
+`src/mini.asm` is one line, `MINI_ONLY equ 1`, followed by `include
+"main.asm"`; `src/minidisc.asm` does the same to `disc.asm`. So the chase in
+`MINI.BIN` is **byte for byte the chase in the game** — there is no second
+copy of anything to drift, and every bank-4 routine and bank-7 string it
+reaches is the same one. What `MINI_ONLY` changes is three things, all behind
+`IF`: the boot loop, which after `demo_init` stops the title's tune and runs
+`ent_clear_all` / `phase4_spawn_fleet` / `mini_run` for ever, clearing
+`mini_shown` each time so the intro page is the "play again" prompt; the
+`save` paths, which go under `build/mini/` so the two assemblies never
+overwrite each other's images or symbol files; and the name on the disc.
+
+**The Makefile assembles the game twice and wraps it twice**, and the second
+`save ... DSK` goes INTO the image the first one minted — that is what `-eo`
+is for. The mini build does not write banks 5–7 at all: they would be
+identical, and the game's copies are what `tools/discbanks.py` puts on the
+disc. Both saves live in the one `$(DSK)` recipe because both have to be
+redone whenever the image is.
+
+**Its symbols are its own.** The low 16K is seven bytes longer, so
+`build/mini/homeplanet.sym` is what a test of it must read — `harness.MINI_SYM`
+— and `boot_disc(program="MINI")` is how it is started, because the file is
+the point. `tests/test_mini_bin.py` boots it off the real image, reads
+`ENTER - BEGIN` off the pixels, presses ENTER and an arrow, and waits for
+the page to come round again.
+
+**It cost the disc six tracks and `DISC.BIN` nothing.** The AMSDOS files now
+end around track 17 against `LIB_TRACK` at 20 — closer than the eight tracks
+of headroom the libload section quotes, and the next file added to the image
+has to look at that figure first. The content test in `test_shipclass` is the
+net if one does not.
 
 ### The end of the journey
 

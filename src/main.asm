@@ -27,6 +27,21 @@
 DIAG_DISC           equ 0
 
 ; ----------------------------------------------------------------------------
+;  MINI_ONLY -- MINI.BIN, the vortex chase on its own, for trying it out.
+;
+;  Nothing here sets it. src/mini.asm sets it to 1 and INCLUDES this file, so
+;  the same source assembles twice: once as the game, once as a build that
+;  boots, loads the libraries, spawns the starting fleet and then runs the
+;  chase in a loop -- the intro page in front of every round, so ENTER is
+;  "play again" -- and never reaches the title screen or the frame loop. It
+;  goes on the same disc as MINI.BIN, and RUN"MINI is how you get at it. The
+;  saves below write into build/mini/ when it is set, so the two builds never
+;  overwrite each other's images or symbol files.
+    ifndef MINI_ONLY
+MINI_ONLY           equ 0
+    endif
+
+; ----------------------------------------------------------------------------
 ;  RASM's BANK directive, and why the build needs it now.
 ;
 ;  There are four 16K images in this file and three of them are assembled at
@@ -55,12 +70,31 @@ game_main:
 
     call demo_init
 
+IF MINI_ONLY
+    ;  MINI.BIN: the chase, and nothing else. demo_init has read the libraries,
+    ;  spawned the starting fleet and opened the title -- whose tune has to be
+    ;  stopped here, because mus_update lives in demo_update and demo_update
+    ;  never runs in this build, so the note it was on would sound for ever.
+    ;  A fresh fleet every round, so a lost chase's toll is always taken from
+    ;  a full sixteen and can be read against MG_FRAC_MIN/MAX; and mini_shown
+    ;  cleared every round, so the intro page IS the "play again" prompt.
+    call mus_stop
+@mini_loop:
+    call ent_clear_all
+    call phase4_spawn_fleet
+    call squad_refresh
+    xor a
+    ld (mini_shown),a
+    call mini_run
+    jr @mini_loop
+ELSE
 @frame_loop:
     call demo_update                    ; draw into the back buffer
     call demo_wait_frame                ; hold the loop to 4 VSYNCs = 12.5 fps
     call scr_wait_vsync
     call scr_flip                       ; back becomes front
     jr @frame_loop
+ENDIF
 
 
 ; ============================================================================
@@ -435,7 +469,11 @@ low_end:
 ;  A headerless blob only. src/disc.asm wraps it in the relocating stub that
 ;  actually gets it to #0040 -- see the long explanation there.
 ; ----------------------------------------------------------------------------
+IF MINI_ONLY
+    save "build/mini/home.raw", CODE_START, code_end - CODE_START
+ELSE
     save "build/home.raw", CODE_START, code_end - CODE_START
+ENDIF
 
 
 ; ============================================================================
@@ -798,7 +836,11 @@ bank4_limit:
     assert TITLE_PLANET_CY - TITLE_PLANET_RY >= TITLE_Y + 32, "the planet runs into the big title"
     assert TITLE_PLANET_CY + TITLE_PLANET_RY < TITLE_PROMPT_Y, "the planet runs into the title prompt"
 
+IF MINI_ONLY
+    save "build/mini/sprites.raw", BANK_WINDOW, bank4_end - BANK_WINDOW
+ELSE
     save "build/sprites.raw", BANK_WINDOW, bank4_end - BANK_WINDOW
+ENDIF
 
 
 ; ============================================================================
@@ -828,7 +870,9 @@ bank5_start:
     include "gen/spr_mothership.asm"
     include "gen/spr_harvester.asm"
 bank5_end:
+IF MINI_ONLY == 0                       ; identical in both builds; the game's copy is the one on the disc
     save "build/bank5.raw", BANK_WINDOW, bank5_end - BANK_WINDOW
+ENDIF
 
     BANK 3
 
@@ -838,7 +882,9 @@ bank6_start:
     include "gen/spr_bomber.asm"
     include "gen/spr_frigate.asm"
 bank6_end:
+IF MINI_ONLY == 0                       ; identical in both builds; the game's copy is the one on the disc
     save "build/bank6.raw", BANK_WINDOW, bank6_end - BANK_WINDOW
+ENDIF
 
     BANK 4
 
@@ -867,7 +913,9 @@ bank7_start:
 ;  bank7_copy. Two hundred and thirty-five bytes of DISC.BIN for five.
     include "gen/zoom.asm"
 bank7_end:
+IF MINI_ONLY == 0                       ; identical in both builds; the game's copy is the one on the disc
     save "build/bank7.raw", BANK_WINDOW, bank7_end - BANK_WINDOW
+ENDIF
 
     print "bank 5:", bank5_end - BANK_WINDOW, " bank 6:", bank6_end - BANK_WINDOW, " bank 7:", bank7_end - BANK_WINDOW, " of", LIB_SECTORS * FDC_SECTOR_SIZE, "each"
 

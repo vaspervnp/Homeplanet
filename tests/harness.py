@@ -34,6 +34,9 @@ BUILD = os.path.join(ROOT, "build")
 DISC_RAW = os.path.join(BUILD, "disc.raw")
 DSK = os.path.join(BUILD, "homeplanet.dsk")
 SYM = os.path.join(BUILD, "homeplanet.sym")
+#  MINI.BIN is a second assembly of the same source and its addresses are its
+#  own -- see MINI_ONLY in src/main.asm.
+MINI_SYM = os.path.join(BUILD, "mini", "homeplanet.sym")
 DISC_SYM = os.path.join(BUILD, "disc.sym")
 
 LOADER_ORG = 0x4000
@@ -585,8 +588,12 @@ def wait_out_the_countdown(c: cpc.CPC, tries: int = 400) -> None:
             c.write_ram(sym["ORDER_PAUSED"], bytes([1]))
 
 
-def boot_disc(frames: int = 400) -> cpc.CPC:
+def boot_disc(frames: int = 400, program: str = "DISC") -> cpc.CPC:
     """Boot the way a real user does: insert the disc and RUN it.
+
+    `program` is the file to RUN: DISC for the game, MINI for the chase on its
+    own (see MINI_ONLY in src/main.asm). MINI's symbols are NOT the game's --
+    read them out of build/mini/homeplanet.sym with `symbols(MINI_SYM)`.
 
     The `|DISC` is this emulator's quirk -- it comes up with the cassette as
     the default filing system, where a real 6128 with a drive comes up on
@@ -598,7 +605,7 @@ def boot_disc(frames: int = 400) -> cpc.CPC:
         raise RuntimeError(f"insert_disc failed for {DSK}")
     c.type_text("|DISC\n")
     c.run_frames(60)
-    c.type_text('RUN"DISC\n')
+    c.type_text(f'RUN"{program}\n')
     c.run_frames(frames)
     return c
 
