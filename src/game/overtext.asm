@@ -91,40 +91,17 @@ WIN_LINE_3_X        equ 12
 ;  table is where that is got right. tests/test_gameover.py re-derives the
 ;  ellipse and checks every entry, top and bottom.
 ; ----------------------------------------------------------------------------
-over_fire_table:
-    defb  -25,   -9, 3
-    defb  -24,  -11, 5
-    defb  -23,  -10, 4
-    defb  -11,  -18, 3
-    defb  -10,  -20, 5
-    defb   -9,  -19, 4
-    defb    3,  -13, 3
-    defb    4,  -15, 5
-    defb    5,  -14, 4
-    defb   19,   -7, 3
-    defb   20,   -9, 5
-    defb   21,   -8, 4
-    defb  -19,    4, 3
-    defb  -18,    2, 5
-    defb  -17,    3, 4
-    defb   -4,    8, 3
-    defb   -3,    6, 5
-    defb   -2,    7, 4
-    defb   13,   10, 3
-    defb   14,    8, 5
-    defb   15,    9, 4
-    defb   -9,   19, 3
-    defb   -8,   17, 5
-    defb   -7,   18, 4
-    defb   24,    7, 3
-    defb   25,    5, 5
-    defb   26,    6, 4
-    defb    7,   21, 3
-    defb    8,   19, 5
-    defb    9,   20, 4
-over_fire_table_end:
+;  THE TABLE ITSELF IS IN BANK 7 NOW -- over_fire_table in game/screentext.asm,
+;  with the words. Ninety bytes of bank 4 that cost DISC.BIN byte for byte,
+;  read once per frame of a page that stops the world: over_fires copies it
+;  down in OVER_FIRE_CHUNK-fire pieces through bank7_copy, because bank7_line
+;  is B7_BUF_SIZE and the table is more than twice that. The chase's tilt is
+;  what the room paid for.
 
 ;  A literal with an assert rather than (end - start) / 3, because RASM cannot
 ;  resolve an equate derived from two bank-4 labels at symbol-export time --
 ;  the same reason TUT_STEPS is written out.
 OVER_FIRE_COUNT     equ 30
+;  ...copied out of bank 7 this many at a time, into bank7_line.
+OVER_FIRE_CHUNK     equ 10
+OVER_FIRE_CHUNKS    equ 3

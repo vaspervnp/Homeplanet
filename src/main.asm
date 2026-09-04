@@ -556,6 +556,10 @@ bank4_start:
 ;  game/ctxbar.asm and gfx/markproj.asm. It is still bank code by the narrow
 ;  rule in game/shipclass.asm: nothing pages bank 4 out during the simulation.
     include "game/salvage.asm"
+;  A squadron that is shot at shoots back. Bank code by the narrow rule: it
+;  is called from cbt_fire_if_able, which is simulation, and nothing pages
+;  bank 4 out during the simulation.
+    include "game/retaliate.asm"
 ;  The tutorial. Bank code by the narrow rule: tut_enter runs from a keypress
 ;  on the title screen, tut_update from the very top of demo_update and
 ;  tut_draw from its very end, and none of the three can be reached from
@@ -597,6 +601,38 @@ bank4_end:
 ;  powers off between missions 4 and 8 reads it once more, which is harmless
 ;  -- and cleared by mis_init with the rest of the chase's flags.
 mini_shown:         defb 0
+;  The shooter's slot, for the frame cbt_retaliate is walking the fleet.
+cbt_avenge:         defb 0
+;  The chase: which way the player is steering this step (0 straight, 1 left,
+;  2 right), the yaw view mini_blit is to draw, and one block's size.
+mini_bank:          defb 0
+mini_view:          defb 0
+mini_bsz:           defw 0
+;  The game-over page's and the squadron page's scratch. Every byte is written
+;  before it is read -- over_draw and over_fires set theirs up per frame, the
+;  breakdown tallies its per row -- so they need no starting value and were
+;  costing DISC.BIN seventeen and thirteen bytes as `defb 0` inside the image.
+over_page_ptr:      defw 0
+over_line_ptr:      defw 0
+over_x_ptr:         defw 0
+over_line_y:        defb 0
+over_lines_left:    defb 0
+over_fires_left:    defb 0
+over_fire_ptr:      defw 0
+over_fire_buf:      defw 0
+over_chunks_left:   defb 0
+over_fire_dx:       defb 0
+over_fire_dy:       defb 0
+over_fire_h:        defb 0
+info_class:         defb 0
+info_count:         defb 0
+info_hull:          defw 0
+info_full:          defw 0
+info_pct:           defb 0
+info_y:             defb 0
+info_total:         defb 0
+info_thull:         defw 0
+info_tfull:         defw 0
 mini_ip:            defw 0              ; the (x, y) table cursor, intro only
 mini_theta:         defb 0              ; where the enemy is in its weave
 mini_phase:         defb 0              ; how far the shaft has scrolled
@@ -826,7 +862,7 @@ bank4_limit:
 
 ;  Three bytes a fire, and the count is a literal because RASM cannot resolve
 ;  an equate derived from two bank-4 labels at symbol-export time.
-    assert over_fire_table_end - over_fire_table == OVER_FIRE_COUNT * 3, "the fire table is not OVER_FIRE_COUNT entries long"
+;  (the fire table's asserts are at the bottom of this file: it is in bank 7 now)
 
 ;  Four pixels of margin each side, not none: the night side's fill rounds
 ;  OUTWARD -- see title_planet_fill for why it has to -- so it writes up to a
@@ -1404,6 +1440,9 @@ MG_HW_MAX           equ 137
 MG_HH_MAX           equ MG_HW_MAX / 2 + MG_HW_MAX / 4
 MG_SWING            equ (MG_X_MAX - MG_X_MID) / 4
     assert mini_ladder_end - mini_ladder == MG_LADDER, "the chase's ladder is not MG_LADDER entries"
+    assert interceptor_c_shifts == 2, "mini_blit steps view * 2 blocks: the interceptor no longer has two pre-shifts"
+    assert MG_VIEW_LEFT < PHASE4_VIEWS && MG_VIEW_RIGHT < PHASE4_VIEWS, "the chase's tilt names a yaw view the interceptor does not have"
+    assert MG_STEER_X + (mini_words_end - mini_say_steer - 1) * TXT_CHAR_W_BYTES <= SCR_BYTES_PER_LINE, "the chase's steer line runs off the screen"
     assert MG_SPACING * MG_RINGS <= MG_LADDER, "two rings of the shaft would be drawn at the same radius"
     assert MG_CX - MG_SWING - MG_HW_MAX >= 0, "the widest ring runs off the left of the screen"
     assert MG_CX + MG_SWING + MG_HW_MAX < SCR_WIDTH_PX, "the widest ring runs off the right of the screen"
@@ -1432,10 +1471,18 @@ MG_SWING            equ (MG_X_MAX - MG_X_MID) / 4
     assert mini_say_won - mini_say_run <= B7_BUF_SIZE, "the chase's prompt does not fit the bank 7 buffer"
     assert mini_say_lost - mini_say_won <= B7_BUF_SIZE, "the chase's win line does not fit the bank 7 buffer"
     assert mini_say_toll - mini_say_lost <= B7_BUF_SIZE, "the chase's loss line does not fit the bank 7 buffer"
-    assert mini_words_end - mini_say_toll <= B7_BUF_SIZE, "the chase's toll line does not fit the bank 7 buffer"
+    assert mini_say_steer - mini_say_toll <= B7_BUF_SIZE, "the chase's toll line does not fit the bank 7 buffer"
+    assert mini_words_end - mini_say_steer <= B7_BUF_SIZE, "the chase's steer line does not fit the bank 7 buffer"
+    assert (SCR_BYTES_PER_LINE - (mini_words_end - mini_say_steer - 1) * TXT_CHAR_W_BYTES) / 2 == MG_STEER_X, "the chase's steer line is not centred"
+
+;  The game-over fire table, in bank 7 -- down here for the reason every bank-7
+;  assert is: ASSERT is evaluated where it stands.
+    assert over_fire_table_end - over_fire_table == OVER_FIRE_COUNT * 3, "the fire table is not OVER_FIRE_COUNT entries long"
+    assert OVER_FIRE_CHUNK * OVER_FIRE_CHUNKS == OVER_FIRE_COUNT, "the fire chunks do not add up to the fire table"
+    assert OVER_FIRE_CHUNK * 3 <= B7_BUF_SIZE, "a chunk of the fire table does not fit bank7_line"
     assert MG_RUN_X + (mini_say_won - mini_say_run - 1) * TXT_CHAR_W_BYTES <= SCR_BYTES_PER_LINE, "the chase's prompt runs off the screen"
     assert MG_TOLL_NUM_X + 2 * TXT_CHAR_W_BYTES <= SCR_BYTES_PER_LINE, "the ambush's count runs off the screen"
-    assert MG_TOLL_X + (mini_words_end - mini_say_toll - 1) * TXT_CHAR_W_BYTES <= MG_TOLL_NUM_X, "SHIPS LOST runs into the number beside it"
+    assert MG_TOLL_X + (mini_say_steer - mini_say_toll - 1) * TXT_CHAR_W_BYTES <= MG_TOLL_NUM_X, "SHIPS LOST runs into the number beside it"
 ;  ...and the intro page's five, each against its own string, the way the
 ;  game-over page's are. Written as the same division the others use.
     assert (SCR_BYTES_PER_LINE - (mini_intro_2 - mini_intro_1 - 1) * TXT_CHAR_W_BYTES) / 2 == MG_INTRO_1_X, "the chase intro's first line is not centred"

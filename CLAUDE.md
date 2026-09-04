@@ -186,8 +186,12 @@ and prints how many bytes are left in the low 16K and in every bank. Watch all
 of them, and watch the "hand-written code ends at" figure rather than `free:` —
 see "Where 700 bytes came from" for why the second one lies.
 
-**Today: low 16K 484, bank 4 1837, bank 7 10997 of 13312, `DISC.BIN` 25668 of
-26368 so 700 of headroom.** `DISC.BIN` had been the binding constraint at 201
+**Today: low 16K 405, bank 4 1150, bank 7 12826 of 13312, `DISC.BIN` 26356 of
+26368 so 12 of headroom.** (The paragraph below was written at 700; the levers
+it names have been pulled four more times since -- the class names, the
+game-over fire table and two pages' scratch went across for the retaliation
+and the chase's tilt -- and the next big one is `mission_table`, 400 bytes of
+bank 4 that only `mis_setup` reads.) `DISC.BIN` had been the binding constraint at 201
 until the menu's and the help page's words went to bank 7 — see "...and then
 the menu's and the help page's words followed them", which is also where the
 next lever is: **bank 7 still has 2315 bytes that `lib_load` reads and throws
@@ -377,8 +381,10 @@ a routine `title_stars` beside a count `TITLE_STARS`, and so is a variable
 `lib_track` beside a layout constant `LIB_TRACK`. It is an easy one to walk
 into because the two read as different kinds of thing — all three of those
 were written, and all three failed the build, after this paragraph existed. A
-FOURTH has since: a `cbt_prey_bias` table beside a `CBT_PREY_BIAS` equate. Read
-this paragraph before naming a constant after the thing it sizes.
+FOURTH has since: a `cbt_prey_bias` table beside a `CBT_PREY_BIAS` equate. And
+a FIFTH, the day after this paragraph was re-read: `over_fire_chunks` beside
+`OVER_FIRE_CHUNKS`. Read this paragraph before naming a constant after the
+thing it sizes, and then name the variable `..._left`.
 
 **`BANK n` gives each 16K image its own workspace, and labels are shared
 across them.** A second `org #4000` in one bank is an error ("located in a
@@ -2781,6 +2787,52 @@ interceptor-versus-interceptor cell of the damage matrix is still 24. **The
 balance triangle changes nothing about the campaign as authored**, because the
 Vekhar field interceptors and nothing else. It will start to matter the moment
 `campaign.asm` gets a class column.
+
+### A squadron shot at shoots back
+
+*"Aν επιτεθεί εχθρός σε squadron, αμέσως το squadron μπαίνει σε attack mode."*
+
+`game/retaliate.asm`, bank 4, called from both exits of the damage site in
+`cbt_fire_if_able` — a ship shot dead is an attack on its squadron exactly as
+a ship shot is. The first hit on any ship of a squadron puts **every IDLE ship
+in it** under `ENT_ORDER_ATTACK` with the **shooter** as the target, which is
+byte for byte what `A` with that target picked would have written. Everything
+after that is the attack order's own machinery: `cbt_move_enemies` closes
+them, `cbt_fire_if_able` re-acquires when the shooter dies and spends the
+order when nothing is left, so the squadron comes home by itself.
+
+- **Only IDLE.** A harvester keeps mining and a corvette keeps towing — the
+  same argument `order_release_attack` makes — a GUARD ship holds, and a ship
+  already attacking keeps its target.
+- **The Mothership is excluded for nothing**: its `ENT_SQUAD` is `SQUAD_NONE`
+  and the victim's squadron never is, so the compare does it. A hit *on* the
+  Mothership answers nothing, for the reason the orders that tell a squadron
+  where to be do not apply to it: it is not a squadron.
+- **The shooter's side is the guard**, tested on `ENT_F_ENEMY` of `cbt_ent`.
+  Our own hits on an enemy must order nobody, and the test for it gives the
+  enemy `ENT_SQUAD` 1 on purpose — a build that walked on every hit would
+  read that as squadron 1 being attacked.
+- **Not in the tutorial**: step 14 teaches that `A` attacks, and a stage that
+  gave the order for the player would be teaching a key never pressed.
+- **The shooter's slot is `ENT_MAX - cbt_index`**, because `cbt_update`'s
+  counter counts DOWN and is decremented after the slot. The only thing here
+  that reaches into that loop's state.
+
+It is ~3,400 T per HIT on a friendly ship, not per frame. Five tests by slot,
+three mutants watched fail: no hooks, no side guard, no `SQUAD_NONE` guard.
+
+**One existing test failed and it was the "too slow to have done it yet"
+shape again.** `TestBothSidesLookInTheRightPlace` sampled at a fixed 400
+frames, which used to be long enough for the round-robin to reach everybody —
+and is now long enough for mission 3's fight to be OVER: the picket closes,
+the fleet answers, and by frame 350 all four hostiles are wrecks and every
+attack order has spent itself. It samples at the first moment both sides are
+aiming now.
+
+**Balance, `tools/balance.py --rebuild`: all twenty missions, Mothership
+alive, ending 30 ships / 7595 hull** (33 / 7378 before, with the chase now
+taking its toll at 5, 9, 13 and 17 because the script does not steer). The
+difference is inside what the chase costs, not a swing to explain.
 
 ### Never trust a slot index, part two: `moth_slot`
 
@@ -5544,6 +5596,44 @@ which is harmless.
 
 `DISC.BIN` is **26310 of 26368 — 58 bytes** after this. The words are in bank 7
 and cost nothing; the page's code is what is left.
+
+#### It banks into the turn, and says which keys, and CAPTURES
+
+Three instructions from the owner, one commit. *"το σκάφος να φαίνεται ότι
+στρίβει δεξιά και αριστερά (tilt το sprite)"*: `mini_steer` records which
+key is down in `mini_bank` and `mini_ships` draws ours at yaw view
+`MG_VIEW_LEFT` (5) or `MG_VIEW_RIGHT` (1) instead of 0 — one 60° step into
+the turn, straight again the frame the key is let go. `mini_blit` steps
+`view * shifts` blocks from the tier's base exactly as `phase4_blit_body`
+does, reading the block size out of `class_geom`'s row, and `src/main.asm`
+asserts the two pre-shifts the `add a,a` stands for. **Which way is which was
+settled by decoding the six tier-C views out of `build/bank5.raw`**, not by
+reasoning: the nose is the thin end, it points left in views 4–5 and right in
+1–2. *"γράψε καθαρά από κάτω ότι πρέπει να χρησιμοποιεί τα left και right"*:
+`USE LEFT AND RIGHT TO STEER.` at `MG_LOST_Y` for the whole run, in the band
+under the ship the step never redraws, which `mini_say` now clears before it
+writes the toll there on a loss. And `THE VEKHAR IS GONE.` is `THE VEKHAR IS
+CAPTURED.`, with `MG_WON_X` moved so the assert still centres it.
+
+**What it cost, and where the room came from.** The tilt and the line are
+~70 bytes of bank 4 against a `DISC.BIN` with 21. Three levers: `class_name`
+(71) went to bank 7 behind `bank7_fetch` — legal from the context bar by the
+narrow rule; the game-over `over_fire_table` (90) went to bank 7 and comes
+down ten fires at a time through `bank7_copy`, because it is more than twice
+`bank7_line`; and the game-over page's and the squadron page's scratch — 30
+bytes of `defb 0` that are written before they are read — moved after
+`bank4_end`. `tests/test_gameover.py` reads the fire table off
+`build/bank7.raw` now, as every bank-7 test does.
+
+**A step is about ten emulator frames and the picture shows at the NEXT
+boundary.** `mini_wait` flips and then paces `MG_STEP_TICKS`; the draw of the
+following step begins after `mini_left` is decremented. So a test that reads
+the front buffer "two frames after the counter moved" is reading the picture
+drawn from the steering as it stood a step and a half earlier, and the first
+version of the tilt test said LEFT changed nothing on a build where it did.
+It holds the key for forty frames — four whole steps — and reads the front
+buffer, which is never mid-draw; and it compares **pen 1 only**, because the
+tunnel's rings are ink 2 and sweep through the ship's rectangle every step.
 
 ### MINI.BIN: the chase on its own, on the same disc
 

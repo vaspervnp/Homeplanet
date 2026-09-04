@@ -210,11 +210,16 @@ mini_words:
 mini_say_run:
     defb "IT CAME THROUGH.  ARROWS TO CLOSE.",0
 mini_say_won:
-    defb "THE VEKHAR IS GONE.",0
+    defb "THE VEKHAR IS CAPTURED.",0
 mini_say_lost:
     defb "IT GOT AWAY.  THEY WERE WAITING.",0
 mini_say_toll:
     defb "SHIPS LOST",0
+;  Under the ship for the whole of the run -- "γράψε καθαρά από κάτω ότι
+;  πρέπει να χρησιμοποιεί τα left και right". The top line names the arrows;
+;  this one says which two, in a sentence, where the eye is.
+mini_say_steer:
+    defb "USE LEFT AND RIGHT TO STEER.",0
 mini_words_end:
 
 ; ----------------------------------------------------------------------------
@@ -228,6 +233,64 @@ mini_words_end:
 ;  Section 1's voice, and the two keys named in the second line are the whole
 ;  of the controls -- there is nothing else to press until it is over.
 ; ----------------------------------------------------------------------------
+; ----------------------------------------------------------------------------
+;  class_name -- the full name of each class, for the context bar's build
+;  panel and the squadron page. Back to back and zero-terminated, in class
+;  order; ctx_class_name fetches the Ath. No name may exceed CTX_NAME_CHARS
+;  or it runs into the cost figure -- src/main.asm asserts the total.
+; ----------------------------------------------------------------------------
+class_name:
+    defb "INTERCEPTOR",0
+    defb "MOTHERSHIP",0
+    defb "HARVESTER",0
+    defb "SCOUT",0
+    defb "BOMBER",0
+    defb "FRIGATE",0
+    defb "SALVAGE",0
+    defb "DESTROYER",0
+class_name_end:
+
+; ----------------------------------------------------------------------------
+;  over_fire_table -- what is burning on the game-over planet, as
+;  (dx, dy, height) from its centre. The design of it is in game/overtext.asm,
+;  beside the columns it used to sit with; it is here because it is data the
+;  game-over page reads with the world stopped, which is what bank 7 is for.
+;  Both offsets are SIGNED. bank7_copy carries it, not bank7_fetch, because
+;  it is full of zero bytes.
+; ----------------------------------------------------------------------------
+over_fire_table:
+    defb  -25,   -9, 3
+    defb  -24,  -11, 5
+    defb  -23,  -10, 4
+    defb  -11,  -18, 3
+    defb  -10,  -20, 5
+    defb   -9,  -19, 4
+    defb    3,  -13, 3
+    defb    4,  -15, 5
+    defb    5,  -14, 4
+    defb   19,   -7, 3
+    defb   20,   -9, 5
+    defb   21,   -8, 4
+    defb  -19,    4, 3
+    defb  -18,    2, 5
+    defb  -17,    3, 4
+    defb   -4,    8, 3
+    defb   -3,    6, 5
+    defb   -2,    7, 4
+    defb   13,   10, 3
+    defb   14,    8, 5
+    defb   15,    9, 4
+    defb   -9,   19, 3
+    defb   -8,   17, 5
+    defb   -7,   18, 4
+    defb   24,    7, 3
+    defb   25,    5, 5
+    defb   26,    6, 4
+    defb    7,   21, 3
+    defb    8,   19, 5
+    defb    9,   20, 4
+over_fire_table_end:
+
 mini_intro_words:
 mini_intro_1:
     defb "A VEKHAR IS IN THE JUMP WITH US.",0

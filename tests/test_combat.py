@@ -675,21 +675,33 @@ class TestBothSidesLookInTheRightPlace(CombatFixture):
         player_max = self.sym["ENT_PLAYER_MAX"]
         no_target = 0xFF
 
-        #  Long enough for the round-robin to have reached everybody: it
-        #  re-targets one entity a frame, and a game frame is about ten of
-        #  these.
-        self.c.run_frames(400)
+        #  Sampled at the FIRST moment both sides are aiming, not after a
+        #  fixed 400 frames. It used to be 400 -- long enough for the round-
+        #  robin to have reached everybody -- and that was long enough for the
+        #  fight to be OVER once a squadron shot at shoots back: the picket
+        #  closes, the fleet answers, and by frame 400 mission 3's four
+        #  hostiles are wrecks and every attack order has spent itself, so
+        #  nobody is aiming at anything. "The game is too slow to have done it
+        #  yet" as a precondition, the shape CLAUDE.md records under "Four
+        #  tests whose precondition was...".
+        def aiming_now():
+            aiming = {"ours": [], "theirs": []}
+            for slot in range(ENT_MAX):
+                flags = self.flags(slot)
+                if not flags & F_ACTIVE or flags & F_DISABLED:
+                    continue
+                target = self.ent(slot, ENT_TARGET)[0]
+                if target == no_target:
+                    continue
+                side = "theirs" if flags & F_ENEMY else "ours"
+                aiming[side].append((slot, target))
+            return aiming
 
-        aiming = {"ours": [], "theirs": []}
-        for slot in range(ENT_MAX):
-            flags = self.flags(slot)
-            if not flags & F_ACTIVE:
-                continue
-            target = self.ent(slot, ENT_TARGET)[0]
-            if target == no_target:
-                continue
-            side = "theirs" if flags & F_ENEMY else "ours"
-            aiming[side].append((slot, target))
+        for _ in range(40):
+            self.c.run_frames(10)
+            aiming = aiming_now()
+            if aiming["ours"] and aiming["theirs"]:
+                break
 
         self.assertTrue(aiming["ours"], "not one of ours had picked a target")
         self.assertTrue(
@@ -944,3 +956,131 @@ class TestTheFleetCannotBeAimedAtItself(CombatFixture):
             f"slots {frozen} have not moved a unit in 400 frames: "
             "phase4_fly skips them, cbt_move_enemies declines them, "
             "and nothing ever spent the order")
+
+
+class TestASquadronShotAtShootsBack(CombatFixture):
+    """"Aν επιτεθεί εχθρός σε squadron, αμέσως το squadron μπαίνει σε attack
+    mode." game/retaliate.asm: the first hit on any ship of a squadron puts
+    every IDLE ship in it under ATTACK with the shooter as the target.
+
+    Every assertion is BY SLOT and reads the order and the target, because
+    a count of shots or kills is exactly what this feature preserves. The
+    fleet's own weapons are held (ENT_TIMER at 255) so the enemy is the only
+    thing firing, and what the fleet does in answer is the whole question.
+    """
+
+    ENEMY = None  # set per staging: the hostile region's first slot
+
+    def setUp(self):
+        #  Mission 1 has no picket, so nothing but what is placed here fires.
+        self.c = h.boot_quick(frames=300)
+
+    def place(self, slot, *, enemy=False, pos=(0, 0, 0), squad=1, order=ENT_ORDER_NONE,
+              cls=0, target=255, timer=0):
+        addr = self.sym["ENTITIES"] + slot * ENT_SIZE
+        self.c.write_ram(addr, struct.pack("<hhh", *pos))
+        self.c.write_ram(addr + ENT_CLASS, bytes([cls]))
+        self.c.write_ram(addr + ENT_HULL, bytes([255]))
+        self.c.write_ram(addr + ENT_FLAGS, bytes([F_ACTIVE | F_ENEMY if enemy else F_ACTIVE]))
+        self.c.write_ram(addr + ENT_SQUAD, bytes([squad]))
+        self.c.write_ram(addr + ENT_ORDER, bytes([order]))
+        self.c.write_ram(addr + ENT_TARGET, bytes([target]))
+        self.c.write_ram(addr + ENT_TIMER, bytes([timer]))
+
+    def stage(self, victim=0):
+        """Four IDLE interceptors of squadron 1 on the origin and one hostile
+        in range, aimed at `victim`, ready to fire. Slot 0 stands in for the
+        Mothership in the defeat check, as stage_one_fight does."""
+        base = self.sym["ENTITIES"]
+        for slot in range(ENT_MAX):
+            self.c.write_ram(base + slot * ENT_SIZE + ENT_FLAGS, b"\x00")
+        for slot in range(4):
+            self.place(slot, timer=255)
+        self.ENEMY = PLAYER_MAX
+        self.place(self.ENEMY, enemy=True, pos=(0, 0, 600), squad=255, target=victim)
+        self.c.write_ram(self.sym["MOTH_SLOT"], bytes([0]))
+        self.c.write_ram(self.sym["ORDER_PAUSED"], b"\x00")
+
+    def order_of(self, slot):
+        return self.ent(slot, ENT_ORDER)[0]
+
+    def target_of(self, slot):
+        return self.ent(slot, ENT_TARGET)[0]
+
+    def let_the_enemy_shoot(self, frames=60):
+        hull0 = self.hull(0)
+        self.c.run_frames(frames)
+        return hull0
+
+    def test_a_hit_puts_every_idle_ship_of_the_squadron_on_the_shooter(self):
+        self.stage(victim=0)
+        hull0 = self.let_the_enemy_shoot()
+        self.assertLess(self.hull(0), hull0, "the fixture's enemy never fired")
+        for slot in range(4):
+            self.assertEqual(self.order_of(slot), ENT_ORDER_ATTACK,
+                             f"slot {slot} did not answer the attack")
+            self.assertEqual(self.target_of(slot), self.ENEMY,
+                             f"slot {slot} is aimed at {self.target_of(slot)}, not the shooter")
+
+    def test_working_holding_and_other_squadrons_are_left_alone(self):
+        """A harvester keeps mining, a GUARD ship holds, a ship already
+        attacking keeps its target, squadron 2 is not squadron 1."""
+        self.stage(victim=0)
+        HARVEST, GUARD = 4, 3
+        self.place(4, order=HARVEST, timer=255)
+        self.place(5, order=GUARD, timer=255)
+        self.place(6, order=ENT_ORDER_ATTACK, target=7, timer=255)
+        self.place(7, squad=2, timer=255)
+        self.let_the_enemy_shoot()
+        self.assertEqual(self.order_of(0), ENT_ORDER_ATTACK, "the fixture did not fire")
+        self.assertEqual((self.order_of(4), self.order_of(5)), (HARVEST, GUARD),
+                         "a working or holding ship was pulled into the fight")
+        self.assertEqual((self.order_of(6), self.target_of(6)), (ENT_ORDER_ATTACK, 7),
+                         "a ship already attacking had its target overwritten")
+        self.assertEqual(self.order_of(7), ENT_ORDER_NONE,
+                         "another squadron answered an attack on this one")
+
+    def test_the_fleets_own_hits_order_nobody(self):
+        """The guard is the SHOOTER'S side. The enemy is given ENT_SQUAD 1
+        here on purpose: a build that walked on every hit would read that
+        as squadron 1 being attacked and turn the bystander around."""
+        self.stage(victim=0)
+        self.c.write_ram(self.sym["ENTITIES"] + self.ENEMY * ENT_SIZE + ENT_SQUAD, b"\x01")
+        self.c.write_ram(self.sym["ENTITIES"] + self.ENEMY * ENT_SIZE + ENT_TIMER, b"\xff")
+        self.place(0, order=ENT_ORDER_ATTACK, target=self.ENEMY)   # ours shoots
+        self.place(1, pos=(20000, 0, 0), timer=255)               # the bystander, IDLE, out of range
+        shots0 = self.shots()
+        self.c.run_frames(60)
+        self.assertGreater(self.shots(), shots0, "the fixture's attacker never fired")
+        self.assertEqual(self.order_of(1), ENT_ORDER_NONE,
+                         "our own hit on the enemy put the squadron on attack")
+
+    def test_a_hit_on_the_mothership_orders_nobody(self):
+        """The Mothership is not a squadron; the fleet defends it by being
+        stationed on it, not by every ship leaving station when it is hit."""
+        self.stage(victim=7)
+        self.place(7, cls=1, squad=0, timer=255)     # the Mothership, SQUAD_NONE
+        self.c.write_ram(self.sym["MOTH_SLOT"], bytes([7]))
+        hull7 = self.hull(7)
+        self.c.run_frames(60)
+        self.assertLess(self.hull(7), hull7, "the fixture's enemy never fired")
+        for slot in range(4):
+            self.assertEqual(self.order_of(slot), ENT_ORDER_NONE,
+                             f"slot {slot} left station over a hit on the Mothership")
+        self.assertEqual(self.order_of(7), ENT_ORDER_NONE)
+
+    def test_the_squadron_then_comes_home_when_the_shooter_is_dead(self):
+        """The order is the ordinary attack order, so it spends itself."""
+        self.stage(victim=0)
+        for slot in range(4):
+            self.c.write_ram(self.sym["ENTITIES"] + slot * ENT_SIZE + ENT_TIMER, b"\x00")
+        self.c.write_ram(self.sym["ENTITIES"] + self.ENEMY * ENT_SIZE + ENT_HULL, b"\x30")
+        for _ in range(60):
+            self.c.run_frames(10)
+            if self.counts()[1] == 0:
+                break
+        else:
+            self.fail("the squadron never killed the one ship that shot it")
+        self.c.run_frames(40)
+        self.assertEqual([self.order_of(s) for s in range(4)], [ENT_ORDER_NONE] * 4,
+                         "the retaliation order outlived its target")

@@ -93,6 +93,49 @@ class TestMiniBin(unittest.TestCase):
         self.c.key_up(cpc.KEY_LEFT)
         self.assertLess(self.b("MINI_X"), x0, "LEFT did not steer")
 
+    def ship_pixels(self):
+        """The white bytes under our ship, off the FRONT buffer, after four
+        steps have gone by. Ours is drawn at (MG_CX, MG_SHIP_Y) at tier C
+        whatever the steering does -- the enemy is what moves -- so the
+        rectangle is fixed; the front buffer is never mid-draw; and forty
+        frames is four whole steps, so what is on it was drawn with the
+        steering as it is now. PEN 1 ONLY: the tunnel's rings are ink 2 and
+        sweep through this rectangle at every step, and the ship is the only
+        white thing here."""
+        self.c.run_frames(40)
+        ram = self.c.read_ram(h.front_buffer(self.c), 0x4000)
+        cx, cy = self.sym["MG_CX"], self.sym["MG_SHIP_Y"]
+        x0 = (cx - 16) // 4
+
+        def pen1(b):
+            return (b & 0xF0) & ~((b & 0x0F) << 4) & 0xF0
+        return bytes(pen1(ram[h.screen_offset(cy + r, x0 + b)])
+                     for r in range(-10, 10) for b in range(9))
+
+    def test_2a_the_steer_line_is_under_the_ship_for_the_whole_run(self):
+        """"γράψε καθαρά από κάτω ότι πρέπει να χρησιμοποιεί τα left και
+        right." Read off the pixels at its own column."""
+        line = self.row(self.sym["MG_LOST_Y"], self.sym["MG_STEER_X"], 28)
+        self.assertEqual(line, "USE LEFT AND RIGHT TO STEER.")
+
+    def test_2b_the_ship_banks_into_the_turn_and_straightens_when_released(self):
+        """"το σκάφος να φαίνεται ότι στρίβει δεξιά και αριστερά (tilt το
+        sprite)." Three pictures of the ship: straight, and with each key
+        held. All three differ, and letting go puts the first one back."""
+        straight = self.ship_pixels()
+        self.c.key_down(cpc.KEY_LEFT)
+        left = self.ship_pixels()
+        self.c.key_up(cpc.KEY_LEFT)
+        self.c.key_down(cpc.KEY_RIGHT)
+        right = self.ship_pixels()
+        self.c.key_up(cpc.KEY_RIGHT)
+        again = self.ship_pixels()
+        self.assertTrue(any(straight), "nothing is drawn where the ship should be")
+        self.assertNotEqual(straight, left, "LEFT did not change the ship's picture")
+        self.assertNotEqual(straight, right, "RIGHT did not change the ship's picture")
+        self.assertNotEqual(left, right, "LEFT and RIGHT draw the same tilt")
+        self.assertEqual(again, straight, "the ship did not straighten when the key was let go")
+
     def test_3_when_the_chase_ends_the_page_comes_back(self):
         """The loop: a fresh fleet and the page again, so ENTER is
         "play again". Watched by the step counter going back to full."""

@@ -332,12 +332,3 @@ info_form_names:
     defb "WALL",0
 info_form_names_end:
 
-info_class:         defb 0
-info_count:         defb 0
-info_hull:          defw 0
-info_full:          defw 0
-info_pct:           defb 0
-info_y:             defb 0
-info_total:         defb 0
-info_thull:         defw 0
-info_tfull:         defw 0

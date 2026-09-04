@@ -200,6 +200,13 @@ MG_SHIP_Y           equ 130
 ;  Which yaw view both ships are drawn in. They are both running the same way
 ;  and are both seen from behind.
 MG_VIEW             equ 0
+;  ...and the two views either side of it, which is what a TILT is: the ship
+;  drawn one yaw step into the turn while the key is down, and straight again
+;  the moment it is let go. "το σκάφος να φαίνεται ότι στρίβει δεξιά και
+;  αριστερά." Six views are 60 degrees apart, so one step is a visible bank
+;  and two would be a broadside.
+MG_VIEW_LEFT        equ 5
+MG_VIEW_RIGHT       equ 1
 
 ;  Where the enemy sits between tiers, on the way in. Two compares, exactly as
 ;  phase4_tier_for does it, rather than 102 bytes of table.
@@ -226,10 +233,11 @@ MG_BODY_H           equ 118
 ;  these are worked out by hand and src/main.asm checks every one of them
 ;  against the length of its own string in bank 7.
 MG_RUN_X            equ 6
-MG_WON_X            equ 21
+MG_WON_X            equ 17
 MG_LOST_X           equ 8
 MG_TOLL_X           equ 27
 MG_TOLL_NUM_X       equ MG_TOLL_X + 22
+MG_STEER_X          equ 12              ; 28 characters, centred
 
 ;  How long the result stays on the screen, in ticks. Two seconds: long enough
 ;  to read nine words, short enough that a jump does not become a cutscene.
@@ -254,6 +262,7 @@ MG_MSG_RUN          equ 0
 MG_MSG_WON          equ 1
 MG_MSG_LOST         equ 2
 MG_MSG_TOLL         equ 3
+MG_MSG_STEER        equ 4               ; under the ship, for the whole run
 
 
 ; ----------------------------------------------------------------------------
@@ -466,9 +475,13 @@ mini_wait:
 ;  well: demo_update owns that call and demo_update is not running.
 ; ----------------------------------------------------------------------------
 mini_steer:
+    xor a
+    ld (mini_bank),a                    ; straight, unless a key says otherwise
     ld a,KEY_CUR_LEFT
     call key_down
     jr nc,@mg_not_left
+    ld a,1
+    ld (mini_bank),a
     ld a,(mini_x)
     sub MG_STEER                        ; cannot borrow: x is never below MIN
     cp MG_X_MIN
@@ -480,6 +493,8 @@ mini_steer:
     ld a,KEY_CUR_RIGHT
     call key_down
     ret nc
+    ld a,2
+    ld (mini_bank),a
     ld a,(mini_x)
     add a,MG_STEER
     cp MG_X_MAX + 1
@@ -795,7 +810,28 @@ mini_say:
     ;  ...and what it cost, when it cost anything. A penalty that is computed
     ;  and never shown is not a penalty, which is the third time this project
     ;  has written that down.
+    ;  The band under the ship: the steer line for the run, the toll on a
+    ;  loss, nothing on a win. Cleared first, because the step redraws only
+    ;  the body and whatever was written here last would otherwise stay.
+    ld b,0
+    ld c,MG_LOST_Y
+    ld d,SCR_BYTES_PER_LINE
+    ld e,8
+    xor a
+    call scr_fill_rect
+
     ld a,(mini_msg)
+    or a                                ; MG_MSG_RUN
+    jr nz,@mg_not_running
+    ld hl,mini_words
+    ld a,MG_MSG_STEER
+    call bank7_fetch
+    ld hl,bank7_line
+    ld b,MG_STEER_X
+    ld c,MG_LOST_Y
+    call txt_draw
+    jr @mg_no_toll
+@mg_not_running:
     cp MG_MSG_LOST
     jr nz,@mg_no_toll
     ld hl,mini_words
@@ -1113,10 +1149,21 @@ mini_ships:
     jr nc,@mg_tiered
     inc b
 @mg_tiered:
+    ld a,MG_VIEW
+    ld (mini_view),a                    ; theirs is always seen straight on
     call mini_blit
 
-    ;  Ours, at the near end, at the largest tier there is.
+    ;  Ours, at the near end, at the largest tier there is -- and BANKED
+    ;  into the turn while a key is down: mini_bank_view maps the steering
+    ;  to a yaw view one step either side of straight.
 @mg_ours:
+    ld a,(mini_bank)
+    ld hl,mini_bank_view
+    ld e,a
+    ld d,0
+    add hl,de
+    ld a,(hl)
+    ld (mini_view),a
     xor a
     ld (spr_enemy),a
     ld e,MG_CX
@@ -1165,6 +1212,11 @@ mini_blit:
     ld c,(hl)                           ; half width, pixels
     inc hl
     ld b,(hl)                           ; half height, lines
+    inc hl
+    ld e,(hl)
+    inc hl
+    ld d,(hl)
+    ld (mini_bsz),de                    ; one (view, pre-shift) block
 
     ;  x = (centre - half width) >> 2. In single bytes, and it cannot borrow:
     ;  the leftmost either ship can be drawn at is 72 - 14.
@@ -1190,11 +1242,30 @@ mini_blit:
     add hl,de
     ld e,(hl)
     inc hl
-    ld d,(hl)
+    ld d,(hl)                           ; DE = the tier's base: view 0, shift 0
+
+    ;  ...stepped to (mini_view): view * shifts blocks along, at pre-shift 0.
+    ;  The same walk phase4_blit_body does, and the assert in src/main.asm
+    ;  is why the `add a,a` is the number of pre-shifts.
+    ld a,(mini_view)
+    add a,a
+    jr z,@mg_view_base
+    ld b,a
+    ld hl,(mini_bsz)
+    ex de,hl                            ; HL = base, DE = a block
+@mg_view_step:
+    add hl,de
+    djnz @mg_view_step
+    ex de,hl
+@mg_view_base:
     ld (spr_src),de
 
     ld a,(class_bank)
     jp spr_blit_banked
+
+;  Steering -> view: straight, left, right.
+mini_bank_view:
+    defb MG_VIEW, MG_VIEW_LEFT, MG_VIEW_RIGHT
 
 
 ; ============================================================================

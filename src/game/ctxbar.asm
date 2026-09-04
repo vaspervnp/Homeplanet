@@ -395,16 +395,20 @@ ctx_draw_build:
 
 ; ----------------------------------------------------------------------------
 ;  ctx_class_name -- HL -> the full name of class A
-;  Uses: AF, B, HL
+;  Uses: everything
 ;
-;  Walked rather than indexed: eight zero-terminated names back to back are
-;  71 bytes and the same eight at a fixed stride are 96, and this runs when
-;  the panel is opened or stepped, not per entity. mis_next_line is the
-;  briefing's walker, doing exactly this job one file over.
+;  The names are in BANK 7 (game/screentext.asm), so this is a bank7_fetch
+;  and the answer is in bank7_line -- one buffer, so draw it before fetching
+;  anything else. Both callers do. It runs when the panel is opened or
+;  stepped and once a row on the squadron page, never per entity, and the
+;  context bar is legal by the narrow rule: nothing pages bank 4 out between
+;  phase4_hud and the frame counter.
 ; ----------------------------------------------------------------------------
 ctx_class_name:
     ld hl,class_name
-    ;  ...and fall through.
+    call bank7_fetch
+    ld hl,bank7_line
+    ret
 
 
 ; ----------------------------------------------------------------------------
@@ -413,10 +417,9 @@ ctx_class_name:
 ;  Out: HL -> that one
 ;  Uses: AF, B, HL
 ;
-;  Split out of ctx_class_name for game/squadinfo.asm's formation names, and
-;  it cost NOTHING: the fall-through means bank 4 holds one copy of the loop
-;  and one `ld hl` in front of it, which is what it held before. The third
-;  caller is the one that would have paid for it.
+;  Split out of ctx_class_name for game/squadinfo.asm's formation names;
+;  ctx_class_name itself no longer falls into it, because the class names
+;  went to bank 7. The formation names and the HUD's messages are the callers.
 ; ----------------------------------------------------------------------------
 str_index:
     or a

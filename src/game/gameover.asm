@@ -311,13 +311,27 @@ over_fires:
     xor a
     ld (spr_clip_top),a
 
-    ld a,OVER_FIRE_COUNT
-    ld (over_fires_left),a
+    ;  The table is in BANK 7 and comes down OVER_FIRE_CHUNK fires at a time:
+    ;  bank7_line is B7_BUF_SIZE and the whole table is more than twice that.
+    ;  over_fire_ptr is the cursor into bank 7, over_fire_buf the one into
+    ;  the copy; bank7_copy hands the first back advanced.
     ld hl,over_fire_table
     ld (over_fire_ptr),hl
+    ld a,OVER_FIRE_CHUNKS
+    ld (over_chunks_left),a
+@of_chunk:
+    ld hl,(over_fire_ptr)
+    ld de,bank7_line
+    ld bc,OVER_FIRE_CHUNK * 3
+    call bank7_copy                     ; ...and it puts bank 4 back itself
+    ld (over_fire_ptr),hl
+    ld hl,bank7_line
+    ld (over_fire_buf),hl
+    ld a,OVER_FIRE_CHUNK
+    ld (over_fires_left),a
 
 @of_one:
-    ld hl,(over_fire_ptr)
+    ld hl,(over_fire_buf)
     ld a,(hl)
     ld (over_fire_dx),a
     inc hl
@@ -327,7 +341,7 @@ over_fires:
     ld a,(hl)
     ld (over_fire_h),a
     inc hl
-    ld (over_fire_ptr),hl
+    ld (over_fire_buf),hl
 
     ;  x = cx + dx, and dx is SIGNED -- half the fires are left of centre, so
     ;  the byte has to be sign-extended into a word before it is added to a
@@ -354,6 +368,9 @@ over_fires:
     ld hl,over_fires_left
     dec (hl)
     jr nz,@of_one
+    ld hl,over_chunks_left
+    dec (hl)
+    jr nz,@of_chunk
 
     ld a,HUD_TOP                        ; ...and the viewport back again
     ld (spr_clip_bottom),a
@@ -365,13 +382,3 @@ over_fires:
 ; ============================================================================
 ;  Scratch. One fire's worth, and none of it survives over_fires.
 ; ============================================================================
-over_page_ptr:      defw 0
-over_line_ptr:      defw 0
-over_x_ptr:         defw 0
-over_line_y:        defb 0
-over_lines_left:    defb 0
-over_fires_left:    defb 0
-over_fire_ptr:      defw 0
-over_fire_dx:       defb 0
-over_fire_dy:       defb 0
-over_fire_h:        defb 0

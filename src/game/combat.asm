@@ -319,10 +319,15 @@ cbt_fire_if_able:
     or a
     jr z,@cbt_destroyed
     ld (hl),a
+    ;  ...and the victim's squadron answers. Both exits, because a ship shot
+    ;  dead is an attack on its squadron exactly as a ship shot is; see
+    ;  game/retaliate.asm, in bank 4, for what it does and does not touch.
+    call cbt_retaliate
     jp snd_hit
 
 @cbt_destroyed:
     ld (hl),0
+    call cbt_retaliate                  ; before the kill: it reads the victim's squadron
     ld a,(cbt_target)
     jp cbt_kill
 
