@@ -704,12 +704,23 @@ def render() -> str:
         "",
     ]
 
-    # --- single-byte trig, FIRST and unaligned ------------------------------
-    #  Before the page-aligned run, deliberately. It is 65 bytes and cam_sin
-    #  indexes it by adding rather than by paging, so it does not want an
-    #  `align 256` of its own -- and put AFTER the aligned tables it would sit
-    #  in front of one and the next `align` would give the 191 bytes straight
-    #  back. Here it lands in the slack the alignment was going to waste.
+    # --- single-byte trig ---------------------------------------------------
+    #  THE EQUATES STAY HERE; THE 65 BYTES OF TABLE GO LAST. It used to sit in
+    #  front of the page-aligned run, on the argument that it lands in the
+    #  slack the first `align 256` was going to waste anyway -- which was true,
+    #  and is exactly why it was a trap: the slack ran out. Hand-written code
+    #  ended at #25BD and sin7 is 65 bytes, so anything that took it past #25BF
+    #  pushed sin7 over #2600 and every aligned table after it up a page. The
+    #  low 16K lost 256 bytes for FIFTEEN of new code, and `free:` went from
+    #  484 to 214 -- under the 384 tests/test_sound.py needs for its scratch,
+    #  so a dozen test classes with nothing to do with the change fail at once.
+    #
+    #  Emitted after `recip` -- the LAST aligned table -- there is no following
+    #  `align` to give the bytes back to, so it cannot do that again. What it
+    #  costs is the 65 bytes it used to hide in, and what it buys is that the
+    #  hand-written code may now grow by the whole of the alignment slack
+    #  before the low 16K notices. That is the difference between two bytes of
+    #  headroom and sixty-seven.
     lines += [
         "; ---------------------------------------------------------------------------",
         ";  sin7 -- the FIRST QUADRANT of sin(a) * 127, one signed byte per angle.",
@@ -730,7 +741,6 @@ def render() -> str:
         ";  CTX_BAR_H / HUD_TOP that actually decide it.",
         f"PROJ_CENTRE_Y_MODEL equ {PROJ_CENTRE_Y}",
         "",
-        _defb_block("sin7", sin7_quarter()),
         f"SIN7_ENTRIES equ {TRIG_QUARTER + 1}",
         "",
     ]
@@ -822,6 +832,20 @@ def render() -> str:
         "; ---------------------------------------------------------------------------",
         f"TIER_C_MAX_Z equ {TIER_C_MAX_Z}",
         f"TIER_B_MAX_Z equ {TIER_B_MAX_Z}",
+        "",
+    ]
+
+    # --- ...and sin7's 65 bytes, LAST and unaligned --------------------------
+    #  See the note above the trig equates for why it is down here rather than
+    #  in front of the aligned run. Nothing follows it, so nothing can pad it.
+    lines += [
+        "; ---------------------------------------------------------------------------",
+        ";  sin7 -- the first quadrant of sin(a) * 127, one signed byte per angle.",
+        ";  Unaligned by design: cam_sin indexes it with an ADD, so it wants no page",
+        ";  of its own, and it is emitted after the last `align 256` so that the",
+        ";  slack in front of that one belongs to the hand-written code instead.",
+        "; ---------------------------------------------------------------------------",
+        _defb_block("sin7", sin7_quarter()),
         "",
     ]
 
