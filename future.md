@@ -94,6 +94,11 @@ game can express.
 
 ## 4. Shots you can see
 
+**BUILT.** `game/shots.asm`; CLAUDE.md "Shots you can see". Not two dots on
+the ships but three on the line between them, and NOT through `mark_dot`:
+three dirty rectangles a shot is a hundred bytes of a low 16K at its floor,
+so the dots erase themselves from a per-buffer list instead.
+
 **What.** A shot today is a sound and a hull byte. Draw it: one `mark_dot` in
 ink 1 (ours) or 3 (theirs) at the shooter's projected position for one frame,
 and one at the target's. The dirty list erases it. Two dots a shot, no
@@ -135,6 +140,10 @@ lorry run. One ship at the wreck makes it a raid.
 
 ## 7. Ramming
 
+**BUILT**, in `pilot_frame`: `pilot_ram`, ~90 bytes rather than 50, because
+the collision has to walk the hostile region and kill through `cbt_kill` so
+the explosion, the count and the wreck are the usual ones.
+
 **What.** A ship under a PILOT order (item 1) that flies into an enemy does its
 own hull as damage to both. It is how a fighter kills a frigate it cannot
 outgun, and how the player loses a ship on purpose.
@@ -148,6 +157,9 @@ threshold on the piloted ship's frame, then two hull subtractions.
 
 1, then 4 — the verb, then the picture of it. Two and five are afternoons.
 Three needs one; six and seven are for when the first four have been played.
+
+**1, 4 and 7 are built.** What is left is 2, 3, 5 and 6, and the order above
+still holds for them: 2 and 5 first.
 
 The test for each of them is the one this project keeps writing down: follow
 a ship by slot and read where it is and what it is aiming at. A count of

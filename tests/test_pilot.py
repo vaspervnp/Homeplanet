@@ -255,6 +255,9 @@ class TestSpaceIsTheTrigger(PilotFixture):
         self.ME, self.ENEMY = 0, self.PLAYER_MAX
         place(self.ME, False, (0, 0, 0))
         place(self.ENEMY, True, (0, 0, -1000))              # well inside CBT_RANGE
+        #  ...and flying AWAY from it: yaw 128 is +Z, and a ship flown at a
+        #  hostile inside PILOT_RAM_DIST rams it, which is a different test.
+        self.poke(self.ME, ENT_YAW, bytes([128]))
         self.c.write_ram(self.sym["PILOT_SLOT"], bytes([self.ME]))
         self.c.write_ram(self.sym["ORDER_PAUSED"], b"\x00")
         self.c.write_ram(self.sym["MOTH_SLOT"], bytes([1]))
@@ -315,8 +318,13 @@ class TestInTheGame(PilotFixture):
         #  Far from the fleet, so nothing else can reach the enemy: a Manhattan
         #  distance past 16320 saturates cbt_distance and is never picked.
         self.poke(p, ENT_X, struct.pack("<hhh", 20000, 0, 20000))
+        self.poke(p, ENT_YAW, bytes([0]))
+        #  Twelve hundred units to -X: inside CBT_RANGE, and OFF the circle a
+        #  held LEFT flies -- the turn veers to +X, so the circle's nearest
+        #  point to the enemy is where the ship starts. Any closer and
+        #  pilot_ram gets there before SPACE does.
         e = self.PLAYER_MAX
-        self.poke(e, ENT_X, struct.pack("<hhh", 20000, 0, 20000))
+        self.poke(e, ENT_X, struct.pack("<hhh", 20000 - 1200, 0, 20000))
         self.poke(e, ENT_CLASS, bytes([0]))
         self.poke(e, ENT_HULL, b"\xff")
         self.poke(e, ENT_SQUAD, b"\xff")
@@ -348,6 +356,58 @@ class TestInTheGame(PilotFixture):
         self.assertEqual(self.pilot(), p, "the flown ship died inside the window: shorten it")
         self.assertEqual(self.field(e, ENT_HULL), 255, "the flown ship fired without SPACE")
         self.assertLess(self.field(p, ENT_HULL), 255, "the enemy never shot back, so the two were never in range")
+
+
+class TestRamming(PilotFixture):
+    """future.md item 7: a flown ship into a hostile, and both pay its hull."""
+
+    def test_flying_into_a_hostile_costs_both_the_pilots_hull(self):
+        p = self.take_the_stick()
+        self.poke(p, ENT_X, struct.pack("<hhh", 20000, 0, 20000))
+        self.poke(p, ENT_YAW, bytes([0]))                   # towards -Z
+        e = self.PLAYER_MAX
+        self.poke(e, ENT_X, struct.pack("<hhh", 20000, 0, 19000))
+        self.poke(e, ENT_CLASS, bytes([0]))
+        self.poke(e, ENT_HULL, bytes([100]))
+        self.poke(e, ENT_SQUAD, b"\xff")
+        self.poke(e, ENT_ORDER, b"\x00")
+        self.poke(e, ENT_TARGET, b"\xff")
+        self.poke(e, ENT_FLAGS, bytes([F_ACTIVE | F_ENEMY]))
+        kills0 = self.byte("CBT_KILLS")
+        for _ in range(60):
+            self.c.run_frames(5)
+            if self.pilot() == self.NONE:
+                break
+        else:
+            self.fail("the two never met")
+        self.assertEqual(self.field(p, ENT_FLAGS) & F_ACTIVE, 0, "the rammer survived its own hull")
+        self.assertTrue(not self.field(e, ENT_FLAGS) & F_ACTIVE or self.field(e, ENT_FLAGS) & F_DISABLED,
+                        "a hundred hull did not go down under a fresh interceptor")
+        self.assertGreaterEqual(self.byte("CBT_KILLS"), kills0 + 1)
+
+    def test_a_tougher_hull_survives_it_short_by_the_pilots_hull(self):
+        p = self.take_the_stick()
+        self.poke(p, ENT_X, struct.pack("<hhh", 20000, 0, 20000))
+        self.poke(p, ENT_YAW, bytes([0]))
+        e = self.PLAYER_MAX
+        self.poke(e, ENT_X, struct.pack("<hhh", 20000, 0, 19000))
+        self.poke(e, ENT_CLASS, bytes([0]))
+        self.poke(e, ENT_HULL, b"\xff")
+        self.poke(e, ENT_SQUAD, b"\xff")
+        self.poke(e, ENT_ORDER, b"\x00")
+        self.poke(e, ENT_TARGET, b"\xff")
+        self.poke(e, ENT_TIMER, bytes([200]))               # it does not shoot first
+        self.poke(e, ENT_FLAGS, bytes([F_ACTIVE | F_ENEMY]))
+        self.poke(p, ENT_HULL, bytes([100]))                # a shot-up ship is a poor missile
+        mine = 100
+        for _ in range(60):
+            self.c.run_frames(5)
+            if self.pilot() == self.NONE:
+                break
+        else:
+            self.fail("the two never met")
+        self.assertEqual(self.field(e, ENT_HULL), 255 - mine)
+        self.assertEqual(self.field(e, ENT_FLAGS) & (F_ACTIVE | F_DISABLED), F_ACTIVE)
 
 
 class TestAJumpHandsItBack(PilotFixture):

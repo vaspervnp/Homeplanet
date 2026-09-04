@@ -609,6 +609,10 @@ ENDIF
 ;  frame while flying, with the window at rest; its one byte of watched state,
 ;  pilot_slot, is in game/order.asm in the low 16K.
     include "game/pilot.asm"
+;  Shots you can see: three dots between shooter and target for a frame. Two
+;  three-byte calls in the low 16K (phase4_cache, cbt_fire_if_able); the rest
+;  is here, with its lists after bank4_end.
+    include "game/shots.asm"
 ;  The Mothership setting down on the planet, before the victory page, and
 ;  the banner across the middle of the view when the yard learns a class.
 ;  Both bank code by the narrow rule: the landing stops the world, the banner
@@ -659,6 +663,25 @@ bank4_end:
 cbt_avenge:         defb 0
 ;  The ship being flown, for the frame pilot_frame is steering it.
 pilot_ent:          defw 0
+;  The tracers (game/shots.asm): this frame's shots, where every slot was
+;  projected, and per buffer the dots that are on it. The three counts are
+;  zeroed by mis_init; nothing else needs a starting value.
+pilot_scan:         defw 0              ; pilot_ram's walk over the hostile region
+pilot_scan_slot:    defb 0
+shot_count:         defb 0
+shot_list:          defs SHOT_MAX * 2
+shot_pos:           defs ENT_MAX * SHOT_POS_SIZE
+shot_dots_a:        defs SHOT_LIST_SIZE
+shot_dots_b:        defs SHOT_LIST_SIZE
+shot_left:          defb 0
+shot_ptr:           defw 0
+shot_shooter:       defb 0
+shot_victim:        defb 0
+shot_ax:            defw 0
+shot_ay:            defw 0
+shot_dx:            defw 0
+shot_dy:            defw 0
+shot_pen4:          defb 0
 ;  The AUTO RESPONSE: armed by A out of a fight, used by the first hit.
 ;  Both cleared by mis_setup: every mission starts with it off.
 auto_armed:         defb 0

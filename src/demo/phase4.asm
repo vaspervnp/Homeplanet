@@ -1047,6 +1047,7 @@ phase4_project:
 ;  phase4_cache -- append the projected ship to the visible list
 ; ----------------------------------------------------------------------------
 phase4_cache:
+    call shot_cache                     ; bank 4: where this slot landed, for the tracers
     ld hl,(phase4_vis_ptr)
 
     ld de,(proj_sx)

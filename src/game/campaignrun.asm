@@ -37,6 +37,9 @@ mis_init:
     ld (run_active),a                   ; ...and the run's flag and page likewise
     ld (run_shown),a
     ld (ban_msg),a                      ; ...and no unlock banner is up
+    ld (shot_count),a                   ; ...and no tracer is waiting or on a buffer
+    ld (shot_dots_a),a                  ;    (the lists live after bank4_end, so
+    ld (shot_dots_b),a                  ;    they hold whatever powered up)
     ld (mis_saved),a                    ; nothing banked yet
     ld (campaign_unlocks),a             ; ...and nothing reverse-engineered
     ld a,ENT_NO_TARGET

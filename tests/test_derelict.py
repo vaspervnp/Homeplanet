@@ -574,7 +574,7 @@ class TestTheMissionNumberGateStillWorks(DerelictFixture):
 
     def gate_the_scout_from(self, mission_1_based):
         """eco_class_gate is in BANK 4, so it is written through the window."""
-        h.write_cpu(self.c, self.sym["ECO_CLASS_GATE"] + self.sym["CLASS_SCOUT"],
+        h.write_bank4(self.c, self.sym["ECO_CLASS_GATE"] + self.sym["CLASS_SCOUT"],
                     bytes([mission_1_based]))
 
     def test_a_class_gated_on_a_mission_number_appears_at_that_mission(self):
@@ -1129,8 +1129,8 @@ class TestTheUnlockBanner(DerelictFixture):
                 self.row(y, self.sym["BAN_DESTROYER_X"], 32))
 
     def say(self, msg):
-        h.write_cpu(self.c, self.sym["BAN_MSG"], bytes([msg]))
-        h.write_cpu(self.c, self.sym["BAN_TICK0"], self.c.read_ram(self.sym["SYS_TICK_50HZ"], 1))
+        h.write_bank4(self.c, self.sym["BAN_MSG"], bytes([msg]))
+        h.write_bank4(self.c, self.sym["BAN_TICK0"], self.c.read_ram(self.sym["SYS_TICK_50HZ"], 1))
 
     def test_the_frigate_line_is_across_the_middle_and_then_gone_from_both_buffers(self):
         self.c.write_ram(self.sym["ORDER_PAUSED"], b"\x00")

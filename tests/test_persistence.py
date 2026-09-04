@@ -168,7 +168,7 @@ class TestTheSaveIsChecked(DiscFixture):
         the only way to put a header on the disc that the game would not have
         written itself.
         """
-        h.write_cpu(self.c, self.sym["FLEET_BLOCK"], header)
+        h.write_bank4(self.c, self.sym["FLEET_BLOCK"], header)
         addr = self.sym["FDC_FLEET_SAVE"]
         self.c.write_ram(h.STUB, bytes([0xCD, addr & 0xFF, addr >> 8,
                                         0x18, 0xFE]))       # call it, then spin
@@ -269,7 +269,7 @@ class TestTheUnlocksSurviveThePowerGoingOff(DiscFixture):
 
         #  Everything else about the save stays valid: a real header, a real
         #  fleet, and rubbish where the tag should be.
-        h.write_cpu(self.c, self.sym["FLEET_UNLOCKS"], b"\x5A\x01")
+        h.write_bank4(self.c, self.sym["FLEET_UNLOCKS"], b"\x5A\x01")
         addr = self.sym["FDC_FLEET_SAVE"]
         self.c.write_ram(h.STUB, bytes([0xCD, addr & 0xFF, addr >> 8,
                                         0x18, 0xFE]))       # call it, then spin
@@ -292,7 +292,7 @@ class TestTheUnlocksSurviveThePowerGoingOff(DiscFixture):
         self.run_the_game(self.c)
         self.save_with(self.sym["CAMP_UNLOCK_FRIGATE"])
 
-        h.write_cpu(self.c, self.sym["FLEET_UNLOCKS"],
+        h.write_bank4(self.c, self.sym["FLEET_UNLOCKS"],
                     bytes([self.sym["FLEET_UNLOCK_TAG"], 0xFF]))
         addr = self.sym["FDC_FLEET_SAVE"]
         self.c.write_ram(h.STUB, bytes([0xCD, addr & 0xFF, addr >> 8, 0x18, 0xFE]))

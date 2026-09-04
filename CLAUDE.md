@@ -3667,6 +3667,17 @@ were reading a machine mid-blit.
 `build/sprites.raw`, runs a frame and looks again if bank 4 is out. Eleven call
 sites across nine test files use it. **Use it for anything in the window.**
 
+> **AND `write_bank4()` IS ITS MIRROR, which took five fixtures going red at
+> once to write.** `write_cpu` pokes whatever bank is under the window at
+> that instant, and a fixture's setUp lands at an arbitrary frame boundary:
+> `auto_armed` poked into bank 5 arms nothing, `ban_msg` poked into bank 6
+> says nothing, and the failures read *"the fixture did not fire"* and a
+> banner of `???`. They had passed on the boot happening to leave bank 4 in;
+> the tracers' few hundred T-states a frame moved the boundary. `write_cpu`
+> is for the low 16K and for a bank the test has deliberately paged in --
+> the chase's and the run's state, which are read with `read_cpu` for the
+> same reason.
+
 Three more failures were tests reading a running machine at an arbitrary
 instant, shaken loose by the boot moving 27 sectors: `test_combat` read
 `squad_count` mid-`squad_refresh`, `test_phase5` measured the previous frame's
@@ -6041,6 +6052,60 @@ the test uses.
 **Looked at**, `build/shots/pilot-*.png`: the ship sits centred with the bar
 above it, and holding LEFT swings the lattice and the Mothership across the
 right of the screen, which is what turning left looks like from behind.
+
+### Shots you can see
+
+`future.md` item 4, built. `game/shots.asm`, bank 4: a shot is three dots on
+the line between the shooter and its target — a quarter, a half and three
+quarters of the way — in the **shooter's** ink, for the one frame it is
+fired. `cbt_fire_if_able` calls `shot_note` beside `snd_fire`; `wave_draw`
+calls `shot_draw` after the ships. Two three-byte calls in the low 16K, the
+other in `phase4_cache`, and everything else in the bank.
+
+**The dots erase themselves, and that is the shape of the file.** Every
+other marker appends a dirty rectangle, and a tracer cannot: its three dots
+are up to a hundred pixels apart, so one rectangle round them is thousands of
+bytes for `phase4_erase` to clear, and three rectangles a shot is
+`4 × 3 × 4 × 2` bytes of a low-16K address space that is at its floor. So
+each buffer keeps its own list of the `(address, mask)` pairs it was given,
+and `shot_erase` — from the top of `mark_update`, after `phase4_erase` and
+before anything is drawn — ANDs them back out. One AND a dot, no rectangle,
+no low-16K state, and a pen-3 pixel under a pen-1 dot keeps its other plane.
+
+**Where a ship is on the screen is not in `phase4_vis` by slot.** The visible
+list is in draw order and carries no index, so `shot_cache`, from
+`phase4_cache`, keeps a per-slot copy of the projection with `demo_frames`
+stamped beside it, and a shot whose shooter or target was not projected THIS
+frame draws nothing. The stamp is one byte, so a slot last seen exactly 256
+frames ago reads as current once; not worth a second byte.
+
+- **`SHOT_MAX` is 4 a frame**, and what is fired past four is not drawn. In
+  the sensor view the battle runs three times a frame into the same list.
+- **Clipped to the playfield itself**: a ship's centre may sit in the HUD's
+  strip, where its sprite is clipped by `spr_clip_bottom` and a dot would
+  not be.
+- **The three counts are zeroed by `mis_init`**, because the lists live after
+  `bank4_end` and hold whatever powered up, and an erase list full of noise
+  is an AND over random bytes of the screen.
+- ~330 bytes of bank 4 and 400 of its window; `DISC.BIN` 26035 of 26368.
+
+**Looked at**, `build/shots/tracers.png`: in a clump the dots are lost in the
+sprites, in a spread fight they flash between the pairs. One pixel is what a
+Mode 1 tracer can be; if it wants to be more, the second lever is a 2×1 dot
+at the same cost per list entry.
+
+### Ramming
+
+`future.md` item 7, built into `pilot_frame` as `pilot_ram`: a flown ship
+inside `PILOT_RAM_DIST` (4 camera units, 256 world) of a **flying** hostile
+— not a wreck, not the derelict — does its own hull to that hostile and dies.
+The hostile is killed through `cbt_kill` if that takes it to zero, and so is
+the rammer, so the explosion, the count and a wreck are the usual ones; then
+`pilot_end`, and the camera goes back to the station. The distance is 256
+because the two close at up to 350 a frame and a smaller threshold could
+pass one ship through the other between frames. The damage is what the ship
+HAD, so a fresh ship is the heavier weapon and a shot-up one is a poor
+missile — which is the decision it puts in the player's hands.
 
 ### The run: an R-Type between the jumps
 

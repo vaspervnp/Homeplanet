@@ -34,6 +34,10 @@ mark_init:
 ;  Uses: everything
 ; ----------------------------------------------------------------------------
 mark_update:
+    ;  Last time's tracers come off this buffer before anything is drawn on
+    ;  it. Here rather than in demo_update because this is bank 4 and runs on
+    ;  every playing frame after phase4_erase; see game/shots.asm.
+    call shot_erase
     ld a,(cam_yaw)
     ld c,a
     ld a,(cam_pitch)

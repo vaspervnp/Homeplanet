@@ -991,7 +991,7 @@ class TestASquadronShotAtShootsBack(CombatFixture):
         self.c.write_ram(addr + ENT_TIMER, bytes([timer]))
 
     def arm(self, on=True):
-        h.write_cpu(self.c, self.sym["AUTO_ARMED"], bytes([1 if on else 0]))
+        h.write_bank4(self.c, self.sym["AUTO_ARMED"], bytes([1 if on else 0]))
 
     def armed(self):
         return h.read_bank4(self.c, self.sym["AUTO_ARMED"], 1)[0]
@@ -1159,7 +1159,7 @@ class TestTheAKeyOutOfAFight(CombatFixture):
         self.assertGreater(say, 0, "the message is not being shown")
 
     def test_a_after_it_has_been_used_says_used_and_does_not_rearm(self):
-        h.write_cpu(self.c, self.sym["AUTO_USED"], b"\x01")
+        h.write_bank4(self.c, self.sym["AUTO_USED"], b"\x01")
         self.press_a()
         self.assertEqual(self.armed(), 0, "A re-armed a response that was used")
         msg, say = self.msg()
@@ -1217,7 +1217,7 @@ class TestTheUnarmedAreHalfTheTime(CombatFixture):
 
     def search_as_the_enemy(self, mask):
         """cbt_find_enemy for the enemy, with this frame's coin poked in."""
-        h.write_cpu(self.c, self.sym["CBT_PREY_MASK"], bytes([mask]))
+        h.write_bank4(self.c, self.sym["CBT_PREY_MASK"], bytes([mask]))
         ent = self.sym["ENTITIES"] + self.ENEMY * ENT_SIZE
         self.c.write_ram(self.sym["CBT_ENT"], struct.pack("<H", ent))
         addr = self.sym["CBT_FIND_ENEMY"]

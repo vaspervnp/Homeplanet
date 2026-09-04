@@ -302,6 +302,7 @@ cbt_fire_if_able:
     ld hl,cbt_shots
     inc (hl)
     call snd_fire
+    call shot_note                      ; bank 4: the tracer, drawn after the ships
 
     ;  Damage, from the balance matrix.
     call cbt_damage_for

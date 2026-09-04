@@ -32,6 +32,7 @@
 ; ----------------------------------------------------------------------------
 wave_draw:
     call unlock_banner                  ; the centre-screen unlock line, if one is up
+    call shot_draw                      ; this frame's tracers, over the ships
     ;  The tutorial owns this row outright while it is running, and wave_dirty
     ;  goes with it -- one dirty flag for row C whoever is drawing there, which
     ;  is what makes the coupling with phase4_hud and mis_wipe free. The row is

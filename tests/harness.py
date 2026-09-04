@@ -594,8 +594,8 @@ def skip_the_countdown(c: cpc.CPC) -> None:
     sym = symbols()
     if not read_bank4(c, sym["JUMP_SECS"], 1)[0]:
         return
-    write_cpu(c, sym["JUMP_SECS"], bytes([1]))
-    write_cpu(c, sym["JUMP_TICKS"], bytes([49]))
+    write_bank4(c, sym["JUMP_SECS"], bytes([1]))
+    write_bank4(c, sym["JUMP_TICKS"], bytes([49]))
 
 
 def wait_out_the_countdown(c: cpc.CPC, tries: int = 400) -> None:
@@ -898,6 +898,30 @@ def write_cpu(c: cpc.CPC, addr: int, data: bytes) -> None:
     """
     for i, byte in enumerate(data):
         c.poke((addr + i) & 0xFFFF, byte)
+
+
+def write_bank4(c: cpc.CPC, addr: int, data: bytes, tries: int = 400) -> None:
+    """Write bank 4 through the CPU's view, waiting for it to be under the window.
+
+    The mirror of read_bank4, and it exists for the same reason: write_cpu
+    pokes whatever bank is under the window at that instant, and a test's
+    setUp lands at an arbitrary emulator-frame boundary -- four in forty of
+    which have a sprite bank up. An `auto_armed` poked into bank 5 arms
+    nothing, and the failure reads as "the fixture did not fire". Five
+    fixtures had been writing bank-4 state this way and passing on the boot
+    happening to leave bank 4 in; adding a few hundred T-states to the frame
+    moved the boundary and all five went red at once.
+
+    Use write_cpu only when the test has deliberately paged another bank in,
+    or is writing the low 16K.
+    """
+    sentinel, want = _bank4_sentinel()
+    for _ in range(tries):
+        if read_cpu(c, sentinel, len(want)) == want:
+            write_cpu(c, addr, data)
+            return
+        c.run_frames(1)
+    raise RuntimeError("bank 4 never came back under the window for a write")
 
 
 def peek_pixel_byte(c: cpc.CPC, base: int, y: int, x_byte: int) -> int:

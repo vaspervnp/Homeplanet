@@ -58,6 +58,10 @@ PILOT_STEP_HALF     equ 100
 PILOT_CLIMB         equ 100
 ;  What the timer is parked at while the pilot's finger is off the trigger.
 PILOT_HOLD          equ 1
+;  How close, in camera units, is a collision: 4 is 256 world units. The two
+;  close at up to 350 a frame, so anything smaller could pass through a ship
+;  between one frame and the next.
+PILOT_RAM_DIST      equ 4
 
 
 ; ----------------------------------------------------------------------------
@@ -169,7 +173,7 @@ pilot_frame:
 
     ld a,(order_paused)
     or a
-    jr nz,@pilot_camera                 ; frozen with the battle: only the camera
+    jp nz,@pilot_camera                 ; frozen with the battle: only the camera
 
     ; --- steer ------------------------------------------------------------
     ld a,KEY_CUR_LEFT
@@ -207,6 +211,12 @@ pilot_frame:
     ld de,ENT_Z
     add hl,de
     call pilot_along                    ; z -= step * cos y
+
+    ; --- ramming ------------------------------------------------------------
+    ;  Into a hostile, and both pay the pilot's hull: future.md item 7. It is
+    ;  how a fighter kills a frigate it cannot outgun, and it costs the ship.
+    call pilot_ram
+    ret c                               ; ...it did: there is nothing left to fly
 
     ; --- climb and dive ---------------------------------------------------
     ld a,KEY_CUR_UP
@@ -252,6 +262,84 @@ pilot_frame:
     ld a,(hl)
     add a,TRIG_STEPS / 2                ; view 3: tail-on, looking where it looks
     ld (cam_yaw),a
+    ret
+
+
+; ----------------------------------------------------------------------------
+;  pilot_ram -- is the flown ship inside PILOT_RAM_DIST of a hostile?
+;  Out: CF set if it was, and the collision has happened: both hulls have
+;       paid, the dead are dead, and the ship has been handed back
+;  Uses: everything
+;
+;  Only the hostile region, and only a hostile that is FLYING: a wreck is a
+;  hull adrift and the derelict is one for three missions, and flying into
+;  either would be a cheap way to lose a ship. The enemy takes the pilot's
+;  hull off its own, whole or not at all, and the pilot's hull goes to zero:
+;  the damage is what the ship had, so a fresh ship is the heavier weapon.
+; ----------------------------------------------------------------------------
+pilot_ram:
+    ld hl,entities + ENT_PLAYER_MAX * ENT_SIZE
+    ld (pilot_scan),hl
+    ld a,ENT_PLAYER_MAX
+    ld (pilot_scan_slot),a
+    ld b,ENT_ENEMY_MAX
+@pilot_ram_one:
+    push bc
+    ld hl,(pilot_scan)
+    ld de,ENT_FLAGS
+    add hl,de
+    ld a,(hl)
+    and ENT_F_ACTIVE + ENT_F_ENEMY + ENT_F_DISABLED
+    cp ENT_F_ACTIVE + ENT_F_ENEMY
+    jr nz,@pilot_ram_next
+    ld de,(pilot_scan)
+    ld hl,(pilot_ent)
+    call dist_manhattan                 ; A = how far, in camera units
+    cp PILOT_RAM_DIST
+    jr c,@pilot_crash
+@pilot_ram_next:
+    ld hl,(pilot_scan)
+    ld de,ENT_SIZE
+    add hl,de
+    ld (pilot_scan),hl
+    ld hl,pilot_scan_slot
+    inc (hl)
+    pop bc
+    djnz @pilot_ram_one
+    or a                                ; CF clear: nothing hit
+    ret
+
+@pilot_crash:
+    pop bc
+    ;  The hostile takes the pilot's hull...
+    ld hl,(pilot_ent)
+    ld de,ENT_HULL
+    add hl,de
+    ld b,(hl)
+    ld hl,(pilot_scan)
+    add hl,de
+    ld a,(hl)
+    sub b
+    jr c,@pilot_ram_kills
+    jr z,@pilot_ram_kills
+    ld (hl),a
+    jr @pilot_ram_me
+@pilot_ram_kills:
+    ld (hl),0
+    ld a,(pilot_scan_slot)
+    call cbt_kill                       ; the explosion, the count, a wreck maybe
+@pilot_ram_me:
+    ;  ...and the pilot's ship is gone: hull to zero and the same exit every
+    ;  other death takes, so the explosion and the sound are the usual ones.
+    ld a,(pilot_slot)
+    call ent_addr
+    ld de,ENT_HULL
+    add hl,de
+    ld (hl),0
+    ld a,(pilot_slot)
+    call cbt_kill
+    call pilot_end                      ; the camera goes back to the station
+    scf
     ret
 
 
