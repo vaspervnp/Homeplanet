@@ -62,11 +62,12 @@ nothing else moves: two rows of `class_bank`, two `include` lines in
 `src/main.asm`, and `test_shipclass`'s content compare goes on passing because
 it compares each bank against what the build wrote.
 
-**And that swap pays twice.** The chase draws interceptors too — it is the one
-thing `mini_blit` exists to do — so once they are in bank 7, `game/minigame.asm`
-can move there as well, behind the same trampoline, and `DISC.BIN` gets its
-1,300 bytes back. Build the run first and move the chase second, so that the
-trampoline is proven on new code before it carries old.
+**And that swap paid twice — it is DONE.** The chase moved first, in the end:
+`game/minigame.asm` runs from bank 7 behind `chase_run`, the interceptor is
+in bank 7, and `DISC.BIN` got 1,200 bytes back. So the trampoline, the
+"state in the bank" pattern, the `read_cpu`-while-it-runs rule for tests and
+the "no `bank7_fetch` from here" rule are all proven on the chase; the run
+inherits them. CLAUDE.md "The chase runs from bank 7" is the account.
 
 ### Bank 7 has 464 bytes free, and needs a fourth track
 

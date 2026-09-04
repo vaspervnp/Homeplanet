@@ -806,7 +806,7 @@ def _bank4_sentinel() -> tuple[int, bytes]:
     return _BANK4_SENTINEL
 
 
-def read_bank4(c: cpc.CPC, addr: int, size: int, tries: int = 60) -> bytes:
+def read_bank4(c: cpc.CPC, addr: int, size: int, tries: int = 400) -> bytes:
     """Read bank 4 through the CPU's view, waiting for it to be under the window.
 
     BANK 4 IS THE RESTING STATE, NOT THE ONLY STATE. class_tier_addr pages a
@@ -830,6 +830,12 @@ def read_bank4(c: cpc.CPC, addr: int, size: int, tries: int = 60) -> bytes:
     is the usual case and always the case while a static screen is up.
 
     Use read_cpu instead when the test has deliberately paged another bank in.
+
+    FOUR HUNDRED TRIES, NOT SIXTY. A test that boots with a small frame count
+    reaches this while lib_load is still reading the libraries -- 96 sectors
+    since the fourth track -- with a sprite bank under the window for the
+    whole of it, and sixty frames was less than the load. Each try is one
+    frame, and the search returns the moment bank 4 is back.
     """
     sentinel, want = _bank4_sentinel()
     for _ in range(tries):

@@ -376,6 +376,23 @@ tut_table:
     defw tut_g_never,   tut_a_ready
 tut_table_end:
 
+; ----------------------------------------------------------------------------
+;  order_home -- where the nine squadrons are stationed at boot, six bytes a
+;  row: only row 1 is ever near the fleet, and the other eight are the layout
+;  a RESTORED fleet fans out into. See "A squadron is born where its ships
+;  are" in CLAUDE.md. Read once by order_init through bank7_copy.
+; ----------------------------------------------------------------------------
+order_home:
+    defw      0,   500,      0           ; 1
+    defw  -4500,  -750,   2000           ; 2
+    defw   4500,   750,  -2000           ; 3
+    defw  -3000,  -500,   4000           ; 4
+    defw   3000,   625,  -4000           ; 5
+    defw  -1500,  -750,  -3000           ; 6
+    defw   1500,   500,   3000           ; 7
+    defw  -6000,  -625,   1000           ; 8
+    defw   6000,   750,  -1000           ; 9
+
 mini_intro_words:
 mini_intro_1:
     defb "A VEKHAR IS IN THE JUMP WITH US.",0

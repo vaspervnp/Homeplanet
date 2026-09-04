@@ -308,27 +308,6 @@ MG_MSG_STEER        equ 4               ; under the ship, for the whole run
 ;  no divide in this project and MG_EVERY is meant to be tunable to any number
 ;  rather than to a power of two.
 ; ----------------------------------------------------------------------------
-mini_maybe:
-    ld a,(mis_index)
-    inc a
-@mg_every:
-    sub MG_EVERY
-    jr z,mini_run
-    jr nc,@mg_every
-    ret
-
-
-; ----------------------------------------------------------------------------
-;  mini_run -- the chase, from a black screen to a black screen
-;  Uses: everything
-;
-;  IT RUNS ITS OWN LOOP, with its own vertical blank and its own page flip,
-;  exactly as jfx_vanish does and for the same two reasons: there is nothing
-;  else left to run, and mis_jump_now has to stay atomic. It also means this
-;  costs the frame loop NOTHING -- there is no branch in demo_update to reach
-;  it, which matters because demo_update is in the low 16K and the low 16K has
-;  thirty spare bytes.
-; ----------------------------------------------------------------------------
 mini_run:
     ld a,1
     ld (mini_active),a
@@ -659,8 +638,10 @@ mini_penalty:
 
 @mg_killed:
     ;  squad_count is DERIVED, so the counts, the HUD and the selection falling
-    ;  back to something that exists all follow from one call.
-    jp squad_refresh
+    ;  back to something that exists all follow from one call -- and that call
+    ;  is BANK 4, which this code cannot reach: mini_maybe makes it after the
+    ;  trampoline has put bank 4 back.
+    ret
 
 
 ; ----------------------------------------------------------------------------
@@ -963,7 +944,8 @@ mini_say:
 
     ld hl,mini_words
     ld a,(mini_msg)
-    call bank7_fetch                    ; ...and it puts bank 4 back itself
+    call mini_nth                       ; the words are in THIS bank: no fetch
+    push hl
     ld a,(mini_msg)
     ld e,a
     ld d,0
@@ -971,7 +953,7 @@ mini_say:
     add hl,de
     ld b,(hl)
     ld c,MG_TEXT_Y
-    ld hl,bank7_line
+    pop hl
     call txt_draw
 
     ;  ...and what it cost, when it cost anything. A penalty that is computed
@@ -992,8 +974,7 @@ mini_say:
     jr nz,@mg_not_running
     ld hl,mini_words
     ld a,MG_MSG_STEER
-    call bank7_fetch
-    ld hl,bank7_line
+    call mini_nth
     ld b,MG_STEER_X
     ld c,MG_LOST_Y
     call txt_draw
@@ -1003,8 +984,7 @@ mini_say:
     jr nz,@mg_no_toll
     ld hl,mini_words
     ld a,MG_MSG_TOLL
-    call bank7_fetch
-    ld hl,bank7_line
+    call mini_nth
     ld b,MG_TOLL_X
     ld c,MG_LOST_Y
     call txt_draw
@@ -1081,18 +1061,19 @@ mini_intro_page:
     ld a,MG_INTRO_LINES
     ld (mini_idx),a
 @mg_intro_line:
-    xor a
-    call bank7_fetch                    ; the string, and HL just past it
-    push hl
+    push hl                             ; the string: it is in this bank
     ld hl,(mini_ip)
     ld b,(hl)
     inc hl
     ld c,(hl)
     inc hl
     ld (mini_ip),hl
-    ld hl,bank7_line
+    pop hl
+    push hl
     call txt_draw
     pop hl
+    ld a,1
+    call mini_nth                       ; -> the next string
     ld a,(mini_idx)
     dec a
     ld (mini_idx),a
@@ -1100,14 +1081,33 @@ mini_intro_page:
 
     ld a,2
     call txt_set_pen
-    xor a
-    call bank7_fetch                    ; the prompt is the next string
-    ld hl,bank7_line
+    ;  HL is the prompt: the string after the last line.
     ld b,MG_INTRO_GO_X
     ld c,MG_INTRO_GO_Y
     call txt_draw
     ld a,1
     jp txt_set_pen
+
+; ----------------------------------------------------------------------------
+;  mini_nth -- HL -> the Ath of a run of zero-terminated strings, in this bank
+;  In : HL -> the first, A = which
+;  Uses: AF, B, HL
+;
+;  str_index does this in bank 4 and bank7_fetch does it across a page; this
+;  code runs from bank 7 and its words are beside it, so it walks them itself.
+; ----------------------------------------------------------------------------
+mini_nth:
+    or a
+    ret z
+    ld b,a
+@mg_nth_skip:
+    ld a,(hl)
+    inc hl
+    or a
+    jr nz,@mg_nth_skip
+    djnz @mg_nth_skip
+    ret
+
 
 mini_intro_xy:
     defb MG_INTRO_1_X, MG_INTRO_Y
@@ -1348,7 +1348,7 @@ mini_ships:
 ;  Uses: everything
 ;
 ;  IT DOES NOT CALL class_tier_addr, and it must not: that routine pages bank 4
-;  out and this file IS bank 4. class_geom, class_sprite and class_bank are all
+;  out. class_geom and class_sprite are all
 ;  in the low 16K -- src/main.asm asserts it, because the blitter reads them
 ;  with a foreign bank up -- so the geometry is worked out here with the window
 ;  at rest and spr_blit_banked does the one thing that has to happen from down
@@ -1436,13 +1436,11 @@ mini_blit:
 @mg_view_base:
     ld (spr_src),de
 
-    ld a,(mini_cls)
-    ld e,a
-    ld d,0
-    ld hl,class_bank
-    add hl,de
-    ld a,(hl)                           ; ...and the bank that class is in
-    jp spr_blit_banked
+    ;  spr_blit, NOT spr_blit_banked: this code runs FROM bank 7, and so
+    ;  does the interceptor library it draws -- the two were put in the same
+    ;  bank for exactly this. A page here would take the code out from under
+    ;  the program counter.
+    jp spr_blit
 
 ;  Steering -> view: straight, left, right.
 mini_bank_view:
@@ -1486,3 +1484,39 @@ mini_msg_x_end:
 ;  uninitialised bank storage costs DISC.BIN nothing at all. The seven bytes a
 ;  test has to watch while the chase runs are in the low 16K, and are there for
 ;  a different reason -- see the head of this file.
+
+
+; ============================================================================
+;  The chase's state, IN THIS BANK. Bank 7 is RAM like any other and nothing
+;  rewrites it after lib_load, so these are as good as the low 16K -- and
+;  the code that reads them cannot see bank 4 while it runs. Every byte is
+;  written by mini_run before it is read. mini_active, mini_x, mini_ex,
+;  mini_dist, mini_left, mini_lost, mini_frac and mini_shown are the low 16K's,
+;  because the game and the tests read those with the window at rest.
+; ============================================================================
+mini_bank:          defb 0              ; which way the player is steering
+mini_view:          defb 0              ; the yaw view mini_blit draws
+mini_bsz:           defw 0              ; one (view, pre-shift) block
+mini_cls:           defb 0              ; which class mini_blit draws
+mini_torp:          defb 0              ; steps of flight so far, 0 = none
+mini_torp_x:        defb 0              ; where it was aimed
+mini_hits:          defb 0              ; how many have landed
+mini_ip:            defw 0              ; the (x, y) table cursor, intro only
+mini_theta:         defb 0              ; where the enemy is in its weave
+mini_phase:         defb 0              ; how far the shaft has scrolled
+mini_msg:           defb 0              ; which of mini_words is being said
+mini_t0:            defb 0              ; the tick this step began on
+mini_holdc:         defb 0
+mini_want:          defb 0              ; casualties still owed
+mini_cx:            defb 0              ; the mouth of the shaft, in pixels
+mini_idx:           defb 0
+mini_ring_n:        defb 0
+mini_hwr:           defb 0
+mini_hhr:           defb 0
+mini_lx:            defb 0
+mini_rx:            defb 0
+mini_bx:            defb 0
+mini_bw:            defb 0
+mini_ty:            defb 0
+mini_sx:            defb 0
+mini_sy:            defb 0

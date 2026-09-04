@@ -31,7 +31,7 @@ TIER_C_BLOCK_SZ = TIER_C_W_BYTES * 2 * TIER_C_H
 #  class_tier_addr does -- and put bank 4 back afterwards, exactly the way
 #  class_blit_done does.
 GA_BANK_4 = 0xC4
-INTERCEPTOR_BANK = 0xC5
+INTERCEPTOR_BANK = 0xC7      # bank 7 since the chase moved there: class_bank row 0
 
 
 class SpriteFixture(unittest.TestCase):

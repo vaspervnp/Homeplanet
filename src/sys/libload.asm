@@ -311,6 +311,25 @@ bank7_copy:
     ret
 
 
+; ----------------------------------------------------------------------------
+;  chase_run -- page bank 7 in, run the vortex chase from it, page bank 4 back
+;  Uses: everything
+;
+;  The first CODE in a sprite bank, and the whole of why it is legal is in
+;  minigame2.md: the chase runs when nothing else does, calls only the low
+;  16K, and draws a library that is in the same bank. This is spr_blit_banked's
+;  shape -- the OUT happens with the CPU already down here, and bank 4 is back
+;  before the RET reaches a return address that is in it.
+; ----------------------------------------------------------------------------
+chase_run:
+    ld bc,GA_PORT * 256 + GA_BANK_7
+    out (c),c
+    call mini_run
+    ld bc,GA_PORT * 256 + GA_BANK_4
+    out (c),c
+    ret
+
+
 bank7_fetch:
     ld bc,GA_PORT * 256 + GA_BANK_7
     out (c),c

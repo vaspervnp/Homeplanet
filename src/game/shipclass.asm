@@ -101,13 +101,13 @@ CLASS_STANDIN_SIZE  equ 432
 ;  stand-ins instead of noise.
 ; ----------------------------------------------------------------------------
 class_bank:
-    defb GA_BANK_5                      ; interceptor
+    defb GA_BANK_7                      ; interceptor -- with the chase that draws it
     defb GA_BANK_5                      ; mothership
     defb GA_BANK_5                      ; harvester
     defb GA_BANK_6                      ; scout
     defb GA_BANK_6                      ; bomber
     defb GA_BANK_6                      ; frigate
-    defb GA_BANK_7                      ; salvage corvette
+    defb GA_BANK_5                      ; salvage corvette -- swapped with the interceptor
     defb GA_BANK_7                      ; destroyer
 
 

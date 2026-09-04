@@ -69,32 +69,20 @@ game_main:
     call sys_boot                       ; one-way: firmware is gone after this
 
     call demo_init
+    ;  THE LOW 16K IS BYTE FOR BYTE THE SAME IN DISC.BIN AND MINI.BIN, and it
+    ;  has to be: the chase runs from bank 7, the disc carries ONE bank 7 --
+    ;  the game's -- and its code calls the low 16K by address. So MINI.BIN's
+    ;  difference lives in bank 4, behind this call: in the game it returns
+    ;  at once, in MINI.BIN it runs the chase for ever and never comes back.
+    ;  tests/test_mini_bin asserts the two home.raw images are identical.
+    call boot_after_init
 
-IF MINI_ONLY
-    ;  MINI.BIN: the chase, and nothing else. demo_init has read the libraries,
-    ;  spawned the starting fleet and opened the title -- whose tune has to be
-    ;  stopped here, because mus_update lives in demo_update and demo_update
-    ;  never runs in this build, so the note it was on would sound for ever.
-    ;  A fresh fleet every round, so a lost chase's toll is always taken from
-    ;  a full sixteen and can be read against MG_FRAC_MIN/MAX; and mini_shown
-    ;  cleared every round, so the intro page IS the "play again" prompt.
-    call mus_stop
-@mini_loop:
-    call ent_clear_all
-    call phase4_spawn_fleet
-    call squad_refresh
-    xor a
-    ld (mini_shown),a
-    call mini_run
-    jr @mini_loop
-ELSE
 @frame_loop:
     call demo_update                    ; draw into the back buffer
     call demo_wait_frame                ; hold the loop to 4 VSYNCs = 12.5 fps
     call scr_wait_vsync
     call scr_flip                       ; back becomes front
     jr @frame_loop
-ENDIF
 
 
 ; ============================================================================
@@ -237,6 +225,7 @@ mini_dist:          defb 0              ; how far ahead of you it still is
 mini_left:          defb 0              ; how much tunnel there is left
 mini_lost:          defb 0              ; ships the ambush took
 mini_frac:          defb 0              ; ...as the 256th it charged
+mini_shown:         defb 0              ; the intro has been read this campaign: cleared by mis_init
 ;  ...and the two dirty-rectangle lists, which are ENT_MAX-shaped as well
 ;  (PHASE4_RECT_SLOTS), so they grew with the fleet too.
 phase4_rects_a:     defs PHASE4_RECT_SLOTS * 4
@@ -519,9 +508,14 @@ bank4_start:
 ;  class_blit_done, and it reads its notes out of this bank. It writes no PSG
 ;  register at all -- see the head of the file -- so nothing about it has to
 ;  run in the interrupt, which is the other half of why it may live here.
-    include "sys/music.asm"
+;  (sys/music.asm -- the player -- is in BANK 4 now; its state stays in sound.asm)
     include "gen/mus_menu.asm"
     include "game/wavesdraw.asm"
+;  The music player. Nothing in it runs from the interrupt -- mus_update is
+;  called from demo_update and title_draw, both with the window at rest --
+;  and its state is in sys/sound.asm with the rest of the interrupt's world.
+;  It moved out of the low 16K to make room for chase_run's thirteen bytes.
+    include "sys/music.asm"
     include "game/overtext.asm"
     include "game/staticscreens.asm"
 ;  The context bar. It runs once a GAME FRAME rather than only while the game
@@ -549,7 +543,47 @@ bank4_start:
 ;  fleet_save, and in here for the ordinary reason: it stops the world and
 ;  cannot run between class_tier_addr and class_blit_done. It does not call
 ;  class_tier_addr at all -- see mini_blit for why it cannot.
-    include "game/minigame.asm"
+;  The vortex chase RUNS FROM BANK 7 (game/minigame.asm, in that section);
+;  what stays here is the decision and the way in.
+    include "game/chase4.asm"
+
+; ----------------------------------------------------------------------------
+;  boot_after_init -- what MINI.BIN does instead of the game; a RET otherwise
+;  Uses: everything (MINI.BIN never returns)
+;
+;  MINI.BIN: the chase, and nothing else. demo_init has read the libraries,
+;  spawned the starting fleet and opened the title -- whose tune has to be
+;  stopped here, because mus_update lives in demo_update and demo_update
+;  never runs in this build, so the note it was on would sound for ever.
+;  A fresh fleet every round, so a lost chase's toll is always taken from
+;  a full sixteen and can be read against MG_FRAC_MIN/MAX; and mini_shown
+;  cleared every round, so the intro page IS the "play again" prompt.
+;  In bank 4 so that the LOW 16K stays identical between the two builds:
+;  see game_main.
+; ----------------------------------------------------------------------------
+BOOT_AFTER_INIT_SIZE equ 21              ; the MINI loop: asserted below in that build
+boot_after_init:
+IF MINI_ONLY
+    call mus_stop
+@mini_loop:
+    call ent_clear_all
+    call phase4_spawn_fleet
+    call squad_refresh
+    xor a
+    ld (mini_shown),a
+    call chase_run                      ; bank 7 in, mini_run, bank 4 back
+    jr @mini_loop
+boot_after_init_end:
+    assert boot_after_init_end - boot_after_init == BOOT_AFTER_INIT_SIZE, "BOOT_AFTER_INIT_SIZE is not the size of MINI.BIN's loop: the game's pad is wrong"
+ELSE
+    ret
+    ;  ...PADDED TO THE SIZE OF THE LOOP ABOVE, so that every bank-4 label
+    ;  after this point has the same address in both builds -- the low 16K
+    ;  loads several of them (fleet_block, class_standin, the stand-in's
+    ;  geometry), and byte 1220 of home.raw differed by exactly this before
+    ;  the pad was there.
+    defs BOOT_AFTER_INIT_SIZE - 1
+ENDIF
 ;  The Salvage Corvette's job. Two of its three routines run from inside the
 ;  frame loop -- slv_make_wreck out of cbt_update and slv_tow_step out of
 ;  eco_update -- which makes it the third thing here reached from there, after
@@ -606,7 +640,6 @@ bank4_end:
 ;  The intro has been seen this campaign. NOT saved to the disc -- a player who
 ;  powers off between missions 4 and 8 reads it once more, which is harmless
 ;  -- and cleared by mis_init with the rest of the chase's flags.
-mini_shown:         defb 0
 ;  The shooter's slot, for the frame cbt_retaliate is walking the fleet.
 cbt_avenge:         defb 0
 ;  The AUTO RESPONSE: armed by A out of a fight, used by the first hit.
@@ -618,22 +651,21 @@ cbt_prey_mask:      defb 0
 ;  The landing sequence's step counter, and the unlock banner's message and
 ;  the tick it went up on. See game/landing.asm and game/banner.asm.
 land_left:          defb 0
+land_cls:           defb 0
+land_view:          defb 0
+land_bsz:           defw 0
+land_sx:            defb 0
+land_sy:            defb 0
+land_t0:            defb 0
 ban_msg:            defb 0
 ban_tick0:          defb 0
 ban_rect:           defs 4
 ;  The chase: which way the player is steering this step (0 straight, 1 left,
 ;  2 right), the yaw view mini_blit is to draw, and one block's size.
-mini_bank:          defb 0
-mini_view:          defb 0
-mini_bsz:           defw 0
 ;  ...the torpedo: steps of flight so far (0 = none in the air), where it was
 ;  aimed on the lateral axis, and how many have landed.
 ;  ...which class mini_blit draws: the chase's interceptor, the landing's
 ;  Mothership.
-mini_cls:           defb 0
-mini_torp:          defb 0
-mini_torp_x:        defb 0
-mini_hits:          defb 0
 ;  The game-over page's and the squadron page's scratch. Every byte is written
 ;  before it is read -- over_draw and over_fires set theirs up per frame, the
 ;  breakdown tallies its per row -- so they need no starting value and were
@@ -659,25 +691,6 @@ info_y:             defb 0
 info_total:         defb 0
 info_thull:         defw 0
 info_tfull:         defw 0
-mini_ip:            defw 0              ; the (x, y) table cursor, intro only
-mini_theta:         defb 0              ; where the enemy is in its weave
-mini_phase:         defb 0              ; how far the shaft has scrolled
-mini_msg:           defb 0              ; which of mini_words is being said
-mini_t0:            defb 0              ; the tick this step began on
-mini_holdc:         defb 0
-mini_want:          defb 0              ; casualties still owed
-mini_cx:            defb 0              ; the mouth of the shaft, in pixels
-mini_idx:           defb 0
-mini_ring_n:        defb 0
-mini_hwr:           defb 0
-mini_hhr:           defb 0
-mini_lx:            defb 0
-mini_rx:            defb 0
-mini_bx:            defb 0
-mini_bw:            defb 0
-mini_ty:            defb 0
-mini_sx:            defb 0
-mini_sy:            defb 0
 
 ;
 ;  The stand-in ships, for a machine that could not read the disc. Every class
@@ -925,7 +938,7 @@ ENDIF
 
     org BANK_WINDOW
 bank5_start:
-    include "gen/spr_interceptor.asm"
+    include "gen/spr_salvage.asm"          ; swapped with the interceptor: see bank 7
     include "gen/spr_mothership.asm"
     include "gen/spr_harvester.asm"
 bank5_end:
@@ -949,7 +962,7 @@ ENDIF
 
     org BANK_WINDOW
 bank7_start:
-    include "gen/spr_salvage.asm"
+    include "gen/spr_interceptor.asm"      ; here so the chase can draw it from this bank
     include "gen/spr_destroyer.asm"
 
 ;  ...and the briefings, in the 4672 bytes of this bank that lib_load was
@@ -976,6 +989,13 @@ bank7_start:
 ;  destination, so the whole move was five `ldir`s becoming five calls to
 ;  bank7_copy. Two hundred and thirty-five bytes of DISC.BIN for five.
     include "gen/zoom.asm"
+;  ...AND CODE, for the first time: the vortex chase, running from this bank.
+;  It calls nothing in bank 4 and pages nothing -- the interceptor library it
+;  draws is beside it, its words are beside it, its state is beside it --
+;  and the low 16K's chase_run is the page in and out. minigame2.md is the
+;  argument; the rule in game/shipclass.asm that this bank holds sprite data
+;  only was older than the reason for it.
+    include "game/minigame.asm"
 bank7_end:
 IF MINI_ONLY == 0                       ; identical in both builds; the game's copy is the one on the disc
     save "build/bank7.raw", BANK_WINDOW, bank7_end - BANK_WINDOW

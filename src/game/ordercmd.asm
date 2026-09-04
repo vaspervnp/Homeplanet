@@ -33,10 +33,10 @@
 ;  Uses: everything
 ; ----------------------------------------------------------------------------
 order_init:
-    ld hl,order_home
+    ld hl,order_home                    ; in bank 7, so:
     ld de,squad_dest
     ld bc,SQUAD_MAX * 6
-    ldir
+    call bank7_copy
     xor a
     ld (disc_active),a
     ld (order_paused),a

@@ -135,14 +135,8 @@ order_octant_step:
 ;  a squadron created mid-mission is given -- squad_born stations it on its own
 ;  ships instead. Reading these on creation is what made dividing a squadron
 ;  fling half of it 4500 to 11400 units across the map.
-order_home:
-    defw      0,   500,      0           ; 1
-    defw  -4500,  -750,   2000           ; 2
-    defw   4500,   750,  -2000           ; 3
-    defw  -3000,  -500,   4000           ; 4
-    defw   3000,   625,  -4000           ; 5
-    defw  -1500,  -750,  -3000           ; 6
-    defw   1500,   500,   3000           ; 7
-    defw  -6000,  -625,   1000           ; 8
-    defw   6000,   750,  -1000           ; 9
+;  order_home -- the nine starting stations -- IS IN BANK 7 (game/screentext.asm),
+;  copied into squad_dest by order_init through bank7_copy: 54 bytes of the low
+;  16K read once, at boot, and the low 16K had none to spare the day the chase's
+;  trampoline needed thirteen.
 

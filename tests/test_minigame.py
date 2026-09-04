@@ -70,11 +70,14 @@ class MiniFixture(unittest.TestCase):
     def call(self, name):
         """Poke a stub that CALLs a routine and halts, and run it.
 
-        Bank 4 is the window's resting state, so a stub in the low 16K can
-        call into it directly -- which is the whole reason game/minigame.asm
-        is allowed to be there in the first place.
+        The chase runs FROM BANK 7 (see chase_run), so the stub pages it in
+        before the call and leaves it in afterwards.
         """
+        #  BANK 7 IN FIRST: the chase runs from there now, and so does its
+        #  state -- and it is LEFT in, so that the reads that follow see it.
         self.c.write_ram(h.STUB, bytes([0xF3,                    # di
+                                        0x01, 0xC7, 0x7F,        # ld bc,#7FC7
+                                        0xED, 0x49,              # out (c),c
                                         0xCD]) + struct.pack("<H", self.sym[name])
                          + bytes([0x76]))                        # halt
         self.c.set_pc(h.STUB)
@@ -278,7 +281,7 @@ class ChaseFixture(unittest.TestCase):
         #  reliably once the chase is running. The page is dismissed the moment
         #  the chase's flag goes up and nothing is traced until it has been, so
         #  trace[0] is still the chase's own first step.
-        intro_due = not h.read_bank4(cls.c, cls.sym["MINI_SHOWN"], 1)[0]
+        intro_due = not cls.c.read_ram(cls.sym["MINI_SHOWN"], 1)[0]    # low 16K now
         cls.c.key_down("j")
         cls.c.run_frames(40)
         cls.c.key_up("j")

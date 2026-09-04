@@ -186,10 +186,10 @@ and prints how many bytes are left in the low 16K and in every bank. Watch all
 of them, and watch the "hand-written code ends at" figure rather than `free:` —
 see "Where 700 bytes came from" for why the second one lies.
 
-**Today: low 16K 405, bank 4 1149, bank 7 13768 of 16384, `DISC.BIN` 26343 of
-26368 so 25 of headroom — and bank 7 has 2616 since the fourth track.** The
-next room for `DISC.BIN` is the chase moving to bank 7 to run from there
-(`minigame2.md`). (The paragraph below was written at 700; the levers
+**Today: low 16K 404, bank 4 2362, bank 7 15206 of 16384, `DISC.BIN` 25152 of
+26368 so 1216 of headroom.** The chase runs from bank 7 now — see "The chase
+runs from bank 7" — which is the first lever that moved CODE out of the
+file, and the R-Type in `minigame2.md` has 1178 bytes of bank 7 to fit in. (The paragraph below was written at 700; the levers
 it names have been pulled five more times since -- the class names, the
 game-over fire table, two pages' scratch and the whole mission table went
 across, for the auto response and the chase's tilt and torpedoes -- and the
@@ -360,8 +360,10 @@ because a variable in the bank has to be read with `read_cpu` rather than
 `read_ram`, and `order_paused`, `squad_count`, `disc_active`, `mis_index` and
 `moth_slot` are watched by half the suite.
 
-Banks 5-7 hold **sprite data only**, and must. Code assembled there could only
-run in the one moment bank 4 is out, which is the one moment nothing else can.
+Banks 5 and 6 hold **sprite data only**. Bank 7 holds sprite data, the
+stopped-world words and tables, and — since the chase moved there — CODE that
+runs in the one moment bank 4 is out, which is the one moment a self-contained
+minigame needs: see "The chase runs from bank 7".
 
 ---
 
@@ -5871,6 +5873,74 @@ it exactly as it erases a ship. Nothing knows about buffers; the dirty list
 does, and when the ticks run out the line is simply not drawn again. Called
 from the top of `wave_draw`, because the low 16K had no room for a call and
 `wave_draw` is bank 4 and already runs once a frame. The words are in bank 7.
+
+### The chase runs from bank 7
+
+The first CODE in a sprite bank, and `minigame2.md` is the argument: the
+chase runs when nothing else does, from a black screen to a black screen,
+with its own loop and its own vertical blank, and it calls only the low 16K.
+`game/minigame.asm` is assembled into the `BANK 4` section after the words
+and the tables; `chase_run` in `sys/libload.asm` is the page in and out —
+`spr_blit_banked`'s shape, the OUT with the CPU already down in the low 16K
+— and `game/chase4.asm` is what stayed behind in bank 4: `mini_maybe`, which
+reads `mis_index` with the window at rest, and the `squad_refresh` the ambush
+needs afterwards, because `squad_refresh` is bank 4 and bank-7 code cannot
+call bank 4.
+
+**Four things had to be true, and each was a change:**
+
+- **The library it draws is in the same bank.** The interceptor swapped banks
+  with the salvage corvette — two `include` lines, two rows of `class_bank`,
+  three bank bytes in `title_ship_table`, and `INTERCEPTOR_BANK` in
+  `test_phase3` — so `mini_blit` calls `spr_blit` directly. Every library is
+  4320 bytes, so nothing else moved.
+- **Its words are beside it.** Every `bank7_fetch` became a pointer:
+  `mini_nth` walks the strings in the bank the code is in. `bank7_fetch` from
+  bank-7 code would page bank 4 in and return into it.
+- **Its state is beside it.** Bank 7 is RAM and nothing rewrites it after
+  `lib_load`, so `mini_bank`, `mini_torp`, `mini_hits` and the rest are
+  declared at the end of the file, in the image. `mini_shown` went to the LOW
+  16K, because `mis_init` (bank 4) clears it. **Tests read that state with
+  `read_cpu` while the chase runs** — bank 7 is the window then — and
+  `read_bank4` would wait for a bank that is not coming back until the chase
+  is over. The stub that calls `mini_penalty` pages bank 7 in and leaves it
+  in.
+- **The landing kept a copy.** It blits the Mothership, which is in bank 5,
+  from bank 4 — so `land_blit`, `land_wait` and `land_blank` are the chase's
+  three as they were, still paging through `spr_blit_banked`.
+
+**MINI.BIN broke the day it moved, and the reason is the rule to keep.** The
+disc carries ONE bank 7 — the game's — and the chase in it calls the low 16K
+by address; `MINI.BIN`'s low 16K was seven bytes longer (its boot loop), so
+every `txt_draw` the chase made landed seven bytes into the wrong routine.
+**The low 16K is byte for byte the same in both builds now**: the difference
+lives in bank 4 behind `boot_after_init`, which is `ret` in the game and the
+forever-loop in `MINI.BIN`, PADDED to the loop's size so that every bank-4
+label after it — `fleet_block`, `class_standin`, the things the low 16K
+loads — has the same address in both. `test_mini_bin` compares the two
+`home.raw` images byte for byte; `cmp` said "byte 1220" before the pad.
+
+**And `read_bank4` waits four hundred frames now, not sixty.** A test that
+boots with a small frame count reaches it while `lib_load` is still reading
+96 sectors with a sprite bank under the window, and sixty was less than the
+load: three `test_phase3` fixtures and six tutorial tests said *"bank 4
+never came back"* about a machine that was merely still booting.
+
+**And one torpedo test failed three times running on the same unlucky
+draw.** The roll is one byte of the xorshift against 20 in 256; the model
+(`sys_rand_step` in Python matches the emulator, checked against consecutive
+`SYS_RNG` values) runs a hundred draws without a byte under twenty about
+once in twenty thousand — and `MINI.BIN`'s sequence from the ENTER that
+starts the chase is the same every boot, so "one fires within sixty steps"
+was a coin that always landed the same way. Pinned, and a hundred and fifty
+steps.
+
+**What it bought: `DISC.BIN` 26343 → 25152, and the low 16K a fright.** The
+thirteen-byte trampoline crossed the page (`free:` 148) — the music player I
+meant to move out of the low 16K to pay for it had been bank 4 all along —
+and `order_home`, 54 bytes read once at boot, went to bank 7 behind a
+`bank7_copy` in `order_init` instead. Looked at on the machine, off
+`MINI.BIN`: the rings, the tilt, a torpedo in flight, the words.
 
 ### The end of the journey
 
