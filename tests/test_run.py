@@ -191,6 +191,47 @@ class TestFlyingAndFiring(RunFixture):
         self.assertTrue(alive2 and alive2[0][1] < x0, "the enemy did not fly left")
 
 
+class TestTheyShootBack(RunFixture):
+    """The flights fire on a roll, and a shot of theirs is in run_eshots. It
+    was not, for the whole life of the run: run_enemies_step wrote the shot
+    through an HL that sys_rand had just used as its state, so every shot a
+    Vekhar fired went to two random bytes of the 64K instead. Found because
+    the destroyer, built from the same lines, never fired either."""
+
+    def test_a_flight_on_the_screen_fires_within_a_few_seconds(self):
+        self.jump_into_the_run()
+        self.begin()
+        base = self.sym["RUN_ESHOTS"]
+        for _ in range(60):
+            self.step(1)
+            shots = h.read_cpu(self.c, base, self.sym["RUN_ENEMY_MAX"] * 2)
+            live = [(shots[i * 2], shots[i * 2 + 1]) for i in range(self.sym["RUN_ENEMY_MAX"]) if shots[i * 2]]
+            if live:
+                break
+        else:
+            self.fail("sixty steps with flights on the screen and not one shot fired back")
+        for x, y in live:
+            self.assertTrue(self.sym["MG_BODY_Y"] <= y < self.sym["MG_BODY_Y"] + self.sym["MG_BODY_H"],
+                            f"a shot at y {y} is outside the lane")
+
+    def test_their_shot_flies_left_and_leaves(self):
+        self.jump_into_the_run()
+        self.begin()
+        base = self.sym["RUN_ESHOTS"]
+        x0 = None
+        for _ in range(80):
+            self.step(1)
+            s = h.read_cpu(self.c, base, 2)
+            if s[0]:
+                x0 = s[0]
+                break
+        else:
+            self.fail("the first flight never fired")
+        self.step(1)
+        x1 = h.read_cpu(self.c, base, 1)[0]
+        self.assertTrue(x1 == 0 or x1 < x0, f"their shot did not fly left: {x0} -> {x1}")
+
+
 class TestTheStakes(RunFixture):
 
     def test_three_hits_lose_it_and_cost_the_fleet(self):
@@ -242,3 +283,72 @@ class TestTheStakes(RunFixture):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestTheDestroyer(RunFixture):
+    """minigame2.md's "last thirty per cent": with RUN_BOSS_AT steps left a
+    destroyer comes in from the right, crosses at a third of a fighter's
+    speed, fires twice as often into a shot slot of its own, and takes
+    RUN_BOSS_HITS hits -- worth RUN_BOSS_WORTH kills. It can be outlasted."""
+
+    def boss(self):
+        raw = h.read_cpu(self.c, self.sym["RUN_BOSS"], 4)
+        return tuple(raw)                   # hits left, x, y0, theta
+
+    def bring_it_in(self):
+        self.jump_into_the_run()
+        self.begin()
+        self.poke7("RUN_LEFT", self.sym["RUN_BOSS_AT"] + 1)
+        self.step(2)
+        hits, x, y0, theta = self.boss()
+        self.assertEqual(hits, self.sym["RUN_BOSS_HITS"], "the destroyer did not come in")
+        return x
+
+    def test_it_comes_in_from_the_right_with_its_hits_to_take(self):
+        x = self.bring_it_in()
+        self.assertGreaterEqual(x, self.sym["RUN_ENEMY_X0"] - 2 * self.sym["RUN_BOSS_DX"])
+        self.assertEqual(self.boss()[2], self.sym["MG_CY"], "it is not along the middle of the lane")
+
+    def test_it_crosses_slowly_leftwards(self):
+        x0 = self.bring_it_in()
+        self.step(6)
+        x1 = self.boss()[1]
+        self.assertLess(x1, x0, "the destroyer did not move left")
+        self.assertLessEqual(x0 - x1, 6 * self.sym["RUN_BOSS_DX"] + 1, "it is faster than RUN_BOSS_DX")
+
+    def test_three_shots_kill_it_and_it_pays_like_seven(self):
+        self.bring_it_in()
+        #  Let it come in off the edge first: a shot moves RUN_SHOT_DX before
+        #  it is checked and one that ends past 160 is gone, not a hit.
+        self.step(8)
+        kills0 = self.b7("RUN_KILLS")
+        for n in range(self.sym["RUN_BOSS_HITS"]):
+            hits, x, y0, theta = self.boss()
+            self.assertEqual(hits, self.sym["RUN_BOSS_HITS"] - n)
+            #  A shot of ours on its centre line, a step short of it.
+            h.write_cpu(self.c, self.sym["RUN_SHOTS"], bytes([x - self.sym["RUN_SHOT_DX"], y0]))
+            self.step(1)
+        self.assertEqual(self.boss()[0], 0, "three hits did not kill it")
+        self.assertEqual(self.b7("RUN_KILLS"), kills0 + self.sym["RUN_BOSS_WORTH"],
+                         "the destroyer was not worth RUN_BOSS_WORTH kills")
+
+    def test_it_fires_into_its_own_slot(self):
+        self.bring_it_in()
+        slot = self.sym["RUN_ESHOTS"] + self.sym["RUN_ENEMY_MAX"] * 2
+        for _ in range(60):
+            self.step(1)
+            if h.read_cpu(self.c, slot, 1)[0]:
+                break
+        else:
+            self.fail("the destroyer never fired")
+        y = h.read_cpu(self.c, slot + 1, 1)[0]
+        self.assertTrue(self.sym["MG_BODY_Y"] <= y < self.sym["MG_BODY_Y"] + self.sym["MG_BODY_H"])
+
+    def test_outlasted_it_pays_nothing(self):
+        self.bring_it_in()
+        kills0 = self.b7("RUN_KILLS")
+        self.poke7("RUN_BOSS", 1)                # one hit from dead...
+        h.write_cpu(self.c, self.sym["RUN_BOSS"] + 1, bytes([5]))   # ...and about to get past
+        self.step(3)
+        self.assertEqual(self.boss()[0], 0, "it did not get past")
+        self.assertEqual(self.b7("RUN_KILLS"), kills0, "a destroyer that got past paid")

@@ -6003,10 +6003,13 @@ takes `cam_yaw` the other way; that is an orbit.) Worked out from the two
 conventions, then checked by flying: `test_it_flies_straight_along_its_heading`
 puts yaw 0 at −Z and yaw 64 at +X, exactly.
 
-> **The waves face the wrong way for half the circle.** `wave_place` writes
-> `angle + 128` where `(sin y, -cos y)` wants `-angle`. Nobody could see it:
-> head-on and tail-on differ only in which side the shading is on. Left as
-> it is, noted here, one `neg` if anyone cares.
+> **The waves faced the wrong way for half the circle**, and it is fixed:
+> `wave_place` wrote `angle + 128` where `(sin y, -cos y)` wants `-angle`,
+> which faces inward only at 0 and 128 and OUTWARD at the quarters. Nobody
+> could see it — head-on and tail-on differ only in which side the shading is
+> on — and `test_they_arrive_facing_the_fleet` accepted anything within a
+> quarter turn of the wrong answer. It is one `neg` now and the test asks for
+> the exact yaw, six 256ths of slack.
 
 #### The gun is held by its own cooldown
 
@@ -6242,6 +6245,29 @@ records were bank 7's and are pure copies, so `bank7_copy` grew a sibling —
 `bankn_copy` with the bank in `A`, `bank6_copy` in front of it — and the
 three moved to a bank that had 3,424 bytes idle. 1,150 bytes, eleven call
 sites, four tests reading `bank6.raw` where they read `bank7.raw`.
+
+**The destroyer is in** (`run_boss_step`): with `RUN_BOSS_AT` steps left it
+comes in from the right along the middle of the lane at `RUN_BOSS_DX` a step
+— a third of a fighter — fires at twice a fighter's odds into a fifth shot
+slot (`RUN_ESHOT_N`), takes `RUN_BOSS_HITS` hits and pays `RUN_BOSS_WORTH`
+kills of salvage, about `eco_class_cost`'s destroyer. It is drawn from the
+destroyer's own library, which is in bank 7 beside the interceptor's — the
+reason `mini_blit` takes a class — at tier C in the enemy ink, and it can be
+outlasted: a destroyer that gets past pays nothing, and the run ends on the
+clock either way. About 120 bytes of bank 7, none of `DISC.BIN`.
+
+> **THE FLIGHTS HAD NEVER FIRED, and the destroyer found it.** `run_enemies_step`
+> rolled `sys_rand` and then wrote the shot through HL — and `sys_rand`'s
+> header says `Uses: AF, HL`: HL was the generator's new state, so every shot
+> a Vekhar fired in the run went to two bytes at a random address in the 64K
+> and `run_eshots` never saw one. Every test of the run poked its enemy shots
+> in by hand, so nothing had ever asked whether the flights shot; the
+> destroyer's fire was copied from the same lines, its test asked, and the
+> trace showed the flights at zero beside it. Two bytes of random memory per
+> roll that passed, for as long as the run has existed — the corruption never
+> landed anywhere a test looked. `TestTheyShootBack` asks now, and the
+> register contracts are in the headers for exactly this: read the one for
+> what you call.
 
 `harness.end_the_run` puts the clock on its last step for any walk passing
 through, as `win_the_chase` does for the chase, so the campaign walks come

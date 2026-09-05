@@ -461,13 +461,17 @@ class TestWhatArrives(WaveFixture):
         for slot in self.riders():
             dx = self.coord(slot, ENT_X) - mx
             dz = self.coord(slot, ENT_Z) - mz
-            #  ENT_YAW is 256ths of a turn; the ship should be looking back
-            #  down the vector it arrived along.
-            outward = (math.degrees(math.atan2(dx, dz)) % 360) / 360 * 256
+            #  A ship with yaw y has its nose along world (sin y, -cos y) --
+            #  game/pilot.asm has the derivation -- so looking back down the
+            #  vector it arrived along, (-dx, -dz), is y = atan2(-dx, dz).
+            #  The old check accepted anything within a quarter turn of the
+            #  half-turn-off answer `angle + 128`, which faces OUTWARD at the
+            #  quarters; this asks for the exact one, a few 256ths of slack for
+            #  the height jitter and the table.
+            inward = (math.degrees(math.atan2(-dx, dz)) % 360) / 360 * 256
             yaw = self.ent(slot, ENT_YAW)
-            off = min((yaw - outward) % 256, (outward - yaw) % 256)
-            self.assertGreater(off, 96,
-                               f"slot {slot} is facing away from the fleet")
+            off = min((yaw - inward) % 256, (inward - yaw) % 256)
+            self.assertLess(off, 6, f"slot {slot} faces {yaw}, the fleet is at {inward:.0f}")
 
     def test_the_same_seed_sends_the_same_wave(self):
         """Determinism is a property of the game, not only a convenience for

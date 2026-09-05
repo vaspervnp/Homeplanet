@@ -677,8 +677,15 @@ wave_place:
     ;  hostiles inherit whatever yaw the slot last held -- but a wave that
     ;  arrives already pointing the wrong way reads as debris, not as an
     ;  attack, and phase4_cache draws the view straight off this byte.
+    ;
+    ;  MINUS THE ANGLE, NOT PLUS A HALF TURN. A ship with yaw y has its nose
+    ;  along world (sin y, -cos y) -- worked out for the pilot, see
+    ;  game/pilot.asm -- and this ship sits at (sin a, cos a) from the base,
+    ;  so the way in is (-sin a, -cos a) = (sin(-a), -cos(-a)): yaw -a.
+    ;  `add a,128` faced inward only at a = 0 and a = 128 and OUTWARD at the
+    ;  quarters, and nobody could tell: bow and stern differ in the shading.
     ld a,(wave_angle)
-    add a,128
+    neg
     ld hl,(wave_ent)
     ld de,ENT_YAW
     add hl,de

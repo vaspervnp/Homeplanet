@@ -255,6 +255,13 @@ whole argument for the fourth track over squeezing into 464.
 
 ## 7. The smaller version, if 1,600 bytes turns out to be 3,000
 
+**The destroyer is in now** -- `run_boss_step` in `game/run.asm`, about 120
+bytes of bank 7, which is code that costs `DISC.BIN` nothing: in with
+`RUN_BOSS_AT` steps left, a third of a fighter's speed along the middle of the
+lane, twice the fire odds into a fifth shot slot, three hits, worth seven
+kills, and it pays nothing if it gets past. The enemy fire was already in.
+What follows is the plan as it stood before.
+
 Cut the destroyer and the enemy fire. Keep **one flight of interceptors at a
 time, your shots, the clock and the three hits from collisions**. It is the
 same lane and the same reflex; what is lost is the boss and the dodging. The

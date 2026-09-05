@@ -48,6 +48,22 @@ RUN_STARS           equ 24
 RUN_STAR_SEED       equ #4D2B
 RUN_STAR_X0         equ 32
 RUN_SALVAGE         equ 35              ; RU a kill: eco_class_cost's interceptor
+;  The destroyer (minigame2.md, "the last thirty per cent"): enters with
+;  RUN_BOSS_AT steps left, crosses at two thirds of a fighter's speed on the same
+;  sine, fires twice as often into an eshot slot of its own, and takes
+;  RUN_BOSS_HITS hits to kill -- worth RUN_BOSS_WORTH kills of salvage, which
+;  is about eco_class_cost's destroyer. It can be outlasted: the run ends on
+;  the clock whether it dies or not, and a destroyer that gets past pays
+;  nothing.
+RUN_BOSS_AT         equ 50              ; steps left when it comes in: at RUN_BOSS_DX it
+                                        ; is a hundred units in when the clock ends, so
+                                        ; "outlasted" is the clock, and it never reaches us
+RUN_BOSS_HITS       equ 3
+RUN_BOSS_DX         equ 2               ; units a step: four pixels, two thirds of a fighter's
+RUN_BOSS_SPIN       equ 2
+RUN_BOSS_FIRE_P     equ RUN_FIRE_P * 2
+RUN_BOSS_WORTH      equ 7               ; 7 * RUN_SALVAGE = 245 RU
+RUN_ESHOT_N         equ RUN_ENEMY_MAX + 1 ; the flights' shots, and the destroyer's
 RUN_TOLL_PER_KILL   equ 8               ; ...and how much each softens a loss
 
 ;  The words, and their columns. Centred by hand: (80 - n * 2) / 2.
@@ -88,7 +104,7 @@ run_main:
     ld (mini_lost),a
     ld (run_msg),a
     ld hl,run_enemies
-    ld b,RUN_ENEMY_MAX * 4 + RUN_SHOT_MAX * 2 + RUN_ENEMY_MAX * 2
+    ld b,RUN_ENEMY_MAX * 4 + RUN_SHOT_MAX * 2 + RUN_ESHOT_N * 2 + 4
 @run_wipe:
     ld (hl),a                           ; every enemy dead, every shot free
     inc hl
@@ -120,6 +136,7 @@ run_main:
     call run_fire
     call run_shots_step
     call run_enemies_step
+    call run_boss_step
     call run_eshots_step
     call run_spawn
     call run_draw
@@ -339,7 +356,27 @@ run_shot_hits:
     ld de,4
     add hl,de
     djnz @run_hit_one
+    ;  ...and the destroyer, which takes RUN_BOSS_HITS of them.
+    ld hl,run_boss
+    ld a,(hl)
     or a
+    ret z                               ; not in, or dead: CF clear from the OR
+    push hl
+    inc hl
+    call run_near                       ; HL -> its x, y0
+    pop hl
+    ret nc
+    dec (hl)
+    jr z,@run_boss_dead
+    call snd_hit
+    scf
+    ret
+@run_boss_dead:
+    ld a,(run_kills)
+    add a,RUN_BOSS_WORTH
+    ld (run_kills),a
+    call snd_explosion
+    scf
     ret
 
 ;  HL -> an (x, y) pair. CF set if (run_tx, run_ty) is within the hit box.
@@ -395,9 +432,17 @@ run_enemies_step:
     ld a,(hl)
     or a
     jr nz,@run_enemy_next
-    call sys_rand
+    call sys_rand                       ; USES HL -- see below
     cp RUN_FIRE_P
     jr nc,@run_enemy_next
+    ;  HL AGAIN, off the stack: sys_rand's header says `Uses: AF, HL` and the
+    ;  first version went on writing through HL regardless -- so every shot a
+    ;  flight fired went to whatever address the generator's new state
+    ;  happened to be, two bytes of it, anywhere in the 64K, and the eshots
+    ;  array never saw one. Found by the destroyer never firing either, from
+    ;  the same copied line. Nobody had ever asked whether the flights shot.
+    pop hl
+    push hl
     ld a,(ix+1)
     ld (hl),a                           ; the shot starts where it is...
     inc hl
@@ -441,9 +486,64 @@ run_enemy_y:
 ; ----------------------------------------------------------------------------
 ;  run_eshots_step -- theirs fly left; off the edge they are free; on us, a hit
 ; ----------------------------------------------------------------------------
+; ----------------------------------------------------------------------------
+;  run_boss_step -- the destroyer comes in, crosses, fires, or is gone
+; ----------------------------------------------------------------------------
+run_boss_step:
+    ld a,(run_left)
+    cp RUN_BOSS_AT
+    jr nz,@run_boss_live
+    ld hl,run_boss
+    ld (hl),RUN_BOSS_HITS               ; in, with its hits to take
+    inc hl
+    ld (hl),RUN_ENEMY_X0
+    inc hl
+    ld (hl),MG_CY                       ; along the middle of the lane
+    inc hl
+    ld (hl),0
+@run_boss_live:
+    ld hl,run_boss
+    ld a,(hl)
+    or a
+    ret z
+    inc hl
+    ld a,(hl)
+    sub RUN_BOSS_DX
+    cp 4
+    jr c,@run_boss_gone
+    ld (hl),a
+    inc hl
+    inc hl
+    ld a,(hl)
+    add a,RUN_BOSS_SPIN
+    ld (hl),a
+    ;  Twice a fighter's odds, into the slot the flights never use.
+    ld hl,run_eshots + RUN_ENEMY_MAX * 2
+    ld a,(hl)
+    or a
+    ret nz                              ; its last shot is still flying
+    call sys_rand                       ; uses HL, so the slot is reloaded below
+    cp RUN_BOSS_FIRE_P
+    ret nc
+    ld hl,run_eshots + RUN_ENEMY_MAX * 2
+    ld a,(run_boss + 1)
+    ld (hl),a
+    inc hl
+    push hl
+    ld hl,run_boss
+    call run_enemy_y
+    pop hl
+    ld (hl),a
+    ret
+@run_boss_gone:
+    ld hl,run_boss
+    ld (hl),0                           ; outlasted: it pays nothing
+    ret
+
+
 run_eshots_step:
     ld hl,run_eshots
-    ld b,RUN_ENEMY_MAX
+    ld b,RUN_ESHOT_N
 @run_eshot:
     ld a,(hl)
     or a
@@ -598,6 +698,29 @@ run_draw:
     pop bc
     djnz @run_draw_enemy
 
+    ;  The destroyer, in the destroyer's own library -- bank 7's, like the
+    ;  interceptor's, which is what lets mini_blit draw either from here.
+    ld hl,run_boss
+    ld a,(hl)
+    or a
+    jr z,@run_draw_no_boss
+    ld a,CLASS_DESTROYER
+    ld (mini_cls),a
+    call run_enemy_y                    ; HL -> its record
+    ld c,a
+    ld a,(run_boss + 1)
+    add a,a
+    ld e,a
+    ld d,0
+    jr nc,@run_draw_boss_x
+    inc d
+@run_draw_boss_x:
+    ld b,RUN_TIER
+    call mini_blit
+    xor a
+    ld (mini_cls),a                     ; ours is the interceptor again
+@run_draw_no_boss:
+
     ;  Ours, white, facing right.
     xor a
     ld (spr_enemy),a
@@ -616,7 +739,7 @@ run_draw:
     ld a,1
     call run_draw_shots
     ld hl,run_eshots
-    ld b,RUN_ENEMY_MAX
+    ld b,RUN_ESHOT_N
     ld a,3
     call run_draw_shots
 
@@ -782,4 +905,5 @@ run_ty:             defb 0
 run_pen:            defb 0
 run_enemies:        defs RUN_ENEMY_MAX * 4      ; alive, x, y0, theta
 run_shots:          defs RUN_SHOT_MAX * 2       ; x (0 = free), y
-run_eshots:         defs RUN_ENEMY_MAX * 2      ; x (0 = free), y
+run_eshots:         defs RUN_ESHOT_N * 2        ; x (0 = free), y; the last is the destroyer's
+run_boss:           defs 4                      ; hits left (0 = none), x, y0, theta
