@@ -83,6 +83,12 @@ squadron, point it — instead of waiting to be told where the fight is.
 
 ## 3. A strafe: the squadron makes one pass and comes back
 
+**BUILT** as `W`, `game/strafe.asm`: `ENT_ORDER_STRAFE` with the budget in
+`ENT_LOAD`, counted down only in CONTACT so the flight out costs none of it;
+armed ships only, so a miner's hold is never a budget. Eight bytes of the low
+16K (`cbt_move_enemies` closes it, `cbt_fire_if_able` spends it), the rest
+in the bank.
+
 **What.** `A` closes on the target and stays there until the target dies —
 that is the attack order spending itself. Add `S`... no, `S` is sensors. Add
 **`W`**: a strafing run. The squadron closes, fires for `CBT_STRAFE_TICKS`,
@@ -138,6 +144,12 @@ fleet stationed on it is inside its cover.
 
 ## 6. A boarding action on a wreck — the corvette's fight
 
+**BUILT** as `slv_ambush` in `game/salvage.asm`: not `wave_send` with a
+position — that routine sizes and places a whole wave — but one
+`ent_find_free_theirs` + `mis_make_enemy` on the wreck, flagged `ENT_F_WAVE`,
+with INCOMING and the wave marker pinned to the wreck. Odds are a byte in
+bank 4 (`SLV_AMBUSH_P`, 128 in 256) so the tests can set always and never.
+
 **What.** A tow takes a corvette out to a hull and back and nothing happens
 in between. Make the hull fight: a towed wreck has a chance, once, of
 `INCOMING`-style resistance — one wave ship spawns at the wreck when the tow
@@ -169,8 +181,10 @@ threshold on the piloted ship's frame, then two hull subtractions.
 1, then 4 — the verb, then the picture of it. Two and five are afternoons.
 Three needs one; six and seven are for when the first four have been played.
 
-**1, 2, 4, 5 and 7 are built.** What is left is 3 (the strafe) and 6 (the
-boarding action).
+**All seven are built.** The room they cost came from moving the context
+bar's words to bank 7 -- the third time a page of words has paid for a page
+of code -- and the two things that went wrong on the way are in CLAUDE.md
+under "Two more from future.md, and the third lever".
 
 The test for each of them is the one this project keeps writing down: follow
 a ship by slot and read where it is and what it is aiming at. A count of

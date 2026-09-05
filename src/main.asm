@@ -338,6 +338,7 @@ low_end:
     assert ENT_ORDER_TOW > ENT_ORDER_HARVEST, "phase4_fly's one-compare skip needs TOW above HARVEST"
     assert ENT_ORDER_PILOT > ENT_ORDER_HARVEST, "phase4_fly's one-compare skip needs PILOT above HARVEST"
     assert ENT_ORDER_DOCK > ENT_ORDER_HARVEST, "phase4_fly's one-compare skip needs DOCK above HARVEST"
+    assert ENT_ORDER_STRAFE > ENT_ORDER_HARVEST, "phase4_fly's one-compare skip needs STRAFE above HARVEST"
     assert ENT_ORDER_ATTACK < ENT_ORDER_HARVEST, "ATTACK is compared on its own below the range"
     assert ENT_ORDER_GUARD < ENT_ORDER_HARVEST && ENT_ORDER_MOVE < ENT_ORDER_HARVEST, "a guarding or moving ship is flown to its slot"
     assert ENT_TOW < ENT_SIZE, "ENT_TOW is outside the entity record"
@@ -609,6 +610,7 @@ ENDIF
 ;  frame while flying, with the window at rest; its one byte of watched state,
 ;  pilot_slot, is in game/order.asm in the low 16K.
     include "game/pilot.asm"
+    include "game/strafe.asm"
 ;  Shots you can see: three dots between shooter and target for a frame. Two
 ;  three-byte calls in the low 16K (phase4_cache, cbt_fire_if_able); the rest
 ;  is here, with its lists after bank4_end.
@@ -686,6 +688,15 @@ shot_pen4:          defb 0
 ;  moth_border around (game/wavesdraw.asm).
 wave_point:         defs 6
 wavem_save:         defs 4
+;  ...set directly by the boarding action, which knows where its raid is;
+;  wave_send clears it. game/salvage.asm.
+wavem_fixed:        defb 0
+;  The strafing runs' walk (game/strafe.asm), and the odds of a raid at a
+;  wreck, 0..255 against sys_rand (game/salvage.asm); mis_init sets it.
+strafe_walk:        defw 0
+strafe_left:        defb 0
+slv_ambush_odds:       defb 0
+slv_raider:         defb 0
 ;  The AUTO RESPONSE: armed by A out of a fight, used by the first hit.
 ;  Both cleared by mis_setup: every mission starts with it off.
 auto_armed:         defb 0

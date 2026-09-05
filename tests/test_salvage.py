@@ -33,6 +33,7 @@ import unittest
 
 sys.path.insert(0, __file__.rsplit("/", 2)[0])
 
+import struct
 from tests import harness as h
 import cpc
 
@@ -65,6 +66,10 @@ class SalvageFixture(unittest.TestCase):
     def setUp(self):
         self.c = h.boot_quick(frames=300)
         self.E = self.sym["ENTITIES"]
+        #  A tow is a lorry run in every class but TestTheWreckFightsBack,
+        #  which sets its own odds: a raider coming out of the hull half the
+        #  time is the game, and not what these are measuring.
+        h.write_bank4(self.c, self.sym["SLV_AMBUSH_ODDS"], b"\x00")
 
     def tearDown(self):
         h.close(getattr(self, "c", None))
@@ -751,3 +756,90 @@ class TestEveryCorvettePicksItsOwnWreck(SalvageFixture):
             self.fail(f"the corvettes never both chose a hull: {picks}")
         self.assertNotEqual(picks[a], picks[b],
                             f"both corvettes chose the same hull: {picks}")
+
+
+class TestTheWreckFightsBack(SalvageFixture):
+    """future.md item 6: the frame a corvette gets a line on a hull, with odds
+    of slv_ambush_odds in 256, ONE Vekhar comes out of it -- on the wreck,
+    flagged like a wave ship -- and the HUD says INCOMING with the marker on
+    the wreck. The odds are a byte so that these can turn them to always and
+    to never; the roll itself is sys_rand's."""
+
+    def setUp(self):
+        #  Not the fixture's: that one pins the odds to never, and the last
+        #  test here asks what mis_init set them to.
+        self.c = h.boot_quick(frames=300)
+        self.E = self.sym["ENTITIES"]
+
+    def stage(self, odds):
+        a = self.make_corvette()
+        self.strip_the_fleet({a})
+        slot = self.free_slot()
+        self.set_pos(slot, (3000, 0, 3000))
+        self.set_ent(slot, ENT_CLASS, CLASS_INTERCEPTOR)
+        self.set_ent(slot, ENT_HULL, 0)
+        self.set_ent(slot, ENT_FLAGS, F_ACTIVE | F_ENEMY | F_DISABLED)
+        h.write_bank4(self.c, self.sym["SLV_AMBUSH_ODDS"], bytes([odds]))
+        self.c.run_frames(4)
+        self.hold("t")
+        return a, slot
+
+    def raiders(self):
+        return [s for s in range(self.sym["ENT_PLAYER_MAX"], self.sym["ENT_MAX"])
+                if self.ent(s, ENT_FLAGS) & F_ACTIVE and not self.ent(s, ENT_FLAGS) & F_DISABLED
+                and self.ent(s, ENT_FLAGS) & F_ENEMY]
+
+    def wait_for_the_line(self, corvette, hull):
+        for _ in range(200):
+            self.c.run_frames(10)
+            if self.ent(corvette, ENT_TOW) == hull:
+                return
+            if self.ent(corvette, ENT_TOW) & 0x7F != hull and self.ent(corvette, ENT_TOW) != 0xFF:
+                self.fail("the corvette went for something else")
+        self.fail("the corvette never got a line on the hull")
+
+    def test_at_odds_of_always_a_raider_comes_out_of_the_hull(self):
+        corvette, hull = self.stage(255)
+        self.assertEqual(self.raiders(), [], "something hostile was flying before the tow")
+        self.wait_for_the_line(corvette, hull)
+        self.c.run_frames(4)
+        raiders = self.raiders()
+        self.assertEqual(len(raiders), 1, f"raiders: {raiders}")
+        r = raiders[0]
+        self.assertTrue(self.ent(r, ENT_FLAGS) & F_WAVE, "the raider does not carry ENT_F_WAVE")
+        #  Where the wreck WAS when the line went on: the tow has been dragging
+        #  it towards the base at PHASE4_STEP a frame since, so the raider is
+        #  compared with the point the raid recorded, and that point with the
+        #  hull's staging position.
+        raider = struct.unpack("<hhh", self.c.read_ram(self.sym["ENTITIES"] + r * ENT_SIZE, 6))
+        point = struct.unpack("<hhh", h.read_bank4(self.c, self.sym["WAVE_POINT"], 6))
+        self.assertEqual(raider, point, "the raider is not where the marker points")
+        self.assertLess(sum(abs(p - q) for p, q in zip(point, (3000, 0, 3000))), 2000,
+                        f"the raid's point {point} is nowhere near the hull")
+        self.assertGreater(self.byte("WAVE_SAY"), 0, "the HUD did not say INCOMING")
+        self.assertEqual(self.byte("WAVE_MSG"), self.sym["WAVE_MSG_INCOMING"])
+        self.assertEqual(h.read_bank4(self.c, self.sym["WAVEM_FIXED"], 1)[0], 1, "the marker is not pinned to the wreck")
+
+    def test_at_odds_of_never_the_hull_is_just_a_hull(self):
+        corvette, hull = self.stage(0)
+        self.wait_for_the_line(corvette, hull)
+        self.c.run_frames(20)
+        self.assertEqual(self.raiders(), [], "a raider came out at odds of never")
+        self.assertEqual(self.byte("WAVE_SAY"), 0)
+
+    def test_a_real_wave_takes_the_marker_back_to_the_bearing(self):
+        corvette, hull = self.stage(255)
+        self.wait_for_the_line(corvette, hull)
+        self.c.run_frames(4)
+        self.assertEqual(h.read_bank4(self.c, self.sym["WAVEM_FIXED"], 1)[0], 1)
+        h.force_wave(self.c, self.sym)
+        for _ in range(60):
+            self.c.run_frames(5)
+            if self.byte("WAVE_COUNT"):
+                break
+        else:
+            self.fail("no wave arrived")
+        self.assertEqual(h.read_bank4(self.c, self.sym["WAVEM_FIXED"], 1)[0], 0)
+
+    def test_the_odds_start_at_the_equate(self):
+        self.assertEqual(h.read_bank4(self.c, self.sym["SLV_AMBUSH_ODDS"], 1)[0], self.sym["SLV_AMBUSH_P"])

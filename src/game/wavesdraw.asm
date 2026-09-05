@@ -389,6 +389,9 @@ wave_marker:
     ld a,(wave_msg)
     or a                                ; WAVE_MSG_INCOMING
     ret nz                              ; ...or something else is
+    ld a,(wavem_fixed)
+    or a
+    jr nz,@wave_marker_point            ; a raid: the point is already the wreck's
     ld a,(moth_slot)
     call ent_is_active
     ret nc
@@ -411,6 +414,7 @@ wave_marker:
     add hl,de
     ld (wave_point + 4),hl
 
+@wave_marker_point:
     ld hl,wave_point
     ld (mark_src),hl
     call proj_point

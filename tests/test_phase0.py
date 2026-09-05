@@ -30,8 +30,11 @@ class TestBoot(unittest.TestCase):
         firmware bytes from the shadowing ROM.
         """
         pc = self.c.pc
-        self.assertLess(pc, self.sym["CODE_END"], f"PC #{pc:04X} is outside the game")
-        self.assertGreaterEqual(pc, 0x0040, f"PC #{pc:04X} is below the entry point")
+        #  The low 16K, or the bank window: bank 4 runs the title, the menus,
+        #  the bar and a growing share of the frame, and the sample lands at
+        #  an arbitrary instant. Firmware would be #0000-#003F or above #C000.
+        in_game = 0x0040 <= pc < self.sym["CODE_END"] or 0x4000 <= pc < 0x8000
+        self.assertTrue(in_game, f"PC #{pc:04X} is outside the game")
 
     def test_lower_rom_is_disabled(self):
         """What the CPU reads at #0040 must be what is in RAM at #0040."""

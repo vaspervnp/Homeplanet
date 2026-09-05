@@ -197,28 +197,34 @@ ctx_line:
 ;  2 into each other, which is the whole of the alternation.
 ; ----------------------------------------------------------------------------
 ctx_run:
+    ld (ctx_cursor),hl                  ; where in bank 7 the next word is
     ld a,PEN_BLUE
     ld (ctx_pen),a
     ld c,CTX_Y                          ; survives, in the push bc below
 
 @ctx_word:
-    ld a,(hl)
+    ;  The next word, down from bank 7; bank7_fetch hands back the cursor.
+    push bc
+    ld hl,(ctx_cursor)
+    xor a
+    call bank7_fetch
+    ld (ctx_cursor),hl
+    pop bc
+    ld a,(bank7_line)
     or a
     jr z,@ctx_run_done                  ; the second zero: the run is over
 
-    push hl
     push bc                             ; txt_set_pen clobbers B
     ld a,(ctx_pen)
     call txt_set_pen
     pop bc
-    pop hl
 
-    push hl
     push bc
+    ld hl,bank7_line
     call txt_draw
     pop bc
-    pop hl
 
+    ld hl,bank7_line
 @ctx_advance:
     inc hl
     inc b
@@ -226,9 +232,8 @@ ctx_run:
     ld a,(hl)
     or a
     jr nz,@ctx_advance
-    inc hl                              ; past the terminator...
     inc b
-    inc b                               ; ...and over the space it stands for
+    inc b                               ; ...and over the space the terminator stands for
 
     ld a,(ctx_pen)
     xor PEN_WHITE ^ PEN_BLUE            ; 1 <-> 2
@@ -267,13 +272,14 @@ ctx_draw_recycle:
     ld a,PEN_RED
     call txt_set_pen
     ld hl,ctx_text_recycle
+    call ctx_fetch
     ld b,CTX_NAME_X
     ld c,CTX_Y
     call txt_draw                       ; ctx_run puts the pen back
 
     ld hl,ctx_text_recycle_tail
     ld b,CTX_RECYCLE_TAIL_X
-    jr ctx_run
+    jp ctx_run
 
 
 ;  The drive spooling. PAUSED's shape exactly, because it is the same kind of
@@ -294,6 +300,7 @@ ctx_draw_jumping:
     jr nc,@ctx_jump_word
     ld hl,ctx_text_landing
 @ctx_jump_word:
+    call ctx_fetch
     ld b,CTX_NAME_X
     ld c,CTX_Y
     call txt_draw
@@ -308,13 +315,14 @@ ctx_draw_jumping:
 
     ld hl,ctx_text_jump_tail
     ld b,CTX_JUMP_TAIL_X
-    jr ctx_run
+    jp ctx_run
 
 
 ctx_draw_paused:
     ld a,PEN_RED
     call txt_set_pen
     ld hl,ctx_text_paused
+    call ctx_fetch
     ld b,CTX_NAME_X
     ld c,CTX_Y
     call txt_draw                       ; ctx_run puts the pen back
@@ -355,6 +363,7 @@ ctx_draw_build:
     ld d,3
     call txt_draw_num
     ld hl,ctx_text_ru
+    call ctx_fetch
     ld b,CTX_RU_X
     ld c,CTX_Y
     call phase4_hud_label               ; chrome is ink 2, and puts it back
@@ -377,6 +386,7 @@ ctx_draw_build:
     ld a,PEN_RED
     call txt_set_pen
     ld hl,ctx_text_buy
+    call ctx_fetch
     ld b,CTX_STAT_X
     ld c,CTX_Y
     call txt_draw
@@ -392,6 +402,7 @@ ctx_draw_build:
     jr z,@ctx_build_say
     ld hl,ctx_text_fleet
 @ctx_build_say:
+    call ctx_fetch
     ld b,CTX_STAT_X
     ld c,CTX_Y
     jp txt_draw
@@ -410,6 +421,19 @@ ctx_draw_build:
 ; ----------------------------------------------------------------------------
 ctx_class_name:
     ld hl,class_name
+    call bank7_fetch
+    ld hl,bank7_line
+    ret
+
+
+; ----------------------------------------------------------------------------
+;  ctx_fetch -- one of the bar's own words down from bank 7
+;  In : HL -> a zero-terminated string in bank 7
+;  Out: HL -> the same string in bank7_line
+;  Uses: everything
+; ----------------------------------------------------------------------------
+ctx_fetch:
+    xor a
     call bank7_fetch
     ld hl,bank7_line
     ret
@@ -650,122 +674,14 @@ ctx_classify:
 
 
 ; ============================================================================
-;  The words
+;  The words ARE IN BANK 7 -- ctx_text_* in game/screentext.asm -- fetched a
+;  word at a time through bank7_fetch into bank7_line, exactly as class_name
+;  is. Legal here by the narrow rule: the bar repaints with the window at
+;  rest, and only when what it says changes. It gave DISC.BIN about two
+;  hundred bytes back the day future.md's last two items needed them.
+;  The width asserts are at the bottom of src/main.asm with every other
+;  bank-7 assert.
 ; ============================================================================
-;  Every line has to fit CTX_BAR_CHARS, and there are asserts below for it
-;  because nothing at run time would catch an overrun -- txt_draw stops at the
-;  right-hand edge and says nothing. A run occupies exactly two bytes more
-;  than it draws characters, so the asserts measure bytes and mean characters.
-; ----------------------------------------------------------------------------
-;  The words alternate key, action, key, action, starting with a key. Single
-;  spaces throughout: the double spaces that used to group the pairs are what
-;  the two inks do now, and paying for the grouping twice costs screen width
-;  that the move disc's line does not have.
-;
-;  ", ." keeps its inner space, and that space is doing work -- the comma and
-;  the full stop are one pixel apart in this font, so ",." reads as ".." at
-;  8x8, and the pair is the whole reason the bar exists.
-ctx_text_play:
-    defb "ESC",0,"MENU",0
-    defb "ENTER",0,"MOVE",0
-    defb "B",0,"BUILD",0
-    defb ", .",0,"TARGET",0
-    defb 0
-ctx_text_play_end:
-
-;  "JUMPING" and then the seconds, drawn separately because a number cannot be
-;  a run. The tail is a run like every other, so ESC is blue and CANCEL white.
-;  The tutorial's line. ESC is the only key on it that means something
-;  different from everywhere else, and it is first for that reason.
-ctx_text_tutorial:
-    defb "ESC",0,"LEAVE",0
-    defb "SPACE",0,"PAUSE",0
-    defb "?",0,"KEYS",0
-    defb 0
-ctx_text_tutorial_end:
-
-;  A ship being flown. FLY is the arrows' word because they do two things at
-;  once -- turn, and climb -- and the line has no room to say both; BACK is
-;  what V does the second time, which is the one thing about this mode a
-;  player has to be told, because every other key on the screen still works.
-ctx_text_pilot:
-    defb "ARROWS",0,"FLY",0
-    defb "SPACE",0,"FIRE",0
-    defb "V",0,"BACK",0
-    defb 0
-ctx_text_pilot_end:
-
-ctx_text_jumping:
-    defb "JUMPING",0
-ctx_text_jumping_end:
-;  The last mission's word for the same spool. Asserted the same length as
-;  JUMPING in src/main.asm, because the seconds are drawn at a fixed x after it
-;  -- a longer word would have its tail overwritten by the number.
-ctx_text_landing:
-    defb "LANDING",0
-ctx_text_landing_end:
-ctx_text_jump_tail:
-    defb "ESC",0,"CANCEL",0
-    defb 0
-ctx_text_jump_tail_end:
-
-ctx_text_paused:
-    defb "PAUSED",0
-ctx_text_pause_tail:
-    defb "SPACE",0,"RESUME",0
-    defb "ESC",0,"MENU",0
-    defb 0
-ctx_text_pause_end:
-
-ctx_text_recycle:
-    defb "RECYCLE?",0
-ctx_text_recycle_tail:
-    defb "Y",0,"CONFIRM",0
-    defb "ESC",0,"CANCEL",0
-    defb 0
-ctx_text_recycle_end:
-
-;  SHIFT and the arrows raise and lower the disc rather than sliding it, which
-;  the old line said as "SHIFT UP/DN" -- eleven characters naming a key with
-;  nothing beside it saying what it was for. HEIGHT is what it is for, and the
-;  arrows are already named two words to its left.
-;
-;  ESC ends the run on a key with no action, which is legal and is the only
-;  place in the bar that uses it: "cancel" and "menu" and "back" would all
-;  have been the wrong word, because ESC here puts the disc away without
-;  moving anything and the player has just been told ENTER is OK.
-ctx_text_disc:
-    defb "ARROWS",0,"MOVE",0
-    defb "SHIFT",0,"HEIGHT",0
-    defb "ENTER",0,"OK",0
-    defb "ESC",0
-    defb 0
-ctx_text_disc_end:
-
-ctx_text_ru:
-    defb "RU",0
-ctx_text_pick:
-    defb ", .",0,"PICK",0
-    defb 0
-ctx_text_pick_end:
-ctx_text_buy:
-    defb "ENTER BUY",0
-ctx_text_poor:
-    defb "NEED MORE RU",0
-;  It used to say YARD BUSY, which was true of a yard that took one order at a
-;  time and is a lie about one that takes ten: BUSY invites the player to wait,
-;  and what they should do is press ENTER again. FULL says the one thing that
-;  is still refused.
-ctx_text_full:
-    defb "QUEUE FULL",0
-;  The other ceiling, and the reason it needs a word of its own: QUEUE FULL is
-;  "wait, then press ENTER again" and this one is "there is nowhere for another
-;  ship to be". Saying the first about the second would have the player waiting
-;  for a slipway that is already empty. game/entity.asm has the partition.
-ctx_text_fleet:
-    defb "FLEET FULL",0
-ctx_text_end:
-
 
 ; ============================================================================
 ;  State
@@ -786,3 +702,4 @@ ctx_class:          defb 0
 ctx_cost:           defb 0
 ctx_state:          defb 0
 ctx_pen:            defb PEN_BLUE       ; which ink ctx_run's next word gets
+ctx_cursor:         defw 0              ; ...and where in bank 7 it is

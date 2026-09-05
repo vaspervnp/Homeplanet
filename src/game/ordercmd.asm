@@ -115,6 +115,12 @@ order_update:
     call key_hit
     call c,pilot_toggle
 
+    ;  W: a strafing run -- the armed ships close, fire for a while and come
+    ;  home by themselves. game/strafe.asm, and future.md item 3.
+    ld a,KEY_W
+    call key_hit
+    call c,order_strafe
+
     ld a,KEY_ENTER
     call key_hit
     jr nc,@ord_no_enter
@@ -367,7 +373,10 @@ order_release_attack:
     add hl,de
     ld a,(hl)
     cp ENT_ORDER_ATTACK
+    jr z,@ord_rel_clear
+    cp ENT_ORDER_STRAFE                 ; a run is an attack with a budget
     jr nz,@ord_rel_next
+@ord_rel_clear:
     ld (hl),ENT_ORDER_IDLE
 
 @ord_rel_next:

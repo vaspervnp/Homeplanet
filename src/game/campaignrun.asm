@@ -40,10 +40,16 @@ mis_init:
     ld (shot_count),a                   ; ...and no tracer is waiting or on a buffer
     ld (shot_dots_a),a                  ;    (the lists live after bank4_end, so
     ld (shot_dots_b),a                  ;    they hold whatever powered up)
+    ld (wavem_fixed),a                  ; ...and the wave marker follows the bearing
     ld (mis_saved),a                    ; nothing banked yet
     ld (campaign_unlocks),a             ; ...and nothing reverse-engineered
     ld a,ENT_NO_TARGET
     ld (pilot_slot),a                   ; ...and nobody is flying anything
+    ;  AFTER the run of zero stores above, not inside it: the first version
+    ;  sat between them, and mis_saved and campaign_unlocks were written 128
+    ;  -- a "save is banked" that spawned no fleet at all.
+    ld a,SLV_AMBUSH_P
+    ld (slv_ambush_odds),a              ; ...and a wreck fights back at the usual odds
     ld hl,0
     ld (mis_timer),hl
     ;  ...and the mark the delta is measured from, or the first frame of the

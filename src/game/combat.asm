@@ -152,7 +152,9 @@ cbt_move_enemies:
     add hl,de
     ld a,(hl)
     cp ENT_ORDER_ATTACK
-    jr nz,@cbt_move_next
+    jr z,@cbt_move_go
+    cp ENT_ORDER_STRAFE                 ; ...and a strafing run, which is an
+    jr nz,@cbt_move_next                ;    attack with a budget (game/strafe.asm)
 
 @cbt_move_go:
     ld hl,(cbt_ent)
@@ -259,7 +261,10 @@ cbt_fire_if_able:
     dec hl
     ld a,(hl)
     cp ENT_ORDER_ATTACK
+    jr z,@cbt_spend
+    cp ENT_ORDER_STRAFE                 ; a run with nothing left to run at
     ret nz
+@cbt_spend:
     ld (hl),ENT_ORDER_IDLE
     ret
 

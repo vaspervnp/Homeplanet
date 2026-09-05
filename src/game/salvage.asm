@@ -102,6 +102,8 @@
 ;  four, fetched all four, and had them home 780 emulator frames after `T` was
 ;  pressed, which is about sixteen seconds of game time.
 SLV_WRECK_MAX       equ 4
+;  The odds, in 256ths, that a wreck a corvette gets a line on fights back.
+SLV_AMBUSH_P        equ 128
 
 
 ; ----------------------------------------------------------------------------
@@ -377,6 +379,66 @@ slv_tow_step:
     add hl,de
     ld a,(slv_wreck)
     ld (hl),a                           ; in hand: bit 7 clear
+    ;  ...and fall into the boarding action: the moment the line goes on is
+    ;  the moment the hull may turn out not to be empty.
+
+; ----------------------------------------------------------------------------
+;  slv_ambush -- a wreck fights back, sometimes (future.md item 6)
+;  Uses: everything
+;
+;  A tow was a lorry run: out to the hull, home, RU. Now, with odds of
+;  slv_ambush_odds in 256 rolled the frame a corvette gets a line on a wreck,
+;  ONE Vekhar interceptor comes out of it -- spawned on the wreck, carrying
+;  ENT_F_WAVE so it counts against leaving and not against the objective,
+;  exactly as a wave ship does -- and the HUD says INCOMING with the marker on
+;  the wreck rather than on the base. Section 8 says the corvette "needs
+;  protection"; this is the moment it does. Once per tow: a second line on
+;  the same hull is a second roll, which is how the odds stay a number the
+;  player can learn.
+;
+;  The odds are a byte in bank 4 and not an equate so that a test can set them
+;  to always and to never; mis_init writes SLV_AMBUSH_P.
+; ----------------------------------------------------------------------------
+slv_ambush:
+    ld a,(slv_ambush_odds)
+    ld b,a
+    call sys_rand                       ; AF, HL
+    cp b
+    ret nc                              ; the hull was empty after all
+    call ent_find_free_theirs
+    ret nc                              ; twenty hostiles already: no room to raid
+    ld (slv_raider),a
+    call ent_addr
+    push hl                             ; the raider's record...
+    ld a,(slv_wreck)
+    call ent_addr                       ; ...and the wreck's. ent_addr USES DE:
+    pop de                              ; the first version held the raider in DE
+    push de                             ; across it and copied the wreck onto
+    ld bc,6                             ; slot 0, then made the corvette an enemy.
+    ldir                                ; the raider is where the wreck is
+    pop hl
+    ld a,CLASS_INTERCEPTOR
+    call mis_make_enemy                 ; side, hull, order, target
+    ld a,(slv_raider)
+    call ent_addr
+    ld de,ENT_FLAGS
+    add hl,de
+    ld a,(hl)
+    or ENT_F_WAVE
+    ld (hl),a
+    ;  Said, and pointed at: the marker draws where the wave's arrival point
+    ;  is, so the arrival point is the wreck for as long as the word is up.
+    ld a,(slv_wreck)
+    call ent_addr
+    ld de,wave_point
+    ld bc,6
+    ldir
+    ld a,1
+    ld (wavem_fixed),a
+    ld a,WAVE_SAY_FRAMES
+    ld (wave_say),a
+    xor a                               ; WAVE_MSG_INCOMING
+    ld (wave_msg),a
     ret
 
 ;  Nothing adrift anywhere, so the order is SPENT -- and that is not tidiness,

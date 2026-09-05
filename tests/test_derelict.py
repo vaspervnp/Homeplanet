@@ -87,6 +87,10 @@ class DerelictFixture(unittest.TestCase):
 
     def setUp(self):
         self.c = h.boot_quick(frames=300)
+        #  The derelict is a wreck byte for byte, so a line on it may raise a
+        #  raider and say INCOMING; these are about the unlock, so the odds
+        #  are off. tests/test_salvage.TestTheWreckFightsBack has the raid.
+        h.write_bank4(self.c, self.sym["SLV_AMBUSH_ODDS"], b"\x00")
         self.E = self.sym["ENTITIES"]
 
     def tearDown(self):

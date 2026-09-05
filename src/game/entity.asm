@@ -144,6 +144,8 @@ ENT_ORDER_TOW       equ 6
 ;  the three above it -- everything from HARVEST up steers itself -- and
 ;  nothing else in the game knows it is there.
 ENT_ORDER_PILOT     equ 7
+;  A strafing run: ATTACK with a budget of contact in ENT_LOAD (game/strafe.asm).
+ENT_ORDER_STRAFE    equ 8
 
 ;  ENT_TARGET holds a slot index; this means nobody.
 ENT_NO_TARGET       equ #FF

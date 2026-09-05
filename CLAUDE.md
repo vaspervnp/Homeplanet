@@ -389,8 +389,9 @@ into because the two read as different kinds of thing — all three of those
 were written, and all three failed the build, after this paragraph existed. A
 FOURTH has since: a `cbt_prey_bias` table beside a `CBT_PREY_BIAS` equate. And
 a FIFTH, the day after this paragraph was re-read: `over_fire_chunks` beside
-`OVER_FIRE_CHUNKS`. Read this paragraph before naming a constant after the
-thing it sizes, and then name the variable `..._left`.
+`OVER_FIRE_CHUNKS`. And a SIXTH: `slv_ambush_p` beside `SLV_AMBUSH_P`. Read
+this paragraph before naming a constant after the thing it sizes, and then
+name the variable `..._left` or `..._odds`.
 
 **`BANK n` gives each 16K image its own workspace, and labels are shared
 across them.** A second `org #4000` in one bank is an error ("located in a
@@ -6147,6 +6148,58 @@ Mothership, so eighty units of reach is forty more units of every wave being
 shot at before it shoots — which is the whole of what §8's "θωρακισμένο" now
 means in play. The script never presses `V`, so the tracers and the ram are
 inert in it; this swing is the turret's.
+
+### Two more from future.md, and the third lever
+
+Items 3 and 6, and the room for them: **the context bar's words went to bank
+7.** `DISC.BIN` had 172 bytes and the two items are ~270 of bank 4 code, so
+`ctx_text_*` — about 230 bytes of runs and captions — moved to
+`game/screentext.asm` and `ctx_run` fetches a word at a time through
+`bank7_fetch`, keeping the cursor it hands back the way `help_column` does;
+the single captions go through `ctx_fetch`. Legal by the narrow rule, as
+`class_name` already was: the bar repaints with the window at rest and only
+when what it says changes. The width asserts stayed where they were, which is
+after both banks' includes. `DISC.BIN` 26196 → 25958, and `tests/test_ctxbar`
+read every line back off the pixels unchanged.
+
+**`W` is a strafing run** (`game/strafe.asm`): the ATTACK order with a
+budget. `ENT_ORDER_STRAFE` sits above HARVEST so `phase4_fly` steps over it
+for free; `cbt_move_enemies` closes it and `cbt_fire_if_able` spends it
+exactly as ATTACK, four bytes of the low 16K each; `order_release_attack`
+recalls it with `R`, `F` and the disc. The budget is `ENT_LOAD` —
+`CBT_STRAFE_FRAMES` 24, four volleys — and `strafe_tick`, from
+`cbt_prey_roll` at the top of `cbt_update`, takes a frame off it **only when
+the ship is in range of its target**: the flight out is not the run. At zero
+the order is IDLE and the ship flies home. **Armed ships only**:
+`cbt_prey_bias` is nonzero for exactly the classes that cannot fight, so a
+miner in the selection keeps mining and its hold — which IS `ENT_LOAD` — is
+never overwritten by a budget. `cbt_retarget_one` is allowed to re-point a
+strafing ship, because a pass hits whatever is nearest. Not in the tutorial,
+for the reason `A`'s auto response is not.
+
+**A wreck fights back, sometimes** (`slv_ambush`, `game/salvage.asm`): the
+frame a corvette gets a line on a hull — the "in hand" transition of
+`slv_tow_step` — `sys_rand` is rolled against `slv_ambush_odds` and ONE
+Vekhar interceptor comes out of it, spawned on the wreck through
+`ent_find_free_theirs` and `mis_make_enemy`, carrying `ENT_F_WAVE` so it
+counts against leaving and not against the objective, exactly as a wave ship
+does. The HUD says `INCOMING` and the wave marker is **pinned to the wreck**:
+`wavem_fixed` tells `wave_marker` the point is already in `wave_point`, and
+`wave_send` clears it so a real wave's marker is the bearing's again. The odds
+are a byte in bank 4 rather than an equate so the tests can set always and
+never; `mis_init` writes `SLV_AMBUSH_P`, 128 in 256.
+
+> **A SIXTH case collision**, the day after the fifth was re-read:
+> `slv_ambush_p` beside `SLV_AMBUSH_P`. It is `slv_ambush_odds`.
+
+> **And two of this file's own rules broken in one afternoon, each caught
+> by the fixture it broke.** `mis_init`'s odds store went INSIDE the run of
+> `xor a` stores, so `mis_saved` and `campaign_unlocks` were written 128 and
+> every boot believed a save was banked and spawned no fleet — the same
+> blind-edit shape as the `mis_won` note above. And `slv_ambush` held the
+> raider's record in DE across `ent_addr`, whose header says `Uses: AF, DE,
+> HL`: the wreck's position landed on slot 0 and the corvette was made an
+> enemy. Read the header of what you call, even when you wrote it.
 
 ### Ramming
 

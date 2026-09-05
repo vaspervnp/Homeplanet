@@ -463,6 +463,16 @@ class TestTheCampaignIsNotTouched(TutFixture):
         self.hold("v")
         self.assertEqual(self.byte("PILOT_SLOT"), self.sym["ENT_NO_TARGET"], "V flew a ship in the tutorial")
 
+    def test_w_does_not_send_a_run_on_the_stage(self):
+        """The stage teaches A; W is the same order with a budget, and its
+        hostile would be dead before step 14's line was read. game/strafe.asm
+        refuses while tut_active is set."""
+        self.enter_tutorial()
+        self.c.run_frames(60)
+        self.hold("w")
+        orders = {r[ENT_ORDER] for r in self.entities(0, self.sym["ENT_PLAYER_MAX"]) if r[ENT_FLAGS] & F_ACTIVE}
+        self.assertNotIn(self.sym["ENT_ORDER_STRAFE"], orders, "W sent a run in the tutorial")
+
     def test_the_campaign_comes_back_when_the_tutorial_is_left(self):
         self.enter_tutorial()
         self.c.run_frames(60)

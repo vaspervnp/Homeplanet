@@ -638,6 +638,7 @@ wave_send:
     ;  and a threat must never inherit somebody else's word.
     xor a                               ; WAVE_MSG_INCOMING
     ld (wave_msg),a
+    ld (wavem_fixed),a                  ; ...and the marker is the bearing's again
     ret
 
 
