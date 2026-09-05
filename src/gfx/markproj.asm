@@ -226,6 +226,12 @@ moth_update:
     call proj_point
     ret c                               ; on screen: nothing to point at
 
+;  moth_border -- the border marker for the point at (mark_src), which
+;  proj_point has just declined. Out: (moth_x), (moth_y), (moth_bar), the
+;  last of them left as it was if there is no bearing. Entered here by
+;  wave_marker (game/wavesdraw.asm) for the wave's arrival point, which saves
+;  and restores the Mothership's own three around the call.
+moth_border:
     ld a,(cam_zoom)
     ld (moth_zoom),a
     ld a,CAM_ZOOM_STEPS - 1

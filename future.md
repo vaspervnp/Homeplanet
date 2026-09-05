@@ -60,6 +60,13 @@ along the camera axes — or the ship crabs.
 
 ## 2. Waves that come from the direction they announce
 
+**BUILT, corrected.** There are no "seconds between INCOMING and arrival":
+`wave_send` places the ships and says the word in one call. What exists is
+`WAVE_SAY_FRAMES` of the word with a wave three thousand units out, so
+`wave_marker` (in `game/wavesdraw.asm`) draws a red cross at the arrival
+point for as long as the row says INCOMING -- on the point when it projects,
+on the border through `moth_border` when it does not. ~130 bytes, not 60.
+
 **What.** `INCOMING` already says a wave is coming and the wave arrives from
 one bearing on a shell around the Mothership. Put the bearing on the screen:
 the off-screen Mothership marker's own arithmetic (`moth_update`) can draw a
@@ -114,6 +121,10 @@ player would notice first: the fight becomes visible.
 
 ## 5. The Mothership's own gun
 
+**BUILT.** `CBT_MOTH_RANGE` is `CBT_RANGE * 2`; `cbt_in_range` asks
+`cbt_range_for` (bank 4) for the shooter's reach. Four bytes of the low 16K,
+not fifteen, because the class compare went to the bank.
+
 **What.** §8 says the Mothership is "αργό, θωρακισμένο" and it has a damage
 row, but the player never sees it fire because it never moves. Give it a
 turret with double range (`CBT_RANGE * 2` for `CLASS_MOTHERSHIP` only) and
@@ -158,8 +169,8 @@ threshold on the piloted ship's frame, then two hull subtractions.
 1, then 4 — the verb, then the picture of it. Two and five are afternoons.
 Three needs one; six and seven are for when the first four have been played.
 
-**1, 4 and 7 are built.** What is left is 2, 3, 5 and 6, and the order above
-still holds for them: 2 and 5 first.
+**1, 2, 4, 5 and 7 are built.** What is left is 3 (the strafe) and 6 (the
+boarding action).
 
 The test for each of them is the one this project keeps writing down: follow
 a ship by slot and read where it is and what it is aiming at. A count of

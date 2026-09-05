@@ -51,6 +51,12 @@
 ;  in game/campaign.asm for what happens when that is assumed rather than
 ;  measured. It is far enough out that cbt_move_enemies takes about thirty
 ;  game frames to close, which is the room the player needs to press `A`.
+;
+;  The Mothership's turret (CBT_MOTH_RANGE) is held to CBT_RANGE on this stage
+;  -- cbt_range_for asks tut_active -- because the hostile flies INTO eighty
+;  units on its way in and the base killed it in three volleys before the
+;  player had read step 14's line; `A` then had nothing to attack. Moving the
+;  hostile out does not help: it closes at PHASE4_STEP a frame either way.
 TUT_ENEMY_Z         equ 5000
 
 ;  ...and the pitch the stage opens on. See tut_enter for why it is not zero.

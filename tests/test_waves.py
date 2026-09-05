@@ -33,6 +33,7 @@ would be a genuinely flaky test, which is why TestTheGenerator checks the
 from __future__ import annotations
 
 import struct
+from tools import gentables as g
 import sys
 import unittest
 
@@ -999,3 +1000,91 @@ class TestTheReadout(WaveFixture):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestTheWaveMarker(WaveFixture):
+    """future.md item 2: while the row says INCOMING, a red cross where the
+    wave is arriving -- on the point when it is on the screen, on the border in
+    its direction when it is not. Driven by calling wave_marker through a stub
+    with the announcement staged, so the cross is the only thing drawn and
+    mark_rect -- the last rectangle any marker recorded -- is where it went.
+    The expected place comes out of the Python model of the projection."""
+
+    def stage(self, bearing, zoom=None):
+        sym = self.sym
+        self.c.write_ram(sym["ORDER_PAUSED"], b"\x01")
+        h.write_bank4(self.c, sym["MOTH_SLOT"], b"\x00")     # low 16K, but waits for bank 4
+        self.c.write_ram(sym["WAVE_SAY"], bytes([sym["WAVE_SAY_FRAMES"]]))
+        self.c.write_ram(sym["WAVE_MSG"], bytes([sym["WAVE_MSG_INCOMING"]]))
+        self.c.write_ram(sym["WAVE_BEARING"], bytes([bearing]))
+        moth = self.c.read_ram(sym["ENTITIES"] + self.byte("MOTH_SLOT") * ENT_SIZE, 6)
+        self.moth = struct.unpack("<hhh", moth)
+        wm = sym["WAVE_MARKER"]
+        stub = [0x01, sym["GA_BANK_4"], 0x7F, 0xED, 0x49]
+        if zoom is not None:
+            oz = sym["ORDER_APPLY_ZOOM"]
+            stub += [0x3E, zoom, 0x32, sym["CAM_ZOOM"] & 0xFF, sym["CAM_ZOOM"] >> 8,
+                     0xCD, oz & 0xFF, oz >> 8]
+        stub += [0xCD, wm & 0xFF, wm >> 8, 0x18, 0xFE]
+        self.c.write_ram(sym["MARK_RECT"], b"\xff\xff\xff\xff")
+        self.c.write_ram(h.STUB, bytes(stub))
+        self.c.set_pc(h.STUB)
+        self.c.run_frames(2)
+
+    def rect(self):
+        return tuple(self.c.read_ram(self.sym["MARK_RECT"], 4))
+
+    def model(self, point, zoom=None):
+        sym = self.sym
+        step = g.ZOOM_STEPS[zoom if zoom is not None else self.byte("CAM_ZOOM")]
+        focus = struct.unpack("<hhh", self.c.read_ram(sym["CAM_FOCUS_X"], 6))
+        yaw, pitch = self.byte("CAM_YAW"), self.byte("CAM_PITCH")
+        m = g.camera_matrix(yaw, pitch - 256 if pitch >= 128 else pitch)
+        return g.project(point, focus, m, step[0], step[1], step[2], step[3])
+
+    def test_the_arrival_point_is_the_base_plus_the_radius_along_the_bearing(self):
+        self.stage(bearing=64)                                # sin 1, cos 0: +X
+        x, y, z = struct.unpack("<hhh", h.read_cpu(self.c, self.sym["WAVE_POINT"], 6))
+        r = self.sym["WAVE_RADIUS"]
+        mx, my, mz = self.moth
+        self.assertEqual((y, z), (my, mz))
+        self.assertLessEqual(abs(x - (mx + 127 * r)), r, f"x is {x} for a base at {mx}")
+
+    def test_on_the_screen_the_cross_is_at_the_point(self):
+        self.stage(bearing=64)
+        x, y, z = struct.unpack("<hhh", h.read_cpu(self.c, self.sym["WAVE_POINT"], 6))
+        where = self.model((x, y, z))
+        self.assertIsNotNone(where, "the model says the point is off the screen")
+        sx, sy, _ = where
+        xb, ry, w, hgt = self.rect()
+        self.assertNotEqual((xb, ry, w, hgt), (255, 255, 255, 255), "no marker recorded a rectangle")
+        #  mark_cross records a byte either side and a row either side.
+        self.assertLessEqual(abs(ry + 1 - sy), 1, f"the cross is at y {ry + 1}, the point at {sy}")
+        self.assertLessEqual(abs((xb + 1) * 4 - sx), 5, f"the cross is at byte {xb + 1}, the point at x {sx}")
+        #  ...and it is drawn in the alarm ink: both planes of the centre pixel.
+        base = self.byte("SCR_BACK_PAGE") << 8
+        b = self.c.read_ram(base + h.screen_offset(sy, sx >> 2), 1)[0]
+        self.assertEqual(b & (0x88 >> (sx & 3)), 0x88 >> (sx & 3), "the centre pixel is not pen 3")
+
+    def test_off_the_screen_the_cross_is_on_the_border_and_the_base_marker_survives(self):
+        before = self.c.read_ram(self.sym["MOTH_X"], 4)
+        #  Zoom step 0 sees 2048 units and the point is 3072 out: off screen.
+        self.stage(bearing=64, zoom=0)
+        xb, ry, w, hgt = self.rect()
+        self.assertNotEqual((xb, ry, w, hgt), (255, 255, 255, 255), "no marker recorded a rectangle")
+        on_edge = (xb <= 1 or xb + w >= 79
+                   or ry <= self.sym["CTX_BAR_H"] + 1 or ry + hgt >= self.sym["HUD_TOP"] - 1)
+        self.assertTrue(on_edge, f"the cross at {(xb, ry, w, hgt)} is not on the border")
+        self.assertEqual(self.c.read_ram(self.sym["MOTH_X"], 4), before,
+                         "the Mothership's own marker was overwritten")
+
+    def test_nothing_is_drawn_once_the_word_has_gone(self):
+        self.stage(bearing=64)
+        self.c.write_ram(self.sym["WAVE_SAY"], b"\x00")
+        self.c.write_ram(self.sym["MARK_RECT"], b"\xff\xff\xff\xff")
+        wm = self.sym["WAVE_MARKER"]
+        self.c.write_ram(h.STUB, bytes([0x01, self.sym["GA_BANK_4"], 0x7F, 0xED, 0x49,
+                                        0xCD, wm & 0xFF, wm >> 8, 0x18, 0xFE]))
+        self.c.set_pc(h.STUB)
+        self.c.run_frames(2)
+        self.assertEqual(self.rect(), (255, 255, 255, 255))

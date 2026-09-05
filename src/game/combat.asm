@@ -23,6 +23,11 @@
 
 CBT_RANGE           equ 40              ; camera-scale units, so ~2500 world
 CBT_COOLDOWN        equ 6               ; frames between shots
+;  The Mothership's turret reaches twice as far (future.md item 5): section
+;  8 gives it a damage row nobody ever saw fired, because it never moves and
+;  everything else closes to CBT_RANGE before it does. Under attack the base
+;  fights back now, and a fleet stationed on it is inside its cover.
+CBT_MOTH_RANGE      equ CBT_RANGE * 2
 
 ;  Damage comes from cbt_damage_matrix -- eight classes square, section 8's
 ;  balance triangle written out. It lives in game/classdata.asm with the rest
@@ -666,8 +671,11 @@ cbt_distance:
 ;  Uses: everything
 ; ----------------------------------------------------------------------------
 cbt_in_range:
+    call cbt_range_for                  ; bank 4: C = this shooter's reach
+    push bc
     call cbt_distance
-    cp CBT_RANGE
+    pop bc
+    cp c
     ret
 
 

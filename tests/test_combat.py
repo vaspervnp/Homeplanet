@@ -1183,6 +1183,68 @@ class TestTheAKeyOutOfAFight(CombatFixture):
         self.assertEqual(self.msg()[1], 0, "A in a fight put a message on the row")
 
 
+class TestTheMothershipsTurret(CombatFixture):
+    """future.md item 5: the Mothership shoots twice as far as anything else.
+    Section 8 gave it a damage row nobody ever saw fired, because it never
+    moves and everything else closes to CBT_RANGE before it does. Driven
+    through a stub -- one cbt_update with the shooter ready and the target's
+    gun held -- so the range is the only thing being asked."""
+
+    def setUp(self):
+        self.c = h.boot_quick(frames=300)
+        base = self.sym["ENTITIES"]
+        for slot in range(ENT_MAX):
+            self.c.write_ram(base + slot * ENT_SIZE + ENT_FLAGS, b"\x00")
+
+    def place(self, slot, enemy, pos, cls, timer):
+        addr = self.sym["ENTITIES"] + slot * ENT_SIZE
+        self.c.write_ram(addr, struct.pack("<hhh", *pos))
+        self.c.write_ram(addr + ENT_CLASS, bytes([cls]))
+        self.c.write_ram(addr + ENT_HULL, b"\xff")
+        self.c.write_ram(addr + ENT_FLAGS, bytes([F_ACTIVE | F_ENEMY if enemy else F_ACTIVE]))
+        self.c.write_ram(addr + ENT_TARGET, b"\xff")
+        self.c.write_ram(addr + ENT_TIMER, bytes([timer]))
+
+    def one_frame_of_combat(self):
+        cu = self.sym["CBT_UPDATE"]
+        self.c.write_ram(self.sym["ORDER_PAUSED"], b"\x01")
+        self.c.write_ram(h.STUB, bytes([0x01, self.sym["GA_BANK_4"], 0x7F, 0xED, 0x49,
+                                        0xCD, cu & 0xFF, cu >> 8, 0x18, 0xFE]))
+        self.c.set_pc(h.STUB)
+        self.c.run_frames(2)
+
+    def duel(self, cls):
+        """Slot 0 of class `cls` at the origin, ready; a hostile sixty camera
+        units out -- 3840 world units, past CBT_RANGE's forty and inside the
+        turret's eighty -- with its own gun held. Returns the hostile's hull."""
+        self.place(0, False, (0, 0, 0), cls, 0)
+        self.place(PLAYER_MAX, True, (0, 0, 3840), 0, 255)
+        self.c.write_ram(self.sym["MOTH_SLOT"], bytes([0]))
+        self.one_frame_of_combat()
+        return self.ent(PLAYER_MAX, ENT_HULL)[0]
+
+    def test_the_mothership_hits_at_sixty_units(self):
+        hull = self.duel(self.sym["CLASS_MOTHERSHIP"])
+        self.assertEqual(hull, 255 - 40, "the turret did not reach, or the row is not 40")
+
+    def test_an_interceptor_at_the_same_range_does_not(self):
+        self.assertEqual(self.duel(self.sym["CLASS_INTERCEPTOR"]), 255)
+
+    def test_the_reach_is_the_shooters_and_not_the_targets(self):
+        """A hostile closing on the Mothership still has to come to forty:
+        it has not fired at sixty, and it moves rather than holds."""
+        self.place(0, False, (0, 0, 0), self.sym["CLASS_MOTHERSHIP"], 255)
+        self.place(PLAYER_MAX, True, (0, 0, 3840), 0, 0)
+        self.c.write_ram(self.sym["MOTH_SLOT"], bytes([0]))
+        #  Two frames: the first gives it a target (cbt_move_enemies runs
+        #  before the fire loop that acquires one), the second moves it.
+        self.one_frame_of_combat()
+        self.one_frame_of_combat()
+        self.assertEqual(self.ent(0, ENT_HULL)[0], 255, "the hostile fired from sixty")
+        z = struct.unpack("<h", bytes(self.ent(PLAYER_MAX, 4, 2)))[0]
+        self.assertLess(z, 3840, "the hostile held at sixty instead of closing")
+
+
 class TestTheUnarmedAreHalfTheTime(CombatFixture):
     """"make enemies attack unarmed ships 50% of the time." cbt_prey_bias used
     to push a harvester or a corvette CBT_UNARMED_BIAS further off on every

@@ -33,6 +33,7 @@
 wave_draw:
     call unlock_banner                  ; the centre-screen unlock line, if one is up
     call shot_draw                      ; this frame's tracers, over the ships
+    call wave_marker                    ; ...and where INCOMING is coming from
     ;  The tutorial owns this row outright while it is running, and wave_dirty
     ;  goes with it -- one dirty flag for row C whoever is drawing there, which
     ;  is what makes the coupling with phase4_hud and mis_wipe free. The row is
@@ -362,3 +363,87 @@ mus_battle:
     ld a,SND_MIX_B_TONE
     ld (snd_mix_mask_b),a
     ret
+
+
+; ----------------------------------------------------------------------------
+;  wave_marker -- a red cross where the wave is arriving, while INCOMING is up
+;  Uses: everything
+;
+;  future.md item 2. The item was written as "the seconds between INCOMING and
+;  arrival", and there are none: wave_send places the ships and says the word
+;  in one call. What there IS is WAVE_SAY_FRAMES of the word on the HUD with a
+;  wave three thousand units out closing on the base, and a player who does not
+;  know which way to look. So for as long as the row says INCOMING this puts a
+;  cross in the alarm ink at the wave's arrival point -- the Mothership plus
+;  WAVE_RADIUS along the bearing, the point wave_place jitters each ship about
+;  -- ON the point when it projects, and on the border of the view in its
+;  direction when it does not, through the Mothership indicator's own
+;  moth_border. Recomputed every frame it is up: one proj_point, forty times
+;  a wave. The Mothership's marker is saved and put back around the borrowed
+;  call, because moth_update only recomputes it when the camera moves.
+; ----------------------------------------------------------------------------
+wave_marker:
+    ld a,(wave_say)
+    or a
+    ret z                               ; nothing on the message row
+    ld a,(wave_msg)
+    or a                                ; WAVE_MSG_INCOMING
+    ret nz                              ; ...or something else is
+    ld a,(moth_slot)
+    call ent_is_active
+    ret nc
+    ld a,(moth_slot)
+    call ent_addr                       ; ENT_X is offset 0
+    ld de,wave_point
+    ld bc,6
+    ldir
+    ld a,(wave_bearing)
+    ld c,WAVE_RADIUS
+    call wave_offset                    ; HL = sin(bearing) * R
+    ld de,(wave_point)
+    add hl,de
+    ld (wave_point),hl
+    ld a,(wave_bearing)
+    add a,TRIG_QUARTER                  ; the cosine
+    ld c,WAVE_RADIUS
+    call wave_offset
+    ld de,(wave_point + 4)
+    add hl,de
+    ld (wave_point + 4),hl
+
+    ld hl,wave_point
+    ld (mark_src),hl
+    call proj_point
+    jr nc,@wave_marker_off
+    ld hl,(proj_sx)
+    ld a,(proj_sy)
+    ld c,a
+    jr @wave_marker_draw
+
+@wave_marker_off:
+    ld hl,moth_x
+    ld de,wavem_save
+    ld bc,4
+    ldir                                ; the Mothership's marker, kept
+    xor a
+    ld (moth_bar),a                     ; so "no bearing" reads as none
+    call moth_border
+    ld a,(moth_bar)
+    ld b,a
+    ld hl,(moth_x)
+    ld a,(moth_y)
+    ld c,a
+    push bc
+    push hl
+    ld hl,wavem_save
+    ld de,moth_x
+    ld bc,4
+    ldir                                ; ...and put back
+    pop hl
+    pop bc
+    ld a,b
+    or a
+    ret z                               ; straight along the view axis: no answer
+@wave_marker_draw:
+    ld a,PEN_RED
+    jp mark_cross                       ; ...and its rectangle, so it is erased

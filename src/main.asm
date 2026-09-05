@@ -682,6 +682,10 @@ shot_ay:            defw 0
 shot_dx:            defw 0
 shot_dy:            defw 0
 shot_pen4:          defb 0
+;  The wave marker's arrival point and the Mothership marker it borrows
+;  moth_border around (game/wavesdraw.asm).
+wave_point:         defs 6
+wavem_save:         defs 4
 ;  The AUTO RESPONSE: armed by A out of a fight, used by the first hit.
 ;  Both cleared by mis_setup: every mission starts with it off.
 auto_armed:         defb 0

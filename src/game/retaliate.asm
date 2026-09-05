@@ -158,6 +158,34 @@ order_attack_key:
 ;  the class's bias with it. Once a frame from cbt_update, in bank 4 because
 ;  the low 16K had eleven bytes of slack and the call is three of them.
 ; ----------------------------------------------------------------------------
+; ----------------------------------------------------------------------------
+;  cbt_range_for -- how far (cbt_ent) can shoot
+;  Out: C = CBT_RANGE, or CBT_MOTH_RANGE for a Mothership
+;  Uses: AF, C, DE, HL
+;
+;  In bank 4 so that cbt_in_range, in the low 16K, grew by four bytes and not
+;  fourteen. Only the SHOOTER's class is asked: an enemy closing on the base
+;  still has to come to forty, and a hostile Mothership does not exist.
+;
+;  NOT IN THE TUTORIAL, for the reason the auto response is not: the stage
+;  teaches `A` with one hostile that flies in past the base, and the base shot
+;  it dead in three volleys before the player had read the line.
+; ----------------------------------------------------------------------------
+cbt_range_for:
+    ld c,CBT_RANGE
+    ld a,(tut_active)
+    or a
+    ret nz
+    ld hl,(cbt_ent)
+    ld de,ENT_CLASS
+    add hl,de
+    ld a,(hl)
+    cp CLASS_MOTHERSHIP
+    ret nz
+    ld c,CBT_MOTH_RANGE
+    ret
+
+
 cbt_prey_roll:
     call sys_rand
     rlca                                ; bit 7 into the carry

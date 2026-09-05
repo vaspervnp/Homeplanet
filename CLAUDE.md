@@ -6094,6 +6094,60 @@ sprites, in a spread fight they flash between the pairs. One pixel is what a
 Mode 1 tracer can be; if it wants to be more, the second lever is a 2×1 dot
 at the same cost per list entry.
 
+### The wave marker: where INCOMING is coming from
+
+`future.md` item 2, and the item was wrong about the game: it wanted a mark
+"for the seconds between `INCOMING` and arrival", and there are none —
+`wave_send` places the ships and says the word in one call. What there IS is
+`WAVE_SAY_FRAMES` of the word on the HUD with a wave three thousand units out
+closing on the base, and a player who does not know which way to look. So
+`wave_marker` (`game/wavesdraw.asm`, from `wave_draw`) puts a cross in the
+alarm ink at the wave's **arrival point** — the Mothership plus `WAVE_RADIUS`
+along `wave_bearing`, the point `wave_place` jitters each ship about — for as
+long as the row says `INCOMING`: on the point when it projects, and on the
+border of the view in its direction when it does not, through the Mothership
+indicator's own machinery. `moth_update` grew a label, `moth_border`, at the
+"it did not project" half, and `wave_marker` saves and restores the
+Mothership's own three bytes around the borrowed call, because `moth_update`
+only recomputes them when the camera moves and `moth_draw` would otherwise
+draw the wave's cross where the base's marker was.
+
+**At the default zoom the point is nearly always ON screen** — the visible
+radius is 8191 and the wave lands at 3072 — so what the player mostly sees is
+a red cross among the arriving red ships, which is the "here" of `INCOMING`.
+The border half earns its place zoomed in, where the fight is. One
+`proj_point` a frame for forty frames a wave. The test drives `wave_marker`
+through a stub with the announcement staged and reads `mark_rect` — the last
+rectangle any marker recorded — against the Python model's projection of the
+point, and the border case by forcing zoom step 0, whose radius is 2048.
+
+### The Mothership's turret
+
+`future.md` item 5. `CBT_MOTH_RANGE` is `CBT_RANGE * 2` and `cbt_in_range`
+asks `cbt_range_for` — bank 4, `game/retaliate.asm` — for the SHOOTER's reach,
+so the low 16K grew by four bytes rather than fourteen. §8 gave the
+Mothership a damage row (40 to an interceptor) that nobody ever saw fired: it
+never moves, and everything else closes to forty before it does. Under attack
+the base fights back now, from eighty. Only the shooter's class is asked, so a
+hostile closing on the base still has to come to forty — the test drives all
+three cells through a stub: the Mothership hits at sixty, an interceptor at
+sixty does not, and the hostile at sixty neither fires nor holds.
+
+> **Not in the tutorial**, and that was found by the suite: step 14's one
+> hostile flies in past the base, and the turret shot it dead in three
+> volleys before the player had read the line — `A` then had nothing to
+> attack and *"an attack order alone is not enough"* failed. Moving the
+> hostile out does not help, it closes at `PHASE4_STEP` a frame either way;
+> `cbt_range_for` asks `tut_active`, as the auto response does.
+
+**Measured**, `tools/balance.py --rebuild` on this build: all twenty
+missions, ending **44 ships / 8306 hull** against 30 / 7595 when the auto
+response was measured and 33 / 7378 before it. The waves arrive on the
+Mothership, so eighty units of reach is forty more units of every wave being
+shot at before it shoots — which is the whole of what §8's "θωρακισμένο" now
+means in play. The script never presses `V`, so the tracers and the ram are
+inert in it; this swing is the turret's.
+
 ### Ramming
 
 `future.md` item 7, built into `pilot_frame` as `pilot_ram`: a flown ship
