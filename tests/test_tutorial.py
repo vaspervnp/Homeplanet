@@ -62,8 +62,8 @@ ENT_ORDER_ATTACK = 2
 S_LOOK, S_ZOOM, S_PAN, S_VIEW = 0, 1, 2, 3
 S_SQUAD, S_INFO, S_MOVE, S_FORM, S_SPLIT, S_DOCK = 4, 5, 6, 7, 8, 9
 S_MINE, S_BUILD = 10, 11
-S_TARGET, S_FIGHT, S_PAUSE, S_SALVAGE = 12, 13, 14, 15
-S_LEAVE = 16
+S_TARGET, S_FIGHT, S_PAUSE, S_FLY, S_SALVAGE = 12, 13, 14, 15, 16
+S_LEAVE = 17
 
 
 # ---------------------------------------------------------------------------
@@ -455,13 +455,18 @@ class TestTheCampaignIsNotTouched(TutFixture):
                          "the tutorial moved the campaign's mission index")
         self.assertEqual(self.byte("CAMPAIGN_UNLOCKS"), self.UNLOCKS)
 
-    def test_v_does_not_fly_a_ship_on_the_stage(self):
-        """The stage teaches SPACE as the pause; a flown ship would make it
-        the gun. game/pilot.asm refuses while tut_active is set."""
+    def test_v_flies_a_ship_on_the_stage_and_the_campaign_is_untouched(self):
+        """V is a lesson now (step 16), so the stage no longer refuses it --
+        and flying one of the stage's ships is still nothing the campaign is
+        rebuilt from."""
         self.enter_tutorial()
         self.c.run_frames(60)
         self.hold("v")
-        self.assertEqual(self.byte("PILOT_SLOT"), self.sym["ENT_NO_TARGET"], "V flew a ship in the tutorial")
+        self.assertLess(self.byte("PILOT_SLOT"), self.sym["ENT_PLAYER_MAX"], "V did not fly a ship in the tutorial")
+        self.c.run_frames(60)
+        self.hold("v")
+        self.assertEqual(self.byte("MIS_INDEX"), self.MISSION)
+        self.assertEqual(self.byte("CAMPAIGN_UNLOCKS"), self.UNLOCKS)
 
     def test_w_does_not_send_a_run_on_the_stage(self):
         """The stage teaches A; W is the same order with a budget, and its
@@ -580,6 +585,31 @@ class GateFixture(TutFixture):
 
     def assert_moved(self, n, what):
         self.assertEqual(self.step(), n + 1, f"{what} did not advance the tutorial")
+
+
+# ---------------------------------------------------------------------------
+class TestTheFlyingStep(GateFixture):
+    """Step 16: V takes the lead ship, and V again hands it back. Opened and
+    closed, like the squadron page -- taking the stick is half of it."""
+
+    def test_taking_the_stick_is_only_half_of_it(self):
+        self.at_step(S_FLY)
+        self.hold("v")
+        self.assertLess(self.byte("PILOT_SLOT"), self.sym["ENT_PLAYER_MAX"], "V did not take a ship")
+        self.assert_stuck(S_FLY, "taking the stick")
+        self.hold("v")
+        self.assertGreaterEqual(self.byte("PILOT_SLOT"), self.sym["ENT_MAX"])
+        self.assert_moved(S_FLY, "taking the stick and handing it back")
+
+    def test_the_flight_does_not_end_by_itself_on_the_quiet_stage(self):
+        """The fight was two steps ago and nothing hostile flies, so the
+        auto-return -- which needs a fight to have been seen -- stays out of
+        the lesson."""
+        self.at_step(S_FLY)
+        self.hold("v")
+        self.c.run_frames(200)
+        self.assertLess(self.byte("PILOT_SLOT"), self.sym["ENT_PLAYER_MAX"], "the stick was handed back on its own")
+        self.assert_stuck(S_FLY, "flying about")
 
 
 # ---------------------------------------------------------------------------
@@ -866,7 +896,7 @@ class TestActFourTheFight(GateFixture):
 
 # ---------------------------------------------------------------------------
 class TestTheWholeThing(TutFixture):
-    """Sixteen steps with real key presses and nothing poked at all.
+    """Eighteen steps with real key presses and nothing poked at all.
 
     Every other test here starts the tutorial where it wants it. This one is
     the only thing that says the sequence joins up -- that each step is
@@ -974,7 +1004,12 @@ class TestTheWholeThing(TutFixture):
         #  15 -- the pause
         self.hold(cpc.KEY_SPACE)
         self.hold(cpc.KEY_SPACE)
-        self.expect(S_SALVAGE, "the tactical pause")
+        self.expect(S_FLY, "the tactical pause")
+        #  16 -- fly the lead ship, and hand it back
+        self.hold("v")
+        self.c.run_frames(40)
+        self.hold("v")
+        self.expect(S_SALVAGE, "flying the lead ship and handing it back")
 
         #  16 -- the corvette fetches what the fight left behind
         self.hold("t")

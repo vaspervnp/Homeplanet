@@ -48,7 +48,7 @@
 ;  How many steps there are. Asserted in src/main.asm against the size of
 ;  tut_steps, which is the table that actually decides it -- this is the copy
 ;  the code indexes with and the copy the "/16" on the screen agrees with.
-TUT_STEPS           equ 17
+TUT_STEPS           equ 18
 TUT_STEP_SIZE       equ 4               ; a gate and an entry act, both words
 
 ;  ...and how many ships the tutorial's own fleet has, the Mothership apart.

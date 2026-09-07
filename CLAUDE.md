@@ -5273,6 +5273,14 @@ changes, and `H`, `A`, `G`, `F`, `R` and `I` are not on it either.
 
 ### The tutorial, on `T` from the title screen
 
+**Eighteen** steps now: `V` is step 16, *"V FLIES THE LEAD SHIP  V RETURNS"*,
+gated on the stick being taken and given back the way the squadron page's
+step is gated on it being opened and closed, and placed AFTER the pause
+because a flown ship's `SPACE` is the trigger. `pilot_toggle` no longer
+refuses the stage; the order of the steps carries what the guard did. The
+fight is two steps earlier, so the auto-return (which needs a fight to have
+been seen) stays out of the lesson. `TUT_STEPS` 18, `/18` on the screen.
+
 Seventeen steps in five acts, in dependency order — you cannot command what you
 cannot see, and you cannot fight before you can move. **Every step is gated on
 the player DOING the thing**, not on a key to continue, so a step is a

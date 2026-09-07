@@ -756,6 +756,21 @@ tut_g_pause:
     jp tut_toggle
 
 
+;  --- 16. V flies the lead ship, and V again hands it back ------------------
+;  Opened and closed, the way the squadron page is: the stick taken and then
+;  given back. After the pause, deliberately -- while a ship is flown SPACE
+;  is the trigger and not the pause, and the pause is step 15's lesson. The
+;  board is quiet by now (the fight was step 14), so the flight does not end
+;  by itself: pilot_fought is never set on a board with nothing hostile.
+;  pilot_toggle used to refuse the stage outright for the SPACE reason; the
+;  order of the steps is what carries that now.
+tut_g_fly:
+    ld a,(pilot_slot)
+    cp ENT_MAX
+    sbc a,a                             ; #FF while flying, 0 when not
+    jp tut_toggle
+
+
 ;  --- 16. J leaves ------------------------------------------------------------
 ;  Terminal. `J` does not come through here at all -- it comes through
 ;  tut_jump, which is where mis_jump's first instruction sends it.
@@ -1054,7 +1069,7 @@ tut_draw:
 ;  four bytes against a second bank flip a frame.
 ; ----------------------------------------------------------------------------
 tut_of_text:
-    defb "/17",0
+    defb "/18",0
 tut_of_text_end:
 
 

@@ -80,9 +80,9 @@ PILOT_RAM_DIST      equ 4
 ;  Uses: everything
 ; ----------------------------------------------------------------------------
 pilot_toggle:
-    ld a,(tut_active)
-    or a
-    ret nz                              ; the stage teaches SPACE as the pause
+    ;  (It used to refuse the tutorial, because the stage teaches SPACE as
+    ;  the pause and a flown ship makes it the gun. The stage teaches V now,
+    ;  one step AFTER the pause, and the order of the steps carries that.)
     ld a,(pilot_slot)
     cp ENT_MAX
     jr c,pilot_end                      ; flying one already: hand it back

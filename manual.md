@@ -47,14 +47,14 @@ flight of ships, the tune, and `SPACE - NEW GAME`.
 |---|---|
 | `SPACE` | begin a **new** campaign |
 | `C` | **continue** the saved one. The key is only offered — and only works — when the disc holds a campaign |
-| `T` | the tutorial: seventeen short lessons, one key at a time |
+| `T` | the tutorial: eighteen short lessons, one key at a time |
 | `M` | music on / off. It remembers, and the game's own music obeys it too |
 
 ### The tutorial
 
 `T` on the title screen puts you on a practice stage with a small fleet
 and one enemy. Every step waits for you to actually do the thing it asks
-— look, select, move, build, fight, salvage — so it cannot be skipped
+— look, select, move, build, fight, fly, salvage — so it cannot be skipped
 through, but it can be *left*: `ESC` at any step takes you back to the
 title. Nothing you do on the stage touches your saved campaign.
 

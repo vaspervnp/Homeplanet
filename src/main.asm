@@ -1537,10 +1537,10 @@ ENDIF
 ;  written across the step counter beside it.
 ; ----------------------------------------------------------------------------
 
-;  The counter says "/17" in so many bytes, so the number of steps is on the
+;  The counter says "/18" in so many bytes, so the number of steps is on the
 ;  screen as a literal and has to agree with the table. There is no arithmetic
 ;  that turns TUT_STEPS into two characters at assembly time.
-    assert TUT_STEPS == 17, "the tutorial no longer has seventeen steps, and the /17 on the screen says it does"
+    assert TUT_STEPS == 18, "the tutorial no longer has eighteen steps, and the /18 on the screen says it does"
 
 ;  ...and there has to be a line for every one of them. A SUM, with the same
 ;  limitation as the class-name check above -- one long line and three short

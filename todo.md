@@ -11,7 +11,7 @@ see [CLAUDE.md](CLAUDE.md) for both.
 > **Built, except the tutorial step**: every shot does an eighth
 > (`CBT_DAMAGE_SHIFT`), the reticle and the scanner are in
 > `game/farmarks.asm` with the far-ship marks, and `V` hands the ship back
-> when the fight ends. Item 2 -- `V` in the tutorial -- is still open.
+> when the fight ends, and `V` is the tutorial's step 16. All four built.
 
 *"Κάνε 10 φορές ισχυρότερα τα hull των πλοίων για να κρατάει περισσότερο η
 μάχη και να έχει νόημα το V. Πρόσθεσέ το και στο tutorial. Όταν είμαι σε V

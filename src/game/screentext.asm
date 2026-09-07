@@ -116,7 +116,7 @@ help_words:
 help_words_end:
 
 ; ----------------------------------------------------------------------------
-;  tut_text -- the tutorial's seventeen instruction lines
+;  tut_text -- the tutorial's eighteen instruction lines
 ;
 ;  TUT_STEPS strings back to back, in the order the steps run, so the order in
 ;  this file is the order on the screen. tut_draw fetches step n with a skip
@@ -149,6 +149,7 @@ tut_text:
     defb "ESC SHUTS IT   , . PICK A TARGET",0
     defb "A ATTACKS WHAT YOU PICKED",0
     defb "SPACE STOPS THE BATTLE",0
+    defb "V FLIES THE LEAD SHIP  V RETURNS",0
     defb "T TOWS THE WRECK HOME FOR RU",0
     defb "J LEAVES WHEN THE JOB IS DONE",0
 tut_text_end:
@@ -378,6 +379,7 @@ tut_table:
     defw tut_g_target,  tut_a_enemy
     defw tut_g_fight,   tut_a_none
     defw tut_g_pause,   tut_a_none
+    defw tut_g_fly,     tut_a_none
     defw tut_g_salvage, tut_a_none
     ;  --- Act 5: leaving ----------------------------------------------------
     defw tut_g_never,   tut_a_ready
