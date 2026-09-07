@@ -6186,6 +6186,25 @@ B sprites**, and the one lever left for it is `TIER_B_MAX_Z` in
 tier A, roughly twice as cheap a ship, and changes the picture. That is the
 owner's call and it has not been pulled.
 
+> **Measured, on the owner's instruction**, 56 ships and a picket of twelve
+> at the default step, 600 emulator frames a reading, four builds:
+>
+> | `TIER_B_MAX_Z` | 16 ships | 56 + 12 | fleet at tier A |
+> |---|---|---|---|
+> | 190 (today) | 8.33 | 2.17 | 0 of 55 |
+> | 170 | 8.33 | 2.33 | 0 (the picket drops to A) |
+> | 160 | 8.33 | 2.33 | 3 |
+> | 150 | 9.25 | 2.42 | 17 |
+>
+> **The knob is weak, and the reason is the depth band.** At the default
+> step the whole formation projects between depths 137 and 160, so a
+> threshold either cuts nothing or, at 140 or under, turns the fleet the
+> player is looking at into 8x6 specks. 150 buys 12% for the far third of
+> the fleet drawn a size smaller, which in the screenshots is hard to see
+> either way. Left at 190; the frame at the default step is fifty-five
+> sprites and no threshold changes that without changing what the game
+> looks like.
+
 > **And the cockpit was drawing the pilot's own squadron in front of the
 > pilot.** The eye sits `PILOT_CAM_DIST` = 83 behind the flown ship, one
 > unit inside the near plane, so everything BEHIND the ship for eighty-three
