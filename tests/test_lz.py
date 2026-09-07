@@ -85,17 +85,20 @@ class TestTheZ80Decoder(unittest.TestCase):
     is disturbed, because none is running.
     """
 
-    #  disc.raw ends just under #9000 and the decoder is the last thing in
-    #  it, so the output goes ABOVE that -- the first version put it at #8000
-    #  and a ten-kilobyte stream overwrote lz_unpack with its own output. The
-    #  packed stream sits in screen memory, under the stub's stack at #FDF0.
+    #  The decoder is the LAST thing in disc.raw, so the output goes above
+    #  the file's end -- read out of the symbols, because the first version
+    #  put it at #8000 and a ten-kilobyte stream overwrote lz_unpack with
+    #  its own output, and the second put it at #9000 and the file grew past
+    #  that four hundred bytes later. The packed stream sits in screen
+    #  memory, under the stub's stack at #FDF0.
     SRC = 0xC000
-    DST = 0x9000
 
     @classmethod
     def setUpClass(cls):
         cls.sym = disc_symbols()
         assert "LZ_UNPACK" in cls.sym, "lz_unpack is not in build/disc.sym"
+        cls.DST = (cls.sym["DISC_STUB_END"] + 0xFF) & 0xFF00
+        assert cls.DST + 0x2800 < cls.SRC, "no room for the test's output above the loader"
 
     def setUp(self):
         self.c = cpc.CPC()

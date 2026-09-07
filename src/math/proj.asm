@@ -72,9 +72,21 @@ proj_point:
     ld de,(cam_dist)
     add hl,de
 
+    ;  PAST 255 IS THE FAR PLANE, NOT NOTHING. cam_dist is 250 two zoom steps
+    ;  out, so a byte of depth left five camera units -- 320 world units --
+    ;  past the focus, and everything beyond that vanished: a picket four
+    ;  thousand units past the fleet was on the screen at the default step
+    ;  and gone one step out. Measured, and it had always been so. Clamped
+    ;  to Z_FAR it is drawn where the far plane's perspective puts it, a
+    ;  little outward of true and at the smallest size -- a mark, since
+    ;  game/farmarks.asm -- which is what a fleet at the edge of a wide view
+    ;  should be. Behind the eye (H negative) is still nothing.
     ld a,h
     or a
-    jr nz,proj_clip                     ; negative, or past 255
+    jr z,@proj_z_byte
+    jp m,proj_clip                      ; behind us
+    ld l,Z_FAR                          ; past the byte: the far plane
+@proj_z_byte:
     ld a,l
     cp Z_NEAR
     jr c,proj_clip

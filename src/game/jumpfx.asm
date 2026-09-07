@@ -626,6 +626,10 @@ jfx_band:
     inc hl
     ld a,(hl)
     and 3                                ; the tier is the low two bits
+    cp MARK_TIER
+    jr nz,@jfx_tier_ok
+    xor a                                ; a mark: tier A's band, the smallest
+@jfx_tier_ok:
 
     ;  class_geom + tier * CLASS_GEOM_SIZE. It is in the low 16K, and has to
     ;  be: it is read from inside the blitter with a foreign bank up.

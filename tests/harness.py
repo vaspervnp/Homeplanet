@@ -32,13 +32,14 @@ import cpc  # noqa: E402  (path has to be set up first)
 
 BUILD = os.path.join(ROOT, "build")
 DISC_RAW = os.path.join(BUILD, "disc.raw")
-DSK = os.path.join(BUILD, "homeplanet.dsk")
-#  The size of the image `make` mints: 42 tracks. An emulator that plays it
-#  from this path writes it back on exit as FORTY tracks with a FLEET.DAT on
-#  it -- and every boot after that continues a saved campaign from mission
-#  two with somebody's fleet, and the tests fail in the vocabulary of
-#  whatever they were about. Caught once, in the middle of a suite, and
-#  traced to a real emulator rather than to anything in this tree.
+#  THE SUITE'S OWN COPY of the image, made by the Makefile's last step. The
+#  owner plays build/homeplanet.dsk, and an emulator playing it from that
+#  path writes it back on exit as FORTY tracks with a FLEET.DAT on it -- so
+#  every boot after that continued a saved campaign from mission two with
+#  somebody's fleet, and the tests failed in the vocabulary of whatever they
+#  were about. Caught twice in one afternoon, the second time by the size
+#  check below, while the owner was playing. Two files, two owners.
+DSK = os.path.join(BUILD, "suite.dsk")
 DSK_SIZE = 204544
 SYM = os.path.join(BUILD, "homeplanet.sym")
 #  MINI.BIN is a second assembly of the same source and its addresses are its
@@ -422,8 +423,7 @@ def disc_image() -> bytes:
     if len(image) != DSK_SIZE:
         raise RuntimeError(
             f"{DSK} is {len(image)} bytes, not {DSK_SIZE}: something has written "
-            "to it since `make` (an emulator playing it from this path?) -- run "
-            "make, and play from a copy")
+            "to it since `make` -- run make")
     return image
 
 

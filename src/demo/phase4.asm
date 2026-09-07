@@ -1129,6 +1129,8 @@ phase4_cache:
     ld a,(proj_z)
     call phase4_tier_for
     call class_apply_bias               ; capital ships draw a tier larger
+    call mark_tier_for                  ; bank 4: far, or outside the reticle -> a mark
+    jr c,@p4_cache_drop                 ; ...or behind the cockpit: not listed
     ld c,a
     ld a,b
     add a,a
@@ -1151,6 +1153,9 @@ phase4_cache:
     ld (phase4_vis_ptr),hl
     ld hl,phase4_visible
     inc (hl)
+    ret
+@p4_cache_drop:
+    pop hl                              ; the entry's bytes stay unclaimed
     ret
 
 
@@ -1850,6 +1855,10 @@ phase4_blit_body:
     ld (phase4_sx),de
 
     ld c,a
+    and 3
+    cp MARK_TIER
+    jp z,mark_draw_one                  ; bank 4: a dot, no library paged
+    ld a,c
     and #80
     ld (spr_enemy),a                    ; recolour pen 1 as pen 3 if set
     ld a,c

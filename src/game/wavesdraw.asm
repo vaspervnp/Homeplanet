@@ -33,6 +33,8 @@
 wave_draw:
     call unlock_banner                  ; the centre-screen unlock line, if one is up
     call shot_draw                      ; this frame's tracers, over the ships
+    call pilot_reticle                  ; ...and the reticle, while a ship is flown
+    call pilot_scanner                  ; ...and the scanner beside it
     call wave_marker                    ; ...and where INCOMING is coming from
     ;  The tutorial owns this row outright while it is running, and wave_dirty
     ;  goes with it -- one dirty flag for row C whoever is drawing there, which

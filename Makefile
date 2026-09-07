@@ -78,6 +78,11 @@ DISC_SYM := $(BUILD_DIR)/disc.sym
 # part of DISC.BIN -- see src/sys/libload.asm.
 LIB_RAW  := $(BUILD_DIR)/bank5.raw $(BUILD_DIR)/bank6.raw $(BUILD_DIR)/bank7.raw
 BANKED   := $(BUILD_DIR)/.banks-written
+# The tests' own copy of the finished image. An emulator playing
+# build/homeplanet.dsk from that path writes it back on exit -- forty tracks
+# and a FLEET.DAT -- and a suite booting from it then continues somebody's
+# campaign. So the suite boots from this copy and the owner plays the other.
+SUITE_DSK := $(BUILD_DIR)/suite.dsk
 
 # -I src -I .  include paths: src/ for sources, . so disc.asm can INCBIN build/
 # -eo          overwrite files already present in the .dsk
@@ -178,6 +183,7 @@ $(BANKED): $(DSK) $(LIB_RAW) $(SYM) tools/discbanks.py $(SPLASH_SCR) $(SPLASH_BA
 	$(IDSK) $(DSK) -i $(SPLASH_BAS) -t 0
 	$(IDSK) $(DSK) -i $(SPLASH_SCR) -c C000 -e C000 -t 1
 	$(IDSK) $(DSK) -i $(BUILD_DIR)/music3.bin -c 4000 -e 4000 -t 1
+	cp $(DSK) $(SUITE_DSK)
 	touch $@
 
 # The note streams. Analysing four and a half minutes of ogg takes about half

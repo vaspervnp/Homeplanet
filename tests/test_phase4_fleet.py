@@ -127,7 +127,9 @@ class TestFleet(unittest.TestCase):
             seen.update(v["tier"] for v in self._visible())
             if len(seen) == 3:
                 break
-        self.assertEqual(seen, {0, 1, 2}, f"only tiers {sorted(seen)} appeared")
+        #  ...and possibly 3, which is a MARK: the far band of tier A is a dot
+        #  since game/farmarks.asm. The three sprite tiers still have to show.
+        self.assertTrue({0, 1, 2} <= seen, f"only tiers {sorted(seen)} appeared")
 
     def test_draw_order_is_back_to_front(self):
         """Homeplanet.md 5.3: near ships are drawn last, so they end up on top."""

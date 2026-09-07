@@ -211,6 +211,33 @@ class TestTorpedoes(unittest.TestCase):
         self.c.key_up(cpc.KEY_ENTER)
         self.c.run_frames(12)
 
+    def pen_at(self, x, y):
+        buf = h.front_buffer(self.c)
+        b = self.c.read_ram(buf + (y // 8) * 80 + (y % 8) * 0x800 + x // 4, 1)[0]
+        sh = 3 - (x % 4)
+        return ((b >> (sh + 4)) & 1) | (((b >> sh) & 1) << 1)
+
+    def test_the_vekhar_is_drawn_in_the_alarm_ink_where_the_chase_puts_it(self):
+        """"Στο mini game vortex δεν βλέπω τον εχθρό." It had not been drawn
+        since mini_blit's column became a word: the chase loaded E and left
+        D holding whatever it held, and spr_blit rejected the column. The
+        centre is worked out exactly as mini_ships works it out, from the
+        chase's own state, and a red pixel is asked for within the sprite's
+        box about it -- in BOTH buffers, since the display page-flips."""
+        self.begin()
+        self.step(3)
+        for _ in range(2):
+            self.step(1)
+            dist, ex, mx = self.b4("MINI_DIST"), self.b4("MINI_EX"), self.b4("MINI_X")
+            self.assertGreater(dist, 0, "the chase ended before it was looked at")
+            d = ex - mx
+            d = d - 256 if d > 127 else d
+            cx = (d >> 1) + self.sym["MG_CX"]
+            cy = ((self.sym["MG_DIST0"] - dist) >> 2) + self.sym["MG_CY"]
+            reds = [(x, y) for y in range(cy - 8, cy + 9) for x in range(cx - 12, cx + 13)
+                    if self.pen_at(x, y) == 3]
+            self.assertTrue(reds, f"no red pixel about {(cx, cy)}: the Vekhar is not drawn")
+
     def step(self, n=1):
         """n chase steps, by the counter."""
         for _ in range(n):

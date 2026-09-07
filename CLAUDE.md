@@ -186,7 +186,14 @@ and prints how many bytes are left in the low 16K and in every bank. Watch all
 of them, and watch the "hand-written code ends at" figure rather than `free:` —
 see "Where 700 bytes came from" for why the second one lies.
 
-**Today: low 16K 402, bank 4 1954, bank 6 14210 and bank 7 15324 of 16384,
+**Today: `DISC.BIN` is 20880 of 26368 — 5,488 of headroom — since both images
+went through `tools/lzpack.py`; the figures in the rest of this paragraph and
+the four levers below are what it took to reach that point, and the file is
+not the binding constraint any more. Low 16K 402 with the hand-written code
+ending at `#25F9` — SEVEN bytes before the page, so the next low-16K byte
+costs 256 — and bank 4's WINDOW 195 after the marks, the reticle and the
+scanner. The window and the page are the ceilings now.** Before the
+packer: low 16K 402, bank 4 1954, bank 6 14210 and bank 7 15324 of 16384,
 `DISC.BIN` 25558 of 26368 so 810 of headroom.** The pilot's 375 bytes of bank 4
 are the newest thing in those figures. The chase runs from bank 7 now — see "The chase
 runs from bank 7" — which is the first lever that moved CODE out of the
@@ -1032,7 +1039,7 @@ not needed and should stay unspent.
 | `I` | what the selected squadron is made of; `ESC` goes back |
 | `?` | the key list; `ESC` goes back |
 | `ESC` | in the TUTORIAL, leave it and go back to the title |
-| `V` | **fly the selected squadron's lead ship yourself**: the arrows turn, climb and dive it, `SPACE` fires its gun, the camera rides behind it. `V` again, its death, or **the fight ending** hands it back. Not the Mothership, not in the tutorial — see "V: you are the interceptor" |
+| `V` | **fly the selected squadron's lead ship yourself**: the arrows turn, climb and dive it, `SPACE` fires its gun, the camera rides behind it, a reticle marks the middle of the view and a scanner at the bottom right shows where the enemy is; only ships inside the reticle's box are drawn as sprites. `V` again, its death, or **the fight ending** hands it back. Not the Mothership, not in the tutorial — see "V: you are the interceptor" |
 | `SPACE` | on the title screen, start the game |
 
 `J` **announces** the jump and the drive spools for ten seconds of live battle before it happens; `ESC` calls it off — see "The jump counts down". It **lands** rather than jumping on the last mission, and landing opens the victory screen — see "The end of the journey". **On the last mission, with `LAND` on offer, `L` lands too** — it is the squadron key every other time; see "`L` lands as well" under that section. Otherwise it jumps when `mis_gate` allows it — the objective met, three waves seen, no
@@ -1324,7 +1331,26 @@ and it moves with it: every byte added to the bank-4 image costs `DISC.BIN`
 whatever it packs down to. The context bar's 595 bytes cost the file 861,
 because code does not compress.
 
-**The bank-4 image is STORED, not packed, and the packer decides that per
+> **ALL OF THE ABOVE IS HISTORY: BOTH IMAGES ARE LZ-PACKED NOW.** The data
+> levers ran out at 23 bytes of headroom the day `V` learned to hand the ship
+> back, and `tools/lzpack.py` is the code lever: an LZ77 of this project's
+> own (the docstring is the format), chosen for a sixty-byte Z80 decoder that
+> lives in the loader stub and is thrown away once the game runs. The low 16K
+> packs to **71%** and bank 4 to **83%**: `DISC.BIN` went **26345 → 20460**,
+> so **5,908 bytes of headroom** where there were 23. `src/disc.asm` unpacks
+> the low image straight from where AMSDOS put the file (source above
+> destination, ROMs out so the back-references read RAM) and the bank-4
+> image from screen A, where it is staged before bank 4 is paged in.
+> `tests/test_lz.py` drives `lz_unpack` off `build/disc.raw` against the
+> Python decoder, stream by stream, including both real images — and every
+> other test boots through it. **The cost model changed with it**: a byte of
+> low-16K code costs the file about 0.7 and a byte of bank-4 code about 0.8,
+> so "code costs the file 1:1" below is out of date; the ceilings that still
+> bind are the LOW 16K's page boundary and bank 4's window. Do not rebuild
+> while a measurement is running — see the balance section — and note that
+> `packsprites.py` and the RLE it describes below are gone.
+
+**The bank-4 image WAS stored, not packed, and the packer decided that per
 build.** It compressed 15000 → 10793 when this bank held two sprite libraries;
 it holds none since the 3+3+2 repack, and what is there now — the mission
 table, the menus, the campaign's code, the context bar — is code and text, with
@@ -2042,8 +2068,11 @@ happily with two of its clauses deleted.
 > when it is pointed at the build's own file — and every `boot_quick` after
 > that pressed `C` into mission 2 with a 34-ship fleet. Nothing in this tree
 > writes the image outside `make`; cpcemu does not write files at all. So
-> `harness.disc_image` refuses an image that is not `DSK_SIZE` bytes, with a
-> message that says to run `make` and play from a copy. Play from a copy.
+> `harness.disc_image` refuses an image that is not `DSK_SIZE` bytes — and
+> it fired again the same afternoon, twenty-seven seconds after the owner's
+> emulator had saved. So **the suite boots from `build/suite.dsk`**, a copy
+> the Makefile makes as its last step, and `build/homeplanet.dsk` is the
+> owner's to play. `harness.DSK` is the copy; `tools/` go through it too.
 
 > **A STALE `.dsk` cost an hour of this, and the file above says so.** Eight
 > `test_persistence` failures all reading "the jump was refused", on a build
@@ -5921,6 +5950,19 @@ It holds the key for forty frames — four whole steps — and reads the front
 buffer, which is never mid-draw; and it compares **pen 1 only**, because the
 tunnel's rings are ink 2 and sweep through the ship's rectangle every step.
 
+> **THE VEKHAR HAD NOT BEEN SEEN SINCE THE RUN'S FLIGHTS CAME IN FROM THE
+> RIGHT.** *"Στο mini game vortex δεν βλέπω τον εχθρό."* `mini_blit` took its
+> column as a WORD from that commit on (`mini_sx`, so a flight could spawn
+> past pixel 255), and the chase's enemy path still loaded only `E` — `D`
+> held whatever the code before it had left there, the column was off any
+> screen, and `spr_blit` drew nothing. Our own ship survived because its
+> path happens to `ld d,0` for a table lookup two instructions earlier.
+> Bisected in two worktrees: four red pixels at (166..168, 90..91) on the
+> commit before the chase moved to bank 7, none on every commit after. Five
+> commits, three of them "looked at on the machine", and nobody looked for
+> the enemy — the test that says it is drawn is
+> `TestTorpedoes.test_the_vekhar_is_drawn_in_the_alarm_ink_where_the_chase_puts_it`.
+
 ### MINI.BIN: the chase on its own, on the same disc
 
 *"make me a bin to test only the minigame"* — and then *"in the same disk"*.
@@ -6067,6 +6109,110 @@ meant to move out of the low 16K to pay for it had been bank 4 all along —
 and `order_home`, 54 bytes read once at boot, went to bank 7 behind a
 `bank7_copy` in `order_init` instead. Looked at on the machine, off
 `MINI.BIN`: the rings, the tilt, a torpedo in flight, the words.
+
+### Far ships are marks, and the cockpit has a reticle and a scanner
+
+*"Υπάρχει τρόπος να βελτιώσεις το framerate; Όταν είναι πολλά τα σκάφη
+γίνεται αργό."* The PC-sampled profile under "Frame budget" is the answer to
+the question, and `game/farmarks.asm` (bank 4) is what it bought: **a ship
+whose depth is past `MARK_MIN_Z` is drawn as a MARK** — one pixel wide, two
+lines tall, in its side's ink, where the sprite's centre would be — instead
+of a tier A sprite. A tier A blit and its erase are about four thousand
+T-states with the row overhead; a mark through `gfx_vline` with a one-byte
+dirty rectangle is about four hundred.
+
+**The mark is tier 3.** The visible-list entry's two tier bits only ever
+held 0..2, so the list's shape did not move and `phase4_group` — which keys
+on side and class, not tier — consolidates marks exactly as it does sprites.
+`mark_tier_for` is called from `phase4_cache` after `class_apply_bias`, so a
+capital ship's bias cannot lift a mark back into a sprite; `phase4_blit_body`
+hands tier 3 to `mark_draw_one` before it asks `class_tier_addr` for a bank,
+so no library is paged for a dot; and `jfx_band` in the jump wipe, which
+indexes `class_geom` by tier, treats 3 as 0 — the one reader that would have
+walked off the end of a table. Eleven bytes of the low 16K, inside the
+alignment slack. (`mark_tier_for` and not `mark_tier`: a SEVENTH case
+collision, with `MARK_TIER`, caught by the build.)
+
+**While a ship is being flown, everything outside the reticle is a mark
+whatever its depth** — *"Μόνο οι εχθροί και φίλοι που είναι κοντά στο
+στόχαστρο μου θα φαίνονται κανονικά με sprite"* — because the cockpit sits
+one unit inside the near plane, so everything it sees is close, therefore
+tier C, therefore the dearest picture the game draws. `PILOT_BOX_HW/HH` are
+the box's half sizes; `pilot_reticle` draws four ticks about the middle of
+the view through `mark_bar`, from `wave_draw` after the tracers so they are
+on top, each with its own rectangle.
+
+**And the scanner**, `pilot_scanner`, Elite's: a box at the bottom right of
+the playfield (`SCAN_*`), the flown ship a white dot in the middle, every
+flying hostile a red dot placed by where it is RELATIVE TO THE SHIP'S
+HEADING — up is ahead, right is right, 1024 world units a pixel, so a
+picket ten thousand units out sits a third of the way up the box. A ship with
+`ENT_YAW` y flies along `(sin y, -cos y)` and its right hand is
+`(-cos y, sin y)`, so `ahead = dx·sin - dz·cos` and `right = dz·sin -
+dx·cos`, four `cam_mul7`s on the saturated high bytes of the deltas.
+**One dirty rectangle for the whole box**, appended once a frame — a
+rectangle per dot would be twenty slots out of a list sized for the entities
+— and the dots go straight through `gfx_vline` for the same reason. The
+right-hand sign was worked out from the two conventions and then checked by
+a test that turns the ship a quarter and asks where the dots went.
+
+**Measured**, 56 ships and a picket of twelve, the battle paused, 600
+emulator frames a reading:
+
+| scene | visible | before | after | what was drawn |
+|---|---|---|---|---|
+| default zoom (step 5) | 68 | 2.25 | 2.25 | 55 tier B, 12 tier B enemies: depths 137–186, **nothing reaches the far band** |
+| two steps out (step 7) | 53 | 3.50 | **4.75** | all 53 marks, depths 237–253 |
+| three steps out (step 8) | 53 | — | **5.25** | marks, and `phase4_group` on top |
+| two steps in (step 3) | 68 | 1.75 | 1.67 | 56 tier C, 12 tier B |
+
+**`MARK_MIN_Z` is 224 because of the first row.** At `cam_dist` 150 the
+whole visible radius projects between depths 137 and 214, so a threshold
+that fired at the default step would have to cut into tier B — the ships
+the player is looking at — and the far band begins one step out, where
+`cam_dist` is 200 and the far half of what is visible is past 224. So the
+default view is UNCHANGED, and zooming out is where a big fleet gets 36%
+faster and then consolidates. **The default zoom's frame is fifty-five tier
+B sprites**, and the one lever left for it is `TIER_B_MAX_Z` in
+`tools/gentables.py`: lowering it draws the far half of the formation at
+tier A, roughly twice as cheap a ship, and changes the picture. That is the
+owner's call and it has not been pulled.
+
+> **And the cockpit was drawing the pilot's own squadron in front of the
+> pilot.** The eye sits `PILOT_CAM_DIST` = 83 behind the flown ship, one
+> unit inside the near plane, so everything BEHIND the ship for eighty-three
+> units — 5300 world units, the whole formation it just left — projected
+> in front of it, and so did the flown ship itself, which the view follows
+> a frame behind and which therefore sits three units past the focus every
+> frame it moves. Three white interceptors at the top of a screenshot of a
+> ship flying away from them. `mark_tier_for` returns CF set for a rotated
+> depth under `PILOT_NEAR_RAW` while flying and `phase4_cache` does not list
+> the entity; four bytes of the low 16K. **The section under "V: you are the
+> interceptor" that says "nothing behind is drawn at all" was describing
+> the intent**, and the test that says the ship is not drawn passed because
+> its ship was not moving.
+
+> **AND TWO STEPS OUT, THE FAR HALF OF THE WORLD WAS NOT THERE.** Probing
+> the far band found it: at `cam_dist` 250 a byte of depth leaves five
+> camera units — 320 world units — past the focus, and `proj_point` clipped
+> anything past 255 as if it were behind the eye. A picket four thousand
+> units past the fleet was on the screen at the default step and gone one
+> step out, at every step from 7 on, since the zoom ladder was built. It
+> **clamps to `Z_FAR`** now — drawn where the far plane's perspective puts
+> it, a little outward of true and as a mark — and `gentables.project()`
+> does the same, because `test_phase1` holds the two bit-exact. Five bytes
+> of the low 16K; `test_two_steps_out_the_far_half_of_the_world_is_marks_not_nothing`.
+
+`tests/test_marks.py`, by pixel and by slot: the far band's tier and its
+two-pixel dot in the side's ink, erased when the ship moves; the reticle's
+box, inside a sprite and outside a mark at the same depth; the ticks while
+flying and not otherwise; the scanner's frame, the ship in its middle, and
+each hostile's dot where a Python model of the same arithmetic — high
+bytes, `sin7`, `cam_mul7`, the clamp — puts it from where the ships ARE,
+because the flown ship flies during the frames `V` takes and no fixed
+distance survives. The near plane is 84 camera units, **5376 world units**:
+from a cockpit nothing nearer than that is drawn at all, which the first
+fixture learned by putting its hostiles at 4000.
 
 ### V: you are the interceptor
 

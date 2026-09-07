@@ -127,9 +127,11 @@ The palette means something and the game never breaks the rule:
 The world is three-dimensional. A grid of blue dots marks the reference
 plane; your ships fly above and below it. The camera orbits whatever you
 have selected, from a distance you choose with the zoom. Ships are drawn at
-three sizes depending on how far away they are, and when many sit on top of
-each other at a wide zoom they are drawn as one ship with a **`+n`** beside
-it: that many ships there.
+three sizes depending on how far away they are; further away than that a
+ship is a **dot** in its side's colour — white for yours, red for theirs —
+still exactly where it is. When many sit on top of each other at a wide
+zoom they are drawn as one ship with a **`+n`** beside it: that many ships
+there.
 
 If the Mothership is off the screen, a blue marker on the edge of the view
 points the way to it; the bar hanging from it says how far above or below
@@ -151,7 +153,10 @@ sent somewhere else.
 | `SPACE` | **tactical pause**. The battle freezes; you can still look around and give orders |
 
 The four widest zoom steps show more of the world at the same size of ship
-— distant stacks consolidate into `+n` counts there.
+— distant stacks consolidate into `+n` counts there. Two steps out from
+where a mission opens, a big fleet is already a field of dots, and that is
+deliberate: dots are cheap to draw, and a fleet of fifty is what slows the
+game down. Zoom in on the part you are giving orders to.
 
 ## 5. Squadrons
 
@@ -248,7 +253,7 @@ squadron goes on doing what it was told.
 | ← / → | turn |
 | ↑ / ↓ | climb / dive |
 | `SPACE` | fire — one shot per press, and the gun's own cooldown holds between them |
-| `V` | hand the ship back to its squadron |
+| `V` | hand the ship back to its squadron. It goes back by itself when the fight ends |
 
 The ship always flies forward, a third faster than the autopilot. Its gun
 is the ship's own: it hits whatever enemy is nearest within range, and does
@@ -259,6 +264,16 @@ trigger — so hand the ship back first.
 takes as much damage as your ship had left, and your ship is gone. A fresh
 interceptor into a frigate is a real trade; a shot-up one is a poor
 missile. Wrecks cannot be rammed.
+
+A **reticle** marks the middle of the view, and only ships inside its box
+are drawn as ships: everything further out is a dot in its side's colour,
+which is what keeps the cockpit quick in a fight. Nothing behind your nose
+is drawn, and nothing closer than about five thousand units ahead of it —
+the cockpit sees the middle distance. The **scanner** at the bottom right
+is for the rest: every enemy that is flying, placed relative to your
+heading — up the box is ahead of you, right is right, a thousand units to
+the pixel — and the white dot in the middle is you. A red dot touching it
+is an enemy in gun range.
 
 Your ship's own shots leave from the middle of the view. Its death, a jump,
 `V` again, or **the end of the fight** puts the camera back on the squadron:

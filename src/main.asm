@@ -623,6 +623,7 @@ ENDIF
 ;  three-byte calls in the low 16K (phase4_cache, cbt_fire_if_able); the rest
 ;  is here, with its lists after bank4_end.
     include "game/shots.asm"
+    include "game/farmarks.asm"
 ;  The Mothership setting down on the planet, before the victory page, and
 ;  the banner across the middle of the view when the yard learns a class.
 ;  Both bank code by the narrow rule: the landing stops the world, the banner
@@ -704,6 +705,16 @@ pilot_scan:         defw 0              ; pilot_ram's walk over the hostile regi
 pilot_scan_slot:    defb 0
 pilot_pitch:        defb 0              ; the orbit's pitch, for when the ship is handed back
 pilot_fought:       defb 0              ; something hostile flew while this ship was flown
+;  The scanner's frame (game/farmarks.asm): all written before they are read.
+scan_me:            defw 0
+scan_walk:          defw 0
+scan_left:          defb 0
+scan_sin:           defb 0
+scan_cos:           defb 0
+scan_dx:            defb 0
+scan_dz:            defb 0
+scan_t:             defb 0
+scan_ahead:         defb 0
 ;  Scratch that used to sit inside the image, for want of anywhere else: the
 ;  homeplanet's per-pass working set, the jump wipe's walk and per-ship band,
 ;  and txt_big's glyph. All written before they are read; the file was over

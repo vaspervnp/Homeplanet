@@ -583,8 +583,12 @@ def project(point, focus, matrix, cam_dist, shift=None, mul3=None, mag=None):
     y = rotated[1] >> 8
     z = (rotated[2] >> 8) + cam_dist
 
-    if z < Z_NEAR or z > Z_FAR:
+    if z < Z_NEAR:
         return None
+    #  Past the byte is the far plane, not nothing: the Z80 clamps a positive
+    #  high byte to Z_FAR (see proj_point), because two zoom steps out
+    #  cam_dist is 250 and a byte left five camera units past the focus.
+    z = min(z, Z_FAR)
 
     #  The divide, then the magnification, then the centre. proj_shr7 leaves a
     #  value in -256..255 -- which is the whole range (x*r)>>7 can take -- and

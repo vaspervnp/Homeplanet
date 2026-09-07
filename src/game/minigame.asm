@@ -1347,6 +1347,12 @@ mini_ships:
     sra a
     add a,MG_CX
     ld e,a                              ; E = where on the screen, 72..248
+    ld d,0                              ; ...AND D. mini_blit takes the column as
+                                        ; a WORD since the run's flights came in
+                                        ; from the right, and with D left holding
+                                        ; whatever it held the enemy's column was
+                                        ; off any screen and spr_blit drew nothing:
+                                        ; the Vekhar had not been seen since.
 
     ;  ...and how far down the shaft, which is the distance itself: it comes
     ;  down towards you as you close, and grows a size at each threshold.
