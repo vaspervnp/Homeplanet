@@ -73,7 +73,12 @@
 ;  did NOT buy any of that back: it fills the same nine tracks more fully
 ;  rather than needing fewer of them, and the ~4 KB it takes off DISC.BIN is
 ;  one AMSDOS block, not a track.
-LIB_TRACK           equ 20              ; first track of the library area
+;  TWENTY-SIX SINCE MINI2.BIN: three 26 KB programs plus the splash and the
+;  music take the AMSDOS files to about track 22, and a raw-sector area
+;  AMSDOS cannot see is exactly what it writes the next file over. 26 + 12
+;  ends at 37, clear of FLEET_TRACK at 39; tools/discbanks.py refuses to
+;  write a library sector that is not blank, which is the net under this.
+LIB_TRACK           equ 26              ; first track of the library area
 LIB_TRACKS_PER_BANK equ 4               ; 36 sectors on the disc, of which we use LIB_SECTORS
 LIB_BANKS           equ 3               ; banks 5, 6 and 7
 

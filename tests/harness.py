@@ -37,6 +37,7 @@ SYM = os.path.join(BUILD, "homeplanet.sym")
 #  MINI.BIN is a second assembly of the same source and its addresses are its
 #  own -- see MINI_ONLY in src/main.asm.
 MINI_SYM = os.path.join(BUILD, "mini", "homeplanet.sym")
+MINI2_SYM = os.path.join(BUILD, "mini2", "homeplanet.sym")
 DISC_SYM = os.path.join(BUILD, "disc.sym")
 
 LOADER_ORG = 0x4000
@@ -284,6 +285,9 @@ def end_the_run(c: cpc.CPC, sym: dict) -> None:
     bank 7 is in while it runs."""
     try:
         write_cpu(c, sym["RUN_LEFT"], b"\x01")
+        #  ...and no destroyer: the clock holds at its last step while one is
+        #  alive, so a walk that is only passing through would never get out.
+        write_cpu(c, sym["RUN_BOSS"], b"\x00")
     except KeyError:
         pass
 

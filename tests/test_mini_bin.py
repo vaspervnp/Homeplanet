@@ -366,3 +366,59 @@ class TestTheTwoBuildsShareTheLow16K(unittest.TestCase):
         with open("build/mini/home.raw", "rb") as f:
             mini = f.read()
         self.assertEqual(game, mini, "MINI.BIN's low 16K differs from the game's")
+
+    def test_mini2s_home_raw_is_identical_too(self):
+        with open("build/home.raw", "rb") as f:
+            game = f.read()
+        with open("build/mini2/home.raw", "rb") as f:
+            mini = f.read()
+        self.assertEqual(game, mini, "MINI2.BIN's low 16K differs from the game's")
+
+
+class TestMini2Bin(unittest.TestCase):
+    """RUN"MINI2: the R-Type run on its own, off the real disc, on its page,
+    and ENTER begins it -- the same three claims TestMiniBin makes of the
+    chase. Its state is the run's in bank 7, which is the window while it is
+    up, so it is read with read_cpu."""
+
+    FIRST_CHAR, LAST_CHAR, CHAR_H = 32, 95, 8
+
+    @classmethod
+    def setUpClass(cls):
+        cls.sym = h.symbols(h.MINI2_SYM)
+        cls.c = h.boot_disc(frames=500, program="MINI2")
+        for _ in range(300):
+            if cls.c.read_ram(cls.sym["RUN_ACTIVE"], 1)[0]:
+                break
+            cls.c.run_frames(10)
+        else:
+            raise AssertionError("RUN\"MINI2 never reached the run")
+        cls.c.run_frames(20)
+
+    @classmethod
+    def tearDownClass(cls):
+        h.close(getattr(cls, "c", None))
+
+    def row(self, y, x0, cells):
+        return TestMiniBin.row(self, y, x0, cells)
+
+    def test_it_opens_on_the_runs_page_and_enter_begins_it(self):
+        self.assertEqual(self.row(self.sym["MG_INTRO_GO_Y"], self.sym["MG_INTRO_GO_X"], 13),
+                         "ENTER - BEGIN")
+        line = self.row(self.sym["MG_INTRO_Y"] + 2 * self.sym["MG_INTRO_STEP"],
+                        self.sym["RUN_INTRO_3_X"], 29)
+        self.assertEqual(line, "UP AND DOWN FLY. SPACE FIRES.")
+        self.assertEqual(h.read_cpu(self.c, self.sym["RUN_LEFT"], 1)[0], self.sym["RUN_STEPS"])
+        self.c.key_down(cpc.KEY_ENTER)
+        self.c.run_frames(6)
+        self.c.key_up(cpc.KEY_ENTER)
+        for _ in range(60):
+            self.c.run_frames(5)
+            if h.read_cpu(self.c, self.sym["RUN_LEFT"], 1)[0] < self.sym["RUN_STEPS"]:
+                break
+        else:
+            self.fail("ENTER did not start the run")
+
+    def test_it_is_the_run_and_not_the_chase(self):
+        self.assertEqual(self.c.read_ram(self.sym["MINI_ACTIVE"], 1)[0], 0)
+        self.assertEqual(self.c.read_ram(self.sym["RUN_ACTIVE"], 1)[0], 1)

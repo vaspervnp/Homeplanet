@@ -204,7 +204,16 @@ shot_draw:
 
     ld a,(shot_shooter)
     call shot_where
-    jp nc,@shot_done_one                ; one of them is off the screen: no tracer
+    jr c,@shot_from
+    ;  Not projected -- unless it is the ship the player is INSIDE, which is
+    ;  never drawn: its shots leave from the middle of the view.
+    ld a,(shot_shooter)
+    ld hl,pilot_slot
+    cp (hl)
+    jp nz,@shot_done_one                ; one of them is off the screen: no tracer
+    ld hl,SCR_CENTRE_X
+    ld c,PROJ_CENTRE_Y
+@shot_from:
     ld (shot_ax),hl
     ld l,c
     ld h,0

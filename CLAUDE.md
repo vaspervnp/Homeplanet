@@ -5875,6 +5875,23 @@ of headroom the libload section quotes, and the next file added to the image
 has to look at that figure first. The content test in `test_shipclass` is the
 net if one does not.
 
+#### ...and `MINI2.BIN`, the run the same way
+
+*"μπορείς να φτιάξεις mini2.bin όπως έφτιαξες mini.bin?"* `src/mini2.asm` and
+`src/minidisc2.asm` set `MINI_ONLY` to **2**, and `boot_after_init`'s loop
+hands `chase_run` `MINI_ONLY - 1` — 0 the chase, 1 the run — and clears both
+intro flags, so each build's page is its "play again". `BOOT_AFTER_INIT_SIZE`
+is 26, and the three `home.raw` images are byte-identical, which
+`test_mini_bin` asserts for both.
+
+**The third 26 KB file took the AMSDOS files past track 20, which is where
+the libraries were.** That is exactly how `MUSIC2.BIN` once landed on bank 5,
+and it would have again: `LIB_TRACK` is **26** now (libraries 26–37, the
+fleet at 39) — and `tools/discbanks.py` refuses to write a library sector
+that is not blank `#E5`, so the next file that grows into the area stops the
+build with "raise LIB_TRACK" instead of shipping a bank full of program.
+Unverified on Retro Virtual Machine, like every track move before it.
+
 ### The unarmed are prey half the time
 
 *"make enemies attack unarmed ships 50% of the time."* `cbt_prey_bias` pushed
@@ -6053,9 +6070,34 @@ the test uses.
 - **375 bytes of bank 4, 15 of bank 7** (`V   FLY A SHIP` on the help page,
   `HELP_ROWS` 12), nothing per frame while not flying but three `cp`s.
 
-**Looked at**, `build/shots/pilot-*.png`: the ship sits centred with the bar
-above it, and holding LEFT swings the lattice and the Mothership across the
-right of the screen, which is what turning left looks like from behind.
+**Looked at**, `build/shots/pilot-*.png`: from inside, the lattice and the
+Mothership ahead, nothing of the ship, and holding LEFT swings them across
+the right of the screen, which is what turning left looks like from the
+cockpit.
+
+**And the camera is INSIDE it.** *"Όταν ελέγχω σκάφος με το V, το βλέπω ή
+βλέπω μέσα από αυτό;"* — it was seen, from `cam_dist` behind, one white
+interceptor among a squadron of them; the answer wanted was *"κάνε η κάμερα
+να είναι μέσα του"*. The eye cannot sit AT the focus: `proj_point` clips
+everything nearer than `Z_NEAR`, 84 camera units, so `cam_dist` 0 shows
+nothing inside 5000 world units. It sits one unit inside the near plane
+instead — `PILOT_CAM_DIST` is `Z_NEAR - 1` — so the ship at the focus is at
+z = 83 and clipped, everything ahead is drawn from z = 84 up at the largest
+tier first, and nothing behind is drawn at all. Which is a cockpit. Pitch is
+0 while flying and the orbit's pitch and the zoom's own `cam_dist` come back
+with the ship, through `order_apply_zoom` — which is also where the cockpit's
+distance is WRITTEN, because `moth_update` re-applies the zoom on every frame
+the camera moves and put the zoom's distance back after the pilot had set its
+own; the first test of this read 150 where it wanted 83. **And that
+override clobbered HL**, which is `order_apply_zoom`'s cursor into the zoom
+record: the four copies after it then patched the projection's own
+instructions from address 83 of bank 6, and the game jumped into screen
+memory the moment a ship was flown — found by a PC histogram, 257 of 300
+samples in `scr_wait_vsync` and 20 in `#C000`. `push hl : pop hl`. Both
+writers stay: `pilot_frame` every frame, and the override for the frames
+`moth_update` re-applies the zoom. The ship's own tracers leave from
+the middle of the view, because `shot_where` has no projection for a ship
+that is never drawn.
 
 ### Shots you can see
 
@@ -6247,14 +6289,18 @@ three moved to a bank that had 3,424 bytes idle. 1,150 bytes, eleven call
 sites, four tests reading `bank6.raw` where they read `bank7.raw`.
 
 **The destroyer is in** (`run_boss_step`): with `RUN_BOSS_AT` steps left it
-comes in from the right along the middle of the lane at `RUN_BOSS_DX` a step
-— a third of a fighter — fires at twice a fighter's odds into a fifth shot
-slot (`RUN_ESHOT_N`), takes `RUN_BOSS_HITS` hits and pays `RUN_BOSS_WORTH`
-kills of salvage, about `eco_class_cost`'s destroyer. It is drawn from the
+comes in from the right at `RUN_BOSS_DX` a step — two thirds of a fighter —
+to `RUN_BOSS_STOP`, the **middle of the lane**, and holds there on its sine;
+fires at twice a fighter's odds into a fifth shot slot (`RUN_ESHOT_N`); takes
+`RUN_BOSS_HITS` — nine, *"8 ως 10 βολές"* — and pays `RUN_BOSS_WORTH` kills
+of salvage, about `eco_class_cost`'s destroyer. **It cannot be outlasted**:
+*"να μην τελειώνει το παιχνίδι μέχρι να τον καταστρέψω"* — the clock holds at
+its last step while it is alive, no flights spawn while it is in, and the run
+ends on the kill or on our third hit. `harness.end_the_run` zeroes it as well
+as the clock, or a campaign walk would never get out. Drawn from the
 destroyer's own library, which is in bank 7 beside the interceptor's — the
-reason `mini_blit` takes a class — at tier C in the enemy ink, and it can be
-outlasted: a destroyer that gets past pays nothing, and the run ends on the
-clock either way. About 120 bytes of bank 7, none of `DISC.BIN`.
+reason `mini_blit` takes a class — at tier C in the enemy ink. About 130
+bytes of bank 7, none of `DISC.BIN`.
 
 > **AND THEY CAME IN FROM THE WRONG SIDE**, reported as *"ships show up right
 > in front of the player"*: `mini_blit` kept its x in one byte, which the
@@ -6263,6 +6309,23 @@ clock either way. About 120 bytes of bank 7, none of `DISC.BIN`.
 > until it had flown far enough to fit. `mini_sx` is a word now and the
 > column is a signed 16-bit shift; `spr_blit` rejects a column past 79 and
 > always did. `TestTheyComeFromTheRight` reads the lane's pixels.
+
+> **THE LIVES ARE SHIPS NOW, AND THEY COUNT DOWN.** *"Οι ζωές στα μίνι
+> παιχνίδια να είναι ανάποδα... Να είναι μικρά σκάφη."* `mini_hit_marks`
+> draws `MG_HITS_MAX - mini_hits` interceptors top left of the band, white,
+> one taken away per hit, in both minigames. **Tier B, not A**: a tier A
+> interceptor at the three-quarter is six pixels and read as dust on the
+> screen — the dump of rows 34–35 was `70 / 70 08`, twice. Sixteen by ten
+> reads as a ship.
+
+> **AND A SHOT WENT THROUGH A SHIP AT THE TOP OF ITS SWING.** Reported as
+> *"οι σφαίρες περνάνε από μέσα του"* of the destroyer, which holds in the
+> middle and swings: `run_shot_hits` compared the shot with the ship's y0,
+> the centre line of the sine, while `run_draw` put it `RUN_ENEMY_AMP` lines
+> above or below — a nine-line box against a twenty-line swing. Every test
+> had staged its target at theta 0, where the two are the same line.
+> `run_near_ship` builds (x, drawn y) and both the flights and the destroyer
+> go through it; `TestShotsHitWhereTheShipIs` stages theta 64.
 
 > **THE FLIGHTS HAD NEVER FIRED, and the destroyer found it.** `run_enemies_step`
 > rolled `sys_rand` and then wrote the shot through HL — and `sys_rand`'s

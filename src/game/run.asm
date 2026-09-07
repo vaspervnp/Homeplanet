@@ -49,16 +49,17 @@ RUN_STAR_SEED       equ #4D2B
 RUN_STAR_X0         equ 32
 RUN_SALVAGE         equ 35              ; RU a kill: eco_class_cost's interceptor
 ;  The destroyer (minigame2.md, "the last thirty per cent"): enters with
-;  RUN_BOSS_AT steps left, crosses at two thirds of a fighter's speed on the same
-;  sine, fires twice as often into an eshot slot of its own, and takes
-;  RUN_BOSS_HITS hits to kill -- worth RUN_BOSS_WORTH kills of salvage, which
-;  is about eco_class_cost's destroyer. It can be outlasted: the run ends on
-;  the clock whether it dies or not, and a destroyer that gets past pays
-;  nothing.
-RUN_BOSS_AT         equ 50              ; steps left when it comes in: at RUN_BOSS_DX it
-                                        ; is a hundred units in when the clock ends, so
-                                        ; "outlasted" is the clock, and it never reaches us
-RUN_BOSS_HITS       equ 3
+;  RUN_BOSS_AT steps left, comes in at two thirds of a fighter's speed on the
+;  same sine to the MIDDLE of the lane and holds there, fires twice as often
+;  into an eshot slot of its own, and takes RUN_BOSS_HITS hits to kill --
+;  worth RUN_BOSS_WORTH kills of salvage, about eco_class_cost's destroyer.
+;  IT CANNOT BE OUTLASTED: "να μην τελειώνει το παιχνίδι μέχρι να τον
+;  καταστρέψω" -- the clock holds at its last step while it is alive, so the
+;  run ends on the kill or on our third hit, and no flights spawn while it is
+;  in: the boss IS the end.
+RUN_BOSS_AT         equ 50              ; steps left when it comes in
+RUN_BOSS_STOP       equ 80              ; ...and where it holds: the middle of the lane
+RUN_BOSS_HITS       equ 9               ; "8 ως 10 βολές"
 RUN_BOSS_DX         equ 2               ; units a step: four pixels, two thirds of a fighter's
 RUN_BOSS_SPIN       equ 2
 RUN_BOSS_FIRE_P     equ RUN_FIRE_P * 2
@@ -147,6 +148,14 @@ run_main:
     ld hl,run_left
     dec (hl)
     jr nz,@run_step
+    ;  The clock is out -- but not while the destroyer is alive: it holds at
+    ;  one step and the run goes on until the kill, or our third hit.
+    ld a,(run_boss)
+    or a
+    jr z,@run_won
+    inc (hl)
+    jr @run_step
+@run_won:
 
     ;  The clock: the lane is clear, and the kills are salvage.
     ld a,(run_kills)
@@ -342,8 +351,9 @@ run_shot_hits:
     or a
     jr z,@run_hit_next
     push hl
-    inc hl
-    call run_near                       ; HL -> the enemy's x, y
+    push bc                             ; run_enemy_y's multiply uses B, the loop count
+    call run_near_ship                  ; HL -> the record: x, and the y it is DRAWN at
+    pop bc
     pop hl
     jr nc,@run_hit_next
     ld (hl),0                           ; dead
@@ -362,8 +372,7 @@ run_shot_hits:
     or a
     ret z                               ; not in, or dead: CF clear from the OR
     push hl
-    inc hl
-    call run_near                       ; HL -> its x, y0
+    call run_near_ship                  ; HL -> its record
     pop hl
     ret nc
     dec (hl)
@@ -380,6 +389,30 @@ run_shot_hits:
     ret
 
 ;  HL -> an (x, y) pair. CF set if (run_tx, run_ty) is within the hit box.
+; ----------------------------------------------------------------------------
+;  run_near_ship -- is the shot at (run_tx, run_ty) on the ship at record HL?
+;  In : HL -> alive, x, y0, theta
+;  Out: CF set if it is
+;  Uses: everything
+;
+;  AT THE Y IT IS DRAWN AT, not at y0. run_shot_hits compared against y0 --
+;  the centre line of the sine -- while run_draw put the ship RUN_ENEMY_AMP
+;  lines above or below it; the box is nine lines, the swing is twenty, so at
+;  the top and bottom of its curve a ship could not be hit where it was and
+;  could be hit where it was not. "Οι σφαίρες περνάνε από μέσα του": the
+;  destroyer, holding in the middle of the lane and swinging, is where it
+;  showed. Every test had staged its target at theta 0, where y is y0.
+; ----------------------------------------------------------------------------
+run_near_ship:
+    inc hl
+    ld a,(hl)
+    ld (run_hit_xy),a                   ; x
+    dec hl
+    call run_enemy_y                    ; A = y0 + AMP * sin(theta)
+    ld (run_hit_xy + 1),a
+    ld hl,run_hit_xy
+    ; ...and fall through
+
 run_near:
     ld a,(hl)
     ld c,a
@@ -509,8 +542,10 @@ run_boss_step:
     inc hl
     ld a,(hl)
     sub RUN_BOSS_DX
-    cp 4
-    jr c,@run_boss_gone
+    cp RUN_BOSS_STOP
+    jr nc,@run_boss_moved
+    ld a,RUN_BOSS_STOP                  ; the middle of the lane, and it holds
+@run_boss_moved:
     ld (hl),a
     inc hl
     inc hl
@@ -534,10 +569,6 @@ run_boss_step:
     call run_enemy_y
     pop hl
     ld (hl),a
-    ret
-@run_boss_gone:
-    ld hl,run_boss
-    ld (hl),0                           ; outlasted: it pays nothing
     ret
 
 
@@ -588,6 +619,9 @@ run_eshots_step:
 ;  run_spawn -- a new flight when the last is gone
 ; ----------------------------------------------------------------------------
 run_spawn:
+    ld a,(run_boss)
+    or a
+    ret nz                              ; the destroyer is in: no more flights
     ld hl,run_enemies
     ld b,RUN_ENEMY_MAX
     ld de,4
@@ -902,6 +936,7 @@ run_kills:          defb 0
 run_msg:            defb 0
 run_tx:             defb 0
 run_ty:             defb 0
+run_hit_xy:         defw 0              ; a ship's (x, drawn y), for run_near
 run_pen:            defb 0
 run_enemies:        defs RUN_ENEMY_MAX * 4      ; alive, x, y0, theta
 run_shots:          defs RUN_SHOT_MAX * 2       ; x (0 = free), y

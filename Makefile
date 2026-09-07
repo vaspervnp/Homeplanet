@@ -1,7 +1,7 @@
 # ============================================================================
 #  HOMEPLANET -- Amstrad CPC 6128
 # ============================================================================
-#  make          assemble -> build/homeplanet.dsk (DISC.BIN and MINI.BIN on it)
+#  make          assemble -> build/homeplanet.dsk (DISC.BIN, MINI.BIN and MINI2.BIN on it)
 #  make tables   regenerate the lookup tables
 #  make ships    re-render the ship sprites + contact sheets
 #  make test     assemble, then run the emulator test suite
@@ -52,6 +52,16 @@ MINI_SPRITE_RAW := $(MINI_DIR)/sprites.raw
 MINI_SPRITE_RLE := $(MINI_DIR)/sprites.rle
 MINI_SYM   := $(MINI_DIR)/homeplanet.sym
 MINI_DISC_SYM := $(MINI_DIR)/disc.sym
+# ...and MINI2.BIN, the R-Type run the same way: MINI_ONLY at 2, under
+# build/mini2/. RUN"MINI2 to play it.
+MINI2_DIR   := $(BUILD_DIR)/mini2
+MINI2_MAIN  := $(SRC_DIR)/mini2.asm
+MINI2_DISC  := $(SRC_DIR)/minidisc2.asm
+MINI2_RAW   := $(MINI2_DIR)/home.raw
+MINI2_SPRITE_RAW := $(MINI2_DIR)/sprites.raw
+MINI2_SPRITE_RLE := $(MINI2_DIR)/sprites.rle
+MINI2_SYM   := $(MINI2_DIR)/homeplanet.sym
+MINI2_DISC_SYM := $(MINI2_DIR)/disc.sym
 
 DSK      := $(BUILD_DIR)/homeplanet.dsk
 GAME_RAW := $(BUILD_DIR)/home.raw
@@ -110,6 +120,13 @@ $(MINI_RAW) $(MINI_SPRITE_RAW) $(MINI_SYM) &: $(ASM_SOURCES) $(TABLES) $(SPRITES
 $(MINI_SPRITE_RLE): $(MINI_SPRITE_RAW) tools/packsprites.py
 	$(PYTHON) tools/packsprites.py $(MINI_SPRITE_RAW) $(MINI_SPRITE_RLE)
 
+$(MINI2_RAW) $(MINI2_SPRITE_RAW) $(MINI2_SYM) &: $(ASM_SOURCES) $(TABLES) $(SPRITES) $(MUSIC_GEN) | $(MINI2_DIR)
+	$(RASM) $(MINI2_MAIN) $(RASMFLAGS) -s -sa -ec -os $(MINI2_SYM)
+	rm -f rasmoutput.cpr
+
+$(MINI2_SPRITE_RLE): $(MINI2_SPRITE_RAW) tools/packsprites.py
+	$(PYTHON) tools/packsprites.py $(MINI2_SPRITE_RAW) $(MINI2_SPRITE_RLE)
+
 # The rm is not tidiness. RASM's -eo writes the file INTO an existing .dsk,
 # and DISC.BIN grows with every feature -- overwriting in place left the image
 # holding a mixture of builds, so `boot_disc` and anyone running the real disc
@@ -124,10 +141,11 @@ $(MINI_SPRITE_RLE): $(MINI_SPRITE_RAW) tools/packsprites.py
 # MINI.BIN goes on SECOND, into the image DISC.BIN just minted -- that is what
 # -eo is for -- so the catalogue lists the game first. Both saves are inside
 # the one recipe because both have to be redone whenever the image is.
-$(DISC_RAW) $(DSK) $(DISC_SYM) &: $(GAME_RAW) $(SPRITE_RLE) $(DISC) $(MUSIC_BIN) $(MINI_RAW) $(MINI_SPRITE_RLE) $(MINI_DISC)
+$(DISC_RAW) $(DSK) $(DISC_SYM) &: $(GAME_RAW) $(SPRITE_RLE) $(DISC) $(MUSIC_BIN) $(MINI_RAW) $(MINI_SPRITE_RLE) $(MINI_DISC) $(MINI2_RAW) $(MINI2_SPRITE_RLE) $(MINI2_DISC)
 	rm -f $(DSK)
 	$(RASM) $(DISC) $(RASMFLAGS) -s -sa -ec -os $(DISC_SYM)
 	$(RASM) $(MINI_DISC) $(RASMFLAGS) -s -sa -ec -os $(MINI_DISC_SYM)
+	$(RASM) $(MINI2_DISC) $(RASMFLAGS) -s -sa -ec -os $(MINI2_DISC_SYM)
 
 # ...and then the three sprite banks go on as raw sectors, after AMSDOS has
 # laid DISC.BIN down. This step must come last and must be redone every time
@@ -186,6 +204,9 @@ $(BUILD_DIR):
 
 $(MINI_DIR):
 	mkdir -p $(MINI_DIR)
+
+$(MINI2_DIR):
+	mkdir -p $(MINI2_DIR)
 
 test: $(BANKED)
 	$(PYTHON) -m tests.run

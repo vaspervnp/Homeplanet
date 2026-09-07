@@ -106,6 +106,12 @@ class RunFixture(unittest.TestCase):
         return [(raw[i * 2], raw[i * 2 + 1]) for i in range(self.sym["RUN_SHOT_MAX"])]
 
 
+def drawn_y(sym, y0, theta):
+    """Where run_draw puts a ship whose record says (y0, theta)."""
+    import math
+    return y0 + int(127 * math.sin(theta / 256 * 2 * math.pi)) * sym["RUN_ENEMY_AMP"] // 128
+
+
 class TestWhenAndThePage(RunFixture):
 
     def test_the_jump_out_of_mission_2_opens_on_the_page_and_enter_begins_it(self):
@@ -286,10 +292,11 @@ if __name__ == "__main__":
 
 
 class TestTheDestroyer(RunFixture):
-    """minigame2.md's "last thirty per cent": with RUN_BOSS_AT steps left a
-    destroyer comes in from the right, crosses at a third of a fighter's
-    speed, fires twice as often into a shot slot of its own, and takes
-    RUN_BOSS_HITS hits -- worth RUN_BOSS_WORTH kills. It can be outlasted."""
+    """minigame2.md's "last thirty per cent", as asked for: with RUN_BOSS_AT
+    steps left a destroyer comes in from the right to the MIDDLE of the lane
+    and holds there, fires twice as often into a shot slot of its own, takes
+    RUN_BOSS_HITS hits -- worth RUN_BOSS_WORTH kills -- and the clock waits
+    for it: "να μην τελειώνει το παιχνίδι μέχρι να τον καταστρέψω"."""
 
     def boss(self):
         raw = h.read_cpu(self.c, self.sym["RUN_BOSS"], 4)
@@ -302,6 +309,10 @@ class TestTheDestroyer(RunFixture):
         self.step(2)
         hits, x, y0, theta = self.boss()
         self.assertEqual(hits, self.sym["RUN_BOSS_HITS"], "the destroyer did not come in")
+        #  ...and the flight that was already on the screen is gone: a shot
+        #  meant for the destroyer is spent on whichever fighter it crosses
+        #  first, and the fifth of nine did exactly that.
+        h.write_cpu(self.c, self.sym["RUN_ENEMIES"], bytes(self.sym["RUN_ENEMY_MAX"] * 4))
         return x
 
     def test_it_comes_in_from_the_right_with_its_hits_to_take(self):
@@ -309,26 +320,41 @@ class TestTheDestroyer(RunFixture):
         self.assertGreaterEqual(x, self.sym["RUN_ENEMY_X0"] - 2 * self.sym["RUN_BOSS_DX"])
         self.assertEqual(self.boss()[2], self.sym["MG_CY"], "it is not along the middle of the lane")
 
-    def test_it_crosses_slowly_leftwards(self):
+    def test_it_comes_in_at_its_own_speed_and_holds_in_the_middle(self):
         x0 = self.bring_it_in()
         self.step(6)
         x1 = self.boss()[1]
         self.assertLess(x1, x0, "the destroyer did not move left")
         self.assertLessEqual(x0 - x1, 6 * self.sym["RUN_BOSS_DX"] + 1, "it is faster than RUN_BOSS_DX")
+        for _ in range(60):
+            self.step(1)
+            if self.boss()[1] == self.sym["RUN_BOSS_STOP"]:
+                break
+        else:
+            self.fail(f"it never reached the middle: x {self.boss()[1]}")
+        self.step(5)
+        self.assertEqual(self.boss()[1], self.sym["RUN_BOSS_STOP"], "it did not hold in the middle")
 
-    def test_three_shots_kill_it_and_it_pays_like_seven(self):
+    def test_no_more_flights_once_it_is_in(self):
         self.bring_it_in()
-        #  Let it come in off the edge first: a shot moves RUN_SHOT_DX before
-        #  it is checked and one that ends past 160 is gone, not a hit.
+        base = self.sym["RUN_ENEMIES"]
+        h.write_cpu(self.c, base, bytes(self.sym["RUN_ENEMY_MAX"] * 4))   # the last flight, gone
+        self.step(6)
+        alive = [e for e in self.enemies() if e[0]]
+        self.assertEqual(alive, [], f"a flight spawned with the destroyer in: {alive}")
+
+    def test_nine_shots_kill_it_and_it_pays_like_seven(self):
+        self.bring_it_in()
         self.step(8)
         kills0 = self.b7("RUN_KILLS")
         for n in range(self.sym["RUN_BOSS_HITS"]):
             hits, x, y0, theta = self.boss()
             self.assertEqual(hits, self.sym["RUN_BOSS_HITS"] - n)
-            #  A shot of ours on its centre line, a step short of it.
-            h.write_cpu(self.c, self.sym["RUN_SHOTS"], bytes([x - self.sym["RUN_SHOT_DX"], y0]))
+            #  ...at the y it is DRAWN at, which is y0 only at theta 0.
+            h.write_cpu(self.c, self.sym["RUN_SHOTS"],
+                        bytes([x - self.sym["RUN_SHOT_DX"], drawn_y(self.sym, y0, theta)]))
             self.step(1)
-        self.assertEqual(self.boss()[0], 0, "three hits did not kill it")
+        self.assertEqual(self.boss()[0], 0, "nine hits did not kill it")
         self.assertEqual(self.b7("RUN_KILLS"), kills0 + self.sym["RUN_BOSS_WORTH"],
                          "the destroyer was not worth RUN_BOSS_WORTH kills")
 
@@ -344,59 +370,119 @@ class TestTheDestroyer(RunFixture):
         y = h.read_cpu(self.c, slot + 1, 1)[0]
         self.assertTrue(self.sym["MG_BODY_Y"] <= y < self.sym["MG_BODY_Y"] + self.sym["MG_BODY_H"])
 
-    def test_outlasted_it_pays_nothing(self):
+    def test_the_clock_waits_for_it_and_the_kill_ends_the_run(self):
         self.bring_it_in()
-        kills0 = self.b7("RUN_KILLS")
-        self.poke7("RUN_BOSS", 1)                # one hit from dead...
-        h.write_cpu(self.c, self.sym["RUN_BOSS"] + 1, bytes([5]))   # ...and about to get past
-        self.step(3)
-        self.assertEqual(self.boss()[0], 0, "it did not get past")
-        self.assertEqual(self.b7("RUN_KILLS"), kills0, "a destroyer that got past paid")
+        #  Out of its line of fire: it shoots at twice a fighter's odds along
+        #  a sine about the middle, which is where we start, and three of
+        #  those over the seconds this takes is a loss rather than the win
+        #  the test is about.
+        self.poke7("RUN_Y", self.sym["RUN_YMIN"])
+        self.poke7("RUN_LEFT", 1)
+        self.step(6)
+        self.assertEqual(self.byte("RUN_ACTIVE"), 1, "the run ended with the destroyer alive")
+        self.assertEqual(self.boss()[0], self.sym["RUN_BOSS_HITS"])
+        self.assertGreaterEqual(self.b7("RUN_LEFT"), 1)
+        self.poke7("RUN_BOSS", 1)                       # one hit from dead
+        hits, x, y0, theta = self.boss()
+        ru0 = int.from_bytes(self.c.read_ram(self.sym["ECO_RU"], 2), "little")
+        h.write_cpu(self.c, self.sym["RUN_SHOTS"],
+                    bytes([x - self.sym["RUN_SHOT_DX"], drawn_y(self.sym, y0, theta)]))
+        #  Not step(): the clock reads 1 at every step boundary while it is
+        #  held, so "RUN_LEFT changed" never comes. The run ENDING is the
+        #  claim, and its end is in the low 16K.
+        for _ in range(120):
+            self.c.run_frames(20)
+            if not self.byte("RUN_ACTIVE"):
+                break
+        else:
+            self.fail("the kill did not end the run")
+        ru = int.from_bytes(self.c.read_ram(self.sym["ECO_RU"], 2), "little")
+        self.assertGreaterEqual(ru - ru0, self.sym["RUN_BOSS_WORTH"] * self.sym["RUN_SALVAGE"],
+                                "the run ended without the destroyer's salvage: it was not won")
+        self.assertEqual(self.byte("MINI_LOST"), 0, "the run ended as a loss")
 
 
-class TestTheyComeFromTheRight(RunFixture):
-    """"In the R-Type minigame ships show up right in front of the player.
-    They should always be coming from the other side." mini_blit kept the
-    x in one byte, so a ship spawned at 316..372 pixels was drawn at 60..116
-    -- in front of us -- until it had flown far enough to fit. Read off the
-    pixels: a flight fresh off the right edge puts no enemy ink on the left
-    half of the lane, and a ship at a hundred units is drawn at two hundred
-    pixels."""
+if __name__ == "__main__":
+    unittest.main()
 
-    def red_columns(self, x0, x1):
-        """Byte columns in x0..x1 carrying pen-3 pixels inside the lane,
-        below the hit marks."""
-        ram = self.c.read_ram(h.front_buffer(self.c), 0x4000)
-        top = self.sym["MG_BODY_Y"] + 12
-        bottom = self.sym["MG_BODY_Y"] + self.sym["MG_BODY_H"]
-        cols = set()
-        for y in range(top, bottom):
-            for xb in range(x0, x1):
-                b = ram[h.screen_offset(y, xb)]
-                if (b & 0x0F) & ((b & 0xF0) >> 4):        # both planes: pen 3
-                    cols.add(xb)
-        return cols
 
-    def one_enemy_at(self, x):
+class TestShotsHitWhereTheShipIs(RunFixture):
+    """"Οι σφαίρες περνάνε από μέσα του." The hit test compared a shot with
+    the ship's y0, the centre line of its sine, while the ship is drawn
+    RUN_ENEMY_AMP lines above or below it. Staged at theta 64 -- the top of
+    the swing -- a shot at y0 must miss and a shot at the drawn y must hit;
+    every earlier test had theta 0, where the two are the same line."""
+
+    def drawn_y(self, y0, theta):
+        return drawn_y(self.sym, y0, theta)
+
+    def one_enemy(self, y0, theta):
         base = self.sym["RUN_ENEMIES"]
-        h.write_cpu(self.c, base, bytes([1, x, self.sym["MG_CY"], 0]))
+        h.write_cpu(self.c, base, bytes([1, self.sym["RUN_UX"] + 20, y0, theta]))
         for i in range(1, self.sym["RUN_ENEMY_MAX"]):
             h.write_cpu(self.c, base + i * 4, b"\x00")
-        h.write_cpu(self.c, self.sym["RUN_ESHOTS"], bytes(self.sym["RUN_ESHOT_N"] * 2))
+
+    def shoot_at(self, x, y):
+        h.write_cpu(self.c, self.sym["RUN_SHOTS"], bytes([x, y]))
         self.step(1)
-        self.c.run_frames(4)
 
-    def test_a_ship_past_the_right_edge_draws_nothing_on_the_left(self):
+    def test_a_shot_on_the_centre_line_misses_a_fighter_at_the_top_of_its_swing(self):
         self.jump_into_the_run()
         self.begin()
-        self.one_enemy_at(175)                              # 350 pixels: off the right
-        self.assertEqual(self.red_columns(0, 40), set(),
-                         "enemy ink on the left half with the only enemy past the right edge")
+        y0 = self.b7("RUN_Y")
+        self.one_enemy(y0, 64)
+        kills0 = self.b7("RUN_KILLS")
+        self.shoot_at(self.sym["RUN_UX"] + 20 - self.sym["RUN_SHOT_DX"], y0)
+        self.assertEqual(self.b7("RUN_KILLS"), kills0, "a shot twenty lines under the ship killed it")
 
-    def test_a_ship_at_a_hundred_units_is_drawn_at_two_hundred_pixels(self):
+    def test_a_shot_at_the_drawn_y_hits_it(self):
         self.jump_into_the_run()
         self.begin()
-        self.one_enemy_at(100)
-        cols = self.red_columns(0, 80)
-        self.assertTrue(cols, "the enemy was not drawn at all")
-        self.assertTrue(all(42 <= c <= 58 for c in cols), f"enemy ink at columns {sorted(cols)}")
+        y0 = self.b7("RUN_Y")
+        self.one_enemy(y0, 64)
+        kills0 = self.b7("RUN_KILLS")
+        self.shoot_at(self.sym["RUN_UX"] + 20 - self.sym["RUN_SHOT_DX"], self.drawn_y(y0, 64))
+        self.assertEqual(self.b7("RUN_KILLS"), kills0 + 1, "a shot where the ship is drawn went through it")
+
+    def test_the_destroyer_is_hit_where_it_is_drawn_too(self):
+        self.jump_into_the_run()
+        self.begin()
+        self.poke7("RUN_LEFT", self.sym["RUN_BOSS_AT"] + 1)
+        self.step(2)
+        boss = self.sym["RUN_BOSS"]
+        h.write_cpu(self.c, boss, bytes([self.sym["RUN_BOSS_HITS"], self.sym["RUN_BOSS_STOP"], self.sym["MG_CY"], 64]))
+        y = self.drawn_y(self.sym["MG_CY"], 64 + self.sym["RUN_BOSS_SPIN"])
+        self.shoot_at(self.sym["RUN_BOSS_STOP"] - self.sym["RUN_SHOT_DX"], y)
+        self.assertEqual(h.read_cpu(self.c, boss, 1)[0], self.sym["RUN_BOSS_HITS"] - 1,
+                         "a shot where the destroyer is drawn went through it")
+
+
+class TestTheLivesAreShips(RunFixture):
+    """"Οι ζωές να φαίνονται και να αφαιρούνται. Να είναι μικρά σκάφη." Three
+    small white ships top left of the band, one fewer per hit, in both
+    minigames -- mini_hit_marks is one routine. Read off the pixels."""
+
+    def white_top_left(self):
+        ram = self.c.read_ram(h.front_buffer(self.c), 0x4000)
+        n = 0
+        for y in range(self.sym["MG_BODY_Y"], self.sym["MG_BODY_Y"] + 12):
+            for xb in range(0, 18):
+                b = ram[h.screen_offset(y, xb)]
+                n += bin(b & 0xF0 & ~((b & 0x0F) << 4) & 0xFF).count("1")   # pen 1 only
+        return n
+
+    def test_three_ships_then_two(self):
+        self.jump_into_the_run()
+        self.begin()
+        self.step(2)
+        three = self.white_top_left()
+        self.assertGreater(three, 30, "no lives drawn")     # three tier B ships
+        self.poke7("MINI_HITS", 1)
+        self.step(2)
+        two = self.white_top_left()
+        self.assertLess(two, three, "a hit did not take a ship away")
+        self.assertGreater(two, three // 3, "more than one ship went")
+        self.poke7("MINI_HITS", 2)
+        self.step(2)
+        one = self.white_top_left()
+        self.assertLess(one, two)

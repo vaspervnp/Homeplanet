@@ -218,6 +218,30 @@ class TestTheCameraRidesBehindIt(PilotFixture):
         self.assertEqual(self.byte("CAM_YAW"), (self.field(p, ENT_YAW) + 128) & 255,
                          "the camera is not behind the ship")
 
+    def test_the_eye_is_inside_the_ship_and_the_ship_is_not_drawn(self):
+        """cam_dist one unit inside the near plane, pitch level with the nose,
+        and the flown ship itself clipped: its per-slot projection cache is
+        never stamped with the current frame while it is being flown."""
+        zoom_dist = self.word("CAM_DIST")
+        pitch0 = self.byte("CAM_PITCH")
+        self.c.key_down(cpc.KEY_UP)                          # an orbit pitch to come back to
+        self.c.run_frames(30)
+        self.c.key_up(cpc.KEY_UP)
+        self.c.run_frames(20)
+        pitch1 = self.byte("CAM_PITCH")
+        self.assertNotEqual(pitch1, 0)
+        p = self.take_the_stick()
+        self.c.run_frames(30)
+        self.assertEqual(self.word("CAM_DIST"), self.sym["Z_NEAR"] - 1, "the eye is not inside the ship")
+        self.assertEqual(self.byte("CAM_PITCH"), 0, "the view is not level with the nose")
+        stamped = h.read_bank4(self.c, self.sym["SHOT_POS"] + p * 4 + 3, 1)[0]
+        self.assertNotEqual(stamped, self.game_frames(), "the flown ship was projected: it is being drawn")
+        #  ...and something ahead of it IS: the Mothership, after a turn towards it.
+        self.hold("v")
+        self.c.run_frames(20)
+        self.assertEqual(self.word("CAM_DIST"), zoom_dist, "the zoom's cam_dist did not come back")
+        self.assertEqual(self.byte("CAM_PITCH"), pitch1, "the orbit's pitch did not come back")
+
     def test_its_death_hands_the_camera_back_to_the_station(self):
         p = self.take_the_stick()
         self.c.run_frames(20)

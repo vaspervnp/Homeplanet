@@ -27,7 +27,9 @@
 DIAG_DISC           equ 0
 
 ; ----------------------------------------------------------------------------
-;  MINI_ONLY -- MINI.BIN, the vortex chase on its own, for trying it out.
+;  MINI_ONLY -- MINI.BIN, the vortex chase on its own, for trying it out;
+;  and MINI2.BIN, the R-Type run the same way (src/mini2.asm sets it to 2,
+;  and the loop in boot_after_init hands chase_run MINI_ONLY - 1).
 ;
 ;  Nothing here sets it. src/mini.asm sets it to 1 and INCLUDES this file, so
 ;  the same source assembles twice: once as the game, once as a build that
@@ -470,10 +472,14 @@ low_end:
 ;  A headerless blob only. src/disc.asm wraps it in the relocating stub that
 ;  actually gets it to #0040 -- see the long explanation there.
 ; ----------------------------------------------------------------------------
+IF MINI_ONLY == 2
+    save "build/mini2/home.raw", CODE_START, code_end - CODE_START
+ELSE
 IF MINI_ONLY
     save "build/mini/home.raw", CODE_START, code_end - CODE_START
 ELSE
     save "build/home.raw", CODE_START, code_end - CODE_START
+ENDIF
 ENDIF
 
 
@@ -573,7 +579,7 @@ bank4_start:
 ;  In bank 4 so that the LOW 16K stays identical between the two builds:
 ;  see game_main.
 ; ----------------------------------------------------------------------------
-BOOT_AFTER_INIT_SIZE equ 21              ; the MINI loop: asserted below in that build
+BOOT_AFTER_INIT_SIZE equ 26              ; the MINI loop: asserted below in that build
 boot_after_init:
 IF MINI_ONLY
     call mus_stop
@@ -583,7 +589,9 @@ IF MINI_ONLY
     call squad_refresh
     xor a
     ld (mini_shown),a
-    call chase_run                      ; A = 0: bank 7 in, the chase, bank 4 back
+    ld (run_shown),a                    ; both pages, whichever this build plays
+    ld a,MINI_ONLY - 1                  ; MINI.BIN: 0, the chase; MINI2.BIN: 1, the run
+    call chase_run                      ; bank 7 in, mini_entry, bank 4 back
     jr @mini_loop
 boot_after_init_end:
     assert boot_after_init_end - boot_after_init == BOOT_AFTER_INIT_SIZE, "BOOT_AFTER_INIT_SIZE is not the size of MINI.BIN's loop: the game's pad is wrong"
@@ -670,6 +678,7 @@ pilot_ent:          defw 0
 ;  zeroed by mis_init; nothing else needs a starting value.
 pilot_scan:         defw 0              ; pilot_ram's walk over the hostile region
 pilot_scan_slot:    defb 0
+pilot_pitch:        defb 0              ; the orbit's pitch, for when the ship is handed back
 shot_count:         defb 0
 shot_list:          defs SHOT_MAX * 2
 shot_pos:           defs ENT_MAX * SHOT_POS_SIZE
@@ -963,10 +972,14 @@ bank4_limit:
     assert TITLE_PLANET_CY - TITLE_PLANET_RY >= TITLE_Y + 32, "the planet runs into the big title"
     assert TITLE_PLANET_CY + TITLE_PLANET_RY < TITLE_PROMPT_Y, "the planet runs into the title prompt"
 
+IF MINI_ONLY == 2
+    save "build/mini2/sprites.raw", BANK_WINDOW, bank4_end - BANK_WINDOW
+ELSE
 IF MINI_ONLY
     save "build/mini/sprites.raw", BANK_WINDOW, bank4_end - BANK_WINDOW
 ELSE
     save "build/sprites.raw", BANK_WINDOW, bank4_end - BANK_WINDOW
+ENDIF
 ENDIF
 
 

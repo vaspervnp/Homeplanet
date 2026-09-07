@@ -168,10 +168,11 @@ MG_TORP_HIT         equ 16
 MG_HITS_MAX         equ 3
 MG_TORP_PEN         equ 3               ; the alarm ink: it is one
 MG_TORP_RISE        equ 3               ; lines down the shaft per step of flight
-MG_HITS_X           equ 8               ; where the hit marks are drawn...
-MG_HITS_Y           equ MG_BODY_Y + 2   ; ...inside the band the step clears
-MG_HITS_STEP        equ 8
-MG_HITS_H           equ 6
+MG_HITS_X           equ 12              ; where the lives are drawn...
+MG_HITS_Y           equ MG_BODY_Y + 6   ; ...inside the band the step clears: the
+                                        ;    centre of a tier B sprite, ten tall
+MG_HITS_STEP        equ 20              ; a tier B ship is sixteen wide
+MG_HITS_TIER        equ 1               ; tier A's three-quarter interceptor is six pixels
 
 ;  ...and 10% to 50% of the fleet, as 256ths, so the count is one mul_u8 and a
 ;  shift -- the same arithmetic wave_frac_of does for a repair's price.
@@ -842,30 +843,51 @@ mini_torp_draw:
 
 
 ; ----------------------------------------------------------------------------
-;  mini_hit_marks -- one red mark per torpedo that has landed
+;  mini_hit_marks -- the lives: one small ship per hit still to take
 ;  Uses: everything
 ;
-;  Top left of the band, which the step clears, so they cost nothing to keep
-;  right: they are drawn from mini_hits every step and there is no shadow.
+;  "Οι ζωές στα μίνι παιχνίδια να είναι ανάποδα. Δηλαδή να φαίνονται και να
+;  αφαιρούνται. Να είναι μικρά σκάφη." They were red marks that ACCUMULATED;
+;  they are MG_HITS_MAX tier B interceptors, white, top left of the band,
+;  one taken away per hit. Both minigames draw them from mini_hits every
+;  step, inside the band the step clears, so there is no shadow to keep.
+;  mini_blit's view and side are put back, because the run calls this with
+;  our ship's view still set and the chase with the enemy's.
 ; ----------------------------------------------------------------------------
 mini_hit_marks:
     ld a,(mini_hits)
-    or a
-    ret z
     ld b,a
+    ld a,MG_HITS_MAX
+    sub b
+    ret z                               ; none left: the run is over anyway
+    ret c
+    ld (mini_lives_left),a
+    ld a,(mini_view)
+    ld (mini_lives_view),a
+    ld a,(spr_enemy)
+    ld (mini_lives_side),a
+    xor a
+    ld (spr_enemy),a                    ; ours, white
+    inc a
+    ld (mini_view),a                    ; the three-quarter: nose-on is four pixels at 8x6
     ld hl,MG_HITS_X
-@mg_mark:
-    push bc
+@mg_life:
     push hl
+    ex de,hl                            ; DE = centre x
     ld c,MG_HITS_Y
-    ld b,MG_HITS_H
-    ld a,MG_TORP_PEN
-    call gfx_vline
+    ld b,MG_HITS_TIER
+    call mini_blit
     pop hl
     ld de,MG_HITS_STEP
     add hl,de
-    pop bc
-    djnz @mg_mark
+    ld a,(mini_lives_left)
+    dec a
+    ld (mini_lives_left),a
+    jr nz,@mg_life
+    ld a,(mini_lives_view)
+    ld (mini_view),a
+    ld a,(mini_lives_side)
+    ld (spr_enemy),a
     ret
 
 
@@ -1555,4 +1577,7 @@ mini_bx:            defb 0
 mini_bw:            defb 0
 mini_ty:            defb 0
 mini_sx:            defw 0              ; pixels, signed: the run's flights start past 255
+mini_lives_left:    defb 0              ; mini_hit_marks' count, view and side to restore
+mini_lives_view:    defb 0
+mini_lives_side:    defb 0
 mini_sy:            defb 0

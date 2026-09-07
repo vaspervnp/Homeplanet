@@ -65,10 +65,14 @@ MINI_ONLY           equ 0
     org GAME_LOAD
 
 game_image:
+IF MINI_ONLY == 2
+    incbin "build/mini2/home.raw"
+ELSE
 IF MINI_ONLY
     incbin "build/mini/home.raw"
 ELSE
     incbin "build/home.raw"
+ENDIF
 ENDIF
 game_image_end:
 
@@ -86,10 +90,14 @@ game_image_end:
 ;  4% of that. The day the bank has sprites in it again -- a ninth class that
 ;  does not fit banks 5-7 -- it pays for itself once more.
 sprite_image:
+IF MINI_ONLY == 2
+    incbin "build/mini2/sprites.rle"
+ELSE
 IF MINI_ONLY
     incbin "build/mini/sprites.rle"
 ELSE
     incbin "build/sprites.rle"
+ENDIF
 ENDIF
 sprite_image_end:
 
@@ -212,6 +220,11 @@ disc_stub_end:
 
     run disc_stub
 
+IF MINI_ONLY == 2
+    print "MINI2.BIN:", disc_stub_end - GAME_LOAD, "bytes, exec at", {hex}disc_stub
+    save "MINI2.BIN", GAME_LOAD, disc_stub_end - GAME_LOAD, DSK, "build/homeplanet.dsk"
+    save "build/mini2/disc.raw", GAME_LOAD, disc_stub_end - GAME_LOAD
+ELSE
 IF MINI_ONLY
     print "MINI.BIN:", disc_stub_end - GAME_LOAD, "bytes, exec at", {hex}disc_stub
 
@@ -226,4 +239,5 @@ ELSE
 
     save "DISC.BIN", GAME_LOAD, disc_stub_end - GAME_LOAD, DSK, "build/homeplanet.dsk"
     save "build/disc.raw", GAME_LOAD, disc_stub_end - GAME_LOAD
+ENDIF
 ENDIF

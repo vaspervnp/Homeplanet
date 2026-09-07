@@ -860,6 +860,26 @@ order_apply_zoom:
     ld de,cam_dist
     ld bc,2
     call bank6_copy
+    ;  ...UNLESS A SHIP IS BEING FLOWN: the eye is then one unit inside the
+    ;  near plane whatever the zoom says (game/pilot.asm, PILOT_CAM_DIST).
+    ;  Here and not in pilot_frame alone, because moth_update borrows the
+    ;  widest step and re-applies the zoom on every frame the camera moves --
+    ;  which, from a cockpit, is every frame -- and put the zoom's distance
+    ;  back after the pilot had set its own. Found by the test that asked.
+    ;  HL IS THE CURSOR INTO THE RECORD -- bank6_copy hands it back advanced
+    ;  and the four copies below continue from it. The first version loaded
+    ;  PILOT_CAM_DIST into HL here, and the zoom ladder, the range check and
+    ;  proj_mag were then patched from address 83 of bank 6: garbage in the
+    ;  projection's own instructions, and the game jumped into screen memory
+    ;  the moment a ship was flown.
+    ld a,(pilot_slot)
+    cp ENT_MAX
+    jr nc,@ord_zoom_dist_ok
+    push hl
+    ld hl,PILOT_CAM_DIST
+    ld (cam_dist),hl
+    pop hl
+@ord_zoom_dist_ok:
     ;  BC IN FULL EVERY TIME. The five LDIRs used to lean on B being left at
     ;  zero by the one before, and bank7_copy does not leave it there -- it
     ;  ends by writing the gate array, which is an `out (c),c` with #7F in B.

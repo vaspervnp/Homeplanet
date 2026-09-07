@@ -20,8 +20,9 @@
 ;  with the view axis at cam_yaw c along world (-sin c, cos c). Put together, a
 ;  ship with ENT_YAW y has its nose along world (sin y, -cos y), whatever the
 ;  camera is doing -- and a camera at y + 128 looks along exactly that vector,
-;  which is what a chase camera IS. So the yaw view drawn is 3, tail-on, and
-;  LEFT is yaw INCREASING: at view 3 the nose swings to camera -x as the view
+;  which is what a camera looking along the nose IS. The ship itself is not
+;  drawn -- the eye is inside it, see PILOT_CAM_DIST -- and LEFT is yaw
+;  INCREASING: at view angle 3 the nose swings to camera -x as the view
 ;  angle grows. (order_camera's LEFT takes cam_yaw the other way; that is an
 ;  orbit, and the world swinging right as you turn left is what turning left
 ;  looks like from behind.)
@@ -58,6 +59,16 @@ PILOT_STEP_HALF     equ 100
 PILOT_CLIMB         equ 100
 ;  What the timer is parked at while the pilot's finger is off the trigger.
 PILOT_HOLD          equ 1
+;  THE CAMERA IS INSIDE THE SHIP. "Κάνε η κάμερα να είναι μέσα του." The eye
+;  cannot sit AT the focus -- proj_point clips everything nearer than Z_NEAR,
+;  which is 84 camera units, so cam_dist 0 would show nothing inside 5000
+;  world units -- but it can sit one unit inside the near plane: the ship at
+;  the focus is then at z = 83 and is clipped, everything ahead of it is
+;  drawn from z = 84 up, at the largest tier first, and nothing behind it is
+;  drawn at all. Which is a cockpit. The zoom's own cam_dist comes back with
+;  the ship, through order_apply_zoom, and so does the player's pitch: the
+;  view is along the nose while flying, and the orbit they had afterwards.
+PILOT_CAM_DIST      equ Z_NEAR - 1
 ;  How close, in camera units, is a collision: 4 is 256 world units. The two
 ;  close at up to 350 a frame, so anything smaller could pass through a ship
 ;  between one frame and the next.
@@ -100,6 +111,8 @@ pilot_toggle:
     ld de,ENT_ORDER - ENT_FLAGS
     add hl,de
     ld (hl),ENT_ORDER_PILOT
+    ld a,(cam_pitch)
+    ld (pilot_pitch),a                  ; the orbit's pitch, kept for the way back
     ret
 
 @pilot_next:
@@ -135,7 +148,11 @@ pilot_end:
 @pilot_end_slot:
     ld a,ENT_NO_TARGET
     ld (pilot_slot),a
-    ret
+    ;  The orbit camera back: its pitch, and the zoom's own cam_dist, which
+    ;  pilot_frame has been overriding every frame.
+    ld a,(pilot_pitch)
+    ld (cam_pitch),a
+    jp order_apply_zoom
 
 
 ; ----------------------------------------------------------------------------
@@ -254,28 +271,26 @@ pilot_frame:
     jr c,@pilot_camera                  ; fire: cbt_fire_if_able sees the zero
     ld (hl),PILOT_HOLD
 
-    ; --- the camera, behind it ------------------------------------------------
+    ; --- the camera, inside it ------------------------------------------------
 @pilot_camera:
     ld hl,(pilot_ent)
     ld de,ENT_YAW
     add hl,de
     ld a,(hl)
-    add a,TRIG_STEPS / 2                ; view 3: tail-on, looking where it looks
+    add a,TRIG_STEPS / 2                ; looking along the nose
     ld (cam_yaw),a
+    xor a
+    ld (cam_pitch),a                    ; ...level with it
+    ld hl,PILOT_CAM_DIST
+    ld (cam_dist),hl                    ; ...from one unit inside the near plane
+    ;  ...and order_apply_zoom writes the same while pilot_slot names a
+    ;  ship, because moth_update re-applies the zoom on the frames the
+    ;  camera moves and the Mothership is off the screen. Both, or one of
+    ;  the two cases reads the zoom's distance: the first version had each
+    ;  on its own, and each was caught by a different reader.
     ret
 
 
-; ----------------------------------------------------------------------------
-;  pilot_ram -- is the flown ship inside PILOT_RAM_DIST of a hostile?
-;  Out: CF set if it was, and the collision has happened: both hulls have
-;       paid, the dead are dead, and the ship has been handed back
-;  Uses: everything
-;
-;  Only the hostile region, and only a hostile that is FLYING: a wreck is a
-;  hull adrift and the derelict is one for three missions, and flying into
-;  either would be a cheap way to lose a ship. The enemy takes the pilot's
-;  hull off its own, whole or not at all, and the pilot's hull goes to zero:
-;  the damage is what the ship had, so a fresh ship is the heavier weapon.
 ; ----------------------------------------------------------------------------
 pilot_ram:
     ld hl,entities + ENT_PLAYER_MAX * ENT_SIZE

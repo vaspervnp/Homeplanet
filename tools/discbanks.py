@@ -141,6 +141,16 @@ class Disc:
                 f"track {track} sector #{sector_id:02X} is {length} bytes, "
                 f"not {len(payload)}"
             )
+        #  BLANK FIRST. A freshly formatted sector is all #E5; anything else
+        #  here is an AMSDOS file that has grown into the library area -- which
+        #  AMSDOS will do without a word, because raw sectors are not in its
+        #  allocation map. MUSIC2.BIN once landed on bank 5 this way and the
+        #  game booted with a bank full of music player. Refuse, loudly.
+        if any(b != 0xE5 for b in self.data[off:off + length]):
+            raise DiscError(
+                f"track {track} sector #{sector_id:02X} is not blank: an AMSDOS "
+                f"file has reached the library area -- raise LIB_TRACK"
+            )
         self.data[off:off + length] = payload
 
     def save(self) -> None:
