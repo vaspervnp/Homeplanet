@@ -367,27 +367,27 @@ fdc_sector_rw:
     cp FDC_CMD_READ
     jr z,@fdc_read_byte
 
+    ;  THE WRITE LOOP IS SHAPED FOR THE IDLE SAMPLE, NOT THE BUSY ONE. On the
+    ;  owner's emulator every save came back ST0 40 ST1 10 -- OVERRUN -- from
+    ;  a loop that fed a byte in 104 T-states but took 56 to notice RQM when
+    ;  it sampled a moment too early (in, and, cp, jr, bit, jr). RQM first
+    ;  and alone, and the idle sample is 32 T: in, bit, jr. EXM is asked only
+    ;  once RQM is up, and the sector ends when EXM clears -- EOT equals R, so
+    ;  the controller stops after 512 bytes by itself and the byte count that
+    ;  used to be kept in DE was a cost with no job. TerraCPC's disc.asm is
+    ;  the same shape and saves on that emulator; ours did not.
 @fdc_write_byte:
     in a,(c)
-    and FDC_ST_RQM + FDC_ST_DIO + FDC_ST_EXM
-    cp FDC_ST_RQM + FDC_ST_EXM          ; executing, and wanting a byte from us
-    jr z,@fdc_write_go
+    bit 7,a                             ; RQM?
+    jr z,@fdc_write_byte                ; not yet: ask again, quickly
     bit 5,a                             ; EXM: still executing?
-    jr nz,@fdc_write_byte               ; yes -- it just has not asked yet
-    bit 7,a                             ; no -- wait for RQM and take the result
-    jr z,@fdc_write_byte
-    jr @fdc_rw_drain
-@fdc_write_go:
+    jr z,@fdc_rw_result                 ; no: keep where HL got to, take the result
     ld a,(hl)
-    inc hl
     inc c                               ; -> FDC_DATA
     out (c),a
     dec c                               ; -> FDC_STATUS, for the next round
-    dec de
-    ld a,d
-    or e
-    jr nz,@fdc_write_byte
-    jr @fdc_rw_result
+    inc hl
+    jr @fdc_write_byte
 
 @fdc_read_byte:
     in a,(c)

@@ -309,11 +309,16 @@ ban_words_end:
 ; ----------------------------------------------------------------------------
 title_words:
 title_text:     defb "HOMEPLANET",0
-title_prompt:   defb "PRESS SPACE TO START",0
+title_prompt:   defb "SPACE - NEW GAME",0
 title_tut:      defb "T TUTORIAL  M MUSIC",0
 title_tut_end:
 title_credit:   defb "REVIVE8BIT - 2026 - VASPER",0
 title_credit_end:
+;  ...and the key line as it reads when the disc holds a campaign: C continues
+;  it, SPACE begins a new one. Fifth, after the credit, so the four indices
+;  above do not move.
+title_cont:     defb "C CONTINUE  T TUTORIAL  M MUSIC",0
+title_cont_end:
 
 ; ----------------------------------------------------------------------------
 ;  wave_say_text -- the HUD message row's five things, indexed by wave_msg.

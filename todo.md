@@ -6,6 +6,81 @@ see [CLAUDE.md](CLAUDE.md) for both.
 
 ---
 
+## NEXT: fights that last, and a cockpit worth flying in
+
+*"Κάνε 10 φορές ισχυρότερα τα hull των πλοίων για να κρατάει περισσότερο η
+μάχη και να έχει νόημα το V. Πρόσθεσέ το και στο tutorial. Όταν είμαι σε V
+να φαίνεται όπως στο Elite δεξιά το scanner με τις θέσεις των εχθρών. Μόνο
+οι εχθροί και φίλοι που είναι κοντά στο στόχαστρό μου (φτιάξε ένα στόχαστρο)
+θα φαίνονται κανονικά με sprite. Οι υπόλοιποι θα είναι marks όπως στο
+scanner για να επιταχύνεται το παιχνίδι."* Four things, in the order they
+depend on each other.
+
+### 1. Ten times the hull
+
+**A hull is one byte and an interceptor is already at 255**, so "ten times
+stronger" cannot be a bigger number. It has to be the same number lasting ten
+times longer: **divide every entry of `cbt_damage_matrix` by ten** — with
+`/10` rounding the small ones (a harvester's 2 and 4) to zero, so either keep
+the matrix and shift the DAMAGE right in `cbt_fire_if_able` (`>>3` is eight
+times, `>>3` plus `>>4` is about eleven), or make the matrix 16-bit fixed
+point. Either way it is a few bytes of the low 16K, which has 23 of slack.
+
+What moves with it, and every one has to be re-measured rather than reasoned:
+- **Repair** (`eco_repair_cost`) and **recycle** price by damage fraction:
+  unchanged in meaning.
+- **The waves** are sized on summed hull, unchanged; how long a wave takes to
+  kill goes up tenfold, and so does how long it takes to die. `WAVE_GAP_MIN`
+  and the three-wave gate are what decide whether a mission becomes an hour.
+- **The tutorial's fight** (step 14) and the salvage step behind it: four
+  interceptors kill a 120-hull hostile in three seconds today.
+- **Ramming** does the pilot's HULL as damage, so it stays a ten-times
+  weapon while the guns are divided: decide whether that is the point.
+- `tools/balance.py --rebuild` and `tools/waverate.py 4`, before and after,
+  and the frame rate: longer fights mean more ships alive per frame.
+
+### 2. `V` in the tutorial
+
+A step after the fight: *"V TAKES THE LEAD SHIP. ARROWS FLY, SPACE FIRES."*
+Gated on `pilot_slot` being set and then cleared, the way step 6 is gated on
+the squadron page having been opened and closed. `pilot_toggle` refuses
+`tut_active` today — that guard goes, and `TestTheCampaignIsNotTouched`'s V
+test becomes the step's test. `tut_table` is a row per step in bank 7 and
+`tut_text` a line, so it costs bank 7 and a gate of ~20 bytes in bank 4.
+
+### 3. The scanner, Elite's, on the right of the cockpit
+
+While `pilot_slot` is set: a small ellipse bottom right with a dot per ship
+— red hostile, white ours — at the ship's position RELATIVE TO THE FLOWN
+SHIP, rotated by its yaw, with a stalk for height, exactly Elite's. All of it
+is already in the game in pieces: `phase4_draw_sensor` draws every ship as a
+dot or a cross, `proj_rotate` turns a world delta into camera space, and the
+cockpit camera IS the ship's frame — so a ship's camera-space (x, z) scaled
+down by a shift is its scanner position, and camera y is the stalk. Drawn
+after the HUD, into the dirty list through `mark_dot`/`mark_bar` (one rect
+for the whole scanner, or it eats `PHASE4_RECT_SLOTS`). Costs a
+`proj_rotate` per ship — 2,790 T each — so at forty ships it is a tenth of
+the frame; every fourth frame is enough for a scanner.
+
+### 4. A reticle, and sprites only near it
+
+A crosshair at the centre of the cockpit view (`mark_cross` in ink 2, two
+bars either side), and **only ships whose projected position is within
+`PILOT_SPRITE_R` pixels of it are blitted**; every other visible ship is a
+sensor-view dot or cross. That is the sensor view's `phase4_draw_sensor` and
+the tactical view's `phase4_draw` sharing one frame, decided per entry of
+`phase4_vis` by distance from the centre — a compare on `sx` and `sy` in the
+draw loop, which is the low 16K. The blit is 182,000 T of a frame at 24
+entities; drawing four of them as sprites and twenty as dots is most of that
+back, which is what "για να επιταχύνεται" asks for. **Only while flying**:
+the tactical view keeps every sprite.
+
+**Room**: `DISC.BIN` has 15 bytes. Items 3 and 4 are bank-4 code and want
+the next lever first — the help page, the orders menu or the game-over page
+are the candidates for running from bank 7, the way the chase does.
+
+---
+
 ## 0. THE ORDER, agreed: clean the tests → repack the libraries → title
 ## music → the PNG tool
 

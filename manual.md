@@ -34,16 +34,19 @@ world and the sleepers wake.
 
 The game keeps one saved campaign on the disc. It is written every time
 you jump, so the power going off between missions costs you nothing; it is
-erased when you lose the Mothership, or when you land.
+erased when you lose the Mothership, or when you land. Starting a new
+campaign with `SPACE` does not touch it until your first jump writes over
+it, so a `SPACE` pressed by habit can be undone by switching off.
 
 ### The title screen
 
 `RUN"DISC` loads the game and shows the title: the name, the planet, a
-flight of ships, and the tune.
+flight of ships, the tune, and `SPACE - NEW GAME`.
 
 | key | what it does |
 |---|---|
-| `SPACE` | begin the campaign — or continue the saved one, if there is one |
+| `SPACE` | begin a **new** campaign |
+| `C` | **continue** the saved one. The key is only offered — and only works — when the disc holds a campaign |
 | `T` | the tutorial: seventeen short lessons, one key at a time |
 | `M` | music on / off. It remembers, and the game's own music obeys it too |
 
@@ -491,7 +494,8 @@ fresh fleet each round and no campaign at stake.
 | `Z` `X` `+` `-` | zoom |
 | `P` | pan on / off |
 | `TAB` `S` | sensor view |
-| `SPACE` | pause (fire, while flying; start, on the title) |
+| `SPACE` | pause (fire, while flying; a new campaign, on the title) |
+| `C` | combine squadrons (continue the saved campaign, on the title) |
 | `ENTER` | move disc open / confirm; buy, in the panel; dismiss a briefing |
 | `ESC` | menu; or cancel the disc, the panel, a recycle, a jump; leave the tutorial |
 | `SHIFT` + ↑↓ | raise / lower the disc |

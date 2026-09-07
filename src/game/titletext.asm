@@ -15,7 +15,7 @@ TITLE_CREDIT_X      equ 14
 
 ;  20 characters at 2 bytes is 40, so 20 bytes of margin each side.
 
-TITLE_PROMPT_X      equ 20
+TITLE_PROMPT_X      equ 24              ; "SPACE - NEW GAME": sixteen characters, centred
 
 ;  18 characters at 2 bytes is 36, so 22 bytes of margin each side. It names
 ;  the key the same way the line above it does -- "PRESS SPACE TO START" and
@@ -39,6 +39,7 @@ TITLE_PROMPT_X      equ 20
 ;  keys in the terser form. T loses its sentence; what it keeps is being on the
 ;  screen at all, which is the thing that argument was really about.
 TITLE_TUT_X         equ 20
+TITLE_CONT_X        equ 9               ; the saved-campaign key line, 31 characters, centred
 
 
 ;  --- the flight: x in BYTES (word, signed -- spr_x is a byte column, not a

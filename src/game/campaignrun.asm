@@ -22,6 +22,29 @@
 ;  mis_init -- start the campaign at mission 1
 ;  Uses: everything
 ; ----------------------------------------------------------------------------
+;  campaign_fresh -- a new campaign in memory over a restored one
+;  Uses: everything
+;
+;  demo_init's sequence with the disc read left out: the title screen calls
+;  it when SPACE is pressed with a save loaded, so the fleet, the treasury,
+;  the stations, the unlocks and the mission all go back to the first frame
+;  of a new game. The save on the disc is left alone -- the first jump
+;  writes over it -- which is what makes SPACE safe to press by habit.
+; ----------------------------------------------------------------------------
+campaign_fresh:
+    call order_init
+    call form_init
+    call mark_init
+    call cbt_init
+    call eco_init
+    call planet_init
+    call mis_init
+    call ent_clear_all
+    call phase4_spawn_fleet
+    call mis_setup
+    jp squad_init
+
+
 mis_init:
     xor a
     ld (mis_index),a

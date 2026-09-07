@@ -183,12 +183,16 @@ def dismiss_title(c: cpc.CPC) -> None:
         return
     if "TITLE_SHOWN" not in sym:
         return
+    #  C when the disc holds a campaign, SPACE when it does not: SPACE is a
+    #  NEW campaign now, and a test that power-cycled to check the save came
+    #  back would otherwise be checking a fresh mission 1.
+    key = "c" if c.read_ram(sym["MIS_SAVED"], 1)[0] else cpc.KEY_SPACE
     for _ in range(6):
         if not read_bank4(c, sym["TITLE_SHOWN"], 1)[0]:
             return
-        c.key_down(cpc.KEY_SPACE)
+        c.key_down(key)
         c.run_frames(25)
-        c.key_up(cpc.KEY_SPACE)
+        c.key_up(key)
         c.run_frames(20)
     raise RuntimeError("could not get past the title screen")
 

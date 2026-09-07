@@ -91,9 +91,28 @@ title_key:
     jp tut_enter
 @title_no_tut:
 
+    ;  C continues the campaign on the disc, if there is one; SPACE begins a
+    ;  NEW one, and a new one over a saved one is campaign_fresh -- the boot's
+    ;  own sequence without the disc read. The disc is not touched: the save
+    ;  stays until the first jump writes over it, so a SPACE pressed by habit
+    ;  costs nothing that a power cycle would not give back. "Με Space
+    ;  ξεκινάει από την αρχή, με C (που θα φαίνεται μόνο αν υπάρχει σωσμένο)
+    ;  από το σωσμένο."
+    ld a,KEY_C
+    call key_hit
+    jr nc,@title_no_cont
+    ld a,(mis_saved)
+    or a
+    ret z                               ; nothing saved: C is not a key here
+    jr @title_start
+@title_no_cont:
     ld a,KEY_SPACE
     call key_hit
     ret nc
+    ld a,(mis_saved)
+    or a
+    call nz,campaign_fresh              ; the saved fleet goes; the disc keeps it
+@title_start:
     call mus_start                      ; ...and the campaign gets the same
     xor a
     ld (title_shown),a
@@ -163,11 +182,22 @@ title_draw:
 
     ;  ...and the tutorial, steady. See TITLE_TUT_Y for why it is here at all
     ;  and why it does not blink.
+    ;  ...which names C as well when the disc holds a campaign: "C CONTINUE
+    ;  T TUTORIAL  M MUSIC", centred, the fifth string; SPACE is a NEW game
+    ;  either way and the line says so by what it leaves out.
     ld hl,title_words
+    ld a,(mis_saved)
+    or a
     ld a,2
-    call bank7_fetch                    ; bank 7: title_words[2]
-    ld hl,bank7_line
     ld b,TITLE_TUT_X
+    jr z,@title_keys_fetch
+    ld a,4
+    ld b,TITLE_CONT_X
+@title_keys_fetch:
+    push bc
+    call bank7_fetch                    ; bank 7: title_words[2] or [4]
+    pop bc
+    ld hl,bank7_line
     ld c,TITLE_TUT_Y
     call txt_draw
 

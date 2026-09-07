@@ -308,3 +308,103 @@ class TestTheUnlocksSurviveThePowerGoingOff(DiscFixture):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestTheTitleOffersTheSave(DiscFixture):
+    """"Με Space ξεκινάει από την αρχή, με C (που θα φαίνεται μόνο αν υπάρχει
+    σωσμένο) από το σωσμένο." SPACE is a new campaign; C continues the one on
+    the disc, and the key line names it only when there is one. The disc is
+    not touched by SPACE: the save is still there for the next power cycle."""
+
+    FIRST_CHAR, LAST_CHAR, CHAR_H = 32, 95, 8
+
+    def row(self, y, x0, cells):
+        ram = self.c.read_ram(h.front_buffer(self.c), 0x4000)
+        font = bytes(self.c.read_ram(
+            self.sym["TXT_FONT"], (self.LAST_CHAR - self.FIRST_CHAR + 1) * self.CHAR_H))
+        out = []
+        for bx in range(x0, x0 + cells * 2, 2):
+            cell = []
+            for r in range(self.CHAR_H):
+                a = ram[h.screen_offset(y + r, bx)]
+                b = ram[h.screen_offset(y + r, bx + 1)]
+                cell.append(((a | (a << 4)) & 0xF0) | (((b | (b << 4)) & 0xF0) >> 4))
+            best, bd = " ", 999
+            for ci in range(self.FIRST_CHAR, self.LAST_CHAR + 1):
+                g = font[(ci - self.FIRST_CHAR) * self.CHAR_H:(ci - self.FIRST_CHAR + 1) * self.CHAR_H]
+                d = sum(bin(p ^ q).count("1") for p, q in zip(g, cell))
+                if d < bd:
+                    bd, best = d, chr(ci)
+            out.append(best if bd <= 2 else "?")
+        return "".join(out).strip()
+
+    def key_line(self):
+        """The key line, from whichever buffer has it: the title page-flips
+        and the line is steady, so a few samples find it."""
+        for _ in range(8):
+            self.c.run_frames(3)
+            for x0 in (self.sym["TITLE_CONT_X"], self.sym["TITLE_TUT_X"]):
+                text = self.row(self.sym["TITLE_TUT_Y"], x0, 32)
+                if "TUTORIAL" in text:
+                    return text
+        return ""
+
+    def to_the_title(self, c):
+        """Boot the game to its title screen and leave it there."""
+        c.type_text("|DISC\n")
+        c.run_frames(60)
+        c.type_text('RUN"DISC\n')
+        c.run_frames(400)
+        h.wait_for_title(c)
+        c.run_frames(40)
+
+    def hold(self, key):
+        self.c.key_down(key)
+        self.c.run_frames(25)
+        self.c.key_up(key)
+        self.c.run_frames(30)
+
+    def save_one_jump(self):
+        self.c = self.fresh_machine()
+        self.run_the_game(self.c)
+        h.jump_mission(self.c)
+        self.assertEqual(self.byte("MIS_INDEX"), 1)
+        survivors = self.fleet()
+        self.c.reset()
+        self.c.run_frames(h.BOOT_FRAMES)
+        self.to_the_title(self.c)
+        self.assertEqual(self.byte("MIS_SAVED"), 1, "the disc had no save on it")
+        return survivors
+
+    def test_without_a_save_the_line_does_not_name_c_and_c_does_nothing(self):
+        self.c = self.fresh_machine()
+        self.to_the_title(self.c)
+        self.assertEqual(self.byte("MIS_SAVED"), 0)
+        line = self.key_line()
+        self.assertEqual(line, "T TUTORIAL  M MUSIC", f"the key line reads {line!r}")
+        self.hold("c")
+        self.assertEqual(h.read_bank4(self.c, self.sym["TITLE_SHOWN"], 1)[0], 1, "C left the title with nothing saved")
+
+    def test_with_a_save_the_line_names_c_and_c_continues(self):
+        survivors = self.save_one_jump()
+        line = self.key_line()
+        self.assertEqual(line, "C CONTINUE  T TUTORIAL  M MUSIC", f"the key line reads {line!r}")
+        self.hold("c")
+        self.assertEqual(h.read_bank4(self.c, self.sym["TITLE_SHOWN"], 1)[0], 0, "C did not leave the title")
+        self.assertEqual(self.byte("MIS_INDEX"), 1, "C did not continue the saved mission")
+        self.assertEqual(self.fleet(), survivors, "C did not bring the saved fleet")
+
+    def test_with_a_save_space_begins_again_and_the_disc_keeps_the_save(self):
+        survivors = self.save_one_jump()
+        self.hold(cpc.KEY_SPACE)
+        self.assertEqual(h.read_bank4(self.c, self.sym["TITLE_SHOWN"], 1)[0], 0, "SPACE did not leave the title")
+        self.assertEqual(self.byte("MIS_INDEX"), 0, "SPACE did not begin at the first mission")
+        self.assertEqual(self.byte("MIS_SAVED"), 0)
+        self.assertEqual(self.fleet(), self.sym["PHASE4_SHIPS"] + 1, "a new campaign does not start with the starting fleet")
+        self.assertEqual(int.from_bytes(self.c.read_ram(self.sym["ECO_RU"], 2), "little"), self.sym["ECO_START_RU"])
+        #  ...and the disc still holds the campaign that was there.
+        self.c.reset()
+        self.c.run_frames(h.BOOT_FRAMES)
+        self.to_the_title(self.c)
+        self.assertEqual(self.byte("MIS_SAVED"), 1, "SPACE erased the save on the disc")
+        self.assertEqual(self.byte("MIS_INDEX"), 1)

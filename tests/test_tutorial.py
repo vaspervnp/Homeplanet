@@ -316,7 +316,7 @@ class TestTheTitleScreen(TutFixture):
         #  music needed naming too and there was nowhere to put a fourth line.
         #  It is "T TUTORIAL  M MUSIC" now. What this test is about is that T
         #  is on the screen at all, beside SPACE, which is still true.
-        want = ("T TUTORIAL", "PRESS SPACE TO START")
+        want = ("T TUTORIAL", "SPACE - NEW GAME")
         seen = {0x8000: set(), 0xC000: set()}
         for _ in range(120):
             for base in (0x8000, 0xC000):
@@ -331,7 +331,7 @@ class TestTheTitleScreen(TutFixture):
             self.assertIn("T TUTORIAL", "".join(rows),
                           f"buffer #{base:04X} never says how to reach the "
                           f"tutorial; it says {sorted(rows)}")
-            self.assertIn("PRESS SPACE TO START", "".join(rows),
+            self.assertIn("SPACE - NEW GAME", "".join(rows),
                           f"buffer #{base:04X} lost the start prompt")
 
     def test_T_enters_the_tutorial(self):

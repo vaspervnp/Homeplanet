@@ -133,8 +133,8 @@ class TestTheWords(TitleFixture):
 
     def test_the_prompt_says_which_key(self):
         """A title screen that does not say how to leave it is a dead end."""
-        self.assertEqual(self.string("TITLE_PROMPT"), b"PRESS SPACE TO START")
-        margin = (SCR_BYTES_PER_LINE - len(b"PRESS SPACE TO START") * 2) // 2
+        self.assertEqual(self.string("TITLE_PROMPT"), b"SPACE - NEW GAME")
+        margin = (SCR_BYTES_PER_LINE - len(b"SPACE - NEW GAME") * 2) // 2
         self.assertEqual(self.sym["TITLE_PROMPT_X"], margin,
                          "the prompt is not centred")
 

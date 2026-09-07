@@ -627,8 +627,22 @@ ENDIF
 ;  the banner across the middle of the view when the yard learns a class.
 ;  Both bank code by the narrow rule: the landing stops the world, the banner
 ;  is drawn from wave_draw with the window at rest.
+IF DIAG_DISC == 0
     include "game/landing.asm"
+ELSE
+;  ...and the landing sequence: the diagnostic build's low 16K crosses a
+;  page with the capture sites in it, and that page has to come from bank 4.
+land_run:
+    ret
+ENDIF
+IF DIAG_DISC == 0
     include "game/banner.asm"
+ELSE
+;  ...and the unlock banner, for the same reason as the squadron page.
+ban_say:
+unlock_banner:
+    ret
+ENDIF
 ;  The tutorial. Bank code by the narrow rule: tut_enter runs from a keypress
 ;  on the title screen, tut_update from the very top of demo_update and
 ;  tut_draw from its very end, and none of the three can be reached from
@@ -646,7 +660,17 @@ ENDIF
 ;  The `I` page. Bank code by the narrow rule -- it runs on a keypress and
 ;  then once a frame with the world stopped. After ctxbar.asm because it calls
 ;  ctx_class_name and str_index, and after staticscreens.asm for static_wipe.
+IF DIAG_DISC == 0
     include "game/squadinforun.asm"
+ELSE
+;  THE SQUADRON PAGE IS LEFT OUT OF THE DIAGNOSTIC BUILD, because the panel's
+;  four hundred bytes do not fit DISC.BIN beside it, and a disc that exists to
+;  say what the controller replied does not need the I page.
+info_open:
+info_key:
+info_draw:
+    ret
+ENDIF
 ;  The cached half of the marker pass. It runs only when the camera hash has
 ;  changed and always with the window at rest, so it is bank-4 code by the
 ;  same rule as everything above it -- but it is the ONLY thing here that runs
@@ -1505,7 +1529,7 @@ ENDIF
 ;  The second line on the title screen, against the credit line below it and
 ;  against the blinking prompt above it. Both are drawn by txt_draw, which
 ;  clips at the screen edge and nowhere else.
-    assert TITLE_PROMPT_Y + TXT_CHAR_H <= TITLE_TUT_Y, "the tutorial prompt runs into PRESS SPACE TO START"
+    assert TITLE_PROMPT_Y + TXT_CHAR_H <= TITLE_TUT_Y, "the tutorial prompt runs into SPACE - NEW GAME"
     assert TITLE_TUT_Y + TXT_CHAR_H <= TITLE_CREDIT_Y, "the tutorial prompt runs into the credit line"
 
 ;  The formation names are indexed by WALKING terminators, so a list shorter
@@ -1598,8 +1622,12 @@ MG_SWING            equ (MG_X_MAX - MG_X_MID) / 4
     assert (SCR_BYTES_PER_LINE - (mini_words_end - mini_say_steer - 1) * TXT_CHAR_W_BYTES) / 2 == MG_STEER_X, "the chase's steer line is not centred"
 
 ;  The unlock banner's two lines, in bank 7: centred, and inside the buffer.
+IF DIAG_DISC == 0
     assert (SCR_BYTES_PER_LINE - (ban_destroyer - ban_frigate - 1) * TXT_CHAR_W_BYTES) / 2 == BAN_FRIGATE_X, "the frigate banner is not centred"
+ENDIF
+IF DIAG_DISC == 0
     assert (SCR_BYTES_PER_LINE - (ban_words_end - ban_destroyer - 1) * TXT_CHAR_W_BYTES) / 2 == BAN_DESTROYER_X, "the destroyer banner is not centred"
+ENDIF
     assert ban_destroyer - ban_frigate <= B7_BUF_SIZE, "the frigate banner does not fit the bank 7 buffer"
     assert ban_words_end - ban_destroyer <= B7_BUF_SIZE, "the destroyer banner does not fit the bank 7 buffer"
 
@@ -1615,6 +1643,7 @@ MG_SWING            equ (MG_X_MAX - MG_X_MID) / 4
 ;  The title's and the message row's words, in bank 7.
     assert (title_prompt - title_text - 1) * TXT_BIG_W_BYTES == SCR_BYTES_PER_LINE, "the title no longer spans the screen"
     assert TITLE_TUT_X + (title_tut_end - title_tut - 1) * TXT_CHAR_W_BYTES <= SCR_BYTES_PER_LINE, "the tutorial prompt runs off the screen"
+    assert TITLE_CONT_X + (title_cont_end - title_cont - 1) * TXT_CHAR_W_BYTES <= SCR_BYTES_PER_LINE, "the saved-campaign key line runs off the screen"
     assert HUD_SAY_X + (wave_say_text_1 - wave_say_text - 1) * TXT_CHAR_W_BYTES <= HUD_MOTH_X, "INCOMING runs into the Mothership's hull"
     assert HUD_SAY_X + (wave_say_text_2 - wave_say_text_1 - 1) * TXT_CHAR_W_BYTES <= HUD_MOTH_X, "the Frigate unlock message runs into the Mothership's hull"
     assert HUD_SAY_X + (wave_say_text_3 - wave_say_text_2 - 1) * TXT_CHAR_W_BYTES <= HUD_MOTH_X, "the Destroyer unlock message runs into the Mothership's hull"

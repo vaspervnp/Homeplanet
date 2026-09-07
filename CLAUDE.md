@@ -3036,6 +3036,24 @@ showed up as "the HUD comes and goes":
   the rest of the game, because the HUD does not clear its strip, it draws
   labels onto it.
 
+### `C` continues, `SPACE` begins again
+
+*"Με Space ξεκινάει από την αρχή, με C (που θα φαίνεται μόνο αν υπάρχει
+σωσμένο) από το σωσμένο."* The title's key line is the fifth string of
+`title_words` when `mis_saved` is set — `C CONTINUE  T TUTORIAL  M MUSIC`,
+centred at `TITLE_CONT_X` — and the fourth's tutorial line otherwise, so the
+key is offered exactly when it works — and the blinking prompt says `SPACE -
+NEW GAME` rather than `PRESS SPACE TO START`, because the player did not see
+which of the two SPACE was. `C` starts the game as `SPACE` used to (it was
+`S` for an hour; `C` was asked for);
+`SPACE` calls `campaign_fresh` first when a save was loaded — `demo_init`'s
+sequence without the disc read — so the fleet, the treasury, the stations,
+the unlocks and the mission go back to a new game's first frame. **The disc
+is not touched**: the save stays until the first jump writes over it, so a
+`SPACE` pressed by habit is undone by a power cycle. `harness.dismiss_title`
+presses `C` when `mis_saved` is set, or every test that power-cycled to check
+a save came back would have been checking a fresh mission 1.
+
 ### The title screen has music, and the game does not
 
 `MUSIC3`'s tune plays on the menu screen and stops the moment the game or the
@@ -3981,6 +3999,25 @@ written.
 **And the first was hiding a third: `FLEET.DAT` had never been written on real
 hardware.** The commit that confirmed "the jump no longer hangs" is satisfied
 by a write that is silently refused.
+
+#### A third, found by the owner's emulator: the WRITE overran
+
+*"Πέρασα στην πίστα 2, έκανα reset και δεν έχει το C Continue."* The
+diagnostic build — rebuilt for the purpose, with the squadron page, the
+banner and the landing left out to make room — put `FLEET 2 ST0 40 ST1 10
+ST2 00` under the briefing: **OVERRUN on the save**, on an emulator where
+the reads had always worked. The write loop fed a byte in 104 T-states, but
+when it sampled the status a moment before RQM came up it took 56 T (`in,
+and, cp, jr, bit, jr`) to look again, and that emulator wants the byte
+sooner than that. It is RQM first and alone now — the idle sample is `in,
+bit, jr`, 32 T — with EXM asked only once RQM is up, and the sector ends
+when EXM clears, so the byte count DE used to keep on the write side is
+gone. **TerraCPC's `disc.asm` is that shape and saves on the same
+emulator**, which is what the owner pointed at; it also reads its save back
+and says `SAVE OK`/`SAVE FAIL` on the screen, and re-homes the controller
+between retries — both worth having here the day `DISC.BIN` has twenty
+bytes. cpcemu could not show any of it: 38 persistence and disc tests
+passed on both loops.
 
 #### The method, which is the part worth keeping
 
