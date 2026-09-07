@@ -7,7 +7,11 @@ A convoy carrying sixty thousand sleepers runs from a lost world. The fleet
 only ever shrinks — what is lost is lost — and every mission is a choice about
 how much of it you are willing to spend.
 
-Three documents, and they are not interchangeable:
+**Playing it:** the [player's manual](manual.md) covers every key and every
+rule of the game — also as a [PDF](docs/manual.pdf) — and there is a
+[disc cover](docs/cover.pdf) to print, in the style of the boxes of 1988.
+
+Three documents for working on it, and they are not interchangeable:
 
 | file | what it is |
 |---|---|
