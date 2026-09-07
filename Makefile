@@ -49,7 +49,8 @@ MINI_MAIN  := $(SRC_DIR)/mini.asm
 MINI_DISC  := $(SRC_DIR)/minidisc.asm
 MINI_RAW   := $(MINI_DIR)/home.raw
 MINI_SPRITE_RAW := $(MINI_DIR)/sprites.raw
-MINI_SPRITE_RLE := $(MINI_DIR)/sprites.rle
+MINI_SPRITE_LZ := $(MINI_DIR)/sprites.lz
+MINI_GAME_LZ := $(MINI_DIR)/home.lz
 MINI_SYM   := $(MINI_DIR)/homeplanet.sym
 MINI_DISC_SYM := $(MINI_DIR)/disc.sym
 # ...and MINI2.BIN, the R-Type run the same way: MINI_ONLY at 2, under
@@ -59,14 +60,16 @@ MINI2_MAIN  := $(SRC_DIR)/mini2.asm
 MINI2_DISC  := $(SRC_DIR)/minidisc2.asm
 MINI2_RAW   := $(MINI2_DIR)/home.raw
 MINI2_SPRITE_RAW := $(MINI2_DIR)/sprites.raw
-MINI2_SPRITE_RLE := $(MINI2_DIR)/sprites.rle
+MINI2_SPRITE_LZ := $(MINI2_DIR)/sprites.lz
+MINI2_GAME_LZ := $(MINI2_DIR)/home.lz
 MINI2_SYM   := $(MINI2_DIR)/homeplanet.sym
 MINI2_DISC_SYM := $(MINI2_DIR)/disc.sym
 
 DSK      := $(BUILD_DIR)/homeplanet.dsk
 GAME_RAW := $(BUILD_DIR)/home.raw
 SPRITE_RAW := $(BUILD_DIR)/sprites.raw
-SPRITE_RLE := $(BUILD_DIR)/sprites.rle
+SPRITE_LZ := $(BUILD_DIR)/sprites.lz
+GAME_LZ := $(BUILD_DIR)/home.lz
 DISC_RAW := $(BUILD_DIR)/disc.raw
 SYM      := $(BUILD_DIR)/homeplanet.sym
 DISC_SYM := $(BUILD_DIR)/disc.sym
@@ -105,10 +108,14 @@ $(GAME_RAW) $(SPRITE_RAW) $(LIB_RAW) $(SYM) &: $(ASM_SOURCES) $(TABLES) $(SPRITE
 	$(RASM) $(MAIN) $(RASMFLAGS) -s -sa -ec -os $(SYM)
 	rm -f rasmoutput.cpr
 
-# Packing the library is what keeps DISC.BIN under AMSDOS's workspace;
-# tools/packsprites.py explains the format.
-$(SPRITE_RLE): $(SPRITE_RAW) tools/packsprites.py
-	$(PYTHON) tools/packsprites.py $(SPRITE_RAW) $(SPRITE_RLE)
+# Both images are LZ-packed into DISC.BIN and the stub in src/disc.asm
+# unpacks them at boot; tools/lzpack.py explains the format. It is what keeps
+# the file under AMSDOS's workspace -- the data levers ran out at 23 bytes.
+$(SPRITE_LZ): $(SPRITE_RAW) tools/lzpack.py
+	$(PYTHON) tools/lzpack.py $(SPRITE_RAW) $(SPRITE_LZ)
+
+$(GAME_LZ): $(GAME_RAW) tools/lzpack.py
+	$(PYTHON) tools/lzpack.py $(GAME_RAW) $(GAME_LZ)
 
 # ...and the same two steps again for MINI.BIN. The mini build's bank 5-7
 # images would be identical to the game's, so it does not write them; the
@@ -117,15 +124,21 @@ $(MINI_RAW) $(MINI_SPRITE_RAW) $(MINI_SYM) &: $(ASM_SOURCES) $(TABLES) $(SPRITES
 	$(RASM) $(MINI_MAIN) $(RASMFLAGS) -s -sa -ec -os $(MINI_SYM)
 	rm -f rasmoutput.cpr
 
-$(MINI_SPRITE_RLE): $(MINI_SPRITE_RAW) tools/packsprites.py
-	$(PYTHON) tools/packsprites.py $(MINI_SPRITE_RAW) $(MINI_SPRITE_RLE)
+$(MINI_SPRITE_LZ): $(MINI_SPRITE_RAW) tools/lzpack.py
+	$(PYTHON) tools/lzpack.py $(MINI_SPRITE_RAW) $(MINI_SPRITE_LZ)
+
+$(MINI_GAME_LZ): $(MINI_RAW) tools/lzpack.py
+	$(PYTHON) tools/lzpack.py $(MINI_RAW) $(MINI_GAME_LZ)
 
 $(MINI2_RAW) $(MINI2_SPRITE_RAW) $(MINI2_SYM) &: $(ASM_SOURCES) $(TABLES) $(SPRITES) $(MUSIC_GEN) | $(MINI2_DIR)
 	$(RASM) $(MINI2_MAIN) $(RASMFLAGS) -s -sa -ec -os $(MINI2_SYM)
 	rm -f rasmoutput.cpr
 
-$(MINI2_SPRITE_RLE): $(MINI2_SPRITE_RAW) tools/packsprites.py
-	$(PYTHON) tools/packsprites.py $(MINI2_SPRITE_RAW) $(MINI2_SPRITE_RLE)
+$(MINI2_SPRITE_LZ): $(MINI2_SPRITE_RAW) tools/lzpack.py
+	$(PYTHON) tools/lzpack.py $(MINI2_SPRITE_RAW) $(MINI2_SPRITE_LZ)
+
+$(MINI2_GAME_LZ): $(MINI2_RAW) tools/lzpack.py
+	$(PYTHON) tools/lzpack.py $(MINI2_RAW) $(MINI2_GAME_LZ)
 
 # The rm is not tidiness. RASM's -eo writes the file INTO an existing .dsk,
 # and DISC.BIN grows with every feature -- overwriting in place left the image
@@ -141,7 +154,7 @@ $(MINI2_SPRITE_RLE): $(MINI2_SPRITE_RAW) tools/packsprites.py
 # MINI.BIN goes on SECOND, into the image DISC.BIN just minted -- that is what
 # -eo is for -- so the catalogue lists the game first. Both saves are inside
 # the one recipe because both have to be redone whenever the image is.
-$(DISC_RAW) $(DSK) $(DISC_SYM) &: $(GAME_RAW) $(SPRITE_RLE) $(DISC) $(MUSIC_BIN) $(MINI_RAW) $(MINI_SPRITE_RLE) $(MINI_DISC) $(MINI2_RAW) $(MINI2_SPRITE_RLE) $(MINI2_DISC)
+$(DISC_RAW) $(DSK) $(DISC_SYM) &: $(GAME_LZ) $(SPRITE_LZ) $(DISC) $(MUSIC_BIN) $(MINI_GAME_LZ) $(MINI_SPRITE_LZ) $(MINI_DISC) $(MINI2_GAME_LZ) $(MINI2_SPRITE_LZ) $(MINI2_DISC)
 	rm -f $(DSK)
 	$(RASM) $(DISC) $(RASMFLAGS) -s -sa -ec -os $(DISC_SYM)
 	$(RASM) $(MINI_DISC) $(RASMFLAGS) -s -sa -ec -os $(MINI_DISC_SYM)

@@ -64,39 +64,35 @@ MINI_ONLY           equ 0
 
     org GAME_LOAD
 
+;  LZ-packed by tools/lzpack.py, which explains the format. Both images are:
+;  the file's ceiling was hit with 23 bytes to spare after every data lever
+;  in CLAUDE.md's list had been pulled, and this is the code lever -- the low
+;  16K packs to about 71% and bank 4 to about 83%, some 5,900 bytes, for a
+;  sixty-byte decoder in a stub that is thrown away once the game runs.
 game_image:
 IF MINI_ONLY == 2
-    incbin "build/mini2/home.raw"
+    incbin "build/mini2/home.lz"
 ELSE
 IF MINI_ONLY
-    incbin "build/mini/home.raw"
+    incbin "build/mini/home.lz"
 ELSE
-    incbin "build/home.raw"
+    incbin "build/home.lz"
 ENDIF
 ENDIF
 game_image_end:
 
-;  Run-length coded by tools/packsprites.py, which explains the format and
-;  why the two streams are separated. It used to be about half size, and that
-;  was what kept the file under AMSDOS: uncompressed, DISC.BIN ended at #A66C
-;  against a #A700 ceiling -- 148 bytes of headroom.
-;
-;  IT NO LONGER COMPRESSES ANYTHING, and that is the 3+3+2 repack rather than a
-;  fault in the packer. Bank 4 held two sprite libraries and packed to 72%;
-;  they are on the disc now and what is left is code and text, which has no
-;  runs of #FF/#00 in it -- 6445 bytes go to 6650, so the RLE COSTS 205 bytes.
-;  It is left in place because DISC.BIN has about 4500 bytes of headroom and
-;  taking it out means deleting the decoder below and a Makefile step to buy
-;  4% of that. The day the bank has sprites in it again -- a ninth class that
-;  does not fit banks 5-7 -- it pays for itself once more.
+;  The bank-4 image, packed the same way. (It was run-length coded by a
+;  tools/packsprites.py that is gone now: RLE was measured making this image
+;  BIGGER once the sprite libraries left it for the disc, and the STORED
+;  fallback it grew was the whole of what the file carried for a long time.)
 sprite_image:
 IF MINI_ONLY == 2
-    incbin "build/mini2/sprites.rle"
+    incbin "build/mini2/sprites.lz"
 ELSE
 IF MINI_ONLY
-    incbin "build/mini/sprites.rle"
+    incbin "build/mini/sprites.lz"
 ELSE
-    incbin "build/sprites.rle"
+    incbin "build/sprites.lz"
 ENDIF
 ENDIF
 sprite_image_end:
@@ -120,96 +116,111 @@ disc_stub:
     ld bc,GA_PORT * 256 + GA_GAME_ROMMODE
     out (c),c
 
-    ;  Stage the crunched library in screen A first: it is about to be
+    ;  Stage the packed bank-4 image in screen A first: it is about to be
     ;  sitting in the window we are going to page out from under it.
     ld hl,sprite_image
     ld de,SPRITE_STAGE
     ld bc,sprite_image_end - sprite_image
     ldir
 
-    ;  Game down to #0040, while bank 1 is still in the window.
+    ;  Game down to #0040, while bank 1 is still in the window. The packed
+    ;  image sits above its own destination and the ROMs are out, so the
+    ;  decoder's back-references read the RAM it has just written.
     ld hl,game_image
     ld de,CODE_START
-    ld bc,game_image_end - game_image
-    ldir
+    call lz_unpack
 
     ;  Now swap bank 4 in and unpack into it. The source is in screen A, which
     ;  the #4000 paging does not touch, and the destination is the window.
     ld bc,GA_PORT * 256 + GA_BANK_4
     out (c),c
-
-    ;  THE FIRST BYTE SAYS WHETHER IT IS PACKED. tools/packsprites.py takes
-    ;  the shorter of the two every build, and since the 3+3+2 repack left no
-    ;  sprites in this bank at all the shorter one is the RAW image: what is
-    ;  here now is the mission table, the menus and the campaign's code, and
-    ;  code has no runs of #FF and #00 in it. Measured, the packer was making
-    ;  DISC.BIN 366 bytes bigger and had pushed it over its #A700 ceiling.
     ld hl,SPRITE_STAGE
-    ld a,(hl)
-    inc hl
-    or a
-    jr nz,@disc_packed
-
-    ;  Stored: it is already in the interleaved form the blitter reads, so it
-    ;  is one copy.
     ld de,BANK_WINDOW
-    ld bc,sprite_image_end - sprite_image - 1
-    ldir
-    jp CODE_START
-
-@disc_packed:
-    ;  Masks to the even addresses, data to the odd: the decoder re-weaves
-    ;  the two streams as it writes them, so the library lands in exactly the
-    ;  interleaved form the blitter reads.
-    ld de,BANK_WINDOW
-    call unrle_stride2                  ; masks; HL is left on the second stream
-    ld de,BANK_WINDOW + 1
-    call unrle_stride2                  ; data
+    call lz_unpack
 
     jp CODE_START
 
 
 ; ----------------------------------------------------------------------------
-;  unrle_stride2 -- expand one packed stream, writing every OTHER byte
+;  lz_unpack -- expand one stream from tools/lzpack.py
 ;  In : HL = packed source, DE = destination
-;  Out: HL just past this stream's terminator, ready for the next one
+;  Out: HL just past the stream's end marker, DE just past the output
 ;  Uses: everything
 ;
-;  Format is in tools/packsprites.py:
-;      00        end
-;      01..FD n  that many literal bytes
-;      FE   n b  n copies of b
+;  The format, from the tool:
+;      0nnnnnnn  b...        n+1 literal bytes
+;      10llllll  o           l+2 bytes from o+1 back
+;      11llllll  o_lo o_hi   l+3 bytes from o back; o = 0 is the end
+;  and when the six length bits are all set one more byte, between the
+;  token and the offset, is added to the length. Matches may overlap their
+;  own output, which LDIR copies forward and gets right.
 ; ----------------------------------------------------------------------------
-unrle_stride2:
-@unrle_next:
+lz_unpack:
+@lz_loop:
     ld a,(hl)
     inc hl
+    bit 7,a
+    jr nz,@lz_match
+
+    inc a                               ; 1..128 literals
+    ld c,a
+    ld b,0
+    ldir
+    jr @lz_loop
+
+@lz_match:
+    ld b,a                              ; the token, for bit 6 below
+    and #3F
+    ld c,a
+    cp #3F
+    jr nz,@lz_len_short
+    ld a,(hl)                           ; the extra length byte
+    inc hl
+    add a,c
+    ld c,a
+    jr nc,@lz_len_short
+    ld a,b
+    ld b,1                              ; the length carried into B...
+    jr @lz_len_long
+@lz_len_short:
+    ld a,b
+    ld b,0                              ; ...or did not
+@lz_len_long:
+    inc bc                              ; +2 for a short match
+    inc bc
+    bit 6,a
+    jr z,@lz_off_short
+    inc bc                              ; +3 for a long one
+    ld a,(hl)
+    inc hl
+    push hl
+    ld h,(hl)                           ; HL = the 16-bit offset
+    ld l,a
+    ld a,h
+    or l
+    jr z,@lz_end
+    jr @lz_copy
+@lz_off_short:
+    ld a,(hl)
+    push hl
+    ld l,a
+    ld h,0
+    inc hl                              ; HL = the 8-bit offset + 1
+@lz_copy:
+    ex de,hl                            ; HL = destination, DE = offset
+    push hl
     or a
-    ret z
-    cp #FE
-    jr z,@unrle_run
+    sbc hl,de                           ; HL = destination - offset
+    pop de
+    ldir
+    pop hl
+    inc hl                              ; past the offset's last byte
+    jr @lz_loop
 
-    ld b,a
-@unrle_literal:
-    ld a,(hl)
+@lz_end:
+    pop hl
     inc hl
-    ld (de),a
-    inc de
-    inc de
-    djnz @unrle_literal
-    jr @unrle_next
-
-@unrle_run:
-    ld b,(hl)
-    inc hl
-    ld a,(hl)
-    inc hl
-@unrle_repeat:
-    ld (de),a
-    inc de
-    inc de
-    djnz @unrle_repeat
-    jr @unrle_next
+    ret
 
 disc_stub_end:
 
