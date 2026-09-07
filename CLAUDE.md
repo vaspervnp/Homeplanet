@@ -6283,6 +6283,25 @@ the waves are sized on hull, which is unchanged. Re-measure before tuning
 anything: `tools/balance.py --rebuild` and `tools/waverate.py 4` are what say
 whether a mission has become an hour.
 
+**Measured**, `tools/balance.py --rebuild`: all twenty missions, Mothership
+alive, ending **55 ships / 9405 hull** against 44 / 8306 at full damage. The
+fleet sits at the 56-slot ceiling from mission 4 on and never loses more than
+three ships in a mission — a wave at an eighth a shot cannot hurt a fleet
+that size before the turret and fifty interceptors grind it down. What did
+move is TIME: `held` is the tool's `LINGER` bound, 24000 frames, in
+seventeen missions of the twenty — the third wave is not dead inside eight
+emulated minutes, where before it was inside two. That is what "the fight
+lasts longer" costs, and `tools/waverate.py` is the measurement still to
+take.
+
+> **The first run of that tool died at mission 6 with "could not get past
+> the title screen", and it was me.** `make` ran under it — the pilot change
+> — and `harness.symbols()` reads `build/homeplanet.sym` on every call, so
+> the tool's next `read_bank4` of `TITLE_SHOWN` used the NEW address on the
+> OLD machine. The same trap as running `rasm` by hand, through a new door:
+> **do not rebuild while a measurement is running.** The error says what the
+> machine was doing now, which would have shown `MIS_INDEX` 5 and no title.
+
 > **Four tests failed and every one was "the game is too slow to have done it
 > yet", RUNNING THE OTHER WAY.** The even duel's 2500 frames, mission 3's
 > picket dying inside 1800, and `TestTheWayOut.press_j` — which went through
