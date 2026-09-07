@@ -1,0 +1,11 @@
+GIMP Palette
+Name: HOMEPLANET
+Columns: 5
+#
+# The game's four inks and the sprite map's fifth, NOT DRAWN.
+# See tools/spritemap.py for what each one means.
+  0   0   0	pen 0 black (drawn)
+255 255 255	pen 1 white
+  0 128 255	pen 2 sky blue
+255   0   0	pen 3 red
+255   0 255	NOT DRAWN (mask)

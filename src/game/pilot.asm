@@ -113,6 +113,8 @@ pilot_toggle:
     ld (hl),ENT_ORDER_PILOT
     ld a,(cam_pitch)
     ld (pilot_pitch),a                  ; the orbit's pitch, kept for the way back
+    xor a
+    ld (pilot_fought),a                 ; no fight seen yet: see pilot_frame
     ret
 
 @pilot_next:
@@ -167,6 +169,25 @@ pilot_end:
 ;  holds still with the rest of the battle.
 ; ----------------------------------------------------------------------------
 pilot_frame:
+    ;  THE FIGHT ENDING HANDS THE SHIP BACK -- "Όταν τελειώνει η μάχη να
+    ;  βγαίνω από το V αυτόματα". A fight is something hostile flying, which
+    ;  is mis_count_hostiles' question (wave ships counted, wrecks not); the
+    ;  moment there was one and there is none, the stick goes back. Not on a
+    ;  quiet board: a ship flown in mission 1, where nothing hostile exists
+    ;  until the first wave, would be handed back the frame it was taken and
+    ;  V would read as a key that does nothing. pilot_fought is what says a
+    ;  fight was seen, and pilot_toggle clears it when the ship is taken.
+    call mis_count_hostiles             ; A = how many; uses everything
+    or a
+    jr z,@pilot_quiet
+    ld a,1
+    ld (pilot_fought),a
+    jr @pilot_go
+@pilot_quiet:
+    ld a,(pilot_fought)
+    or a
+    jp nz,pilot_end                     ; it is over: back to the squadron
+@pilot_go:
     ld a,(pilot_slot)
     call ent_addr
     ld (pilot_ent),hl

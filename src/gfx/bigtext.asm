@@ -149,6 +149,5 @@ txt_big_char:
 ; ============================================================================
 ;  State
 ; ============================================================================
-txt_big_glyph:      defw 0
-txt_big_rows:       defb 0
-txt_big_reps:       defb 0
+;  (txt_big_glyph, txt_big_rows and txt_big_reps -- the glyph being drawn --
+;  are after bank4_end in src/main.asm; written before they are read.)

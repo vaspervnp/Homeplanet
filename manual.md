@@ -261,8 +261,11 @@ interceptor into a frigate is a real trade; a shot-up one is a poor
 missile. Wrecks cannot be rammed.
 
 Your ship's own shots leave from the middle of the view. Its death, a jump,
-or `V` again puts the camera back on the squadron. The Mothership cannot be
-flown, and the tutorial's ships cannot either.
+`V` again, or **the end of the fight** puts the camera back on the squadron:
+once something hostile has been flying while you fly and nothing is any
+more, the ship rejoins its squadron by itself. On a board with nothing to
+fight, `V` stays with you. The Mothership cannot be flown, and the tutorial's
+ships cannot either.
 
 ## 8. The economy
 
@@ -341,10 +344,12 @@ Every class moves at the same speed and shoots at the same range, once
 every few seconds. What differs is the **damage each class does to each
 other**, and that is the whole balance of the game:
 
-- **Interceptor → Bomber → Frigate → Interceptor.** An interceptor does
-  24 to another interceptor, 30 to a bomber and *ten* to a frigate. A
-  bomber does 8 to a fighter and 44 to a Mothership. A frigate does 40 to a
-  fighter.
+- **Interceptor → Bomber → Frigate → Interceptor.** On the game's scale an
+  interceptor does 24 to another interceptor, 30 to a bomber and *ten* to a
+  frigate; a bomber does 8 to a fighter and 44 to a Mothership; a frigate
+  does 40 to a fighter. Every shot lands an **eighth** of that against a
+  hull of up to 255, so a fight is a matter of minutes rather than seconds
+  and a single ship can turn one.
 - A capital ship is hard to kill not because its hull is bigger — a hull
   is 255 at most and an interceptor already has that — but because most
   classes do so little to it.

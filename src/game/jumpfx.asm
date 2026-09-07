@@ -989,27 +989,8 @@ jfx_dwell:          defb 0
 ;  Set on the frames the sweep is held, when the bars must not be drawn.
 jfx_bar_off:        defb 0
 
-;  The walk over phase4_vis.
-jfx_i:              defb 0
-jfx_n:              defb 0
-
-;  This ship's band: where its bar starts (signed) and how far it goes...
-jfx_bx0:            defb 0
-jfx_reach:          defb 0
-
-;  ...the rows the BAR covers, and the rows the SPRITE covers, both clipped to
-;  the playfield. They are not the same and the reveal turns on the difference.
-jfx_by:             defb 0
-jfx_bh:             defb 0
-jfx_cy:             defb 0
-jfx_ch:             defb 0
-
-;  ...and which of the two the next fill is using.
-jfx_fy:             defb 0
-jfx_fh:             defb 0
-
-jfx_sy:             defb 0
-jfx_spr_h:          defb 0
-jfx_half_h:         defb 0
+;  (jfx_i .. jfx_half_h -- the walk over phase4_vis and this ship's band,
+;  thirteen bytes written before they are read -- are after bank4_end in
+;  src/main.asm, where they cost the file nothing.)
 
 jfx_ink_byte:       defb 0

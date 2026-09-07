@@ -171,6 +171,21 @@ class SalvageFixture(unittest.TestCase):
             self.set_ent(s, ENT_FLAGS, 0)
         self.c.run_frames(4)
 
+    def soften_the_picket(self):
+        """Every flying hostile to an eighth of a hull.
+
+        Every shot does an eighth now, so mission 3's picket at 255 a ship is
+        an eight-times longer fight than the bounds below were written for --
+        and "mission 3 never completed" said so about a fleet that was still
+        winning. At 255 >> CBT_DAMAGE_SHIFT it is the fight it was, and what
+        these tests ask -- that a wreck does not hold a CLEAR mission open --
+        is asked of the same wrecks.
+        """
+        hull = 255 >> self.sym["CBT_DAMAGE_SHIFT"]
+        for s in range(self.sym["ENT_PLAYER_MAX"], ENT_MAX):
+            if (self.ent(s, ENT_FLAGS) & (F_ACTIVE | F_DISABLED)) == F_ACTIVE:
+                self.set_ent(s, ENT_HULL, hull)
+
     def spawn_hostile(self, xyz, hull=8):
         """A Vekhar interceptor, placed, and soft enough to die quickly.
 
@@ -348,6 +363,7 @@ class TestWrecksDoNotWaitForACorvette(SalvageFixture):
         control but the real case."""
         h.jump_mission(self.c)
         h.jump_mission(self.c)                      # mission 3: the first fight
+        self.soften_the_picket()
         for _ in range(60):
             self.c.run_frames(30)
             if self.byte("MIS_COMPLETE"):
@@ -365,6 +381,7 @@ class TestACrippledHullIsNotAShip(SalvageFixture):
         offered, because the hull they crippled still counted as a hostile."""
         h.jump_mission(self.c)
         h.jump_mission(self.c)                      # mission 3: MIS_OBJ_CLEAR
+        self.soften_the_picket()
         corvette = self.make_corvette()
         for _ in range(80):
             self.c.run_frames(30)

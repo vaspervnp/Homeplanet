@@ -73,6 +73,7 @@ Regenerating the derived sources:
 
 ```bash
 make tables         # the lookup tables (tools/gentables.py)
+python3 tools/spritemap.py export   # every ship sprite on one PNG, art/spritemap.png, to paint in GIMP
 make ships          # re-render the 3D ship models into art/ and src/gen/
 make music          # re-analyse the ogg files and compose MUSIC3
 ```

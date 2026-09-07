@@ -36,7 +36,8 @@ CBT_COOLDOWN = 6
 #  The game runs at 12.5fps on a 50Hz machine.
 TICKS_PER_GAME_FRAME = 4
 EXPL_MAX, EXPL_SIZE, EXPL_TIMER = 6, 7, 6
-CBT_DAMAGE = 24
+#  An interceptor's 24 from the matrix, shifted as cbt_fire_if_able shifts it.
+CBT_DAMAGE = max(1, 24 >> h.symbols()["CBT_DAMAGE_SHIFT"])
 
 
 class CombatFixture(unittest.TestCase):
@@ -381,11 +382,17 @@ class TestConcentration(CombatFixture):
         for slot in range(ENT_MAX):
             self.c.write_ram(base + slot * ENT_SIZE + ENT_FLAGS, b"\x00")
 
+        #  A hull of 255 >> CBT_DAMAGE_SHIFT on both sides: every shot does
+        #  an eighth now, so this is the same eleven-hit fight the duel was
+        #  written as, inside the same 2500 frames, rather than an eight-times
+        #  longer one that the bound cuts off half way with five still flying.
+        hull = 255 >> self.sym["CBT_DAMAGE_SHIFT"]
+
         def place(slot, enemy, x):
             addr = base + slot * ENT_SIZE
             self.c.write_ram(addr, struct.pack("<hhh", x, 0, 0))
             self.c.write_ram(addr + ENT_CLASS, bytes([0]))          # interceptor
-            self.c.write_ram(addr + ENT_HULL, bytes([255]))
+            self.c.write_ram(addr + ENT_HULL, bytes([hull]))
             self.c.write_ram(addr + ENT_FLAGS,
                              bytes([F_ACTIVE | F_ENEMY if enemy else F_ACTIVE]))
             self.c.write_ram(addr + ENT_SQUAD, bytes([255 if enemy else 1]))
@@ -1225,7 +1232,8 @@ class TestTheMothershipsTurret(CombatFixture):
 
     def test_the_mothership_hits_at_sixty_units(self):
         hull = self.duel(self.sym["CLASS_MOTHERSHIP"])
-        self.assertEqual(hull, 255 - 40, "the turret did not reach, or the row is not 40")
+        self.assertEqual(hull, 255 - max(1, 40 >> self.sym["CBT_DAMAGE_SHIFT"]),
+                         "the turret did not reach, or the row is not 40")
 
     def test_an_interceptor_at_the_same_range_does_not(self):
         self.assertEqual(self.duel(self.sym["CLASS_INTERCEPTOR"]), 255)

@@ -66,7 +66,8 @@ TUT_ENEMY_Z         equ 5000
 TUT_PITCH           equ 24
 
 ;  ...and how tough the one hostile is. See tut_a_enemy.
-TUT_ENEMY_HULL      equ 120
+TUT_ENEMY_HULL      equ 16              ; was 120 at full damage: every shot is
+                                        ; an eighth now, and a lesson is not a siege
 
 
 ; ----------------------------------------------------------------------------

@@ -562,6 +562,26 @@ asks for rather than as many as would fit on screen.
 > now. See "Doubling the fleet, and the four things that had to happen first"
 > for both, and for the measured fps curve, which is the number to trust.
 
+**A PC-sampled profile at fifty ships**, 2.3 fps, close in, 15,000 samples a
+millisecond apart (`run_us(997)` and the symbol file; the script is the shape
+to copy, twenty lines):
+
+| share | where | what it is |
+|---|---|---|
+| ~21% | `spr_row_start`, `@spr_no_carry_b`, `@row_a`, `phase4_blit_body` | the masked blit |
+| ~10% | `scr_fill_rect` | erasing the dirty rectangles |
+| ~5% | `scr_line_addr` | the per-row address, blit and erase both |
+| ~15% | `proj_rotate`, `proj_deltas`, `proj_point`, `mul_u8` | projecting |
+| ~8% | `@p4_axis`, `@p4_inner` | `phase4_fly`'s axis loop and the sort's insertion |
+| ~4% | `@cbt_search_*`, `@cbt_axis_loop` | the target search |
+| ~7% | `key_scan`, `snd_*` | the 50 Hz interrupt, which a slow frame pays for twenty times |
+| ~3% | `scr_wait_vsync` | idle |
+
+So at that count **drawing and erasing is about a third and projecting a
+sixth**; nothing is O(n²) any more. The frame is the sprites, and the levers
+below are still the right ones: the blitter's row overhead, and — the big
+one — not drawing a sprite at all for a ship that is far away.
+
 Where the remaining headroom is, in the order worth taking it:
 
 - **Blitting.** 46 T a byte is close to the floor for a masked blit, but the
@@ -614,6 +634,21 @@ be **sideways**, not vertical, or it survives broadside and vanishes head-on.
 The renderer normalises every class into the same sprite box, so "bigger" is
 not available — `span` and the shape carry it, and `class_tier_bias` gives the
 three capitals one more size step at the same distance.
+
+**Or paint them in GIMP.** `python3 tools/spritemap.py export` writes
+`art/spritemap.png` — every class, tier and view on one indexed PNG, one row
+a class in the game's class order, tiers A/B/C left to right, six views each
+— and `art/homeplanet.gpl` is its palette for GIMP 3. **When the PNG exists
+the build reads the sprites off it** (the Makefile's `ifneq $(wildcard
+art/spritemap.png)`), through `tools/spritemap.py import`, which cuts the
+cells by arithmetic and hands the pixels to `rt2sprite.convert` — so the
+`.asm` it emits is the same generator's, and
+`tests/test_ships.TestTheSpriteMapRoundTrips` proves export-then-import is
+the identity. **Five colours, not four**: a sprite pixel is a drawn pen or
+NOT DRAWN, and "drawn black" is not "not drawn" — the ships' shadow sides
+are painted black over what is behind them — so the map's magenta is the
+mask and black is pen 0. The grid must not move; anything outside a cell is
+ignored. Delete the PNG to go back to the projects.
 
 The converter reads the project JSON, **not** RetroTools' own `.asm` export.
 The reason is masks: RetroTools packs its mask at 1 bit per pixel MSB-first
@@ -997,7 +1032,7 @@ not needed and should stay unspent.
 | `I` | what the selected squadron is made of; `ESC` goes back |
 | `?` | the key list; `ESC` goes back |
 | `ESC` | in the TUTORIAL, leave it and go back to the title |
-| `V` | **fly the selected squadron's lead ship yourself**: the arrows turn, climb and dive it, `SPACE` fires its gun, the camera rides behind it. `V` again, or its death, hands it back. Not the Mothership, not in the tutorial — see "V: you are the interceptor" |
+| `V` | **fly the selected squadron's lead ship yourself**: the arrows turn, climb and dive it, `SPACE` fires its gun, the camera rides behind it. `V` again, its death, or **the fight ending** hands it back. Not the Mothership, not in the tutorial — see "V: you are the interceptor" |
 | `SPACE` | on the title screen, start the game |
 
 `J` **announces** the jump and the drive spools for ten seconds of live battle before it happens; `ESC` calls it off — see "The jump counts down". It **lands** rather than jumping on the last mission, and landing opens the victory screen — see "The end of the journey". **On the last mission, with `LAND` on offer, `L` lands too** — it is the squadron key every other time; see "`L` lands as well" under that section. Otherwise it jumps when `mis_gate` allows it — the objective met, three waves seen, no
@@ -2000,6 +2035,15 @@ happily with two of its clauses deleted.
 > check the size, and re-run `test_persistence` before believing a failure in
 > it.** On a whole image it passes — three times, including immediately after
 > `test_music`. 204544 is a whole image; 194816 is half a build.
+
+> **AND AN EMULATOR PLAYING `build/homeplanet.dsk` WRITES IT BACK.** Found
+> in the middle of a suite: the image was 194816 bytes with a `FLEET.DAT` on
+> it — forty tracks and a save, which is what a real emulator leaves behind
+> when it is pointed at the build's own file — and every `boot_quick` after
+> that pressed `C` into mission 2 with a 34-ship fleet. Nothing in this tree
+> writes the image outside `make`; cpcemu does not write files at all. So
+> `harness.disc_image` refuses an image that is not `DSK_SIZE` bytes, with a
+> message that says to run `make` and play from a copy. Play from a copy.
 
 > **A STALE `.dsk` cost an hour of this, and the file above says so.** Eight
 > `test_persistence` failures all reading "the jump was refused", on a build
@@ -6032,6 +6076,21 @@ the cursor keys steer THAT ship, `SPACE` fires its gun, and the camera rides
 behind it. `V` again, or the ship's death, hands it back to the squadron. The
 rest of the fleet goes on doing what it was ordered to.
 
+**And so does the fight ending.** *"Όταν τελειώνει η μάχη να βγαίνω από το V
+αυτόματα."* `pilot_frame` asks `mis_count_hostiles` — the jump gate's own
+question, wave ships counted and wrecks not — every frame the ship is flown;
+the first nonzero answer sets `pilot_fought`, and a zero after that is
+`pilot_end`. **Not on a quiet board**: without the flag a ship flown in
+mission 1, where nothing hostile exists until the first wave, would be handed
+back the frame it was taken and `V` would read as a key that does nothing.
+`pilot_toggle` clears the flag when it takes the ship; the byte lives after
+`bank4_end`. Twenty slots a frame, only while flying.
+
+> **It took `DISC.BIN` over its ceiling by a dozen bytes**, at 26353 of 26368,
+> and lever 2 paid: the homeplanet's fifteen bytes of per-pass scratch, the
+> jump wipe's thirteen (its walk and the ship's band) and `txt_big`'s four
+> were `defb 0` inside the image and are after `bank4_end` now. **26345.**
+
 **It is an entity like any other, under an order the AI does not own**, and
 that is the whole of the design. `ENT_ORDER_PILOT` is one more value
 `phase4_fly` steps over — `cbt_move_enemies` only ever moves the enemy and
@@ -6203,6 +6262,38 @@ The border half earns its place zoomed in, where the fight is. One
 through a stub with the announcement staged and reads `mark_rect` — the last
 rectangle any marker recorded — against the Python model's projection of the
 point, and the border case by forcing zoom step 0, whose radius is 2048.
+
+### Every shot does an eighth
+
+*"Κάνε 10 φορές ισχυρότερα τα hull των πλοίων για να κρατάει περισσότερο η
+μάχη και να έχει νόημα το V."* A hull is one byte and the interceptor is
+already at 255, so the ships cannot get tougher; **the guns got weaker**:
+`cbt_fire_if_able` shifts `cbt_damage_for`'s answer right `CBT_DAMAGE_SHIFT`
+(3) times, floor one, so an interceptor does 3 to an interceptor and a
+bomber 5 to the Mothership, and `cbt_damage_matrix` goes on reading as
+relative strength. Three `srl` and a floor in the low 16K; the floor is what
+keeps a harvester's 2 from becoming a shot that does nothing. Eight and not
+ten because a shift is three bytes and a divide is a table.
+
+What moved with it: `TUT_ENEMY_HULL` 120 → 16, so step 14's lesson is not a
+siege; the tests read the shift out of the symbol file rather than 24. What
+did NOT move: ramming does the pilot's whole hull, so a fresh ship is now an
+eight-times weapon against a gun — which is the point of flying one — and
+the waves are sized on hull, which is unchanged. Re-measure before tuning
+anything: `tools/balance.py --rebuild` and `tools/waverate.py 4` are what say
+whether a mission has become an hour.
+
+> **Four tests failed and every one was "the game is too slow to have done it
+> yet", RUNNING THE OTHER WAY.** The even duel's 2500 frames, mission 3's
+> picket dying inside 1800, and `TestTheWayOut.press_j` — which went through
+> `hold()`, whose `dismiss_briefing` waits out `wait_for_briefing`'s whole
+> bound when a jump is refused: nearly two minutes of emulated time, in which
+> the first wave lands and, at an eighth a shot, is still flying when the
+> test reads `mis_leave_ok`. So *"one more unit and it is still closed"* was
+> four wave ships and not the fare. `press_j` polls one countdown now; the
+> duel and the salvage tests put the hulls at `255 >> CBT_DAMAGE_SHIFT`,
+> which is the eleven-hit fight they were written as. A fight's length is a
+> test precondition as much as a frame rate is.
 
 ### The Mothership's turret
 

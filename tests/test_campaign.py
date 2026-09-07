@@ -417,9 +417,31 @@ class TestTheWayOut(CampaignFixture):
         self.assertGreater(len(self.hostiles()), 0, "nothing to clear")
 
     def press_j(self):
+        """Press J and say whether the mission moved.
+
+        NOT through hold(): that dismisses the briefing, and dismissing a
+        briefing that never comes waits out wait_for_briefing's whole bound
+        -- nearly two minutes of emulated time, in which the first wave lands.
+        With every shot an eighth, the fleet no longer kills that wave inside
+        the wait, and "one more unit and it is still closed" was reporting
+        four wave ships on the board rather than anything about the fare. So
+        a refused press costs one countdown's worth of frames and no more; an
+        allowed one is followed to its briefing, which is where a jump ends.
+        """
         was = self.mission()
-        self.hold("j", frames=25)
-        self.c.run_frames(20)
+        self.c.key_down("j")
+        self.c.run_frames(25)
+        self.c.key_up("j")
+        self.c.run_frames(12)
+        #  An accepted J is a countdown, and jump_secs is nonzero for as long
+        #  as it runs; a refused one leaves it at zero, and that answer is
+        #  read here instead of waited for. Bank 4, hence read_bank4. The
+        #  spool ends in a minigame on some jumps, so mis_index moving is
+        #  not something a fixed number of frames could wait for anyway --
+        #  dismiss_briefing knows the whole road.
+        if not h.read_bank4(self.c, self.sym["JUMP_SECS"], 1)[0]:
+            return False
+        h.dismiss_briefing(self.c)
         return self.mission() != was
 
     def test_three_waves_are_not_enough_with_the_picket_alive(self):

@@ -730,16 +730,9 @@ planet_times5:
 ;  something of ours; ink 3 is the alarm ink and a planet is not an alarm.
 planet_mask:        defb #08, #04, #02, #01
 
-planet_at_x:          defw 0
-planet_at_y:          defw 0
-planet_next_cx:     defw 0
-planet_next_cy:     defw 0
-planet_row_ptr:     defw 0
-planet_erasing:     defb 0
-planet_hw:          defb 0
-planet_prev:        defb 0
-planet_cols:        defb 0
-planet_from:        defb 0
+;  (planet_at_x .. planet_from -- the pass's scratch, fifteen bytes written
+;  before they are read -- are after bank4_end in src/main.asm, so they cost
+;  the file nothing. The record and planet_dy_word below need their zeros.)
 
 ;  planet_dy is read as a WORD by planet_limb. The byte after it is the high
 ;  half and is never written, so it has to stay zero and has to stay adjacent.

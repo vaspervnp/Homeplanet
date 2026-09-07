@@ -703,6 +703,38 @@ pilot_ent:          defw 0
 pilot_scan:         defw 0              ; pilot_ram's walk over the hostile region
 pilot_scan_slot:    defb 0
 pilot_pitch:        defb 0              ; the orbit's pitch, for when the ship is handed back
+pilot_fought:       defb 0              ; something hostile flew while this ship was flown
+;  Scratch that used to sit inside the image, for want of anywhere else: the
+;  homeplanet's per-pass working set, the jump wipe's walk and per-ship band,
+;  and txt_big's glyph. All written before they are read; the file was over
+;  its ceiling by a dozen bytes the day the pilot learned to hand the ship
+;  back, and these were the dozen. Lever 2 in the memory map's list.
+planet_at_x:        defw 0
+planet_at_y:        defw 0
+planet_next_cx:     defw 0
+planet_next_cy:     defw 0
+planet_row_ptr:     defw 0
+planet_erasing:     defb 0
+planet_hw:          defb 0
+planet_prev:        defb 0
+planet_cols:        defb 0
+planet_from:        defb 0
+jfx_i:              defb 0              ; the walk over phase4_vis
+jfx_n:              defb 0
+jfx_bx0:            defb 0              ; this ship's band: bar start (signed), reach
+jfx_reach:          defb 0
+jfx_by:             defb 0              ; the rows the BAR covers...
+jfx_bh:             defb 0
+jfx_cy:             defb 0              ; ...and the rows the SPRITE covers
+jfx_ch:             defb 0
+jfx_fy:             defb 0              ; which of the two the next fill is using
+jfx_fh:             defb 0
+jfx_sy:             defb 0
+jfx_spr_h:          defb 0
+jfx_half_h:         defb 0
+txt_big_glyph:      defw 0
+txt_big_rows:       defb 0
+txt_big_reps:       defb 0
 shot_count:         defb 0
 shot_list:          defs SHOT_MAX * 2
 shot_pos:           defs ENT_MAX * SHOT_POS_SIZE

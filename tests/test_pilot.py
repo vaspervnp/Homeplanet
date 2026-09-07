@@ -242,6 +242,39 @@ class TestTheCameraRidesBehindIt(PilotFixture):
         self.assertEqual(self.word("CAM_DIST"), zoom_dist, "the zoom's cam_dist did not come back")
         self.assertEqual(self.byte("CAM_PITCH"), pitch1, "the orbit's pitch did not come back")
 
+    def test_the_fight_ending_hands_it_back(self):
+        """"Όταν τελειώνει η μάχη να βγαίνω από το V αυτόματα": a hostile
+        flying while the ship is flown, then none, and the stick goes back
+        by itself -- the ship IDLE again, the slot released."""
+        e = self.PLAYER_MAX
+        self.poke(e, 0, struct.pack("<hhh", 0, 0, 9000))
+        self.poke(e, ENT_CLASS, b"\x00")
+        self.poke(e, ENT_HULL, b"\xff")
+        self.poke(e, ENT_SQUAD, b"\xff")
+        self.poke(e, ENT_ORDER, b"\x00")
+        self.poke(e, ENT_TARGET, b"\xff")
+        self.poke(e, ENT_TIMER, b"\xff")
+        self.poke(e, ENT_FLAGS, bytes([F_ACTIVE | F_ENEMY]))
+        p = self.take_the_stick()
+        self.c.run_frames(40)
+        self.assertEqual(self.pilot(), p, "the ship was handed back with the hostile still flying")
+        #  ...and the fight ends: the hostile is a wreck, which is not flying.
+        self.poke(e, ENT_FLAGS, bytes([F_ACTIVE | F_ENEMY | F_DISABLED]))
+        for _ in range(20):
+            self.c.run_frames(10)
+            if self.pilot() >= self.ENT_MAX:
+                break
+        else:
+            self.fail("the fight ended and the ship was not handed back")
+        self.assertEqual(self.field(p, ENT_ORDER), self.IDLE)
+
+    def test_a_quiet_board_does_not_hand_it_back(self):
+        """Mission 1 has nothing hostile until the first wave. Ending V the
+        frame it began would make it a key that does nothing there."""
+        p = self.take_the_stick()
+        self.c.run_frames(100)
+        self.assertEqual(self.pilot(), p, "V ended on a board with no fight on it")
+
     def test_its_death_hands_the_camera_back_to_the_station(self):
         p = self.take_the_stick()
         self.c.run_frames(20)

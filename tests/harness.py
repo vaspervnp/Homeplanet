@@ -33,6 +33,13 @@ import cpc  # noqa: E402  (path has to be set up first)
 BUILD = os.path.join(ROOT, "build")
 DISC_RAW = os.path.join(BUILD, "disc.raw")
 DSK = os.path.join(BUILD, "homeplanet.dsk")
+#  The size of the image `make` mints: 42 tracks. An emulator that plays it
+#  from this path writes it back on exit as FORTY tracks with a FLEET.DAT on
+#  it -- and every boot after that continues a saved campaign from mission
+#  two with somebody's fleet, and the tests fail in the vocabulary of
+#  whatever they were about. Caught once, in the middle of a suite, and
+#  traced to a real emulator rather than to anything in this tree.
+DSK_SIZE = 204544
 SYM = os.path.join(BUILD, "homeplanet.sym")
 #  MINI.BIN is a second assembly of the same source and its addresses are its
 #  own -- see MINI_ONLY in src/main.asm.
@@ -194,7 +201,14 @@ def dismiss_title(c: cpc.CPC) -> None:
         c.run_frames(25)
         c.key_up(key)
         c.run_frames(20)
-    raise RuntimeError("could not get past the title screen")
+    #  Say what the machine was doing: this has been raised about a title that
+    #  was never there, and the name of the screen is the least of the news.
+    state = {k: c.read_ram(sym[k], 1)[0] for k in
+             ("MIS_INDEX", "MIS_FAILED", "MIS_WON", "MIS_BRIEFING", "MIS_SAVED",
+              "TUT_ACTIVE", "MINI_ACTIVE", "RUN_ACTIVE") if k in sym}
+    state["TITLE_SHOWN"] = read_bank4(c, sym["TITLE_SHOWN"], 1)[0]
+    state["pc"] = hex(c.pc)
+    raise RuntimeError(f"could not get past the title screen: {state}")
 
 
 def wait_for_briefing(c: cpc.CPC, frames: int = 5600) -> bool:
@@ -401,6 +415,18 @@ def wait_for_jump_wipe(c: cpc.CPC, frames: int = 3200) -> bool:
     return False
 
 
+def disc_image() -> bytes:
+    """build/homeplanet.dsk, as bytes, if it is the image the build made."""
+    with open(DSK, "rb") as f:
+        image = f.read()
+    if len(image) != DSK_SIZE:
+        raise RuntimeError(
+            f"{DSK} is {len(image)} bytes, not {DSK_SIZE}: something has written "
+            "to it since `make` (an emulator playing it from this path?) -- run "
+            "make, and play from a copy")
+    return image
+
+
 def boot_quick(frames: int = 40, briefing: bool = False,
                disc: bool = True) -> cpc.CPC:
     """Let the firmware boot, then drop DISC.BIN in at #4000 and jump to it.
@@ -427,9 +453,8 @@ def boot_quick(frames: int = 40, briefing: bool = False,
     c = cpc.CPC()
     c.run_frames(BOOT_FRAMES)
     if disc:
-        with open(DSK, "rb") as f:
-            if not c.insert_disc(f.read()):
-                raise RuntimeError(f"insert_disc failed for {DSK}")
+        if not c.insert_disc(disc_image()):
+            raise RuntimeError(f"insert_disc failed for {DSK}")
     with open(DISC_RAW, "rb") as f:
         c.write_ram(LOADER_ORG, f.read())
     #  Not LOADER_ORG: the stub lives at the TOP of the image, above #8000,
@@ -690,9 +715,8 @@ def boot_disc(frames: int = 400, program: str = "DISC") -> cpc.CPC:
     #  image in the middle of a suite" this file's notes never traced: it was
     #  every boot_disc, and test_persistence, which reads the real image, was
     #  simply the first to run after one.
-    with open(DSK, "rb") as f:
-        if not c.insert_disc(f.read()):
-            raise RuntimeError(f"insert_disc failed for {DSK}")
+    if not c.insert_disc(disc_image()):
+        raise RuntimeError(f"insert_disc failed for {DSK}")
     c.type_text("|DISC\n")
     c.run_frames(60)
     c.type_text(f'RUN"{program}\n')

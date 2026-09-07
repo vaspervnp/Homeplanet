@@ -28,6 +28,9 @@ CBT_COOLDOWN        equ 6               ; frames between shots
 ;  everything else closes to CBT_RANGE before it does. Under attack the base
 ;  fights back now, and a fleet stationed on it is inside its cover.
 CBT_MOTH_RANGE      equ CBT_RANGE * 2
+;  Every shot's damage is the matrix entry shifted right this many times,
+;  floor one -- see cbt_fire_if_able. Eight times the fight, on a byte hull.
+CBT_DAMAGE_SHIFT    equ 3
 
 ;  Damage comes from cbt_damage_matrix -- eight classes square, section 8's
 ;  balance triangle written out. It lives in game/classdata.asm with the rest
@@ -314,8 +317,21 @@ cbt_fire_if_able:
     call snd_fire
     call shot_note                      ; bank 4: the tracer, drawn after the ships
 
-    ;  Damage, from the balance matrix.
+    ;  Damage, from the balance matrix -- DIVIDED BY EIGHT, floor one.
+    ;  "Κάνε 10 φορές ισχυρότερα τα hull των πλοίων για να κρατάει
+    ;  περισσότερο η μάχη και να έχει νόημα το V": a hull is one byte and the
+    ;  interceptor is already at 255, so the ships cannot get tougher; the
+    ;  guns get weaker instead, and the matrix keeps reading as relative
+    ;  strength. Three shifts is eight, which is what fits in three bytes;
+    ;  the floor is what keeps a harvester's 2 from becoming a shot that
+    ;  does nothing. CBT_DAMAGE_SHIFT names it for the tests and the tools.
     call cbt_damage_for
+    srl a
+    srl a
+    srl a
+    jr nz,@cbt_damage_ok
+    inc a
+@cbt_damage_ok:
     ld (cbt_damage),a
     ld a,(cbt_target)
     call ent_addr

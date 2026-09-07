@@ -428,3 +428,20 @@ class TestWriting(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestTheSpriteMapRoundTrips(unittest.TestCase):
+    """tools/spritemap.py: the projects exported to a PNG and imported back
+    give byte for byte the spr_*.asm the projects give directly -- every
+    pen, and every "not drawn" pixel, survives the fifth colour. Pure
+    Python; no emulator."""
+
+    def test_export_then_import_is_the_identity(self):
+        import subprocess, sys, tempfile, os
+        tool = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tools", "spritemap.py")
+        with tempfile.TemporaryDirectory() as tmp:
+            png = os.path.join(tmp, "map.png")
+            subprocess.run([sys.executable, tool, "export", "--png", png], check=True, capture_output=True)
+            r = subprocess.run([sys.executable, tool, "import", "--check", "--png", png], capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            self.assertNotIn("DIFFERS", r.stdout)
