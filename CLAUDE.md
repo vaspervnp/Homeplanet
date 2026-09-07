@@ -6256,6 +6256,14 @@ reason `mini_blit` takes a class — at tier C in the enemy ink, and it can be
 outlasted: a destroyer that gets past pays nothing, and the run ends on the
 clock either way. About 120 bytes of bank 7, none of `DISC.BIN`.
 
+> **AND THEY CAME IN FROM THE WRONG SIDE**, reported as *"ships show up right
+> in front of the player"*: `mini_blit` kept its x in one byte, which the
+> chase never noticed because its tunnel stays under 256 pixels, and a flight
+> spawned at 316 to 372 pixels was drawn at 60 to 116 — beside our ship —
+> until it had flown far enough to fit. `mini_sx` is a word now and the
+> column is a signed 16-bit shift; `spr_blit` rejects a column past 79 and
+> always did. `TestTheyComeFromTheRight` reads the lane's pixels.
+
 > **THE FLIGHTS HAD NEVER FIRED, and the destroyer found it.** `run_enemies_step`
 > rolled `sys_rand` and then wrote the shot through HL — and `sys_rand`'s
 > header says `Uses: AF, HL`: HL was the generator's new state, so every shot

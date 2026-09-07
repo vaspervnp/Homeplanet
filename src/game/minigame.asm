@@ -1385,8 +1385,7 @@ mini_ships:
 mini_blit:
     ld a,c
     ld (mini_sy),a
-    ld a,e
-    ld (mini_sx),a
+    ld (mini_sx),de                     ; ALL SIXTEEN BITS -- see below
 
     ld l,b
     ld h,0
@@ -1414,20 +1413,31 @@ mini_blit:
     ld d,(hl)
     ld (mini_bsz),de                    ; one (view, pre-shift) block
 
-    ;  x = (centre - half width) >> 2. In single bytes, and it cannot borrow:
-    ;  the leftmost either ship can be drawn at is 72 - 14.
-    ld a,(mini_sx)
-    sub c
-    srl a
-    srl a
-    ld l,a
-    ld h,0
+    ;  x = (centre - half width) >> 2, AS A WORD. This took the low byte of
+    ;  DE, which was fine for the chase -- its tunnel never reaches 256
+    ;  pixels -- and put every ship the run spawned past the right edge (316
+    ;  to 372 pixels) sixty to a hundred pixels in from the LEFT instead,
+    ;  right in front of the player, until it had flown far enough for its x
+    ;  to fit a byte. "Ships show up right in front of the player. They
+    ;  should always be coming from the other side." spr_blit clips a column
+    ;  past 79 perfectly well; it was never asked to.
+    push bc
+    ld hl,(mini_sx)
+    ld b,0
+    or a
+    sbc hl,bc                           ; centre - half width, signed
+    sra h
+    rr l
+    sra h
+    rr l                                ; ...in byte columns, sign kept
     ld (spr_x),hl
+    pop bc
 
     ld a,(mini_sy)
     sub b
     ld l,a
-    ld h,0
+    sbc a,a                             ; the borrow, spread: above the top is negative
+    ld h,a
     ld (spr_y),hl
 
     ;  The interceptor's row of class_sprite, which is the first one, and view
@@ -1544,5 +1554,5 @@ mini_rx:            defb 0
 mini_bx:            defb 0
 mini_bw:            defb 0
 mini_ty:            defb 0
-mini_sx:            defb 0
+mini_sx:            defw 0              ; pixels, signed: the run's flights start past 255
 mini_sy:            defb 0

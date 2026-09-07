@@ -352,3 +352,51 @@ class TestTheDestroyer(RunFixture):
         self.step(3)
         self.assertEqual(self.boss()[0], 0, "it did not get past")
         self.assertEqual(self.b7("RUN_KILLS"), kills0, "a destroyer that got past paid")
+
+
+class TestTheyComeFromTheRight(RunFixture):
+    """"In the R-Type minigame ships show up right in front of the player.
+    They should always be coming from the other side." mini_blit kept the
+    x in one byte, so a ship spawned at 316..372 pixels was drawn at 60..116
+    -- in front of us -- until it had flown far enough to fit. Read off the
+    pixels: a flight fresh off the right edge puts no enemy ink on the left
+    half of the lane, and a ship at a hundred units is drawn at two hundred
+    pixels."""
+
+    def red_columns(self, x0, x1):
+        """Byte columns in x0..x1 carrying pen-3 pixels inside the lane,
+        below the hit marks."""
+        ram = self.c.read_ram(h.front_buffer(self.c), 0x4000)
+        top = self.sym["MG_BODY_Y"] + 12
+        bottom = self.sym["MG_BODY_Y"] + self.sym["MG_BODY_H"]
+        cols = set()
+        for y in range(top, bottom):
+            for xb in range(x0, x1):
+                b = ram[h.screen_offset(y, xb)]
+                if (b & 0x0F) & ((b & 0xF0) >> 4):        # both planes: pen 3
+                    cols.add(xb)
+        return cols
+
+    def one_enemy_at(self, x):
+        base = self.sym["RUN_ENEMIES"]
+        h.write_cpu(self.c, base, bytes([1, x, self.sym["MG_CY"], 0]))
+        for i in range(1, self.sym["RUN_ENEMY_MAX"]):
+            h.write_cpu(self.c, base + i * 4, b"\x00")
+        h.write_cpu(self.c, self.sym["RUN_ESHOTS"], bytes(self.sym["RUN_ESHOT_N"] * 2))
+        self.step(1)
+        self.c.run_frames(4)
+
+    def test_a_ship_past_the_right_edge_draws_nothing_on_the_left(self):
+        self.jump_into_the_run()
+        self.begin()
+        self.one_enemy_at(175)                              # 350 pixels: off the right
+        self.assertEqual(self.red_columns(0, 40), set(),
+                         "enemy ink on the left half with the only enemy past the right edge")
+
+    def test_a_ship_at_a_hundred_units_is_drawn_at_two_hundred_pixels(self):
+        self.jump_into_the_run()
+        self.begin()
+        self.one_enemy_at(100)
+        cols = self.red_columns(0, 80)
+        self.assertTrue(cols, "the enemy was not drawn at all")
+        self.assertTrue(all(42 <= c <= 58 for c in cols), f"enemy ink at columns {sorted(cols)}")
