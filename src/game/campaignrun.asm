@@ -751,6 +751,14 @@ mis_gate:
     or a
     sbc hl,de
     ret c
+    ;  ...and the FIFTH thing: a thousand in hand, whatever the fare. The
+    ;  fare is what the jump COSTS; this is what the player must HAVE, so
+    ;  that a squadron does not leave a mission with nothing to rebuild on.
+    ld hl,(eco_ru)
+    ld de,JUMP_MIN_RU
+    or a
+    sbc hl,de
+    ret c
 
 @mis_gate_open:
     ld a,1

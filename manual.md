@@ -438,13 +438,15 @@ fields, and an **objective**:
 
 ### Leaving
 
-`JUMP` appears on the HUD when all four of these hold:
+`JUMP` appears on the HUD when all five of these hold:
 
 1. the objective is met;
 2. **three waves** have come and gone;
 3. **nothing hostile is flying** — wrecks do not count;
 4. you can pay the **fare**: 200 RU for the first jump, rising to 2500 by
-   the eighteenth. The last two are free.
+   the eighteenth. The last two are free;
+5. you hold at least **1000 RU** — the fare comes out of it, and what is
+   left is what you rebuild with. The landing waives this too.
 
 Then `J`. The drive spools for **ten seconds** of live battle — the bar
 counts them down — and `ESC` calls it off. A wave landing during the spool

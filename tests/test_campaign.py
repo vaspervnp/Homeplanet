@@ -393,10 +393,17 @@ class TestTheWayOut(CampaignFixture):
         addr = self.sym["MISSION_FARE"] - 0x4000 + self.byte("MIS_INDEX") * 2
         return int.from_bytes(bank7[addr:addr + 2], "little")
 
+    def fare_of_the_mission_left(self):
+        """The fare charged was the PREVIOUS mission's: mis_index has moved."""
+        with open("build/bank6.raw", "rb") as f:
+            bank = f.read()
+        addr = self.sym["MISSION_FARE"] - 0x4000 + (self.byte("MIS_INDEX") - 1) * 2
+        return int.from_bytes(bank[addr:addr + 2], "little")
+
     def pay_the_fare(self, over=True):
         """The treasury the drive is fuelled out of. `over=False` leaves the
         player one unit short, which is the only interesting failing case."""
-        cost = self.fare()
+        cost = max(self.fare(), self.sym["JUMP_MIN_RU"])     # the fare, or the floor
         self.c.write_ram(self.sym["ECO_RU"],
                          struct.pack("<H", cost if over else cost - 1))
 
@@ -509,6 +516,23 @@ class TestTheWayOut(CampaignFixture):
         self.assertEqual(self.byte("MIS_LEAVE_OK"), 1,
                          "one more unit and it is still closed")
 
+    def test_a_thousand_in_hand_is_the_fifth_thing_it_asks(self):
+        """"Jump shouldn't be available if RU < 1000": mission 3's fare is
+        well under a thousand, so this is the clause the fare test cannot
+        see. One short of the floor, closed; the floor, open."""
+        self.to_a_mission_with_a_picket()
+        self.clear_the_board()
+        self.waves_seen(self.sym["WAVE_BEFORE_JUMP"])
+        floor = self.sym["JUMP_MIN_RU"]
+        self.assertLess(self.fare(), floor, "the fixture's fare hides the floor")
+        self.c.write_ram(self.sym["ECO_RU"], struct.pack("<H", floor - 1))
+        self.c.run_frames(24)
+        self.assertEqual(self.byte("MIS_COMPLETE"), 1)
+        self.assertEqual(self.byte("MIS_LEAVE_OK"), 0, "the jump was offered under a thousand RU")
+        self.c.write_ram(self.sym["ECO_RU"], struct.pack("<H", floor))
+        self.c.run_frames(24)
+        self.assertEqual(self.byte("MIS_LEAVE_OK"), 1, "a thousand in hand and it is still closed")
+
     def test_the_fare_is_actually_taken(self):
         """Charged once, and only when the jump happens.
 
@@ -527,13 +551,15 @@ class TestTheWayOut(CampaignFixture):
             self.c.write_ram(
                 self.sym["ECO_PATCHES"] + i * self.sym["ECO_PATCH_SIZE"] + 6,
                 b"\x00\x00")
-        purse = self.fare() + 250
+        #  Over the floor as well as the fare: the gate wants a thousand in
+        #  hand, and only the fare comes out.
+        purse = max(self.fare(), self.sym["JUMP_MIN_RU"]) + 250
         self.c.write_ram(self.sym["ECO_RU"], struct.pack("<H", purse))
         self.c.run_frames(24)
         self.assertTrue(self.press_j(), "the way out was closed with the fare paid")
         h.dismiss_briefing(self.c)
         left = int.from_bytes(self.c.read_ram(self.sym["ECO_RU"], 2), "little")
-        self.assertEqual(left, 250, f"the drive cost {purse - left}")
+        self.assertEqual(left, purse - self.fare_of_the_mission_left(), f"the drive cost {purse - left}")
 
     def test_a_wreck_does_not_hold_the_player_in(self):
         """A crippled hull carries ACTIVE and ENEMY and is going nowhere, and

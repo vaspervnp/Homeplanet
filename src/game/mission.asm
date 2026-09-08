@@ -143,6 +143,10 @@ MIS_SURVIVE_TICKS   equ 50 * 30
 ;  a jump is affordable, and src/main.asm asserts no row of the curve exceeds
 ;  it. A value that is merely "big enough" would stop being so silently.
 MIS_JUMP_COST       equ 2800
+;  ...and the treasury must hold this much besides, whatever the fare:
+;  "Jump shouldn't be available if RU < 1000". The last mission lands for
+;  free and this does not apply there either.
+JUMP_MIN_RU         equ 1000
 
 ;  How long the drive spools after `J`, in SECONDS. The world keeps running for
 ;  all of them, which is the whole mechanic rather than a delay: a countdown

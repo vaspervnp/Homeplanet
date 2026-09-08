@@ -1659,6 +1659,16 @@ E, O, M, I and N are all bound — so the word is **RECYCLE** and the key is its
 #### A jump costs a CURVE, 200 rising to 2800
 
 `mission_fare` in `campaign.asm`, one word a mission, read by `mis_jump_fare`.
+**And a thousand in hand is the FIFTH**, on the owner's instruction — *"Jump
+shouldn't be available if RU < 1000 and less than 3 enemy waves have
+passed"*, and asked which, "και τα δύο": `JUMP_MIN_RU` in `game/mission.asm`,
+checked after the fare in `mis_gate` and, like the fare, waived for the
+landing. The fare is what a jump COSTS; this is what the player must HAVE,
+so no squadron leaves a mission with nothing to rebuild on.
+`harness.clear_the_way_out` already topped the purse up to `MIS_JUMP_COST`,
+which is above it. `tools/balance.py --rebuild` is the measurement that says
+whether mission 1 can still be left; see below.
+
 It is the **fourth thing `mis_gate` asks** — checked there rather than at the
 key, so the HUD's `JUMP` never offers what ENTER would refuse. `mis_jump` takes
 it after both refusals and before anything else moves, so a refused jump is
