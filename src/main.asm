@@ -706,6 +706,15 @@ pilot_scan:         defw 0              ; pilot_ram's walk over the hostile regi
 pilot_scan_slot:    defb 0
 pilot_pitch:        defb 0              ; the orbit's pitch, for when the ship is handed back
 pilot_fought:       defb 0              ; something hostile flew while this ship was flown
+;  order_squad_centre's box: min x y z, then max x y z, six bytes on.
+ord_min_x:          defw 0
+ord_min_y:          defw 0
+ord_min_z:          defw 0
+ord_max_x:          defw 0
+ord_max_y:          defw 0
+ord_max_z:          defw 0
+ord_seen:           defb 0
+ord_focus_ptr:      defw 0
 ;  The scanner's frame (game/farmarks.asm): all written before they are read.
 scan_me:            defw 0
 scan_walk:          defw 0
@@ -835,8 +844,17 @@ info_tfull:         defw 0
 ;  being in bank 4. They are on the disc now, so there is no real art to fall
 ;  back to and the fallback has to make its own.
 ; ----------------------------------------------------------------------------
-class_standin:
-    defs CLASS_STANDIN_SIZE, 0
+;
+;  IT OVERLAYS THE FLEET BUFFER. The stand-in is only ever read on a machine
+;  whose disc could not be read, and fleet_block only ever holds anything on
+;  a machine whose disc could: the two are never wanted at once, so they
+;  share the window's bytes and the window gets 432 of them back -- which
+;  is what paid for the camera centring on where a squadron IS. On a disc
+;  that reads its libraries but not its save the block stays untouched too
+;  (fleet_disc_load rejects the magic and leaves the buffer); the one way
+;  to be drawn out of fleet data is libraries unreadable and a save
+;  readable, on a machine that is already broken.
+;  (class_standin is a second label on fleet_block, below.)
 
 ; ----------------------------------------------------------------------------
 ;  Mending the Mothership with `0` selected -- game/economyrun.asm's state.
@@ -899,6 +917,7 @@ moth_fix_last:      defs 1              ; sys_tick_50hz when we last looked
 ;  a whole number of sectors, so a save is two 512-byte writes from one
 ;  address rather than a gather -- which is what keeps the FDC code small
 ;  enough to fit what is left of the low 16K.
+class_standin:                          ; the no-disc stand-ins overlay the buffer: see above
 fleet_block:
     defs FLEET_HDR_SIZE, 0              ; magic, magic, mission index, count
 fleet_buffer:
@@ -1765,3 +1784,4 @@ ENDIF
     assert enemies_lance   - enemies_hammer  == 10 * MIS_ENEMY_SIZE, "enemies_hammer is not ten ships"
     assert enemies_lance_end - enemies_lance == 12 * MIS_ENEMY_SIZE, "enemies_lance is not twelve ships"
     assert enemies_lance_end - enemies_picket <= LIB_SECTORS * FDC_SECTOR_SIZE, "the enemy layouts do not fit bank 7"
+    assert CLASS_STANDIN_SIZE <= FLEET_BLOCK_SIZE, "the stand-in no longer fits inside the fleet buffer it overlays"

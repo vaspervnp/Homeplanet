@@ -563,16 +563,20 @@ class TestTheFallback(ClassFixture):
         self.assertEqual(set(block[0::2]), {0x00}, "the mask is not opaque")
         self.assertEqual(set(block[1::2]), {0xF0}, "the data is not pen 1")
 
-    def test_the_stand_in_does_not_reach_into_the_fleet_buffer(self):
-        """It is the neighbour of the save block in bank 4, and the blitter
-        steps `view * shifts` blocks of the tier's size off the base with
-        nothing at run time to stop it."""
+    def test_the_stand_in_lies_inside_the_fleet_buffer(self):
+        """It OVERLAYS the save block in bank 4 -- the two are never wanted
+        at once, a stand-in only on a machine whose disc could not be read
+        and the block only on one whose disc could -- and the blitter steps
+        `view * shifts` blocks of the tier's size off the base with nothing
+        at run time to stop it, so it has to stay inside the block's
+        bytes and not run on into whatever follows."""
         self.boot(disc=False)
         start = self.sym["CLASS_STANDIN"]
         self.assertGreaterEqual(start, BANK_WINDOW)
+        self.assertGreaterEqual(start, self.sym["FLEET_BLOCK"])
         self.assertLessEqual(start + self.sym["CLASS_STANDIN_SIZE"],
-                             self.sym["FLEET_BLOCK"],
-                             "the stand-in overlaps the fleet save block")
+                             self.sym["FLEET_BLOCK"] + self.sym["FLEET_BLOCK_SIZE"],
+                             "the stand-in runs past the fleet save block it overlays")
 
     def test_the_fallback_draws_about_as_much_as_the_real_thing(self):
         """The failure this exists to catch is a fleet of INVISIBLE ships.

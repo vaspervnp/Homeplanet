@@ -188,7 +188,7 @@ class TestWhatItSays(BarFixture):
         text = self.strip_text()
         self.assertIn("ESC MENU", text, f"the bar reads {text!r}")
         self.assertIn("B BUILD", text)
-        self.assertIn(", . TARGET", text)
+        self.assertIn("A ATTACK", text)
         self.assertEqual(self.banked("CTX_KEY"), self.sym["CTX_PLAYING"])
 
     def test_pausing_says_so(self):
@@ -452,7 +452,7 @@ class TestTheKeysAreBlue(BarFixture):
             ("ESC", PEN_BLUE), ("MENU", PEN_WHITE),
             ("ENTER", PEN_BLUE), ("MOVE", PEN_WHITE),
             ("B", PEN_BLUE), ("BUILD", PEN_WHITE),
-            (", .", PEN_BLUE), ("TARGET", PEN_WHITE),
+            ("A", PEN_BLUE), ("ATTACK", PEN_WHITE),
         ])
 
     def test_the_move_disc_line_does_too_and_may_end_on_a_key(self):

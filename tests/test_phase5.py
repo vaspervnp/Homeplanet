@@ -30,6 +30,9 @@ DISC_STEP = 400
 #  keeping a second copy that can drift.
 from tools import gentables as g
 
+ENT_SIZE = 20                        # a record, for the camera tests' walks
+ENT_FLAGS, ENT_SQUAD = 11, 12
+
 ZOOM_DISTANCES = [d for d, _, _, _ in g.ZOOM_STEPS]
 ZOOM_DEFAULT = g.ZOOM_DEFAULT
 
@@ -525,13 +528,31 @@ class TestSelectionAndCamera(ControlFixture):
     def focus(self):
         return tuple(self.word("CAM_FOCUS_X", i * 2, signed=True) for i in range(3))
 
+    def middle_of(self, squad):
+        """Where the camera centres now: the middle of the box round the
+        squadron's flying ships (order_squad_centre), not its station."""
+        base = self.sym["ENTITIES"]
+        pts = []
+        for slot in range(self.sym["ENT_PLAYER_MAX"]):
+            r = self.c.read_ram(base + slot * ENT_SIZE, ENT_SIZE)
+            if (r[ENT_FLAGS] & 5) == 1 and r[ENT_SQUAD] == squad:
+                pts.append(struct.unpack("<hhh", r[:6]))
+        self.assertTrue(pts, f"squadron {squad} has no ship")
+        return tuple((min(p[i] for p in pts) + max(p[i] for p in pts)) >> 1 for i in range(3))
+
     def test_the_camera_follows_the_selected_squadron(self):
-        self.assertEqual(self.focus(), self.dest_of(1),
+        """The middle of the squadron's box, since "να κεντράρεις εκεί που
+        είναι τώρα": read with the battle paused, so the box holds still
+        between the frame that set the focus and the read."""
+        self.c.write_ram(self.sym["ORDER_PAUSED"], b"\x01")
+        self.c.run_frames(30)
+        self.assertEqual(self.focus(), self.middle_of(1),
                          "the camera does not start on the selection")
         self.hold("d", frames=30)
         self.hold("2", frames=25)
         self.assertEqual(self.byte("SQUAD_SEL"), 2)
-        self.assertEqual(self.focus(), self.dest_of(2),
+        self.c.run_frames(30)
+        self.assertEqual(self.focus(), self.middle_of(2),
                          "selecting a squadron did not move the camera to it")
 
     def test_zero_selects_the_mothership(self):
@@ -745,6 +766,33 @@ class TestOrders(ControlFixture):
             self.c.write_ram(rec + 11, b"\x03")         # ACTIVE | ENEMY
         self.c.run_frames(30)
         return [first + n for n in range(how_many)]
+
+    def test_the_camera_centres_on_where_the_squadron_is_not_its_station(self):
+        """"Όταν κεντράρεις σε squadron να κεντράρεις εκεί που είναι τώρα,
+        όχι στην resting θέση του." The focus is the middle of the box round
+        the squadron's flying ships. Paused, so phase4_fly does not drag them
+        back while the question is asked."""
+        self.c.write_ram(self.sym["ORDER_PAUSED"], b"\x01")
+        base = self.sym["ENTITIES"]
+        sel = self.byte("SQUAD_SEL")
+        ships = [s for s in range(self.sym["ENT_PLAYER_MAX"])
+                 if self.c.read_ram(base + s * ENT_SIZE + ENT_FLAGS, 1)[0] & 1
+                 and self.c.read_ram(base + s * ENT_SIZE + ENT_SQUAD, 1)[0] == sel]
+        self.assertGreater(len(ships), 3)
+        #  Fly them all off to one side: x + 6000, z - 4000, and one of them
+        #  further still, so the box is not symmetrical about the station.
+        for i, s in enumerate(ships):
+            x, y, z = struct.unpack("<hhh", self.c.read_ram(base + s * ENT_SIZE, 6))
+            self.c.write_ram(base + s * ENT_SIZE, struct.pack("<hhh", x + 6000 + (2000 if i == 0 else 0), y, z - 4000))
+        for _ in range(3):
+            h.run_to_stable_point(self.c, self.sym)
+            self.c.run_frames(1)
+        xs, ys, zs = zip(*(struct.unpack("<hhh", self.c.read_ram(base + s * ENT_SIZE, 6)) for s in ships))
+        want = ((min(xs) + max(xs)) >> 1, (min(ys) + max(ys)) >> 1, (min(zs) + max(zs)) >> 1)
+        focus = tuple(self.word("CAM_FOCUS_X", i * 2, signed=True) for i in range(3))
+        station = struct.unpack("<hhh", self.c.read_ram(self.sym["SQUAD_DEST"] + (sel - 1) * 6, 6))
+        self.assertEqual(focus, want, f"the focus is not the squadron's middle (station {station})")
+        self.assertNotEqual(focus, station, "the focus stayed on the station")
 
     def test_r_stations_the_squadron_on_the_mothership(self):
         self.hold("d", frames=30)

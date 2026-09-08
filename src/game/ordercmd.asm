@@ -612,12 +612,20 @@ order_focus:
     jr @ord_focus_copy
 
 @ord_focus_squadron:
+    ;  WHERE THE SQUADRON IS, not where it was told to be: "Όταν κεντράρεις
+    ;  σε squadron να κεντράρεις εκεί που είναι τώρα, όχι στην resting θέση
+    ;  του." The middle of the box round its flying ships, which is one
+    ;  shift instead of a divide; the station only when it has no ships,
+    ;  which cannot happen to a selection but costs nothing to allow.
+    call order_squad_centre
+    jr c,@ord_focus_panned              ; ...written straight into cam_focus
     call order_dest_addr
 
 @ord_focus_copy:
     ld de,cam_focus_x
     ld bc,6
     ldir
+@ord_focus_panned:
 
     ;  ...and then wherever the player has dragged the view to. The camera
     ;  still FOLLOWS the selection; the pan is an offset from it, so a
@@ -1173,4 +1181,149 @@ order_add_clamped:
     ld (hl),e
     inc hl
     ld (hl),d
+    ret
+
+
+; ----------------------------------------------------------------------------
+;  order_squad_centre -- cam_focus = the middle of the selected squadron
+;  Out: CF set and cam_focus_x/y/z written, or CF clear if it has no ship
+;  Uses: everything
+;
+;  The middle of the bounding box of the squadron's flying ships -- min and
+;  max on each axis, then one arithmetic shift of the sum -- because a
+;  centre of mass wants a divide by the count, which this game does not
+;  have, and a box's middle is the same point for a symmetrical formation.
+;  Walks the player's region once, six signed 16-bit compares a ship, about
+;  thirteen thousand T-states for a full fleet.
+; ----------------------------------------------------------------------------
+order_squad_centre:
+    ld hl,#7FFF
+    ld (ord_min_x),hl
+    ld (ord_min_y),hl
+    ld (ord_min_z),hl
+    ld hl,#8000
+    ld (ord_max_x),hl
+    ld (ord_max_y),hl
+    ld (ord_max_z),hl
+    xor a
+    ld (ord_seen),a
+    ld hl,entities
+    ld b,ENT_PLAYER_MAX
+@osc_one:
+    push bc
+    push hl
+    ld de,ENT_FLAGS
+    add hl,de
+    ld a,(hl)
+    and ENT_F_ACTIVE + ENT_F_DISABLED
+    cp ENT_F_ACTIVE
+    jr nz,@osc_next
+    inc hl                              ; ENT_SQUAD
+    ld a,(squad_sel)
+    cp (hl)
+    jr nz,@osc_next
+    ld a,1
+    ld (ord_seen),a
+    pop hl
+    push hl                             ; HL = the record: ENT_X is offset 0
+    ld de,ord_min_x
+    ld b,3
+@osc_axis:
+    push bc
+    ld c,(hl)
+    inc hl
+    ld b,(hl)
+    inc hl                              ; BC = this axis, HL -> the next
+    push hl
+    ex de,hl                            ; HL -> this axis's min
+    call @osc_less                      ; CF: BC < (HL)
+    jr nc,@osc_min_ok
+    ld (hl),c
+    inc hl
+    ld (hl),b
+    dec hl
+@osc_min_ok:
+    push hl
+    ld de,6
+    add hl,de                           ; -> its max
+    call @osc_less
+    jr c,@osc_max_ok                    ; BC < max: not a new max
+    ld (hl),c
+    inc hl
+    ld (hl),b
+    dec hl
+@osc_max_ok:
+    pop hl
+    inc hl
+    inc hl                              ; -> the next axis's min
+    ex de,hl
+    pop hl                              ; the record cursor
+    pop bc
+    djnz @osc_axis
+@osc_next:
+    pop hl
+    ld de,ENT_SIZE
+    add hl,de
+    pop bc
+    djnz @osc_one
+    ld a,(ord_seen)
+    or a
+    ret z                               ; CF clear: nothing to centre on
+    ;  cam_focus = (min + max) >> 1, each axis.
+    ld hl,cam_focus_x
+    ld (ord_focus_ptr),hl
+    ld hl,ord_min_x
+    ld b,3
+@osc_mid:
+    push bc
+    ld e,(hl)
+    inc hl
+    ld d,(hl)
+    inc hl                              ; DE = min, HL -> the next axis's min
+    push hl
+    ld bc,4
+    add hl,bc                           ; -> this axis's max
+    ld c,(hl)
+    inc hl
+    ld b,(hl)                           ; BC = max
+    ex de,hl                            ; HL = min
+    add hl,bc                           ; min + max: both inside the map, so no overflow
+    sra h
+    rr l
+    ex de,hl                            ; DE = the middle
+    ld hl,(ord_focus_ptr)
+    ld (hl),e
+    inc hl
+    ld (hl),d
+    inc hl
+    ld (ord_focus_ptr),hl
+    pop hl
+    pop bc
+    djnz @osc_mid
+    scf
+    ret
+
+;  CF set if BC < (HL), signed 16-bit. Uses AF; BC, DE, HL are kept.
+@osc_less:
+    push de
+    push hl
+    ld e,(hl)
+    inc hl
+    ld d,(hl)                           ; DE = (HL)
+    ld h,b
+    ld l,c                              ; HL = BC
+    or a
+    sbc hl,de                           ; BC - (HL): the sign says which is less
+    jp pe,@osc_less_ovf
+    ld a,h
+    rla                                 ; CF = the sign
+    pop hl
+    pop de
+    ret
+@osc_less_ovf:
+    ld a,h
+    rla
+    ccf                                 ; it overflowed: the true sign is the other
+    pop hl
+    pop de
     ret

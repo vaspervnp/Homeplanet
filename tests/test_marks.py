@@ -190,6 +190,7 @@ class TestTheReticleBox(MarkFixture):
         self.clear_everything()
         self.c.write_ram(self.sym["MOTH_SLOT"], bytes([1]))
         self.place(1, (0, 0, -30000), cls=1)                       # the base, far away
+        self.poke(1, ENT_SQUAD, b"\x00")                           # ...and in no squadron, or the box spans it
         self.place(0, (0, 0, 0))
         self.poke(0, 6, bytes([128]))                              # ENT_YAW: +Z
         #  THE NEAR PLANE IS 84 CAMERA UNITS, 5376 WORLD UNITS: anything
@@ -248,6 +249,15 @@ class TestTheReticleBox(MarkFixture):
 
     def test_the_reticle_is_drawn_while_flying_and_not_otherwise(self):
         self.fly_with_two_ahead()
+        #  The hostiles off to the sides, still flying: a sprite over a tick
+        #  reads as the sprite's ink, and how far the ship has flown decides
+        #  its size; but taking them away ends the fight, and the fight
+        #  ending hands the ship back, reticle and all.
+        me = self.byte("PILOT_SLOT")
+        mx, my, mz = struct.unpack("<hhh", self.c.read_ram(self.sym["ENTITIES"] + me * ENT_SIZE, 6))
+        self.poke(self.PLAYER_MAX, 0, struct.pack("<hhh", mx + 6000, my, mz + 6000))
+        self.poke(self.PLAYER_MAX + 1, 0, struct.pack("<hhh", mx - 6000, my, mz + 6000))
+        self.settle()
         gap, ln = self.sym["PILOT_RET_GAP"], self.sym["PILOT_RET_LEN"]
         cy = self.sym["PROJ_CENTRE_Y"]
         ticks = [(160 - gap - 1, cy), (160 + gap + 1, cy), (160, cy - gap - 1), (160, cy + gap + 1)]

@@ -365,7 +365,7 @@ ctx_text_play:
     defb "ESC",0,"MENU",0
     defb "ENTER",0,"MOVE",0
     defb "B",0,"BUILD",0
-    defb ", .",0,"TARGET",0
+    defb "A",0,"ATTACK",0
     defb 0
 ctx_text_play_end:
 

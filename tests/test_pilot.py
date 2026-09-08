@@ -285,8 +285,13 @@ class TestTheCameraRidesBehindIt(PilotFixture):
         self.hold(cpc.KEY_SPACE)                             # ...and SPACE is the pause again
         self.assertEqual(self.byte("ORDER_PAUSED"), 1)
         self.c.run_frames(20)
-        self.assertEqual(self.focus(), tuple(self.word("SQUAD_DEST", i * 2) for i in range(3)),
-                         "the camera did not go back to the squadron's station")
+        #  ...to the squadron: the middle of the box round its flying ships,
+        #  which the dead one is no longer in.
+        base = self.sym["ENTITIES"]
+        pts = [struct.unpack("<hhh", self.rec(s)[:6]) for s in range(self.PLAYER_MAX)
+               if (self.field(s, ENT_FLAGS) & 5) == 1 and self.field(s, ENT_SQUAD) == self.byte("SQUAD_SEL")]
+        want = tuple((min(q[i] for q in pts) + max(q[i] for q in pts)) >> 1 for i in range(3))
+        self.assertEqual(self.focus(), want, "the camera did not go back to the squadron")
 
 
 class TestSpaceIsTheTrigger(PilotFixture):

@@ -79,7 +79,7 @@ your attention.
 
 | the bar reads | you are |
 |---|---|
-| `ESC MENU ENTER MOVE B BUILD , . TARGET` | playing |
+| `ESC MENU ENTER MOVE B BUILD A ATTACK` | playing |
 | `PAUSED  SPACE RESUME ESC MENU` | paused |
 | `ARROWS MOVE SHIFT HEIGHT ENTER OK ESC` | placing the move disc |
 | `INTERCEPTOR 035 RU , . PICK ENTER BUY` | in the build panel |
@@ -126,7 +126,8 @@ The palette means something and the game never breaks the rule:
 
 The world is three-dimensional. A grid of blue dots marks the reference
 plane; your ships fly above and below it. The camera orbits whatever you
-have selected, from a distance you choose with the zoom. Ships are drawn at
+have selected — the squadron where it is right now, not where it was
+told to go — from a distance you choose with the zoom. Ships are drawn at
 three sizes depending on how far away they are; further away than that a
 ship is a **dot** in its side's colour — white for yours, red for theirs —
 still exactly where it is. When many sit on top of each other at a wide

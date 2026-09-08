@@ -190,12 +190,13 @@ see "Where 700 bytes came from" for why the second one lies.
 went through `tools/lzpack.py`; the figures in the rest of this paragraph and
 the four levers below are what it took to reach that point, and the file is
 not the binding constraint any more. Low 16K 402 with the hand-written code
-ending at `#25A3` — ninety-three bytes before the page, since `demo_reset`,
-`wave_init` and `proj_shr7` went to bank 4 — bank 4's WINDOW **8** after the
-marks, the reticle, the scanner, the cockpit's scaled sprites and those
-three, and banks 5, 6 and 7 within six bytes of full with the scaled
-blitter's copies. Bank 4's window is the ceiling, and the next thing that
-needs it moves a copied table from bank 4 to bank 6 first.** Before the
+ending at `#25B1` — seventy-nine bytes before the page, since `demo_reset`,
+`wave_init` and `proj_shr7` went to bank 4 — bank 4's WINDOW **233** after
+the marks, the reticle, the scanner, the cockpit's scaled sprites, those
+three and the squadron centring, which is what the stand-in overlaying the
+fleet buffer bought; banks 5, 6 and 7 within six bytes of full with the
+scaled blitter's copies. Bank 4's window is the ceiling, and the next thing
+that needs it moves a copied table from bank 4 to bank 6 first.** Before the
 packer: low 16K 402, bank 4 1954, bank 6 14210 and bank 7 15324 of 16384,
 `DISC.BIN` 25558 of 26368 so 810 of headroom.** The pilot's 375 bytes of bank 4
 are the newest thing in those figures. The chase runs from bank 7 now — see "The chase
@@ -604,14 +605,24 @@ Where the remaining headroom is, in the order worth taking it:
   `demo_reset` (`demo_init` now ends `jp demo_reset`), `wave_init` and
   `proj_shr7` — which took the hand-written code from `#25FC` to `#25A3` and
   bank 4's window to **8 bytes**. The window is the ceiling, absolutely.
-  `scr_fill_rect`, the erase, still re-reads the line table per row: same
-  trick, same shape, not yet spent. Measured, 56 ships and a picket of
-  twelve, 600 emulator frames a reading: the default step **2.17 → 2.33**
-  fps, two steps in **1.67 → 1.75** — about 5% either way, which is what a
-  hundred T-states a row over eight hundred rows is. Two steps out reads
-  3.83 against the 4.75 before, and that is not this: the far-plane clamp
-  landed in between and the picket is on the screen there now, 68 visible
-  where there were 53.
+  `scr_fill_rect`, the erase, steps the same way now. Measured after the
+  blitter alone, 56 ships and a picket of twelve, 600 emulator frames a
+  reading: the default step **2.17 → 2.33** fps, two steps in **1.67 →
+  1.75** — about 5% either way, which is what a hundred T-states a row
+  over eight hundred rows is. Two steps out reads 3.83 against the 4.75
+  before, and that is not this: the far-plane clamp landed in between and
+  the picket is on the screen there now, 68 visible where there were 53.
+
+  > **The fill's stepping failed one test, and the test was right about
+  > the wrong thing.** `test_the_bars_leave_no_trail` found a white pixel
+  > outside every sprite after the reveal — and it was there on the old
+  > build too, at the next pixel along, where the test (which reads the
+  > leftmost pixel of each byte) could not see it. Caught by trapping the
+  > write: `mark_patch` drew a resource field's APEX with whatever `A` held,
+  > which was the y, so the apex was in the ink of `sy & 3` — white one
+  > time in four, and nobody had looked at a field that closely. A stepping
+  > formula proved exact for every line, column and height in Python before
+  > the trap was set, which is what said the fill was not the fault.
 - ~~**The z-sort at 54,000 T**~~ — **DONE**, and the estimate was too modest in
   both directions: the comparison was ~390 T rather than ~140, and it is ~104
   now rather than ~40. See `phase4_sort`.
@@ -1085,9 +1096,18 @@ is a byte in RAM and the orders menu injects keys.
 emulator's keymap has no TAB entry, so no test can press it. `S` does the same
 thing and is tested.
 
-The camera orbits whatever is selected (§4.3) — the squadron's *station*
-rather than its centre of mass, so the view settles the moment an order is
-given instead of drifting along behind the formation.
+The camera orbits whatever is selected (§4.3) — **where the squadron IS**,
+the middle of the box round its flying ships (`order_squad_centre`, bank 4:
+min and max on each axis and one shift, because a centre of mass wants a
+divide), on the owner's instruction: *"Όταν κεντράρεις σε squadron να
+κεντράρεις εκεί που είναι τώρα, όχι στην resting θέση του."* It used to
+orbit the squadron's *station*, so that the view settled the moment an
+order was given instead of drifting along behind the formation; what that
+cost was a camera on an empty station while the squadron was somewhere
+else. The station is the fallback for a selection with no ship. It is
+thirteen thousand T-states a frame for a full fleet, and it took the window
+from eight bytes to over by two hundred — paid by `class_standin`
+overlaying `fleet_block` (the two are never wanted at once).
 
 `A` and `G` write `ENT_ORDER` and `ENT_TARGET` into the selected squadron's
 records and stop there. The control surface of §9 is complete; the behaviour
@@ -5595,7 +5615,7 @@ y=100 the projection centres on, not further from it.
 
 | context | what it says |
 |---|---|
-| playing | `ESC MENU ENTER MOVE B BUILD , . TARGET` |
+| playing | `ESC MENU ENTER MOVE B BUILD A ATTACK` — `A ATTACK` where `, . TARGET` was, on the owner's instruction; the target keys are on the orders menu and the help page |
 | `order_paused` | `PAUSED` in ink 3, then `SPACE RESUME ESC MENU` |
 | `disc_active` | `ARROWS MOVE SHIFT HEIGHT ENTER OK ESC` |
 | `eco_build_open` | the class by NAME, its cost in RU, `, . PICK`, and whether ENTER will work |
