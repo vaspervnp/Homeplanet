@@ -1666,8 +1666,15 @@ checked after the fare in `mis_gate` and, like the fare, waived for the
 landing. The fare is what a jump COSTS; this is what the player must HAVE,
 so no squadron leaves a mission with nothing to rebuild on.
 `harness.clear_the_way_out` already topped the purse up to `MIS_JUMP_COST`,
-which is above it. `tools/balance.py --rebuild` is the measurement that says
-whether mission 1 can still be left; see below.
+which is above it — **and that is why `tools/balance.py` cannot measure this
+clause**: its jumps go through `jump_mission`, which arranges the gate. Run
+with the floor in, the rebuilding tactic completes all twenty missions,
+ending 56 ships / 8755 hull, and leaves mission 1 with **750 RU** after
+eight minutes of holding — under the floor, because the tactic spends
+everything it mines on ships and the tool then forces the jump. What the
+rule means for a player is a saving decision the script does not make:
+stop building at a thousand before pressing `J`. Mission 2 onward the tool
+sits at 7000–9999 and the floor never binds.
 
 It is the **fourth thing `mis_gate` asks** — checked there rather than at the
 key, so the HUD's `JUMP` never offers what ENTER would refuse. `mis_jump` takes
