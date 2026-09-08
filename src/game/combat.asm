@@ -332,6 +332,22 @@ cbt_fire_if_able:
     jr nz,@cbt_damage_ok
     inc a
 @cbt_damage_ok:
+    ;  A STRAFING RUN HITS TWICE AS HARD -- "To Strafe θέλω να κάνει διπλή
+    ;  ζημιά." The run is four volleys and then home, so the pass is worth
+    ;  eight of the attack order's; what it buys is a reason to choose W
+    ;  over A that is not only "and come back". Saturates at 255.
+    ld c,a
+    ld hl,(cbt_ent)
+    ld de,ENT_ORDER
+    add hl,de
+    ld a,(hl)
+    cp ENT_ORDER_STRAFE
+    ld a,c
+    jr nz,@cbt_damage_set
+    add a,a
+    jr nc,@cbt_damage_set
+    ld a,255
+@cbt_damage_set:
     ld (cbt_damage),a
     ld a,(cbt_target)
     call ent_addr

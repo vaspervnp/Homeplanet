@@ -75,6 +75,22 @@ class StrafeFixture(unittest.TestCase):
         self.poke(e, ENT_FLAGS, bytes([F_ACTIVE | F_ENEMY]))
         return e
 
+    def clear_all(self):
+        for slot in range(self.sym["ENT_MAX"]):
+            self.poke(slot, ENT_FLAGS, b"\x00")
+
+    def place_ship(self, slot, pos, order, target):
+        """One interceptor of ours, its gun ready, aimed at `target`."""
+        self.poke(slot, 0, struct.pack("<hhh", *pos))
+        self.poke(slot, ENT_CLASS, b"\x00")
+        self.poke(slot, ENT_HULL, b"\xff")
+        self.poke(slot, ENT_SQUAD, b"\x01")
+        self.poke(slot, ENT_ORDER, bytes([order]))
+        self.poke(slot, ENT_TARGET, bytes([target]))
+        self.poke(slot, ENT_LOAD, bytes([self.BUDGET]))
+        self.poke(slot, ENT_TIMER, b"\x00")
+        self.poke(slot, ENT_FLAGS, bytes([F_ACTIVE]))
+
     def distance(self, a, b):
         return sum(abs(p - q) for p, q in zip(self.pos(a), self.pos(b)))
 
@@ -166,6 +182,25 @@ class TestThePass(StrafeFixture):
         self.c.run_frames(150)
         self.assertLess(home(lead), far, "the ship did not fly home after the run")
         self.assertEqual(self.field(lead, ENT_ORDER), self.IDLE)
+
+    def test_a_runs_shots_hit_twice_as_hard(self):
+        """"To Strafe θέλω να κάνει διπλή ζημιά." One ship, one held hostile
+        inside range, the same sixty frames under ATTACK and under STRAFE:
+        the hull lost per shot is double on the run."""
+        def loss(order):
+            self.clear_all()
+            e = self.place_enemy(pos=(0, 0, 1500), timer=255)
+            self.place_ship(0, (0, 0, 0), order=order, target=e)
+            self.c.write_ram(self.sym["MOTH_SLOT"], b"\x00")
+            self.c.write_ram(self.sym["SQUAD_DEST"], struct.pack("<hhh", 0, 0, 0))
+            shots0 = self.byte("CBT_SHOTS")
+            self.c.run_frames(60)
+            shots = (self.byte("CBT_SHOTS") - shots0) & 255
+            self.assertGreater(shots, 0, "it never fired")
+            return (255 - self.field(e, ENT_HULL)) / shots
+        attack = loss(self.sym["ENT_ORDER_ATTACK"])
+        run = loss(self.STRAFE)
+        self.assertEqual(run, 2 * attack, f"a run's shot does {run} against an attack's {attack}")
 
     def test_the_budget_does_not_move_on_the_way_out(self):
         """The hostile is far enough that the first frames are all flight."""

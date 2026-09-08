@@ -6360,6 +6360,16 @@ cockpit's focus while the game is paused, so a ship poked to a new position
 was seen from where it used to be, and the first fixture drew the pilot's
 own squadron at x4.
 
+**And zooming in gives the tactical view the same three sizes.** *"στο Zoom
+in βάλε και τα 3 επίπεδα με τα resized sprites."* At the innermost steps
+everything near the focus is tier C already, so the step decides:
+`zoom_scale` is x4, x4, x3, x2 for steps 0..3, applied in `mark_tier_for`
+to a tier C entry when nobody is flying. `mark_or_blit` keeps it to the
+nearest `PILOT_SPRITES` as in the cockpit — a scaled entry past them has
+its scale bits cleared and is drawn at tier C, not as a mark, since the
+tactical view has no scanner to fall back on. `tests/test_marks.
+TestTheZoomLadderScales`, including a x4 of our own pixel for pixel.
+
 ### V: you are the interceptor
 
 `future.md` item 1, built. `game/pilot.asm`, bank 4: `V` on a selected
@@ -6657,7 +6667,11 @@ the ship is in range of its target**: the flight out is not the run. At zero
 the order is IDLE and the ship flies home. **Armed ships only**:
 `cbt_prey_bias` is nonzero for exactly the classes that cannot fight, so a
 miner in the selection keeps mining and its hold — which IS `ENT_LOAD` — is
-never overwritten by a budget. `cbt_retarget_one` is allowed to re-point a
+never overwritten by a budget. **And a run's shots hit twice as hard** —
+*"To Strafe θέλω να κάνει διπλή ζημιά"* — `cbt_fire_if_able` doubles the
+matrix's (shifted) answer for a shooter under `ENT_ORDER_STRAFE`, saturating
+at 255: seventeen bytes of the low 16K, and `test_a_runs_shots_hit_twice_as_hard`
+measures the hull lost per shot under the two orders on the same held hostile. `cbt_retarget_one` is allowed to re-point a
 strafing ship, because a pass hits whatever is nearest. Not in the tutorial,
 for the reason `A`'s auto response is not.
 

@@ -154,7 +154,9 @@ sent somewhere else.
 | `SPACE` | **tactical pause**. The battle freezes; you can still look around and give orders |
 
 The four widest zoom steps show more of the world at the same size of ship
-— distant stacks consolidate into `+n` counts there. Two steps out from
+— distant stacks consolidate into `+n` counts there. The four **nearest**
+steps go the other way: the three nearest ships are drawn twice, three
+times and four times their size, the same way the cockpit draws them. Two steps out from
 where a mission opens, a big fleet is already a field of dots, and that is
 deliberate: dots are cheap to draw, and a fleet of fifty is what slows the
 game down. Zoom in on the part you are giving orders to.
@@ -209,7 +211,7 @@ want it home, `R` or the disc brings it.
 | `,` / `.` | step the **target** through the enemy ships. The camera does not move; the choice shows on the ships' orders when you press `A` |
 | `A` | **attack**. The squadron closes on its target — or on the nearest enemy, if you chose none — and stays on it until nothing is left to shoot at. Then it comes home by itself |
 | `G` | **guard**: hold station and shoot whatever comes within range |
-| `W` | **strafing run**: the armed ships close, fire for a few volleys of contact, and come home by themselves. Hit and withdraw. Harvesters and corvettes in the squadron keep their own work |
+| `W` | **strafing run**: the armed ships close, fire for a few volleys of contact — **each hitting twice as hard** as an attack's — and come home by themselves. Hit and withdraw. Harvesters and corvettes in the squadron keep their own work |
 | `V` | **fly a ship yourself** — see section 7 |
 
 A squadron that holds formation is spread wider than its guns reach. In a
