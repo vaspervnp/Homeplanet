@@ -190,9 +190,11 @@ see "Where 700 bytes came from" for why the second one lies.
 went through `tools/lzpack.py`; the figures in the rest of this paragraph and
 the four levers below are what it took to reach that point, and the file is
 not the binding constraint any more. Low 16K 402 with the hand-written code
-ending at `#25F9` — SEVEN bytes before the page, so the next low-16K byte
-costs 256 — and bank 4's WINDOW 195 after the marks, the reticle and the
-scanner. The window and the page are the ceilings now.** Before the
+ending at `#25FC` — FOUR bytes before the page, so the next low-16K byte
+costs 256 — bank 4's WINDOW 123 after the marks, the reticle, the scanner
+and the cockpit's scaled sprites, and banks 5, 6 and 7 FULL to the byte
+with the scaled blitter's three copies. The window, the page and the sprite
+banks' tops are the ceilings now.** Before the
 packer: low 16K 402, bank 4 1954, bank 6 14210 and bank 7 15324 of 16384,
 `DISC.BIN` 25558 of 26368 so 810 of headroom.** The pilot's 375 bytes of bank 4
 are the newest thing in those figures. The chase runs from bank 7 now — see "The chase
@@ -6240,6 +6242,77 @@ because the flown ship flies during the frames `V` takes and no fixed
 distance survives. The near plane is 84 camera units, **5376 world units**:
 from a cockpit nothing nearer than that is drawn at all, which the first
 fixture learned by putting its hostiles at 4000.
+
+### The cockpit's nearest ships are drawn larger, out of the same sprites
+
+*"Γίνεται όταν είμαι σε V, τα κοντινότερα σκάφη να φαίνονται μεγαλύτερα; Με
+scaling up των sprite; ... Να εμφανίζονται μόνο τα κοντινότερα τότε. Τα άλλα
+να είναι όπως στο sensor."* `gfx/sprscale.asm`: a tier C block drawn with
+every pixel doubled (48×32) under `PILOT_X2_RAW` camera units ahead or
+quadrupled (96×64) under `PILOT_X4_RAW`, by replication at blit time — no
+new art, where another row of tiers would be ten kilobytes a class. A
+camera unit is **128 world units** at the default zoom (not 64: the
+default step's scaling halves the delta), so x4 is inside 2048 units, x2
+inside 4096, and the cockpit draws nothing nearer than `PILOT_NEAR_RAW`
+(1024) or further than the 8191-unit radius.
+
+**It lives in the sprite banks, three times.** A blitter runs with a library
+under the window, so its code is in the low 16K or in that bank; the low
+16K is at its page edge and bank 4 has a hundred bytes. So the routine is a
+**MACRO**, `SPR_SCALE_COPY n`, expanded once at `SPR_SCALE_ORG` in each of
+banks 5, 6 and 7 with `{n}` keeping the labels apart (RASM expands `{var}`
+inside labels within a macro, and not in an included file), and
+`phase4_blit_body` calls `spr_blit_via`, a vector in the low 16K that points
+at `SPR_BLIT_X`, the one address holding it whichever bank is in. The first
+thing there is to jump to `spr_blit` when there is no scale; **the scale
+rides in bits 6 and 5 of `spr_enemy`**, which the blit body fills from the
+visible-list entry's bits 6 and 5 (the class is three bits, so those were
+free) and which `spr_blit` never tests. Six bytes of the low 16K.
+
+- **Bank 7 had to make room**: 566 bytes against 480 free. `tut_table` and
+  `order_home` — read once, through a copy — went to bank 6 as
+  `game/bank6data.asm`, and `SPR_SCALE_ORG` sits four bytes above where bank
+  7's data now ends. `bank7_data_end <= SPR_SCALE_ORG` is asserted; the next
+  string added to bank 7 will fail it, and the answer is another table to
+  bank 6.
+- **A source row is expanded ONCE** into a row buffer of (mask, data) pairs
+  in the bank, then written into each of the scale's screen rows with the
+  blitter's seven-instruction unit. The expansion is bit smearing, no table:
+  x2 keeps bits 7 6 3 2 and smears each right by one, x4 rotates the pixel
+  wanted up to bits 7 and 3 and smears by three; and it is done per SOURCE
+  byte with the buffer cursor in a register, a wholly transparent byte
+  written out without expanding. Measured with a picket of twelve wrecks
+  ahead — one x4, two x2, nine marks, the battle paused — the cockpit ran at
+  **2.5 fps** with the first version (table lookups, the source re-indexed
+  through memory for every output byte; the PC sampler put a third of the
+  frame in that fill), **2.9** with the smearing, **4.1** with the fill per
+  source byte. The unit that writes the screen is 46 T a byte and is a
+  floor; a x4 ship is 1536 of them.
+- **The three copies fill their banks to the last byte** — 16384 of 16384 —
+  after two rounds of trimming, and `bank7_data_end <= SPR_SCALE_ORG` plus
+  the macro's own `ss_end <= #8000` say so. A byte more in bank 7's words or
+  in the blitter is a table to bank 6, or `SPR_SCALE_ORG` up by however
+  much the blitter can shrink.
+- **Only `PILOT_SPRITES` (3) ships are sprites from the cockpit**; the rest
+  are the sensor view's marks — a dot for a fighter, a cross for anything
+  else — whatever their depth. The draw order is back to front, so the
+  nearest are the last, and `mark_or_blit` (bank 4, called from the blit
+  body before any paging) reads `phase4_remaining` to know. That is what
+  bounds the cockpit's cost.
+- **The no-disc fallback draws the stand-ins out of bank 4, which has no
+  copy** — `SPR_BLIT_X` there is whatever bank 4 keeps at that address, and
+  the first build drew nothing without a disc. `class_use_fallback` points
+  `spr_blit_vec` at `spr_blit`; `test_shipclass` caught it.
+
+`tests/test_marks.TestTheScaledSprites`: the scale bits by distance; the x2
+and x4 pictures **pixel for pixel** against the block in `build/bank7.raw`
+replicated in Python, with pen 1 read as pen 3; and five hostiles of which
+the nearest three are sprites and the far two a dot and a cross. The
+fixture lays its hostiles out relative to the flown ship's position and
+heading, as wrecks, and runs UNPAUSED — `order_focus` does not move the
+cockpit's focus while the game is paused, so a ship poked to a new position
+was seen from where it used to be, and the first fixture drew the pilot's
+own squadron at x4.
 
 ### V: you are the interceptor
 

@@ -65,7 +65,7 @@ PHASE4_GRP_DY       equ TXT_CHAR_H
 ;  What makes two ships the same group: the side (bit 7) and the class. NOT
 ;  the tier in the low two bits -- one stack straddling a tier threshold is
 ;  still one stack.
-PHASE4_GROUP_MASK      equ #FC
+PHASE4_GROUP_MASK      equ #9C          ; side and class; not the tier, and not the scale bits (5, 6)
 
 ;  '+' and two digits.
 PHASE4_LABEL_BYTES  equ 3 * TXT_CHAR_W_BYTES
@@ -1855,12 +1855,11 @@ phase4_blit_body:
     ld (phase4_sx),de
 
     ld c,a
-    and 3
-    cp MARK_TIER
-    jp z,mark_draw_one                  ; bank 4: a dot, no library paged
+    call mark_or_blit                   ; bank 4: a mark instead? (sets spr_scale too)
+    ret c
     ld a,c
-    and #80
-    ld (spr_enemy),a                    ; recolour pen 1 as pen 3 if set
+    and #E0
+    ld (spr_enemy),a                    ; bit 7: recolour pen 1 as pen 3; 6,5: the scale
     ld a,c
     and 3
     push af                             ; the tier
@@ -1868,8 +1867,8 @@ phase4_blit_body:
     and #7F
     rrca
     rrca
-    and #1F
-    ld b,a                              ; B = class
+    and 7
+    ld b,a                              ; B = class (bits 5 and 6 are the scale)
     pop af
     ld c,a                              ; C = tier
     ;  DE = the sprite block for this (class, tier), and the window now holds
@@ -1945,7 +1944,7 @@ phase4_blit_body:
 @p4_have_block:
     ld (spr_src),hl
 
-    call spr_blit
+    call spr_blit_via                   ; spr_blit, or the scaled one in the bank
     ret nc
 
     ld hl,spr_rect

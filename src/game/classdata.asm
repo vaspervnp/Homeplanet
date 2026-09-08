@@ -228,6 +228,12 @@ cbt_damage_matrix_end:
 ;  Uses: everything
 ; ----------------------------------------------------------------------------
 class_use_fallback:
+    ;  The blit vector back to spr_blit: the stand-ins are drawn out of bank
+    ;  4, which holds no copy of the scaled blitter at SPR_BLIT_X (gfx/
+    ;  sprscale.asm) -- calling it there would run whatever bank 4 keeps at
+    ;  that address. Nothing is scaled without a disc.
+    ld hl,spr_blit
+    ld (spr_blit_vec),hl
     ld hl,class_standin
     ld de,CLASS_STANDIN_SIZE / 2        ; mask/data pairs
 @class_fb_paint:

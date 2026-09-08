@@ -265,9 +265,12 @@ takes as much damage as your ship had left, and your ship is gone. A fresh
 interceptor into a frigate is a real trade; a shot-up one is a poor
 missile. Wrecks cannot be rammed.
 
-A **reticle** marks the middle of the view, and only ships inside its box
-are drawn as ships: everything further out is a dot in its side's colour,
-which is what keeps the cockpit quick in a fight. Nothing behind your nose
+A **reticle** marks the middle of the view. The three nearest ships are
+drawn as ships, and the nearest of those larger than anywhere else in the
+game — twice the size inside about four thousand units, four times inside
+two; everything else is a mark like the sensor view's, a dot for a fighter
+and a cross for anything bigger, which is what keeps the cockpit quick in a
+fight. Nothing behind your nose
 is drawn, and nothing closer than about five thousand units ahead of it —
 the cockpit sees the middle distance. The **scanner** at the bottom right
 is for the rest: every enemy that is flying, placed relative to your

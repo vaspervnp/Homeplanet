@@ -245,10 +245,10 @@ tut_row:
     ld l,a
     ld h,0
     ld de,tut_table
-    add hl,de                           ; ...an address in BANK 7, so:
+    add hl,de                           ; ...an address in BANK 6, so:
     ld de,bank7_line
     ld bc,TUT_STEP_SIZE
-    call bank7_copy                     ; the row, down into the low 16K
+    call bank6_copy                     ; the row, down into the low 16K
     ld hl,bank7_line
     ret
 

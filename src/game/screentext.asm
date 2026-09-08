@@ -355,52 +355,9 @@ info_form_names:    defb "LOOSE",0
 info_form_names_end:
 page_words_end:
 
-; ----------------------------------------------------------------------------
-;  tut_table -- the tutorial's steps: (gate, entry act) per row, in bank 4
-;  code addresses. Data, so it lives here; tut_row copies a row down.
-; ----------------------------------------------------------------------------
-tut_table:
-    ;  --- Act 1: looking. No enemies; nothing can go wrong. -----------------
-    defw tut_g_look,    tut_a_none
-    defw tut_g_zoom,    tut_a_none
-    defw tut_g_pan,     tut_a_none
-    defw tut_g_view,    tut_a_none
-    ;  --- Act 2: the fleet --------------------------------------------------
-    defw tut_g_squad,   tut_a_none
-    defw tut_g_info,    tut_a_none
-    defw tut_g_move,    tut_a_none
-    defw tut_g_form,    tut_a_none
-    defw tut_g_split,   tut_a_none
-    defw tut_g_dock,    tut_a_none
-    ;  --- Act 3: the economy ------------------------------------------------
-    defw tut_g_mine,    tut_a_none
-    defw tut_g_build,   tut_a_none
-    ;  --- Act 4: the fight --------------------------------------------------
-    defw tut_g_target,  tut_a_enemy
-    defw tut_g_fight,   tut_a_none
-    defw tut_g_pause,   tut_a_none
-    defw tut_g_fly,     tut_a_none
-    defw tut_g_salvage, tut_a_none
-    ;  --- Act 5: leaving ----------------------------------------------------
-    defw tut_g_never,   tut_a_ready
-tut_table_end:
-
-; ----------------------------------------------------------------------------
-;  order_home -- where the nine squadrons are stationed at boot, six bytes a
-;  row: only row 1 is ever near the fleet, and the other eight are the layout
-;  a RESTORED fleet fans out into. See "A squadron is born where its ships
-;  are" in CLAUDE.md. Read once by order_init through bank7_copy.
-; ----------------------------------------------------------------------------
-order_home:
-    defw      0,   500,      0           ; 1
-    defw  -4500,  -750,   2000           ; 2
-    defw   4500,   750,  -2000           ; 3
-    defw  -3000,  -500,   4000           ; 4
-    defw   3000,   625,  -4000           ; 5
-    defw  -1500,  -750,  -3000           ; 6
-    defw   1500,   500,   3000           ; 7
-    defw  -6000,  -625,   1000           ; 8
-    defw   6000,   750,  -1000           ; 9
+;  (tut_table and order_home -- read once through a copy, never fetched a
+;  line at a time -- are in game/bank6data.asm, in BANK 6: bank 7 ran out
+;  of room the day the scaled blitter went into the sprite banks.)
 
 mini_intro_words:
 mini_intro_1:

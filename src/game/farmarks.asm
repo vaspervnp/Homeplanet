@@ -53,6 +53,28 @@ PILOT_BOX_HH        equ 36
 ;  lags the focus by a frame's flight (200 units, three camera units).
 PILOT_NEAR_RAW      equ 8
 
+;  ...and the two bands above it where a ship is drawn LARGER than tier C,
+;  by pixel replication in gfx/sprscale.asm: under PILOT_X4_RAW camera units
+;  ahead at four times, under PILOT_X2_RAW at twice. Tier C ends at depth
+;  TIER_C_MAX_Z, which from the cockpit is raw 47.
+PILOT_X4_RAW        equ 16              ; 1024 world units
+PILOT_X2_RAW        equ 32              ; 2048
+
+;  How many ships the cockpit draws as SPRITES: the nearest ones, in draw
+;  order, which is back to front. Everything further is a mark like the
+;  sensor view's -- a dot for a fighter, a cross for anything else. A x4
+;  ship is a quarter of a frame, so this is what bounds the cockpit's cost.
+PILOT_SPRITES       equ 3
+
+;  The scale bits in a visible-list entry: 01 = x2, 10 = x4, 00 = as the
+;  tier says. Bits 5 and 6, which the class -- eight of them, bits 2..4 --
+;  never reaches; phase4_blit_body masks the class to three bits, copies
+;  them into spr_enemy beside the side bit for the blitter, and
+;  PHASE4_GROUP_MASK leaves them out of a group's key.
+SCALE_BITS          equ #60
+SCALE_X2            equ #20
+SCALE_X4            equ #40
+
 ;  The reticle: four ticks, PILOT_RET_GAP pixels out from the centre and
 ;  PILOT_RET_LEN long, in the fleet's ink.
 PILOT_RET_GAP       equ 6
@@ -85,6 +107,21 @@ mark_tier_for:
     ld a,(proj_z_raw)
     sub PILOT_NEAR_RAW
     jp m,@mt_drop                       ; behind the nose: not drawn at all
+    ;  Near enough to be drawn larger than tier C? The reticle test below
+    ;  still applies -- a ship off to the side is a mark however close.
+    ld a,(proj_z_raw)
+    cp PILOT_X4_RAW
+    jr nc,@mt_not_x4
+    ld a,SCALE_X4
+    jr @mt_scaled
+@mt_not_x4:
+    cp PILOT_X2_RAW
+    jr nc,@mt_depth
+    ld a,SCALE_X2
+@mt_scaled:
+    or 2                                ; tier C, scaled
+    ld c,a
+    jr @mt_box
 @mt_depth:
     ld a,(proj_z)
     cp MARK_MIN_Z
@@ -94,6 +131,7 @@ mark_tier_for:
     cp ENT_MAX
     jr nc,@mt_keep
 
+@mt_box:
     ;  Outside the reticle's box? sx first, as a word, then sy as a byte.
     ld hl,(proj_sx)
     ld de,SCR_CENTRE_X - PILOT_BOX_HW
@@ -122,17 +160,52 @@ mark_tier_for:
 
 
 ; ----------------------------------------------------------------------------
-;  mark_draw_one -- draw a visible-list entry whose tier is MARK_TIER
-;  In : DE = sx (0..319), C = the packed byte (bit 7 = enemy),
-;       phase4_sy = sy. Called from phase4_blit_body in place of the blit.
-;  Out: the mark drawn, and its rectangle appended through mark_bar
+;  mark_or_blit -- is this visible-list entry a mark? Draw it if so.
+;  In : DE = sx (0..319), C = the packed byte, phase4_sy = sy; called from
+;       phase4_blit_body with bank 4 at rest, before any library is paged
+;  Out: CF set: a mark was drawn (and its rectangle recorded), nothing more
+;       to do. CF clear: blit it -- and spr_scale says at what scale.
+;  Uses: AF, and everything if it draws; C is preserved on the blit path
+;
+;  Three reasons for a mark: the tier is MARK_TIER; or a ship is being
+;  flown and this entry is not one of the PILOT_SPRITES nearest -- the
+;  draw order is back to front, so the nearest are the LAST, and
+;  phase4_remaining counts down to one at the last. The scale bits travel
+;  in spr_enemy, which phase4_blit_body fills from the same byte.
+; ----------------------------------------------------------------------------
+mark_or_blit:
+    ld a,c
+    and 3
+    cp MARK_TIER
+    jr z,@mob_mark
+    ld a,(pilot_slot)
+    cp ENT_MAX
+    jr nc,@mob_blit
+    ld a,(phase4_remaining)
+    cp PILOT_SPRITES + 1
+    jr c,@mob_blit                      ; among the nearest: a sprite
+@mob_mark:
+    call mark_draw_one
+    scf
+    ret
+@mob_blit:
+    or a
+    ret
+
+
+; ----------------------------------------------------------------------------
+;  mark_draw_one -- draw a visible-list entry as a mark
+;  In : DE = sx (0..319), C = the packed byte (bit 7 = enemy, class in
+;       bits 2..4), phase4_sy = sy
+;  Out: the mark drawn, and its rectangle appended
 ;  Uses: everything
 ;
-;  One pixel wide and two lines tall: a Mode 1 pixel is wider than a line,
-;  so two lines is about a square dot, and one line reads as dust. Pen 1 for
-;  ours and pen 3 for theirs, which is the recolour the blitter does with
-;  spr_enemy, done by hand. The dot sits on the row the sprite's centre would
-;  have been; gfx_vline clips it to the playfield.
+;  The sensor view's vocabulary: a fighter is a dot, one pixel wide and two
+;  lines tall -- a Mode 1 pixel is wider than a line, so two lines is about
+;  a square dot and one reads as dust -- and anything else is a cross. Pen 1
+;  for ours and pen 3 for theirs, which is the recolour the blitter does
+;  with spr_enemy, done by hand. On the row the sprite's centre would have
+;  been; gfx_vline clips to the playfield.
 ; ----------------------------------------------------------------------------
 mark_draw_one:
     ld a,c
@@ -142,16 +215,24 @@ mark_draw_one:
     ld a,3
 @mdo_pen:
     ex de,hl                            ; HL = sx
-    ld b,2
+    ld b,a                              ; B = pen, for a moment
+    ld a,c
+    and #1C                             ; the class
+    jr z,@mdo_dot
+    ld a,(phase4_sy)
     ld c,a
+    ld a,b
+    jp mark_cross                       ; anything but a fighter
+@mdo_dot:
+    ;  A fighter: the dot, two rows centred on sy.
     ld a,(phase4_sy)
     or a
     jr z,@mdo_top
-    dec a                               ; centre the two rows on sy
+    dec a
 @mdo_top:
-    ld d,a                              ; ...swap: mark_bar wants C = sy, A = pen
-    ld a,c
-    ld c,d
+    ld c,a
+    ld a,b
+    ld b,2
     jp mark_bar
 
 

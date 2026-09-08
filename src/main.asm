@@ -102,6 +102,7 @@ game_main:
     include "math/cam.asm"
     include "math/proj.asm"
     include "gfx/sprite.asm"
+    include "gfx/sprscale.asm"          ; the MACRO and its equates; expanded in banks 5-7
     include "gfx/text.asm"
     include "gfx/line.asm"
     include "gfx/mark.asm"
@@ -1076,7 +1077,10 @@ bank5_start:
     include "gen/spr_salvage.asm"          ; swapped with the interceptor: see bank 7
     include "gen/spr_mothership.asm"
     include "gen/spr_harvester.asm"
+bank5_data_end:
+    SPR_SCALE_COPY 5                    ; gfx/sprscale.asm, at SPR_SCALE_ORG
 bank5_end:
+    assert bank5_data_end <= SPR_SCALE_ORG, "bank 5's data has grown into the scaled blitter"
 IF MINI_ONLY == 0                       ; identical in both builds; the game's copy is the one on the disc
     save "build/bank5.raw", BANK_WINDOW, bank5_end - BANK_WINDOW
 ENDIF
@@ -1108,7 +1112,11 @@ bank6_start:
 ;  destination, so the whole move was five `ldir`s becoming five calls to
 ;  bank6_copy. Two hundred and thirty-five bytes of DISC.BIN for five.
     include "gen/zoom.asm"
+    include "game/bank6data.asm"        ; tut_table and order_home, read once through bank6_copy
+bank6_data_end:
+    SPR_SCALE_COPY 6
 bank6_end:
+    assert bank6_data_end <= SPR_SCALE_ORG, "bank 6's data has grown into the scaled blitter"
 IF MINI_ONLY == 0                       ; identical in both builds; the game's copy is the one on the disc
     save "build/bank6.raw", BANK_WINDOW, bank6_end - BANK_WINDOW
 ENDIF
@@ -1139,7 +1147,10 @@ bank7_start:
 ;  ...and the second one, the R-Type, which reuses the chase's blit, wait,
 ;  page and penalty. game/run.asm; minigame2.md.
     include "game/run.asm"
+bank7_data_end:
+    SPR_SCALE_COPY 7
 bank7_end:
+    assert bank7_data_end <= SPR_SCALE_ORG, "bank 7's data has grown into the scaled blitter: move SPR_SCALE_ORG or the words"
 IF MINI_ONLY == 0                       ; identical in both builds; the game's copy is the one on the disc
     save "build/bank7.raw", BANK_WINDOW, bank7_end - BANK_WINDOW
 ENDIF

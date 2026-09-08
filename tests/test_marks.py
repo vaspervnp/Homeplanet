@@ -71,7 +71,8 @@ class MarkFixture(unittest.TestCase):
             e = self.c.read_ram(base + i * VIS_SIZE, VIS_SIZE)
             out.append({"sx": e[0] | (e[1] << 8), "sy": e[2], "z": e[3],
                         "view": e[4], "enemy": e[5] >> 7,
-                        "cls": (e[5] >> 2) & 0x1F, "tier": e[5] & 3})
+                        "cls": (e[5] >> 2) & 7, "tier": e[5] & 3,
+                        "scale": (e[5] >> 5) & 3})
         return out
 
     def pen_at(self, x, y):
@@ -365,6 +366,174 @@ class TestTheScanner(TestTheReticleBox):
         cx, cy, x0, y0, w, hgt = self.box()
         for x, y in ((cx, cy), (x0, cy), (cx, y0)):
             self.assertEqual(self.pen_at(x, y), 0, f"the scanner stayed at {(x, y)}")
+
+
+class TestTheScaledSprites(MarkFixture):
+    """From the cockpit the nearest ships are drawn larger than tier C --
+    x2 under PILOT_X2_RAW camera units ahead, x4 under PILOT_X4_RAW -- by
+    pixel replication in gfx/sprscale.asm, and only PILOT_SPRITES ships are
+    drawn as sprites at all; the rest are the sensor view's marks."""
+
+    def fly_at(self, hostiles):
+        """V on the fleet's lead ship, then `hostiles` -- (across, ahead,
+        class) in world units -- laid out RELATIVE TO THE SHIP'S POSITION
+        AND HEADING as they stand after V, as wrecks so they neither close
+        nor shoot, and two game frames run UNPAUSED. Returns the visible
+        list of the second frame, whose picture is in the front buffer.
+
+        Not paused: order_focus does not move the cockpit's focus while the
+        game is paused, so a ship poked to a new position was seen from
+        where it used to be. The flown ship flies 200 units a frame, so
+        every distance is placed mid-band with room for two frames.
+        """
+        import math
+        self.c.write_ram(self.sym["ORDER_PAUSED"], b"\x00")
+        h.write_bank4(self.c, self.sym["AUTO_ARMED"], b"\x00")
+        self.c.key_down("v")
+        self.c.run_frames(30)
+        self.c.key_up("v")
+        self.c.run_frames(10)
+        me = self.byte("PILOT_SLOT")
+        self.assertLess(me, self.PLAYER_MAX, "V did not take a ship")
+        h.run_to_stable_point(self.c, self.sym)
+        mx, my, mz = struct.unpack("<hhh", self.c.read_ram(self.sym["ENTITIES"] + me * ENT_SIZE, 6))
+        yaw = self.c.read_ram(self.sym["ENTITIES"] + me * ENT_SIZE + 6, 1)[0]
+        a = 2 * math.pi * yaw / 256
+        ahead = (math.sin(a), -math.cos(a))
+        right = (-math.cos(a), math.sin(a))
+        for slot in range(self.PLAYER_MAX, self.ENT_MAX):
+            self.poke(slot, ENT_FLAGS, b"\x00")
+        for i, (x, d, cls) in enumerate(hostiles):
+            px = int(round(mx + ahead[0] * d + right[0] * x))
+            pz = int(round(mz + ahead[1] * d + right[1] * x))
+            self.place(self.PLAYER_MAX + i, (px, my, pz), enemy=True, cls=cls)
+            self.poke(self.PLAYER_MAX + i, ENT_FLAGS, bytes([F_ACTIVE | F_ENEMY | 4]))   # a wreck: it stays put
+        for _ in range(2):
+            self.c.run_frames(1)
+            h.run_to_stable_point(self.c, self.sym)
+        return self.visible()
+
+    def hostile(self, vis, i):
+        """The entry of the i-th hostile placed, found by its slot's x."""
+        pos = struct.unpack("<hhh", self.c.read_ram(self.sym["ENTITIES"] + (self.PLAYER_MAX + i) * ENT_SIZE, 6))
+        cands = [v for v in vis if v["enemy"]]
+        #  Nearer is deeper in the list's z... match on class and order of depth.
+        cands.sort(key=lambda v: v["z"])
+        return cands, pos
+
+    def test_the_scale_bits_follow_the_distance(self):
+        """A camera unit is 128 world units at the default zoom, and the
+        ship flies 400 in the two frames: 2300 is 18 down to 15 camera
+        units, x4 (under PILOT_X4_RAW, 16); 3600 is 28 down to 25, x2;
+        5400 is 42 down to 39, tier C on its depth, unscaled."""
+        vis = self.fly_at([(0, 2300, 0), (0, 3600, 0), (0, 5400, 0)])
+        enemies = sorted([v for v in vis if v["enemy"]], key=lambda v: v["z"])
+        self.assertEqual(len(enemies), 3, vis)
+        self.assertEqual([v["scale"] for v in enemies], [2, 1, 0], enemies)
+        self.assertEqual([v["tier"] for v in enemies], [2, 2, 2], "a scaled ship is tier C scaled")
+
+    def expected_pixels(self, cls, view, scale):
+        """The tier C block of `cls` at `view`, pre-shift 0, out of the bank
+        image on disc, replicated `scale` times each way: a dict of
+        (dx, dy) -> pen for the drawn pixels, about the centre."""
+        names = ["interceptor", "mothership", "harvester", "scout", "bomber", "frigate", "salvage", "destroyer"]
+        name = names[cls]
+        bank = h.read_bank4  # unused; the raw images are what the disc holds
+        base = self.sym[f"{name.upper()}_C"]
+        block = self.sym[f"{name.upper()}_C_BLOCK_SZ"]
+        w_bytes = self.sym[f"{name.upper()}_C_W_BYTES"]
+        hgt = self.sym[f"{name.upper()}_C_H"]
+        which = {"interceptor": 7, "destroyer": 7, "salvage": 5, "mothership": 5, "harvester": 5,
+                 "scout": 6, "bomber": 6, "frigate": 6}[name]
+        with open(f"build/bank{which}.raw", "rb") as f:
+            image = f.read()
+        off = base - 0x4000 + view * 2 * block
+        rows = []
+        for r in range(hgt):
+            row = image[off + r * w_bytes * 2: off + (r + 1) * w_bytes * 2]
+            pixels = []
+            for b in range(6):                        # the seventh byte is the pre-shift's
+                m, d = row[b * 2], row[b * 2 + 1]
+                for k in range(4):
+                    sh = 3 - k
+                    mm = ((m >> (sh + 4)) & 1) | (((m >> sh) & 1) << 1)
+                    dd = ((d >> (sh + 4)) & 1) | (((d >> sh) & 1) << 1)
+                    pixels.append(None if mm == 3 else dd)   # a mask of 11 keeps the screen
+            rows.append(pixels)
+        out = {}
+        for y, row in enumerate(rows):
+            for x, pen in enumerate(row):
+                if pen is None:
+                    continue
+                for dy in range(scale):
+                    for dx in range(scale):
+                        out[(x * scale + dx - 12 * scale, y * scale + dy - 8 * scale)] = pen
+        return out
+
+    def test_a_x4_hostile_is_the_tier_c_block_with_every_pixel_quadrupled(self):
+        """Pixel for pixel against the block in build/bank7.raw, at the
+        screen position the entry names, with pen 1 read as pen 3 -- the
+        blitter's recolour, done on the expanded data."""
+        vis = self.fly_at([(0, 2000, 0)])
+        e = [v for v in vis if v["enemy"]][0]
+        self.assertEqual(e["scale"], 2)
+        want = self.expected_pixels(0, e["view"], 4)
+        self.assertGreater(len(want), 200, "the block has no drawn pixels?")
+        wrong = []
+        for (dx, dy), pen in want.items():
+            x, y = e["sx"] + dx, e["sy"] + dy
+            if not (0 <= x < 320 and self.sym["CTX_BAR_H"] <= y < self.sym["HUD_TOP"]):
+                continue
+            got = self.pen_at(x, y)
+            expect = 3 if pen == 1 else pen
+            if got != expect:
+                wrong.append(((x, y), got, expect))
+        self.assertEqual(wrong[:8], [], f"{len(wrong)} of {len(want)} pixels differ")
+
+    def test_a_x2_hostile_is_the_block_doubled(self):
+        vis = self.fly_at([(0, 3600, 0)])
+        e = [v for v in vis if v["enemy"]][0]
+        self.assertEqual(e["scale"], 1)
+        want = self.expected_pixels(0, e["view"], 2)
+        wrong = [((e["sx"] + dx, e["sy"] + dy), self.pen_at(e["sx"] + dx, e["sy"] + dy), 3 if pen == 1 else pen)
+                 for (dx, dy), pen in want.items()
+                 if 0 <= e["sx"] + dx < 320 and self.sym["CTX_BAR_H"] <= e["sy"] + dy < self.sym["HUD_TOP"]
+                 and self.pen_at(e["sx"] + dx, e["sy"] + dy) != (3 if pen == 1 else pen)]
+        self.assertEqual(wrong[:8], [], f"{len(wrong)} of {len(want)} pixels differ")
+
+    def test_only_the_nearest_three_are_sprites_and_the_rest_are_the_sensors_marks(self):
+        """Five hostiles ahead: the three nearest are drawn as sprites, the
+        two furthest as a fighter's dot and a destroyer's cross, whatever
+        their depth says."""
+        K = self.sym["PILOT_SPRITES"]
+        #  Nothing past 8191 world units projects at all, so the far two sit
+        #  just inside that, at tiers C and B -- marks only by the
+        #  nearest-three rule, well inside the reticle's box. The near three
+        #  are unscaled, tier C and B, and spread wide, so that no sprite
+        #  lies over the pixels beside a far one's dot: the first version
+        #  put a x4 sprite in the middle and read its pixels as the dot's.
+        vis = self.fly_at([(0, 5400, 0), (2000, 6000, 0), (-2000, 6500, 0), (900, 7000, 0), (-900, 8000, 7)])
+        enemies = sorted([v for v in vis if v["enemy"]], key=lambda v: v["z"])
+        self.assertEqual(len(enemies), 5, vis)
+        self.assertEqual(K, 3)
+        far_fighter, far_capital = enemies[3], enemies[4]
+        self.assertLess(far_fighter["z"], self.MARK_Z, "the fixture's far fighter is a mark on depth alone")
+        #  A dot: one pixel wide, two tall, nothing beside it.
+        x, y = far_fighter["sx"], far_fighter["sy"]
+        self.assertEqual({self.pen_at(x, y - 1), self.pen_at(x, y)}, {3}, "no dot for the fourth hostile")
+        self.assertEqual(self.pen_at(x - 2, y), 0, "the fourth hostile is more than a dot")
+        self.assertEqual(self.pen_at(x + 2, y), 0)
+        #  A cross: the centre and its four neighbours, and nothing diagonal.
+        x, y = far_capital["sx"], far_capital["sy"]
+        for dx, dy in ((0, 0), (-1, 0), (1, 0), (0, -1), (0, 1)):
+            self.assertEqual(self.pen_at(x + dx, y + dy), 3, f"no cross at {(dx, dy)} for the destroyer")
+        for dx, dy in ((-2, -2), (2, 2), (-2, 2), (2, -2)):
+            self.assertEqual(self.pen_at(x + dx, y + dy), 0, "the destroyer is more than a cross")
+        #  ...and the nearest three ARE sprites: many red pixels about them.
+        for v in enemies[:3]:
+            reds = sum(1 for dx in range(-8, 9) for dy in range(-6, 7)
+                       if 0 <= v["sx"] + dx < 320 and self.pen_at(v["sx"] + dx, v["sy"] + dy) == 3)
+            self.assertGreater(reds, 6, f"the hostile at depth {v['z']} is not a sprite")   # a dot is 2, a cross 5
 
 
 if __name__ == "__main__":

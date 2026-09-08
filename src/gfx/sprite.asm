@@ -363,7 +363,16 @@ spr_clip_bottom:    defb SCR_HEIGHT_PX
 spr_clip_top:       defb 0
 
 ;  Set before spr_blit to draw the sprite in the enemy colour.
-spr_enemy:          defb 0
+spr_enemy:          defb 0              ; bit 7: theirs. Bits 6,5: the SCALE of a
+                                        ; cockpit sprite (01 x2, 10 x4), which the
+                                        ; scaled blitter reads and spr_blit never sees
+;  Where phase4_blit_body's blit goes: the scaled blitter's copy in the
+;  sprite bank, or spr_blit itself when there is no disc and the stand-ins
+;  are drawn out of bank 4, which has no such copy (class_use_fallback).
+spr_blit_vec:       defw SPR_BLIT_X
+spr_blit_via:
+    ld hl,(spr_blit_vec)
+    jp (hl)
 
 spr_src:            defw 0              ; input: block address
 spr_x:              defw 0              ; input: left edge, signed, in bytes
