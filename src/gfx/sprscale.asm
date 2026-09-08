@@ -1,5 +1,5 @@
 ; ============================================================================
-;  sprscale.asm -- a tier C sprite drawn at twice or four times its size
+;  sprscale.asm -- a tier C sprite drawn at two, three or four times its size
 ;
 ;  "Γίνεται όταν είμαι σε V, τα κοντινότερα σκάφη να φαίνονται μεγαλύτερα; Με
 ;  scaling up των sprite;" Yes: a 24x16 block drawn with every pixel doubled
@@ -19,7 +19,7 @@
 ;  THE DISPATCH IS HERE TOO, which is what keeps the low 16K's part of this
 ;  to six bytes: phase4_blit_body calls spr_blit_via, a vector that points
 ;  here, and the first thing here is to jump to spr_blit when there is no
-;  scale. The scale rides in bits 6 and 5 of spr_enemy -- 01 x2, 10 x4 --
+;  scale. The scale rides in bits 6 and 5 of spr_enemy -- 01 x2, 10 x4, 11 x3 --
 ;  which phase4_blit_body fills from the visible-list entry; spr_blit only
 ;  ever tests bit 7 of that byte, so it never sees them. With no disc the
 ;  stand-ins are in bank 4, which has no copy of this, and
@@ -46,7 +46,7 @@
 ;  sprites are byte-aligned and use the pre-shift 0 block of their view.
 ; ============================================================================
 
-SPR_SCALE_ORG       equ #7DC0
+SPR_SCALE_ORG       equ #7D64
 SPR_BLIT_X          equ SPR_SCALE_ORG
 SPR_SCALE_SRC_W     equ 6               ; tier C is 24 pixels: six source bytes
 SPR_SCALE_MAX       equ 4
@@ -60,16 +60,20 @@ ss_blit{n}:
     jp z,spr_blit                       ; unscaled: the ordinary blitter
     rlca
     rlca
-    rlca                                ; 01 -> 1 (x2), 10 -> 2 (x4): the shift
+    rlca                                ; 01 -> 1, 10 -> 2, 11 -> 3
+    cp 3
+    jr z,ss_factor{n}
+    add a,a                             ; 1 -> x2, 2 -> x4; 3 stays x3
+ss_factor{n}:
+    ld (ss_scale{n}),a                  ; S, the factor
 
     ; --- sizes ------------------------------------------------------------
-    ld (ss_shift{n}),a
     ld b,a
-    ld a,SPR_SCALE_SRC_W
-ss_w_shl{n}:
-    add a,a
-    djnz ss_w_shl{n}
-    ld (ss_outw{n}),a                   ; output bytes a row: 12 or 24
+    xor a
+ss_w_mul{n}:
+    add a,SPR_SCALE_SRC_W
+    djnz ss_w_mul{n}
+    ld (ss_outw{n}),a                   ; output bytes a row: 6 * S
     add a,a                             ; ...times 2 pixels: the half width in pixels
     ld e,a
     ld d,0
@@ -82,13 +86,15 @@ ss_w_shl{n}:
     rr l                                ; ...in byte columns
     ld (ss_x0{n}),hl
 
-    ld a,(ss_shift{n})
+    ld a,(ss_scale{n})
     ld b,a
     ld a,(spr_h)
-ss_h_shl{n}:
-    add a,a
-    djnz ss_h_shl{n}
-    ld (ss_h{n}),a                      ; output rows: 32 or 64
+    ld c,a
+    xor a
+ss_h_mul{n}:
+    add a,c
+    djnz ss_h_mul{n}
+    ld (ss_h{n}),a                      ; output rows: spr_h * S
     srl a
     ld e,a
     ld d,0
@@ -205,17 +211,29 @@ ss_n_ok{n}:
     ld (spr_rect + 2),a
 
     ; --- the rows -----------------------------------------------------------
+    ;  Which source row the first screen row copies, and how far into its
+    ;  S copies it is: (y0 - top) divided by S, by subtraction -- there is
+    ;  no shift for three -- and then counted along, a source row every S.
     ld a,#FF
     ld (ss_last{n}),a                   ; no source row expanded yet
-ss_row{n}:
     ld a,(ss_y{n})
     ld hl,(ss_top{n})
-    sub l                               ; y - top, 0..255 -- exact modulo 256
-    ld hl,ss_shift{n}
-    ld b,(hl)
-ss_srcrow_shr{n}:
-    srl a
-    djnz ss_srcrow_shr{n}               ; the source row this screen row copies
+    sub l                               ; y0 - top, 0..255 -- exact modulo 256
+    ld hl,ss_scale{n}
+    ld c,(hl)
+    ld b,0
+ss_div{n}:
+    cp c
+    jr c,ss_div_done{n}
+    sub c
+    inc b
+    jr ss_div{n}
+ss_div_done{n}:
+    ld (ss_sub{n}),a
+    ld a,b
+    ld (ss_srcrow{n}),a
+ss_row{n}:
+    ld a,(ss_srcrow{n})
     ld hl,ss_last{n}
     cp (hl)
     jr z,ss_rmw{n}                      ; already in the buffer
@@ -266,6 +284,16 @@ ss_unit{n}:
     djnz ss_unit{n}
     ld hl,ss_y{n}
     inc (hl)
+    ld a,(ss_sub{n})
+    inc a
+    ld hl,ss_scale{n}
+    cp (hl)
+    jr nz,ss_sub_ok{n}
+    xor a
+    ld hl,ss_srcrow{n}
+    inc (hl)                            ; the S copies are done: the next source row
+ss_sub_ok{n}:
+    ld (ss_sub{n}),a
     ld hl,ss_rows{n}
     dec (hl)
     jr nz,ss_row{n}
@@ -288,13 +316,6 @@ ss_fill{n}:
     ld hl,ss_buf{n}
     ld a,SPR_SCALE_SRC_W
     ld (ss_j{n}),a                      ; source bytes left in the row
-    ld a,(ss_shift{n})
-    ld b,a
-    ld a,1
-ss_scale_shl{n}:
-    add a,a
-    djnz ss_scale_shl{n}
-    ld (ss_scale{n}),a                  ; the factor: output pairs a source byte
 ss_fill_src{n}:
     ld de,(ss_rowptr{n})
     ld a,(de)
@@ -356,7 +377,7 @@ ss_fill_next{n}:
 ; ----------------------------------------------------------------------------
 ;  ss_expand -- A = source byte A expanded for its output byte C
 ;  In : A = a Mode 1 byte, C = k (which of the source byte's outputs),
-;       ss_shift = 1 or 2
+;       ss_scale = 2, 3 or 4
 ;  Out: A = the output byte
 ;  Uses: AF, DE -- C and HL are preserved
 ;
@@ -370,9 +391,11 @@ ss_fill_next{n}:
 ; ----------------------------------------------------------------------------
 ss_expand{n}:
     ld e,a
-    ld a,(ss_shift{n})
-    cp 2
+    ld a,(ss_scale{n})
+    cp 4
     jr z,ss_exp4{n}
+    cp 3
+    jr z,ss_exp3{n}
     ;  x2: p0 p1 -> p0 p0 p1 p1, of the left pair or the right.
     ld a,e
     bit 0,c
@@ -395,8 +418,58 @@ ss_exp2_pair{n}:
     or d                                ; p1 in bits 5 4 and 1 0
     or e
     ret
+ss_exp3{n}:
+    ;  x3: output k of the byte is pixels (k, k+1) shaped AAAB, AABB, ABBB
+    ;  for k = 0, 1, 2. Rotate the pair up first.
+    ld a,c
+    or a
+    ld d,a
+    ld a,e
+    jr z,ss_exp3_up{n}
+ss_exp3_rot{n}:
+    rlca
+    dec d
+    jr nz,ss_exp3_rot{n}
+ss_exp3_up{n}:
+    ld e,a
+    ld a,c
+    cp 1
+    ld a,e
+    jr z,ss_exp2_pair{n}                ; k = 1: AABB is the x2 shape
+    ld a,c
+    cp 2
+    ld a,e
+    jr z,ss_exp3_abbb{n}                ; k = 2 (DEC does not set carry; CP does)
+    ;  k = 0: AAAB -- A smeared three, B in the last place.
+    and #88
+    ld d,a
+    rrca
+    or d
+    ld d,a
+    rrca
+    or d
+    ld d,a
+    ld a,e
+    and #44
+    rrca
+    rrca
+    or d
+    ret
+ss_exp3_abbb{n}:
+    and #44
+    ld d,a
+    rrca
+    or d
+    ld d,a
+    rrca
+    or d
+    ld d,a
+    ld a,e
+    and #88
+    or d
+    ret
 ss_exp4{n}:
-    ;  x4: pixel j & 3 in all four places.
+    ;  x4: pixel k in all four places.
     ld a,c
     and 3
     ld d,a
@@ -417,7 +490,8 @@ ss_exp4_up{n}:
     or e
     ret
 
-ss_shift{n}:        defb 0
+ss_sub{n}:          defb 0
+ss_srcrow{n}:       defb 0
 ss_outw{n}:         defb 0
 ss_h{n}:            defb 0
 ss_x0{n}:           defw 0

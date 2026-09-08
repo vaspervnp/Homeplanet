@@ -260,39 +260,8 @@ class_name_end:
 ;  game-over page reads with the world stopped, which is what bank 7 is for.
 ;  Both offsets are SIGNED. bank7_copy carries it, not bank7_fetch, because
 ;  it is full of zero bytes.
-; ----------------------------------------------------------------------------
-over_fire_table:
-    defb  -25,   -9, 3
-    defb  -24,  -11, 5
-    defb  -23,  -10, 4
-    defb  -11,  -18, 3
-    defb  -10,  -20, 5
-    defb   -9,  -19, 4
-    defb    3,  -13, 3
-    defb    4,  -15, 5
-    defb    5,  -14, 4
-    defb   19,   -7, 3
-    defb   20,   -9, 5
-    defb   21,   -8, 4
-    defb  -19,    4, 3
-    defb  -18,    2, 5
-    defb  -17,    3, 4
-    defb   -4,    8, 3
-    defb   -3,    6, 5
-    defb   -2,    7, 4
-    defb   13,   10, 3
-    defb   14,    8, 5
-    defb   15,    9, 4
-    defb   -9,   19, 3
-    defb   -8,   17, 5
-    defb   -7,   18, 4
-    defb   24,    7, 3
-    defb   25,    5, 5
-    defb   26,    6, 4
-    defb    7,   21, 3
-    defb    8,   19, 5
-    defb    9,   20, 4
-over_fire_table_end:
+;  (over_fire_table -- the game-over fires, copied down ten at a time --
+;  is in game/bank6data.asm, for the scaled blitter's room in this bank.)
 
 ; ----------------------------------------------------------------------------
 ;  ban_words -- the unlock banner, one line a class, in the order of

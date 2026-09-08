@@ -267,8 +267,8 @@ missile. Wrecks cannot be rammed.
 
 A **reticle** marks the middle of the view. The three nearest ships are
 drawn as ships, and the nearest of those larger than anywhere else in the
-game — twice the size inside about four thousand units, four times inside
-two; everything else is a mark like the sensor view's, a dot for a fighter
+game — twice the size inside about four thousand units, three times inside
+three, four times inside two; everything else is a mark like the sensor view's, a dot for a fighter
 and a cross for anything bigger, which is what keeps the cockpit quick in a
 fight. Nothing behind your nose
 is drawn, and nothing closer than about five thousand units ahead of it —

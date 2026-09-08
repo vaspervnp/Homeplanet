@@ -57,8 +57,9 @@ PILOT_NEAR_RAW      equ 8
 ;  by pixel replication in gfx/sprscale.asm: under PILOT_X4_RAW camera units
 ;  ahead at four times, under PILOT_X2_RAW at twice. Tier C ends at depth
 ;  TIER_C_MAX_Z, which from the cockpit is raw 47.
-PILOT_X4_RAW        equ 16              ; 1024 world units
-PILOT_X2_RAW        equ 32              ; 2048
+PILOT_X4_RAW        equ 16              ; 2048 world units, at 128 a camera unit
+PILOT_X3_RAW        equ 24              ; 3072
+PILOT_X2_RAW        equ 32              ; 4096
 
 ;  How many ships the cockpit draws as SPRITES: the nearest ones, in draw
 ;  order, which is back to front. Everything further is a mark like the
@@ -66,14 +67,15 @@ PILOT_X2_RAW        equ 32              ; 2048
 ;  ship is a quarter of a frame, so this is what bounds the cockpit's cost.
 PILOT_SPRITES       equ 3
 
-;  The scale bits in a visible-list entry: 01 = x2, 10 = x4, 00 = as the
-;  tier says. Bits 5 and 6, which the class -- eight of them, bits 2..4 --
+;  The scale bits in a visible-list entry: 01 = x2, 10 = x4, 11 = x3, 00 =
+;  as the tier says. Bits 5 and 6, which the class -- eight of them, bits 2..4 --
 ;  never reaches; phase4_blit_body masks the class to three bits, copies
 ;  them into spr_enemy beside the side bit for the blitter, and
 ;  PHASE4_GROUP_MASK leaves them out of a group's key.
 SCALE_BITS          equ #60
 SCALE_X2            equ #20
 SCALE_X4            equ #40
+SCALE_X3            equ #60
 
 ;  The reticle: four ticks, PILOT_RET_GAP pixels out from the centre and
 ;  PILOT_RET_LEN long, in the fleet's ink.
@@ -115,6 +117,11 @@ mark_tier_for:
     ld a,SCALE_X4
     jr @mt_scaled
 @mt_not_x4:
+    cp PILOT_X3_RAW
+    jr nc,@mt_not_x3
+    ld a,SCALE_X3
+    jr @mt_scaled
+@mt_not_x3:
     cp PILOT_X2_RAW
     jr nc,@mt_depth
     ld a,SCALE_X2

@@ -56,3 +56,37 @@ order_home:
     defw  -6000,  -625,   1000           ; 8
     defw   6000,   750,  -1000           ; 9
 
+
+; ----------------------------------------------------------------------------
+over_fire_table:
+    defb  -25,   -9, 3
+    defb  -24,  -11, 5
+    defb  -23,  -10, 4
+    defb  -11,  -18, 3
+    defb  -10,  -20, 5
+    defb   -9,  -19, 4
+    defb    3,  -13, 3
+    defb    4,  -15, 5
+    defb    5,  -14, 4
+    defb   19,   -7, 3
+    defb   20,   -9, 5
+    defb   21,   -8, 4
+    defb  -19,    4, 3
+    defb  -18,    2, 5
+    defb  -17,    3, 4
+    defb   -4,    8, 3
+    defb   -3,    6, 5
+    defb   -2,    7, 4
+    defb   13,   10, 3
+    defb   14,    8, 5
+    defb   15,    9, 4
+    defb   -9,   19, 3
+    defb   -8,   17, 5
+    defb   -7,   18, 4
+    defb   24,    7, 3
+    defb   25,    5, 5
+    defb   26,    6, 4
+    defb    7,   21, 3
+    defb    8,   19, 5
+    defb    9,   20, 4
+over_fire_table_end:

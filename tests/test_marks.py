@@ -424,13 +424,15 @@ class TestTheScaledSprites(MarkFixture):
     def test_the_scale_bits_follow_the_distance(self):
         """A camera unit is 128 world units at the default zoom, and the
         ship flies 400 in the two frames: 2300 is 18 down to 15 camera
-        units, x4 (under PILOT_X4_RAW, 16); 3600 is 28 down to 25, x2;
-        5400 is 42 down to 39, tier C on its depth, unscaled."""
-        vis = self.fly_at([(0, 2300, 0), (0, 3600, 0), (0, 5400, 0)])
+        units, x4 (under PILOT_X4_RAW, 16); 3100 is 24 down to 21, x3
+        (under 24); 4000 is 31 down to 28, x2 (under 32); 5400 is 42 down
+        to 39, tier C on its depth, unscaled."""
+        vis = self.fly_at([(0, 2300, 0), (0, 3100, 0), (0, 4000, 0), (0, 5400, 0)])
         enemies = sorted([v for v in vis if v["enemy"]], key=lambda v: v["z"])
-        self.assertEqual(len(enemies), 3, vis)
-        self.assertEqual([v["scale"] for v in enemies], [2, 1, 0], enemies)
-        self.assertEqual([v["tier"] for v in enemies], [2, 2, 2], "a scaled ship is tier C scaled")
+        self.assertEqual(len(enemies), 4, vis)
+        #  The bits: 10 is x4, 11 is x3, 01 is x2.
+        self.assertEqual([v["scale"] for v in enemies], [2, 3, 1, 0], enemies)
+        self.assertEqual([v["tier"] for v in enemies], [2, 2, 2, 2], "a scaled ship is tier C scaled")
 
     def expected_pixels(self, cls, view, scale):
         """The tier C block of `cls` at `view`, pre-shift 0, out of the bank
@@ -490,8 +492,21 @@ class TestTheScaledSprites(MarkFixture):
                 wrong.append(((x, y), got, expect))
         self.assertEqual(wrong[:8], [], f"{len(wrong)} of {len(want)} pixels differ")
 
+    def test_a_x3_hostile_is_the_block_tripled(self):
+        """x3 is the shape with no shift in it: output byte k of a source
+        byte is pixels (k, k+1) as AAAB, AABB, ABBB. Pixel for pixel."""
+        vis = self.fly_at([(0, 3100, 0)])
+        e = [v for v in vis if v["enemy"]][0]
+        self.assertEqual(e["scale"], 3)
+        want = self.expected_pixels(0, e["view"], 3)
+        wrong = [((e["sx"] + dx, e["sy"] + dy), self.pen_at(e["sx"] + dx, e["sy"] + dy), 3 if pen == 1 else pen)
+                 for (dx, dy), pen in want.items()
+                 if 0 <= e["sx"] + dx < 320 and self.sym["CTX_BAR_H"] <= e["sy"] + dy < self.sym["HUD_TOP"]
+                 and self.pen_at(e["sx"] + dx, e["sy"] + dy) != (3 if pen == 1 else pen)]
+        self.assertEqual(wrong[:8], [], f"{len(wrong)} of {len(want)} pixels differ")
+
     def test_a_x2_hostile_is_the_block_doubled(self):
-        vis = self.fly_at([(0, 3600, 0)])
+        vis = self.fly_at([(0, 4000, 0)])
         e = [v for v in vis if v["enemy"]][0]
         self.assertEqual(e["scale"], 1)
         want = self.expected_pixels(0, e["view"], 2)

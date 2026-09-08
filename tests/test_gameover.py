@@ -223,10 +223,10 @@ class TestTheBurningWorld(OverFixture):
 
     def fires(self):
         n = self.sym["OVER_FIRE_COUNT"]
-        #  Off build/bank7.raw -- what the build put on the disc -- because
-        #  the table is in BANK 7 now, where read_bank4 would hand back
+        #  Off build/bank6.raw -- what the build put on the disc -- because
+        #  the table is in BANK 6 now, where read_bank4 would hand back
         #  whichever sprite bank happens to be under the window.
-        with open("build/bank7.raw", "rb") as f:
+        with open("build/bank6.raw", "rb") as f:
             bank7 = f.read()
         off = self.sym["OVER_FIRE_TABLE"] - 0x4000
         raw = bank7[off:off + n * 3]

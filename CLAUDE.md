@@ -6248,13 +6248,16 @@ fixture learned by putting its hostiles at 4000.
 *"Γίνεται όταν είμαι σε V, τα κοντινότερα σκάφη να φαίνονται μεγαλύτερα; Με
 scaling up των sprite; ... Να εμφανίζονται μόνο τα κοντινότερα τότε. Τα άλλα
 να είναι όπως στο sensor."* `gfx/sprscale.asm`: a tier C block drawn with
-every pixel doubled (48×32) under `PILOT_X2_RAW` camera units ahead or
-quadrupled (96×64) under `PILOT_X4_RAW`, by replication at blit time — no
-new art, where another row of tiers would be ten kilobytes a class. A
-camera unit is **128 world units** at the default zoom (not 64: the
-default step's scaling halves the delta), so x4 is inside 2048 units, x2
-inside 4096, and the cockpit draws nothing nearer than `PILOT_NEAR_RAW`
-(1024) or further than the 8191-unit radius.
+every pixel doubled (48×32) under `PILOT_X2_RAW` camera units ahead,
+tripled (72×48) under `PILOT_X3_RAW` or quadrupled (96×64) under
+`PILOT_X4_RAW`, by replication at blit time — no new art, where another
+row of tiers would be ten kilobytes a class. A camera unit is **128 world
+units** at the default zoom (not 64: the default step's scaling halves
+the delta), so x4 is inside 2048 units, x3 inside 3072, x2 inside 4096,
+and the cockpit draws nothing nearer than `PILOT_NEAR_RAW` (1024) or
+further than the 8191-unit radius. The scale bits are 01 x2, 10 x4, 11 x3
+— x3 came last, on the owner's instruction, and took the code the other
+two did not have.
 
 **It lives in the sprite banks, three times.** A blitter runs with a library
 under the window, so its code is in the low 16K or in that bank; the low
@@ -6269,19 +6272,27 @@ rides in bits 6 and 5 of `spr_enemy`**, which the blit body fills from the
 visible-list entry's bits 6 and 5 (the class is three bits, so those were
 free) and which `spr_blit` never tests. Six bytes of the low 16K.
 
-- **Bank 7 had to make room**: 566 bytes against 480 free. `tut_table` and
-  `order_home` — read once, through a copy — went to bank 6 as
-  `game/bank6data.asm`, and `SPR_SCALE_ORG` sits four bytes above where bank
-  7's data now ends. `bank7_data_end <= SPR_SCALE_ORG` is asserted; the next
-  string added to bank 7 will fail it, and the answer is another table to
-  bank 6.
+- **Bank 7 had to make room, twice**: 566 bytes against 480 free, then
+  657 with x3. `tut_table`, `order_home` and then `over_fire_table` — read
+  once, through a copy, so which bank is one byte at the call site — went
+  to bank 6 as `game/bank6data.asm`, and `SPR_SCALE_ORG` sits two bytes
+  above where bank 7's data now ends. `bank7_data_end <= SPR_SCALE_ORG` is
+  asserted; the next string added to bank 7 will fail it, and the answer
+  is another copied table to bank 6 — the fetched ones (`bank7_fetch`)
+  cannot go, there being no `bank6_fetch` and no low 16K to put one in.
 - **A source row is expanded ONCE** into a row buffer of (mask, data) pairs
   in the bank, then written into each of the scale's screen rows with the
   blitter's seven-instruction unit. The expansion is bit smearing, no table:
   x2 keeps bits 7 6 3 2 and smears each right by one, x4 rotates the pixel
-  wanted up to bits 7 and 3 and smears by three; and it is done per SOURCE
-  byte with the buffer cursor in a register, a wholly transparent byte
-  written out without expanding. Measured with a picket of twelve wrecks
+  wanted up to bits 7 and 3 and smears by three, x3 takes the pair (k, k+1)
+  and shapes it AAAB, AABB or ABBB for output byte k; and it is done per
+  SOURCE byte with the buffer cursor in a register, a wholly transparent
+  byte written out without expanding. There is no shift for three, so the
+  screen row's source row is counted along (`ss_sub`, `ss_srcrow`) rather
+  than shifted, and the first one is a division by subtraction.
+  **`DEC` does not set carry**: the first x3 shape branch tested CF after
+  `dec a` and drew ABBB for k = 0; the pixel-exact test caught it, `CP`
+  replaced it. Sixth time this file's own carry warning has been earned. Measured with a picket of twelve wrecks
   ahead — one x4, two x2, nine marks, the battle paused — the cockpit ran at
   **2.5 fps** with the first version (table lookups, the source re-indexed
   through memory for every output byte; the PC sampler put a third of the

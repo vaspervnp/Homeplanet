@@ -311,10 +311,10 @@ over_fires:
     xor a
     ld (spr_clip_top),a
 
-    ;  The table is in BANK 7 and comes down OVER_FIRE_CHUNK fires at a time:
+    ;  The table is in BANK 6 and comes down OVER_FIRE_CHUNK fires at a time:
     ;  bank7_line is B7_BUF_SIZE and the whole table is more than twice that.
     ;  over_fire_ptr is the cursor into bank 7, over_fire_buf the one into
-    ;  the copy; bank7_copy hands the first back advanced.
+    ;  the copy; bank6_copy hands the first back advanced.
     ld hl,over_fire_table
     ld (over_fire_ptr),hl
     ld a,OVER_FIRE_CHUNKS
@@ -323,7 +323,7 @@ over_fires:
     ld hl,(over_fire_ptr)
     ld de,bank7_line
     ld bc,OVER_FIRE_CHUNK * 3
-    call bank7_copy                     ; ...and it puts bank 4 back itself
+    call bank6_copy                     ; ...and it puts bank 4 back itself
     ld (over_fire_ptr),hl
     ld hl,bank7_line
     ld (over_fire_buf),hl
