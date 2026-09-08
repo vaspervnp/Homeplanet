@@ -167,6 +167,7 @@ demo_init:
     ;  bank-4 stand-ins back and the game carries on looking like it did
     ;  before there were eight classes.
     call lib_init
+    jp demo_reset                       ; bank 4 now: the stopped-world half of a boot
     ;  ...and fall through.
 
 
@@ -185,44 +186,6 @@ demo_init:
 ;  expensive: it spins the drive up and reads LIB_SECTORS into each of three
 ;  banks, which is a second and a half, and the libraries do not change.
 ;  Uses: everything
-; ----------------------------------------------------------------------------
-demo_reset:
-    xor a
-    ld (phase4_drawn_a),a
-    ld (phase4_drawn_b),a
-    ld (demo_frames),a
-    ld a,(sys_tick_50hz)
-    ld (demo_tick0),a
-
-    xor a
-    ld (cam_yaw),a
-    ld (cam_pitch),a
-    call order_init
-
-    ld a,HUD_TOP
-    ld (spr_clip_bottom),a
-    ld a,CTX_BAR_H
-    ld (spr_clip_top),a
-    ld a,2
-    ld (phase4_hud_dirty),a
-
-    call form_init
-    call mark_init
-    call cbt_init
-    call eco_init
-    call planet_init
-    call mis_init
-    call ent_clear_all
-    call phase4_spawn_fleet
-    ;  Spawn the starting fleet first and THEN look for a save: a disc with
-    ;  one on it sets mis_saved, and fleet_restore replaces what we just
-    ;  spawned. A disc without one leaves both alone, which is how a new game
-    ;  starts on mission 1 with sixteen ships.
-    call fleet_disc_load
-    call fleet_restore
-    call mis_setup                      ; the mission places the enemy, not us
-    call title_open                     ; ...but the player sees the title first
-    jp squad_init
 
 
 ; ----------------------------------------------------------------------------

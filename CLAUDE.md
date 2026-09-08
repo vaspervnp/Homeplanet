@@ -190,11 +190,12 @@ see "Where 700 bytes came from" for why the second one lies.
 went through `tools/lzpack.py`; the figures in the rest of this paragraph and
 the four levers below are what it took to reach that point, and the file is
 not the binding constraint any more. Low 16K 402 with the hand-written code
-ending at `#25FC` — FOUR bytes before the page, so the next low-16K byte
-costs 256 — bank 4's WINDOW 123 after the marks, the reticle, the scanner
-and the cockpit's scaled sprites, and banks 5, 6 and 7 FULL to the byte
-with the scaled blitter's three copies. The window, the page and the sprite
-banks' tops are the ceilings now.** Before the
+ending at `#25A3` — ninety-three bytes before the page, since `demo_reset`,
+`wave_init` and `proj_shr7` went to bank 4 — bank 4's WINDOW **8** after the
+marks, the reticle, the scanner, the cockpit's scaled sprites and those
+three, and banks 5, 6 and 7 within six bytes of full with the scaled
+blitter's copies. Bank 4's window is the ceiling, and the next thing that
+needs it moves a copied table from bank 4 to bank 6 first.** Before the
 packer: low 16K 402, bank 4 1954, bank 6 14210 and bank 7 15324 of 16384,
 `DISC.BIN` 25558 of 26368 so 810 of headroom.** The pilot's 375 bytes of bank 4
 are the newest thing in those figures. The chase runs from bank 7 now — see "The chase
@@ -593,10 +594,24 @@ one — not drawing a sprite at all for a ship that is far away.
 
 Where the remaining headroom is, in the order worth taking it:
 
-- **Blitting.** 46 T a byte is close to the floor for a masked blit, but the
-  per-row overhead is ~185 T of `scr_line_addr` and address arithmetic, about
-  a third of a tier-C sprite. Stepping the screen address incrementally
-  between scanlines would take most of that back.
+- ~~**Blitting.** The per-row overhead is ~185 T of `scr_line_addr` and
+  address arithmetic~~ — **DONE.** `spr_blit` keeps the row's screen address
+  in `spr_dst` and steps it: `+8` to H within a character row, and past the
+  eighth line one `add hl,#C050` (`-#4000 + 80`, modulo 64K, since the `+8`
+  has already carried out of the bank's bits). About 40 T a row against
+  ~130. It cost the low 16K twelve bytes, and the low 16K was four from its
+  page, so three routines that only bank 4 calls went across first —
+  `demo_reset` (`demo_init` now ends `jp demo_reset`), `wave_init` and
+  `proj_shr7` — which took the hand-written code from `#25FC` to `#25A3` and
+  bank 4's window to **8 bytes**. The window is the ceiling, absolutely.
+  `scr_fill_rect`, the erase, still re-reads the line table per row: same
+  trick, same shape, not yet spent. Measured, 56 ships and a picket of
+  twelve, 600 emulator frames a reading: the default step **2.17 → 2.33**
+  fps, two steps in **1.67 → 1.75** — about 5% either way, which is what a
+  hundred T-states a row over eight hundred rows is. Two steps out reads
+  3.83 against the 4.75 before, and that is not this: the far-plane clamp
+  landed in between and the picket is on the screen there now, 68 visible
+  where there were 53.
 - ~~**The z-sort at 54,000 T**~~ — **DONE**, and the estimate was too modest in
   both directions: the comparison was ~390 T rather than ~140, and it is ~104
   now rather than ~40. See `phase4_sort`.

@@ -182,10 +182,18 @@ spr_blit:
     ld (spr_draw_w),a
     ld (spr_rect + 2),a
     ld a,l
-    ld (spr_cur_x),a
     ld (spr_rect + 0),a
     ld a,(spr_cur_y)
     ld (spr_rect + 1),a
+    ;  The first row's screen address, once; the row loop steps it.
+    call scr_line_addr                  ; AF, HL only
+    ld a,(spr_rect + 0)
+    add a,l
+    ld l,a
+    jr nc,@spr_dst_ok
+    inc h
+@spr_dst_ok:
+    ld (spr_dst),hl
 
     ; ================= per-sprite setup ==================================
     ;  Bytes to step the source on at the end of each row. Note this does not
@@ -245,15 +253,7 @@ spr_blit:
 
     ; ================= draw ==============================================
 @row:
-    ld a,(spr_cur_y)
-    call scr_line_addr                  ; HL = start of the line
-    ld a,(spr_cur_x)
-    add a,l
-    ld l,a
-    jr nc,@spr_no_carry
-    inc h
-@spr_no_carry:
-    ex de,hl                            ; DE = screen
+    ld de,(spr_dst)                     ; DE = screen, this row
     ld hl,(spr_src_cur)                 ; HL = sprite
 
 spr_call_entry equ $+1
@@ -263,8 +263,23 @@ spr_call_entry equ $+1
     add hl,de
     ld (spr_src_cur),hl
 
-    ld hl,spr_cur_y
-    inc (hl)
+    ;  THE NEXT ROW'S ADDRESS BY STEPPING, not by the line table: a scanline
+    ;  is #800 further on within a character row, and past the eighth it is
+    ;  #4000 back and 80 on -- one constant, #C050, added modulo 64K, since
+    ;  the +8 to H has already carried out of the bank's bits. About 40
+    ;  T-states a row against the ~130 of scr_line_addr and the add; the row
+    ;  overhead was a third of a tier C sprite.
+    ld hl,(spr_dst)
+    ld a,h
+    add a,8
+    ld h,a
+    and #38
+    jr nz,@spr_row_stepped
+    ld de,#C050
+    add hl,de
+@spr_row_stepped:
+    ld (spr_dst),hl
+
     ld hl,spr_rows_left
     dec (hl)
     jr nz,@row
@@ -382,7 +397,7 @@ spr_h:              defb 0              ; input: height in lines
 
 spr_src_cur:        defw 0
 spr_row_advance:    defw 0
-spr_cur_x:          defb 0
+spr_dst:            defw 0              ; the row being drawn, in the back buffer
 spr_cur_y:          defb 0
 spr_draw_w:         defb 0
 spr_rows_left:      defb 0

@@ -468,3 +468,14 @@ moth_scale:
     add hl,hl
     ret
 
+
+; ----------------------------------------------------------------------------
+proj_shr7:
+    ld a,l
+    add a,a                             ; CF = bit 7 of L
+    ld a,h
+    adc a,a                             ; A = low byte; CF = sign of HL
+    ld l,a
+    sbc a,a                             ; #FF if negative, #00 if not
+    ld h,a
+    ret

@@ -453,3 +453,16 @@ wave_marker:
 @wave_marker_draw:
     ld a,PEN_RED
     jp mark_cross                       ; ...and its rectangle, so it is erased
+
+
+; ----------------------------------------------------------------------------
+wave_init:
+    ld hl,WAVE_FIRST_TICKS
+    ld (wave_next),hl
+    xor a
+    ld (wave_count),a
+    ld (wave_size),a
+    ld (wave_say),a
+    ;  The readout must be right on the first frame of the mission, not on the
+    ;  second: mis_setup has just changed the fleet.
+    jp wave_health
