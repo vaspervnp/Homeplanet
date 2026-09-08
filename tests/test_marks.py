@@ -561,5 +561,124 @@ class TestTheScaledSprites(MarkFixture):
             self.assertGreater(reds, 6, f"the hostile at depth {v['z']} is not a sprite")   # a dot is 2, a cross 5
 
 
+class TestTheZoomLadderScales(MarkFixture):
+    """"στο Zoom in βάλε και τα 3 επίπεδα με τα resized sprites": at the
+    innermost zoom steps the nearest three ships are drawn x2, x3 and x4 by
+    the step, and the rest of the squadron at tier C."""
+
+    def zoom_to(self, step):
+        self.c.write_ram(self.sym["ORDER_PAUSED"], b"\x01")
+        for _ in range(12):
+            cur = self.byte("CAM_ZOOM")
+            if cur == step:
+                break
+            self.c.key_down("z" if cur > step else "x")
+            self.c.run_frames(20)
+            self.c.key_up("z" if cur > step else "x")
+            self.c.run_frames(20)
+        self.assertEqual(self.byte("CAM_ZOOM"), step)
+        self.settle()
+        return self.visible()
+
+    def test_the_default_step_scales_nothing(self):
+        vis = self.zoom_to(self.sym["CAM_ZOOM_DEFAULT"])
+        self.assertTrue(vis)
+        self.assertEqual({v["scale"] for v in vis}, {0})
+
+    FACTOR = {0: 1, 1: 2, 3: 3, 2: 4}
+
+    def box_of(self, v, factor):
+        """The screen box an entry drew into at `factor`."""
+        hw, hh = {2: (12, 8), 1: (8, 5), 0: (4, 3), 3: (1, 1)}[v["tier"]]
+        return (v["sx"] - hw * factor - 4, v["sx"] + hw * factor + 4, v["sy"] - hh * factor, v["sy"] + hh * factor)
+
+    def draw_order(self, vis):
+        """The visible-list indices in the order they were drawn -- back to
+        front, phase4_order's -- so "the nearest three" is what the game
+        meant by it, ties in depth and all."""
+        n = len(vis)
+        raw = self.c.read_ram(self.sym["PHASE4_ORDER"], n * 2)
+        return [raw[i * 2] for i in range(n)]
+
+    def drawn_factor(self, vis, v):
+        """What mark_or_blit let an entry draw at: its listed scale if it
+        was among the PILOT_SPRITES drawn last, and tier C otherwise."""
+        if not v["scale"]:
+            return 1
+        order = self.draw_order(vis)
+        last = order[-self.sym["PILOT_SPRITES"]:]
+        return self.FACTOR[v["scale"]] if vis.index(v) in last else 1
+
+    def check_drawn(self, vis, e, factor, min_checked=20, on_top=False):
+        """e's pixels against its block at `factor`, skipping every pixel
+        inside another entry's drawn box -- the fleet is a lattice and
+        ships at one depth may be drawn in either order. A scaled blit is
+        byte-aligned and a tier C one two-pixel-aligned, so the block sits
+        up to three pixels left of the true centre, as the blitter puts it."""
+        #  Drawn last, nothing lies over it: every pixel of it is checked.
+        others = [] if on_top else [self.box_of(v, self.drawn_factor(vis, v)) for v in vis if v is not e]
+        want = TestTheScaledSprites.expected_pixels(self, e["cls"], e["view"], factor)
+        left = e["sx"] - 12 * factor
+        shift = left % (4 if factor > 1 else 2)
+        wrong, checked = [], 0
+        for (dx, dy), pen in want.items():
+            x, y = e["sx"] + dx - shift, e["sy"] + dy
+            if not (0 <= x < 320 and self.sym["CTX_BAR_H"] <= y < self.sym["HUD_TOP"]):
+                continue
+            if any(x0 <= x < x1 and y0 <= y < y1 for x0, x1, y0, y1 in others):
+                continue
+            checked += 1
+            if self.pen_at(x, y) != pen:
+                wrong.append(((x, y), self.pen_at(x, y), pen))
+        self.assertGreater(checked, min_checked - 1, "every pixel of it lies under another ship")
+        self.assertEqual(wrong[:8], [], f"{len(wrong)} of {checked} pixels differ at x{factor}")
+
+    def spread_five(self):
+        """Five ships of the squadron in a line across the station, 800
+        units apart and staggered in depth, the rest sent out of sight: a
+        lattice at step 3 is too tight to see any one ship clear of the
+        others, and this asks about individual ships."""
+        self.c.write_ram(self.sym["ORDER_PAUSED"], b"\x01")
+        base = self.sym["ENTITIES"]
+        sel = self.byte("SQUAD_SEL")
+        ships = [s for s in range(self.PLAYER_MAX)
+                 if self.c.read_ram(base + s * ENT_SIZE + ENT_FLAGS, 1)[0] & 1
+                 and self.c.read_ram(base + s * ENT_SIZE + ENT_SQUAD, 1)[0] == sel]
+        sx, sy, sz = struct.unpack("<hhh", self.c.read_ram(self.sym["SQUAD_DEST"] + (sel - 1) * 6, 6))
+        for i, s in enumerate(ships):
+            if i < 5:
+                self.poke(s, 0, struct.pack("<hhh", sx + (i - 2) * 800, sy, sz + (i - 2) * 300))
+            else:
+                #  Out of the squadron as well as out of sight: the camera
+                #  centres on the box round the squadron's ships now.
+                self.poke(s, 0, struct.pack("<hhh", sx, sy + 20000, sz))
+                self.poke(s, ENT_SQUAD, b"\x09")
+
+    def test_three_steps_in_every_tier_c_entry_is_listed_x2_and_only_the_nearest_are_drawn_so(self):
+        self.spread_five()
+        vis = self.zoom_to(3)
+        c_entries = [v for v in vis if v["tier"] == 2]
+        self.assertTrue(c_entries)
+        self.assertEqual({v["scale"] for v in c_entries}, {1}, "step 3 lists tier C as x2")
+        order = self.draw_order(vis)
+        #  The one drawn last is x2, and on top of everything...
+        self.check_drawn(vis, vis[order[-1]], 2, on_top=True)
+        #  ...and the one drawn first, past the nearest three, at tier C.
+        self.assertGreater(len(c_entries), self.sym["PILOT_SPRITES"])
+        self.check_drawn(vis, vis[order[0]], 1)
+
+    def test_step_two_is_x3_and_step_one_x4(self):
+        vis = self.zoom_to(2)
+        self.assertEqual({v["scale"] for v in vis if v["scale"]}, {3})
+        vis = self.zoom_to(1)
+        self.assertEqual({v["scale"] for v in vis if v["scale"]}, {2})
+
+    def test_a_x4_ship_of_ours_is_the_block_quadrupled_in_white(self):
+        vis = self.zoom_to(0)
+        e = vis[self.draw_order(vis)[-1]]                  # drawn last: on top, and among the three
+        self.assertEqual(e["scale"], 2)
+        self.check_drawn(vis, e, 4, on_top=True)
+
+
 if __name__ == "__main__":
     unittest.main()

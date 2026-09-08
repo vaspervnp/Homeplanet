@@ -77,6 +77,11 @@ SCALE_X2            equ #20
 SCALE_X4            equ #40
 SCALE_X3            equ #60
 
+;  The tactical view's scale by zoom step, for steps 0..ZOOM_X2_STEP: the
+;  innermost two at x4, then x3, then x2. Step 4 and out draw tier C.
+ZOOM_X2_STEP        equ 3
+zoom_scale:         defb SCALE_X4, SCALE_X4, SCALE_X3, SCALE_X2
+
 ;  The reticle: four ticks, PILOT_RET_GAP pixels out from the centre and
 ;  PILOT_RET_LEN long, in the fleet's ink.
 PILOT_RET_GAP       equ 6
@@ -136,7 +141,31 @@ mark_tier_for:
 
     ld a,(pilot_slot)
     cp ENT_MAX
-    jr nc,@mt_keep
+    jr c,@mt_box
+
+    ;  ZOOMED IN, THE SAME THREE SIZES: "στο Zoom in βάλε και τα 3 επίπεδα
+    ;  με τα resized sprites." At the innermost steps everything near the
+    ;  focus is tier C already -- cam_dist is short and the deltas are
+    ;  shifted small -- so the step alone decides: 3 draws x2, 2 x3, and 0
+    ;  and 1 x4. A ship further off, at tier B or A on its depth, stays
+    ;  the size its depth says. mark_or_blit keeps it to the nearest
+    ;  PILOT_SPRITES, as it does in the cockpit; the rest are tier C.
+    ld a,c
+    cp 2
+    jr nz,@mt_keep                      ; tier A or B: too far to grow
+    ld a,(cam_zoom)
+    cp ZOOM_X2_STEP + 1
+    jr nc,@mt_keep                      ; the ordinary steps
+    ld hl,zoom_scale
+    add a,l
+    ld l,a
+    jr nc,@mt_zs_ok
+    inc h
+@mt_zs_ok:
+    ld a,(hl)
+    or 2
+    ld c,a
+    jr @mt_keep
 
 @mt_box:
     ;  Outside the reticle's box? sx first, as a word, then sy as a byte.
@@ -171,8 +200,10 @@ mark_tier_for:
 ;  In : DE = sx (0..319), C = the packed byte, phase4_sy = sy; called from
 ;       phase4_blit_body with bank 4 at rest, before any library is paged
 ;  Out: CF set: a mark was drawn (and its rectangle recorded), nothing more
-;       to do. CF clear: blit it -- and spr_scale says at what scale.
-;  Uses: AF, and everything if it draws; C is preserved on the blit path
+;       to do. CF clear: blit it, at the scale C's bits 6 and 5 now say --
+;       which may be none where the entry said some, past the nearest few.
+;  Uses: AF, and everything if it draws; C is the packed byte, possibly
+;       with its scale bits cleared, on the blit path
 ;
 ;  Three reasons for a mark: the tier is MARK_TIER; or a ship is being
 ;  flown and this entry is not one of the PILOT_SPRITES nearest -- the
@@ -185,18 +216,24 @@ mark_or_blit:
     and 3
     cp MARK_TIER
     jr z,@mob_mark
-    ld a,(pilot_slot)
-    cp ENT_MAX
-    jr nc,@mob_blit
     ld a,(phase4_remaining)
     cp PILOT_SPRITES + 1
-    jr c,@mob_blit                      ; among the nearest: a sprite
+    jr c,@mob_blit                      ; among the nearest: a sprite, scaled or not
+    ld a,(pilot_slot)
+    cp ENT_MAX
+    jr c,@mob_mark                      ; flying: everything further is a mark
+    ;  The tactical view zoomed in: a scaled entry past the nearest few is
+    ;  drawn at tier C instead -- C comes back with its scale bits cleared,
+    ;  and phase4_blit_body reads the side, class and tier out of it after.
+    ld a,c
+    and #FF - SCALE_BITS
+    ld c,a
+@mob_blit:
+    or a
+    ret
 @mob_mark:
     call mark_draw_one
     scf
-    ret
-@mob_blit:
-    or a
     ret
 
 
