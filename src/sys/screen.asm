@@ -166,9 +166,8 @@ scr_clear_buffer:
 ;       E  = height in lines
 ;       A  = fill byte (see SOLID_INK_* below)
 ;
-;  Crosses the 8-line character-row boundary correctly by re-reading the line
-;  table for every row -- 40 T per line, which is cheaper than tracking the
-;  #800 wrap by hand and far harder to get wrong.
+;  Crosses the 8-line character-row boundary by stepping the address, as
+;  spr_blit does; the first row alone comes from the line table.
 ;  Uses: everything except IX/IY
 ; ----------------------------------------------------------------------------
 scr_fill_rect:
@@ -180,9 +179,13 @@ scr_fill_rect:
     or a
     ret z
 
-@row_loop:
-    push bc                             ; B is the x column; djnz below eats it
-
+    ;  The first row's address from the line table, once; every row after
+    ;  it is STEPPED, the way spr_blit steps: +8 to H within a character
+    ;  row, and past the eighth line one add of #C050 (-#4000 + 80, modulo
+    ;  64K, the +8 having carried out of the bank's bits). The comment this
+    ;  replaced called re-reading the table "40 T per line, cheaper than
+    ;  tracking the #800 wrap by hand"; measured with the profiler at fifty
+    ;  ships, the erase was 8% of the frame and the table its larger half.
     ld a,c
     call scr_line_addr                  ; HL = start of line C; DE survives
     ld a,b
@@ -192,6 +195,9 @@ scr_fill_rect:
     inc h
 @no_carry:
 
+@row_loop:
+    push hl                             ; the row's first byte
+
     ld b,d                              ; width in bytes
 @fill_byte equ $+1
     ld a,#00                            ; patched above
@@ -200,8 +206,15 @@ scr_fill_rect:
     inc hl
     djnz @byte_loop
 
-    pop bc
-    inc c                               ; next line
+    pop hl
+    ld a,h
+    add a,8
+    ld h,a
+    and #38
+    jr nz,@row_stepped
+    ld bc,#C050
+    add hl,bc
+@row_stepped:
     dec e
     jr nz,@row_loop
     ret

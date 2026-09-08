@@ -247,6 +247,9 @@ mark_patch:
 
     dec c                               ; the apex; y-1 at the top of the
     ld b,1                              ; screen wraps to 255 and gfx_vline
+    ld a,(mark_pen)                     ; THE PEN -- not the y left in A. The apex
+                                        ; was drawn in whatever ink sy's low bits
+                                        ; named, and white one time in four.
     call gfx_vline                      ; clips it, which is what we want
 
     ld hl,(mark_px)
