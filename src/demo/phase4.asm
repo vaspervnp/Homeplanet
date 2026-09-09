@@ -1176,7 +1176,49 @@ phase4_sort:
     or a
     ret z
 
+    ;  LAST FRAME'S ORDER IS THIS FRAME'S STARTING POINT. phase4_project walks
+    ;  the slots in one order and appends what it sees, so while the same
+    ;  ships are visible, entry i is the same ship it was last frame -- and
+    ;  the insertion sort below, handed a list that is already nearly in
+    ;  depth order, settles every key on its first compare: linear, where
+    ;  the fill in slot order was a quarter of n squared. Measured at 7% of
+    ;  a 68-ship frame. The order list is only ever READ after the sort, so
+    ;  it is still a permutation here; the depths beside the indices are
+    ;  stale, and are refreshed out of the visible list. If the count moved
+    ;  the set moved, and the list is filled in slot order as before; and if
+    ;  the count is the same but the set is not, the indices still name
+    ;  entries below n, so the sort is merely slower -- every index is
+    ;  checked against n, and one past it means the list is not last frame's
+    ;  at all.
+    ld hl,phase4_sorted_n
+    cp (hl)
+    ld (hl),a
+    jr nz,@p4_fill_fresh
+    ld b,a
+    ld c,a
+    ld hl,phase4_order
+@p4_refresh:
+    ld a,(hl)
+    cp c
+    jr nc,@p4_fill_fresh                ; not a visible index: start over
+    push hl
+    push bc
+    call phase4_vis_addr                ; HL = &phase4_vis[A]; uses DE too
+    inc hl
+    inc hl
+    inc hl                              ; -> its depth
+    ld a,(hl)
+    pop bc
+    pop hl
+    inc hl
+    ld (hl),a                           ; the depth beside the index, fresh
+    inc hl
+    djnz @p4_refresh
+    jr @p4_filled
+
+@p4_fill_fresh:
     ;  Every entry starts where it is, carrying its own depth.
+    ld a,(phase4_visible)
     ld b,a
     ld hl,phase4_order
     ld de,phase4_vis + 3                ; the depth byte of visible entry 0
@@ -1200,6 +1242,7 @@ phase4_sort:
     inc a
     djnz @p4_fill
 
+@p4_filled:
     ld a,(phase4_visible)
     cp 2
     ret c

@@ -191,4 +191,9 @@ cbt_prey_roll:
     rlca                                ; bit 7 into the carry
     sbc a,a                             ; #FF if it was set, 0 if not
     ld (cbt_prey_mask),a
+    ;  ...and how many hostiles are flying, for cbt_find_enemy to skip the
+    ;  hunt when the answer is none. Twenty slots once a frame, against
+    ;  fifty-six searches of them.
+    call mis_count_hostiles
+    ld (cbt_hostiles),a
     jp strafe_tick                      ; ...and the strafing runs' budgets, same frame

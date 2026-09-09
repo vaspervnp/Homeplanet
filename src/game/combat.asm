@@ -855,6 +855,13 @@ cbt_find_enemy:
     jr @cbt_search
 
 @cbt_hunt_theirs:
+    ;  NOTHING HOSTILE IS FLYING: nothing to find. cbt_prey_roll counts the
+    ;  hostiles once at the top of every cbt_update; with the picket dead
+    ;  and no wave up, every friendly ship re-acquires every frame, and this
+    ;  is the frame's whole search -- measured at 4% of it for 56 ships.
+    ld a,(cbt_hostiles)
+    or a
+    jp z,@cbt_search_done
     ld hl,entities + ENT_PLAYER_MAX * ENT_SIZE + ENT_FLAGS
     ld c,ENT_PLAYER_MAX
     ld b,ENT_ENEMY_MAX
@@ -954,6 +961,7 @@ cbt_find_enemy:
     inc c
     djnz @cbt_search
 
+@cbt_search_done:
     ld a,(cbt_best)
     ld (cbt_target),a
     ret

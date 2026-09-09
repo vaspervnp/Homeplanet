@@ -1197,23 +1197,30 @@ order_add_clamped:
 ;  thirteen thousand T-states for a full fleet.
 ; ----------------------------------------------------------------------------
 order_squad_centre:
-    ld hl,#7FFF
-    ld (ord_min_x),hl
-    ld (ord_min_y),hl
-    ld (ord_min_z),hl
-    ld hl,#8000
-    ld (ord_max_x),hl
-    ld (ord_max_y),hl
-    ld (ord_max_z),hl
+    ;  THE BOX IS KEPT IN OFFSET BINARY -- each word's sign bit flipped --
+    ;  so that an UNSIGNED byte-pair compare orders two coordinates and SBC
+    ;  HL,DE's overflow, which this file tests P/V for everywhere else, never
+    ;  comes into it. Min starts at the top of the range and max at the
+    ;  bottom; (min, max) a word each, per axis, in ord_box. The first
+    ;  version called a signed compare helper six times a ship and was
+    ;  measured at 8% of a 56-ship frame; this is about a fifth of that.
+    ld hl,ord_box
+    ld b,3
+@osc_clear:
+    ld (hl),#FF
+    inc hl
+    ld (hl),#FF
+    inc hl
+    ld (hl),0
+    inc hl
+    ld (hl),0
+    inc hl
+    djnz @osc_clear
     xor a
     ld (ord_seen),a
-    ld hl,entities
+    ld hl,entities + ENT_FLAGS
     ld b,ENT_PLAYER_MAX
 @osc_one:
-    push bc
-    push hl
-    ld de,ENT_FLAGS
-    add hl,de
     ld a,(hl)
     and ENT_F_ACTIVE + ENT_F_DISABLED
     cp ENT_F_ACTIVE
@@ -1221,109 +1228,94 @@ order_squad_centre:
     inc hl                              ; ENT_SQUAD
     ld a,(squad_sel)
     cp (hl)
+    dec hl
     jr nz,@osc_next
     ld a,1
     ld (ord_seen),a
-    pop hl
-    push hl                             ; HL = the record: ENT_X is offset 0
-    ld de,ord_min_x
+    push hl
+    push bc
+    ld de,-ENT_FLAGS
+    add hl,de                           ; HL -> ENT_X: the three axes are consecutive
+    ld de,ord_box
     ld b,3
 @osc_axis:
     push bc
     ld c,(hl)
     inc hl
-    ld b,(hl)
-    inc hl                              ; BC = this axis, HL -> the next
-    push hl
-    ex de,hl                            ; HL -> this axis's min
-    call @osc_less                      ; CF: BC < (HL)
-    jr nc,@osc_min_ok
-    ld (hl),c
+    ld a,(hl)
     inc hl
+    xor #80
+    ld b,a                              ; BC = this axis in offset binary, HL -> the next
+    ex de,hl                            ; HL -> this axis's min, DE = the record cursor
+    ld a,(hl)
+    sub c
+    inc hl
+    ld a,(hl)
+    sbc a,b                             ; min - v
+    jr c,@osc_min_ok                    ; min < v: keep it
     ld (hl),b
     dec hl
+    ld (hl),c
+    inc hl
 @osc_min_ok:
-    push hl
-    ld de,6
-    add hl,de                           ; -> its max
-    call @osc_less
-    jr c,@osc_max_ok                    ; BC < max: not a new max
-    ld (hl),c
+    inc hl                              ; -> its max
+    ld a,c
+    sub (hl)
     inc hl
+    ld a,b
+    sbc a,(hl)                          ; v - max
+    jr c,@osc_max_ok                    ; v < max: keep it
     ld (hl),b
     dec hl
-@osc_max_ok:
-    pop hl
+    ld (hl),c
     inc hl
+@osc_max_ok:
     inc hl                              ; -> the next axis's min
-    ex de,hl
-    pop hl                              ; the record cursor
+    ex de,hl                            ; HL = the record cursor, DE -> the box
     pop bc
     djnz @osc_axis
-@osc_next:
+    pop bc
     pop hl
+@osc_next:
     ld de,ENT_SIZE
     add hl,de
-    pop bc
     djnz @osc_one
     ld a,(ord_seen)
     or a
     ret z                               ; CF clear: nothing to centre on
-    ;  cam_focus = (min + max) >> 1, each axis.
-    ld hl,cam_focus_x
-    ld (ord_focus_ptr),hl
-    ld hl,ord_min_x
+    ;  cam_focus = (min + max) >> 1, each axis. The 17-bit sum of the two
+    ;  offset-binary words, halved with the carry coming in at the top, is
+    ;  the middle in offset binary; the sign flip takes it back.
+    ld hl,ord_box
+    ld de,cam_focus_x
     ld b,3
 @osc_mid:
     push bc
+    push de
     ld e,(hl)
     inc hl
     ld d,(hl)
-    inc hl                              ; DE = min, HL -> the next axis's min
-    push hl
-    ld bc,4
-    add hl,bc                           ; -> this axis's max
+    inc hl                              ; DE = min
     ld c,(hl)
     inc hl
-    ld b,(hl)                           ; BC = max
-    ex de,hl                            ; HL = min
-    add hl,bc                           ; min + max: both inside the map, so no overflow
-    sra h
-    rr l
-    ex de,hl                            ; DE = the middle
-    ld hl,(ord_focus_ptr)
+    ld b,(hl)
+    inc hl                              ; BC = max, HL -> the next axis
+    ex de,hl                            ; HL = min, DE -> the next axis
+    add hl,bc                           ; CF:HL = min + max
+    rr h
+    rr l                                ; ...halved, the carry in at the top
+    ld a,h
+    xor #80
+    ld h,a                              ; ...and signed again
+    ex de,hl                            ; DE = the middle, HL -> the next axis
+    ex (sp),hl                          ; HL = the focus cursor, the axis cursor kept
     ld (hl),e
     inc hl
     ld (hl),d
     inc hl
-    ld (ord_focus_ptr),hl
-    pop hl
+    ex (sp),hl                          ; HL -> the next axis again
+    pop de                              ; DE = the focus cursor, moved on
     pop bc
     djnz @osc_mid
     scf
-    ret
-
-;  CF set if BC < (HL), signed 16-bit. Uses AF; BC, DE, HL are kept.
-@osc_less:
-    push de
-    push hl
-    ld e,(hl)
-    inc hl
-    ld d,(hl)                           ; DE = (HL)
-    ld h,b
-    ld l,c                              ; HL = BC
-    or a
-    sbc hl,de                           ; BC - (HL): the sign says which is less
-    jp pe,@osc_less_ovf
-    ld a,h
-    rla                                 ; CF = the sign
-    pop hl
-    pop de
-    ret
-@osc_less_ovf:
-    ld a,h
-    rla
-    ccf                                 ; it overflowed: the true sign is the other
-    pop hl
-    pop de
     ret

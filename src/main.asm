@@ -705,6 +705,7 @@ pilot_pitch:        defb 0              ; the orbit's pitch, for when the ship i
 pilot_fought:       defb 0              ; something hostile flew while this ship was flown
 pilot_locked:       defb 0              ; a flying hostile projected inside the reticle this frame
 pilot_ret_pen:      defb 0              ; ...and the ink the ticks are drawn in because of it
+phase4_sorted_n:    defb 0              ; how many entries phase4_order holds from last frame
 shot_count:         defb 0
 shot_list:          defs SHOT_MAX * 2
 shot_pos:           defs ENT_MAX * SHOT_POS_SIZE
@@ -911,15 +912,10 @@ fleet_unlocks:
 fleet_pad:
 pilot_scan:         defw 0              ; pilot_ram's walk over the hostile region
 pilot_scan_slot:    defb 0
-;  order_squad_centre's box: min x y z, then max x y z, six bytes on.
-ord_min_x:          defw 0
-ord_min_y:          defw 0
-ord_min_z:          defw 0
-ord_max_x:          defw 0
-ord_max_y:          defw 0
-ord_max_z:          defw 0
+;  order_squad_centre's box: (min, max) a word each, x then y then z, in
+;  offset binary -- see the routine.
+ord_box:            defs 12
 ord_seen:           defb 0
-ord_focus_ptr:      defw 0
 ;  The scanner's frame (game/farmarks.asm): all written before they are read.
 scan_me:            defw 0
 scan_walk:          defw 0
@@ -969,6 +965,7 @@ scan_right:         defb 0              ; a hostile's mark: across, and
 scan_dy:            defb 0              ; ...its height off the plane
 scan_x:             defw 0              ; ...its column on the screen
 scan_tip:           defw 0              ; ...and its stalk: top row, rows
+cbt_hostiles:       defb 0              ; how many hostiles fly, counted at the top of cbt_update
 fleet_pad_end:
     defs FLEET_BLOCK_SIZE - (fleet_pad_end - fleet_block), 0
 bank4_limit:

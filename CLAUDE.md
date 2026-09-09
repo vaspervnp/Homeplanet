@@ -6681,6 +6681,77 @@ a picket ten thousand ahead is half way up it and gun range is five pixels.
 
 Bank 4's window is at **29**.
 
+### Three cheap wins, measured, and one declined
+
+*"Υπάρχει τρόπος να επιταχύνουμε το framerate;"* -- asked a second time, so
+the answer is a second PC-sampled profile, this time of the CURRENT build
+with 56 ships and a picket of twelve at the default zoom (the script is in
+the scratchpad's `profile.py` shape: stage, 600 frames for the fps, then
+12,000 `run_us(997)` samples mapped onto the symbol file). **1.75 fps, 68
+visible**, and what was surprising in it:
+
+| share | what |
+|---|---|
+| ~30% | the blit and the erase |
+| ~14% | projecting |
+| **8.5%** | `order_squad_centre` -- the camera centring, estimated at 13,000 T when it was written |
+| ~8% | the 50 Hz interrupt: `key_scan`, `snd_psg_out`, `snd_update` |
+| 7.5% | `@p4_inner`, the depth sort's insertion loop |
+| 4.4% | `@cbt_search`, the target search, with NOTHING hostile flying |
+
+Three of those were code and are done; the fourth was declined.
+
+- **The centring is in offset binary.** Six calls a ship to a signed
+  16-bit compare that pushed and popped and tested P/V. Flipping each
+  word's sign bit makes an UNSIGNED byte-pair compare order two
+  coordinates, so min and max are four instructions each with no call and
+  no overflow case; the middle is the 17-bit sum halved through the carry
+  and flipped back. Smaller by thirty bytes and about a fifth of the cost.
+  `ord_box` is the (min, max) pairs, in the save block's pad.
+- **The search knows when there is nothing to find.** `cbt_prey_roll`, at
+  the top of every `cbt_update`, now also runs `mis_count_hostiles` into
+  `cbt_hostiles` (the pad again), and a FRIENDLY searcher returns at once
+  when it is zero. Twenty slots once a frame against fifty-six searches of
+  them -- and it is the loitering state, the one with no hostile alive,
+  where every ship re-acquires every frame. Enemies searching for us are
+  untouched; the fleet is never empty.
+- **The sort starts from last frame's order.** `phase4_project` walks the
+  slots in one order and appends what it sees, so while the same ships are
+  visible, entry i is the same ship it was; `phase4_sort` keeps the order
+  list when the count is unchanged, refreshes the depths out of the
+  visible list, and the insertion sort settles every key on its first
+  compare. Guarded: every index is checked against n, and one past it --
+  the list is not last frame's -- falls back to the slot-order fill. If the
+  set changed under an unchanged count, the indices are still a
+  permutation below n and the sort is merely slower. `phase4_sorted_n` is
+  the byte, after `bank4_end` and NOT in the pad, because it has to survive
+  a frame. Thirty-five bytes of the low 16K, which now ends at `#25F0`,
+  **sixteen bytes before the page**.
+- **The interrupt was declined.** Scanning the keyboard on alternate ticks
+  halves `key_scan` and breaks `test_even_a_single_frame_tap_registers`,
+  which exists precisely to say the scan has not slipped off the 50 Hz
+  tick; a shadow of the PSG's registers to skip unchanged writes saves
+  about 0.7% and costs 26 bytes of a low 16K with sixteen. Neither is worth
+  what it costs.
+
+> **One test failed on the lighter frame and it was the reticle.** The
+> x4 sprite test compares the cockpit's nearest hostile pixel for pixel,
+> and the four ticks are drawn OVER the ships; it had passed because the
+> sprite happened to carry red pixels under the two side ticks, and with a
+> game frame or two more inside the fixture's `run_frames` the flown ship
+> had flown a little further and the sprite landed one pixel over, with
+> blue under them. `on_a_tick` skips those pixels now, in all three
+> pixel-exact tests. "A test whose setup is a fixed number of emulator
+> frames is asserting on the frame rate" -- this file's own sentence,
+> earned again by a change that made the frame faster.
+
+**Measured after, same scene: 1.75 → 2.08 fps**, and the sort and the
+search are gone from the top of the profile; the centring reads 4%, which
+is what the walk over fifty-five members costs however it compares. What is
+left is the sprites, and that is a design decision -- see "Far ships are
+marks" for the tier knob, and `phase4_group`'s `CAM_ZOOM_GROUP_FROM` for
+consolidation at the default zoom, which would change the picture.
+
 ### The wave marker: where INCOMING is coming from
 
 `future.md` item 2, and the item was wrong about the game: it wanted a mark

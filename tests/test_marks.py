@@ -589,6 +589,20 @@ class TestTheScaledSprites(MarkFixture):
     pixel replication in gfx/sprscale.asm, and only PILOT_SPRITES ships are
     drawn as sprites at all; the rest are the sensor view's marks."""
 
+    def on_a_tick(self, x, y):
+        """Is (x, y) one of the reticle's four ticks? They are drawn AFTER the
+        ships, in the fleet's or the alarm ink, so a sprite pixel under one
+        reads as the tick. Which pixels of a sprite that is depends on where
+        the flown ship's flight put it, which the frame rate decides."""
+        gap, ln = self.sym["PILOT_RET_GAP"], self.sym["PILOT_RET_LEN"]
+        cx, cy = 160, self.sym["PROJ_CENTRE_Y"]
+        half = ln // 2
+        if y in range(cy - half, cy - half + ln) and x in (cx - gap - 1, cx + gap + 1):
+            return True
+        if x == cx and (y in range(cy - gap - ln, cy - gap) or y in range(cy + gap + 1, cy + gap + 1 + ln)):
+            return True
+        return False
+
     def fly_at(self, hostiles):
         """V on the fleet's lead ship, then `hostiles` -- (across, ahead,
         class) in world units -- laid out RELATIVE TO THE SHIP'S POSITION
@@ -701,6 +715,8 @@ class TestTheScaledSprites(MarkFixture):
             x, y = e["sx"] + dx, e["sy"] + dy
             if not (0 <= x < 320 and self.sym["CTX_BAR_H"] <= y < self.sym["HUD_TOP"]):
                 continue
+            if self.on_a_tick(x, y):
+                continue                      # the reticle is drawn over the ships
             got = self.pen_at(x, y)
             expect = 3 if pen == 1 else pen
             if got != expect:
