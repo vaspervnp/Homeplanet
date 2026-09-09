@@ -269,7 +269,14 @@ interceptor into a frigate is a real trade; a shot-up one is a poor
 missile. Wrecks cannot be rammed.
 
 A **reticle** marks the middle of the view; it turns **red** while a flying
-enemy is inside it, and white again when there is none. The three nearest ships are
+enemy is inside it, and white again when there is none. A red reticle is a
+**lock**: your gun aims at that enemy, and once you are within about
+fifteen hundred units of it your ship **matches its motion** — it moves as
+the enemy moves, so you neither overtake it nor lose it, and it stays where
+it is in your view for as long as you keep your nose on it. Further away
+than that you still fly forward to close. Turn away, or let it leave the
+reticle, or kill it, and you are flying on your own again the same frame.
+The three nearest ships are
 drawn as ships, and the nearest of those larger than anywhere else in the
 game — twice the size inside about four thousand units, three times inside
 three, four times inside two; everything else is a mark like the sensor view's, a dot for a fighter

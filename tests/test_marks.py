@@ -397,6 +397,131 @@ class TestTheBolt(MarkFixture):
             last = along
 
 
+class TestTheLock(MarkFixture):
+    """future.md item 8: with a flying hostile in the reticle, the gun aims at
+    it and the ship matches its motion -- moves by what it moved -- while it
+    is inside PILOT_HOLD_DIST; out of the box, dead, or further off, the ship
+    flies forward on its own. Driven a frame at a time through a stub that
+    runs pilot_frame, order_focus, cam_build_matrix and phase4_project and
+    NOTHING else, so no enemy closes, shoots or re-targets under the test."""
+
+    def stage(self, hostile_at):
+        self.clear_everything()
+        self.c.write_ram(self.sym["MOTH_SLOT"], bytes([1]))
+        self.place(1, (0, 0, -30000), cls=1)
+        self.poke(1, ENT_SQUAD, b"\x00")
+        self.place(0, (0, 0, 0))
+        self.poke(0, 6, bytes([128]))                              # +Z
+        self.poke(0, ENT_ORDER, bytes([self.sym["ENT_ORDER_PILOT"]]))
+        self.ENEMY = self.PLAYER_MAX
+        self.place(self.ENEMY, hostile_at, enemy=True)
+        #  ...and one more, far off and never in the box, so that crippling
+        #  the first does not END THE FIGHT and hand the ship back.
+        self.place(self.PLAYER_MAX + 1, (20000, 0, -20000), enemy=True)
+        self.c.write_ram(self.sym["PILOT_SLOT"], bytes([0]))
+        self.c.write_ram(self.sym["ORDER_PAUSED"], b"\x00")
+        h.write_bank4(self.c, self.sym["AUTO_ARMED"], b"\x00")
+        h.write_bank4(self.c, self.sym["PILOT_LOCKED"], b"\x00")
+        h.write_bank4(self.c, self.sym["PILOT_PREV_SLOT"], b"\xff")
+        h.write_bank4(self.c, self.sym["PILOT_FOUGHT"], b"\x00")
+
+    def frame(self):
+        calls = b"".join(bytes([0xCD, self.sym[n] & 0xFF, self.sym[n] >> 8])
+                         for n in ("PILOT_FRAME", "ORDER_FOCUS", "CAM_BUILD_MATRIX", "PHASE4_PROJECT"))
+        stub = bytes([0x01, self.sym["GA_BANK_4"], 0x7F, 0xED, 0x49]) + calls + bytes([0x18, 0xFE])
+        self.c.write_ram(h.STUB, stub)
+        self.c.set_pc(h.STUB)
+        self.c.run_frames(2)
+
+    def me(self):
+        return struct.unpack("<hhh", self.c.read_ram(self.sym["ENTITIES"], 6))
+
+    def enemy(self):
+        return struct.unpack("<hhh", self.c.read_ram(self.sym["ENTITIES"] + self.ENEMY * ENT_SIZE, 6))
+
+    def move_enemy(self, dx, dy, dz):
+        x, y, z = self.enemy()
+        self.poke(self.ENEMY, 0, struct.pack("<hhh", x + dx, y + dy, z + dz))
+
+    def step(self):
+        """A frame of own flight: 2 * ((127 * PILOT_STEP_HALF) >> 7), which
+        is 198 and not 200, because cam_mul7 floors."""
+        return 2 * ((127 * self.sym["PILOT_STEP_HALF"]) >> 7)
+
+    def settle(self):
+        """Frames until the ship stops moving: the lock taken, the target
+        closed on to PILOT_HOLD_DIST, the first matched frame held."""
+        for _ in range(12):
+            was = self.me()
+            self.frame()
+            if self.me() == was:
+                return
+        self.fail(f"the ship never held: {self.me()} against {self.enemy()}")
+
+    def test_the_gun_aims_at_the_ship_in_the_reticle(self):
+        """2000 ahead: after the first frame's flight it is 1800 off, fourteen
+        camera units past the nose and inside the box."""
+        self.stage((0, 0, 2000))
+        self.frame()                                               # projects: the lock is taken
+        self.assertEqual(h.read_cpu(self.c, self.sym["PILOT_LOCKED"], 1)[0], 2, "no lock with a hostile dead ahead")
+        self.assertEqual(h.read_cpu(self.c, self.sym["PILOT_LOCK_SLOT"], 1)[0], self.ENEMY)
+        self.frame()                                               # pilot_frame spends it
+        self.assertEqual(self.c.read_ram(self.sym["ENTITIES"] + ENT_TARGET, 1)[0], self.ENEMY,
+                         "the flown ship is not aiming at the locked hostile")
+
+    def test_a_held_target_holds_the_ship_and_a_moving_one_carries_it(self):
+        self.stage((0, 0, 2000))
+        self.settle()
+        gap0 = self.enemy()[2] - self.me()[2]
+        self.assertLess(gap0, self.sym["PILOT_HOLD_DIST"] << 6, "held outside the hold distance")
+        before = self.me()
+        self.frame()
+        self.assertEqual(self.me(), before, "the ship flew on with a target held in the reticle")
+        for step in ((100, 0, 60), (-40, 30, 90), (0, 0, 120)):
+            was = self.me()
+            self.move_enemy(*step)
+            self.frame()
+            now = self.me()
+            self.assertEqual(tuple(n - w for n, w in zip(now, was)), step,
+                             f"the ship did not match the target's step {step}")
+        #  ...and the gap is what it was when the hold began: matched, not chased.
+        ex, ey, ez = self.enemy()
+        mx, my, mz = self.me()
+        self.assertEqual((ex - mx, ey - my, ez - mz), (0, 0, gap0))
+
+    def test_a_target_out_of_the_box_or_dead_frees_the_ship(self):
+        self.stage((0, 0, 2000))
+        self.settle()
+        #  Off to the side, out of the box: own flight along +Z again.
+        self.move_enemy(3000, 0, 0)
+        self.frame()                                               # projects: no lock
+        was = self.me()
+        self.frame()
+        self.assertEqual(self.me()[2] - was[2], self.step(), "the ship did not fly on with the box empty")
+        #  Back where it was, and crippled: a wreck in the box does not lock.
+        self.move_enemy(-3000, 0, 2 * self.step())
+        self.poke(self.ENEMY, ENT_FLAGS, bytes([F_ACTIVE | F_ENEMY | 4]))
+        self.frame()
+        was = self.me()
+        self.frame()
+        self.assertEqual(self.me()[2] - was[2], self.step(), "a wreck in the reticle held the ship")
+
+    def test_a_far_target_is_closed_on_before_it_is_matched(self):
+        """4000 ahead is past PILOT_HOLD_DIST: locked and aimed at, and still
+        flown at until it is near enough to hold."""
+        self.stage((0, 0, 4000))
+        self.frame()
+        self.assertEqual(h.read_cpu(self.c, self.sym["PILOT_LOCKED"], 1)[0], 2)
+        was = self.me()
+        self.frame()
+        self.assertEqual(self.me()[2] - was[2], self.step(), "a far target stopped the ship")
+        self.settle()
+        hold = self.sym["PILOT_HOLD_DIST"] << 6
+        gap = self.enemy()[2] - self.me()[2]
+        self.assertLess(gap, hold, f"the ship held at {gap}, outside PILOT_HOLD_DIST")
+        self.assertGreater(gap, hold - 2 * self.step(), f"the ship held at {gap}, well inside the hold distance")
+
+
 class TestTheScanner(TestTheReticleBox):
     """The Elite-style scanner at the bottom right, while flying: an OVAL --
     the plane seen flat -- with the ship in the middle, every flying hostile

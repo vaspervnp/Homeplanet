@@ -73,6 +73,10 @@ PILOT_CAM_DIST      equ Z_NEAR - 1
 ;  close at up to 350 a frame, so anything smaller could pass through a ship
 ;  between one frame and the next.
 PILOT_RAM_DIST      equ 4
+;  Inside this many camera units of a locked target the ship matches its
+;  motion instead of flying forward: 24 is 1536 world units, inside
+;  CBT_RANGE's 2560 with room, so a held target is a target in range.
+PILOT_HOLD_DIST     equ 24
 
 
 ; ----------------------------------------------------------------------------
@@ -115,6 +119,9 @@ pilot_toggle:
     ld (pilot_pitch),a                  ; the orbit's pitch, kept for the way back
     xor a
     ld (pilot_fought),a                 ; no fight seen yet: see pilot_frame
+    ld (pilot_locked),a                 ; ...and nothing in the reticle yet
+    dec a
+    ld (pilot_prev_slot),a              ; #FF: no target's last position held
     ret
 
 @pilot_next:
@@ -209,6 +216,34 @@ pilot_frame:
     add hl,de
     ld (hl),ENT_ORDER_PILOT
 
+    ; --- the lock, from last frame's projection ---------------------------
+    ;  mark_tier_for set pilot_locked and pilot_lock_slot (the nearest flying
+    ;  hostile inside the reticle's box) while projecting last frame. Spent
+    ;  here: this frame's copy goes in pilot_lock_now, the byte is cleared
+    ;  and the depth reset, so this frame's projection starts from "nothing
+    ;  in the box". The reticle reads the byte AFTER the projection, so it
+    ;  is red on exactly the frames the box has something in it.
+    ld hl,pilot_locked
+    ld a,(hl)
+    ld (hl),0
+    ld (pilot_lock_now),a
+    ld a,#FF
+    ld (pilot_lock_z),a
+    ;  THE SHIP IN THE RETICLE IS THE SHIP THE GUN AIMS AT. cbt_retarget_one
+    ;  hands this ship the nearest hostile at any bearing, which could be one
+    ;  behind it while the player has another lined up; while locked, the
+    ;  target is the locked slot, re-written every frame under the round
+    ;  robin. cbt_fire_if_able still asks cbt_hostile of it before firing.
+    ld a,(pilot_lock_now)
+    or a
+    jr z,@pilot_no_aim
+    ld hl,(pilot_ent)
+    ld de,ENT_TARGET
+    add hl,de
+    ld a,(pilot_lock_slot)
+    ld (hl),a
+@pilot_no_aim:
+
     ld a,(order_paused)
     or a
     jp nz,@pilot_camera                 ; frozen with the battle: only the camera
@@ -235,7 +270,25 @@ pilot_frame:
     ld (hl),a
 @pilot_no_right:
 
-    ; --- fly: always forward, along (sin y, -cos y) ------------------------
+    ; --- fly: as the locked target flies, or always forward ---------------
+    ;  future.md item 8: "όταν έχω εχθρό στο στόχαστρο κάνε match την
+    ;  ταχύτητα και την κατεύθυνσή του αυτόματα, ώστε να μην τον προσπερνάω.
+    ;  Μόλις βγει από το στόχαστρο ή σκοτωθεί, συνέχισε όπως πριν." With a
+    ;  target locked and inside PILOT_HOLD_DIST the ship moves by what the
+    ;  target moved since last frame -- its velocity, whatever steers it --
+    ;  so the distance holds and the target stays where it is in the view;
+    ;  further off than that it flies on its own to close. The nose is still
+    ;  the player's: turn far enough and the target leaves the box, and the
+    ;  frame it is gone -- or dead -- there is nothing to undo, because the
+    ;  lock is recomputed by every projection.
+    ld a,(pilot_lock_now)
+    or a
+    jr z,@pilot_own_flight
+    call pilot_match
+    jr c,@pilot_flown
+@pilot_own_flight:
+    ld a,#FF
+    ld (pilot_prev_slot),a              ; a lock taken later starts afresh
     ld hl,(pilot_ent)
     ld de,ENT_YAW
     add hl,de
@@ -249,6 +302,7 @@ pilot_frame:
     ld de,ENT_Z
     add hl,de
     call pilot_along                    ; z -= step * cos y
+@pilot_flown:
 
     ; --- ramming ------------------------------------------------------------
     ;  Into a hostile, and both pay the pilot's hull: future.md item 7. It is
@@ -375,6 +429,79 @@ pilot_ram:
     ld a,(pilot_slot)
     call cbt_kill
     call pilot_end                      ; the camera goes back to the station
+    scf
+    ret
+
+
+; ----------------------------------------------------------------------------
+;  pilot_match -- move as the locked target moved, if it is near enough
+;  Out: CF set: the flight is done (matched, or held on a fresh lock);
+;       CF clear: the target is beyond PILOT_HOLD_DIST, fly on to close
+;  Uses: everything
+;
+;  Nothing stores a hostile's velocity -- ENT_SPEED is read by nothing in
+;  the game -- so it is its position against last frame's, kept in
+;  pilot_prev_pos while pilot_prev_slot names the same ship. The first
+;  frame of a lock has no last frame and holds still, which is one frame.
+;  The delta goes through order_add_clamped like every other move, so the
+;  ship stays inside DISC_LIMIT.
+; ----------------------------------------------------------------------------
+pilot_match:
+    ld a,(pilot_lock_slot)
+    call ent_addr
+    push hl
+    ex de,hl
+    ld hl,(pilot_ent)
+    call dist_manhattan                 ; A = camera units apart
+    pop de                              ; DE = the target's record
+    cp PILOT_HOLD_DIST
+    ret nc                              ; CF clear: too far, close on it first
+    ld a,(pilot_lock_slot)
+    ld hl,pilot_prev_slot
+    cp (hl)
+    ld (hl),a
+    jr nz,@pm_first
+    ld (pm_target),de
+    ld hl,pilot_prev_pos
+    ld (pm_prev),hl
+    ld hl,(pilot_ent)
+    ld (pm_ours),hl
+    ld b,3
+@pm_axis:
+    push bc
+    ld hl,(pm_target)
+    ld e,(hl)
+    inc hl
+    ld d,(hl)
+    inc hl
+    ld (pm_target),hl                   ; DE = where it is now
+    ld hl,(pm_prev)
+    ld c,(hl)
+    ld (hl),e
+    inc hl
+    ld b,(hl)
+    ld (hl),d
+    inc hl
+    ld (pm_prev),hl                     ; BC = where it was; now remembered
+    ex de,hl
+    or a
+    sbc hl,bc                           ; HL = its step this frame
+    ex de,hl
+    ld hl,(pm_ours)
+    call order_add_clamped              ; ours += the same
+    ld hl,(pm_ours)
+    inc hl
+    inc hl
+    ld (pm_ours),hl
+    pop bc
+    djnz @pm_axis
+    scf
+    ret
+@pm_first:
+    ex de,hl                            ; HL = the target's record
+    ld de,pilot_prev_pos
+    ld bc,6
+    ldir
     scf
     ret
 

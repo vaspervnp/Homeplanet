@@ -180,7 +180,11 @@ threshold on the piloted ship's frame, then two hull subtractions.
 
 *"στο V, όταν έχω εχθρό στο στόχαστρο κάνε match την ταχύτητα και την
 κατεύθυνσή του αυτόματα, ώστε να μην τον προσπερνάω. Μόλις βγει από το
-στόχαστρο ή σκοτωθεί, συνέχισε όπως πριν."* Noted 2026-09-09, not built.
+στόχαστρο ή σκοτωθεί, συνέχισε όπως πριν."* Noted 2026-09-09; **built the
+same day** -- see CLAUDE.md, "The lock: aim at it, and fly as it flies". The
+design below held except in one place: a hostile has no heading to match,
+it flies at its target, so what is matched is its VELOCITY -- its step since
+last frame -- and the nose stays the player's.
 
 **The problem it answers.** A flown ship flies harder than the AI — 200 a
 frame against `PHASE4_STEP`'s 150 — and always forward, so a pilot who gets

@@ -6681,6 +6681,80 @@ a picket ten thousand ahead is half way up it and gun range is five pixels.
 
 Bank 4's window is at **29**.
 
+#### The lock: aim at it, and fly as it flies
+
+*"Όταν έχω εχθρό στο στόχαστρο κάνε match την ταχύτητα και την κατεύθυνσή
+του αυτόματα, ώστε να μην τον προσπερνάω. Μόλις βγει από το στόχαστρο ή
+σκοτωθεί, συνέχισε όπως πριν."* future.md item 8.
+
+**The lock is the red reticle's byte, and now it knows WHICH ship.**
+`mark_tier_for`'s box path records the nearest flying hostile in the box —
+slot `ENT_MAX − phase4_index`, depth `proj_z_raw` against `pilot_lock_z` —
+and `pilot_frame` spends both at the top of the next frame: copies the byte
+into `pilot_lock_now`, clears it, resets the depth, so every projection
+starts from "nothing in the box". The reticle stopped clearing it, because
+the reticle runs after the projection and the pilot before it.
+
+- **The gun aims at the locked ship.** `cbt_retarget_one` hands the flown
+  ship the nearest hostile at any bearing, which can be one behind it while
+  the player has another lined up; while locked, `ENT_TARGET` is the locked
+  slot, re-written every frame under the round robin. `cbt_fire_if_able`
+  still asks `cbt_hostile` of it before firing.
+- **"Match its heading" is match its VELOCITY.** A hostile has no heading
+  to match — its `ENT_YAW` is static and it flies at its target through
+  `cbt_move_enemies` — and `ENT_SPEED` is read by nothing, so its speed is
+  its position against last frame's, kept in `pilot_prev_pos` while
+  `pilot_prev_slot` names the same ship. `pilot_match` adds that step to
+  the flown ship's own position, each axis through `order_add_clamped`.
+  The nose stays the player's: turn far enough and the target leaves the
+  box, and the frame it is gone — or dead, or crippled — the ship is back
+  on its own flight with nothing to undo, since the lock is recomputed by
+  every projection and `pilot_prev_slot` is reset on every unmatched frame.
+- **Only inside `PILOT_HOLD_DIST`**, 24 camera units = 1536 world, inside
+  `CBT_RANGE`'s 2560 with room. Further off, a locked target is aimed at
+  and flown at — own flight closes it — and the hold begins the frame the
+  gap is under the distance. Without this a target locked at four thousand
+  would be followed at four thousand for ever, out of range.
+- **A first matched frame holds still**: there is no last frame to take a
+  step from. One frame.
+
+**Tested a frame at a time through a stub** — `pilot_frame`, `order_focus`,
+`cam_build_matrix`, `phase4_project` and nothing else, so no enemy closes,
+shoots or re-targets under the test — and by slot: the lock names the ship
+dead ahead and the gun aims at it; a held target holds the ship and a
+target moved by hand carries it by exactly the same step, the gap
+unchanged; out of the box, or crippled, the ship flies on at its own 198 a
+frame (`2·((127·100)>>7)`, cam_mul7 floors); a far target is closed on and
+held just inside the distance. Two fixture lessons: a hostile 1200 ahead is
+seven camera units past the nose after the first frame's flight and is
+DROPPED as behind it, so the fixture stages at 2000; and crippling the only
+hostile ENDS THE FIGHT and `pilot_end` hands the ship back, which is the
+rule working, so a second hostile sits far off to keep the fight on.
+
+> **The room came from `shot_pos`, which now overlays the fleet block** the
+> way `class_standin` does. The tracers' projection cache is read only
+> while a playing frame draws its shots; the block is read and written only
+> with the world stopped — a save on the way out, a load at boot, a reset,
+> the tutorial's exit. Never both, so 304 bytes of the window are paid once.
+> **BEHIND the stand-in, not at the block's start**: the stand-in is the
+> other thing overlaying the block and it IS live during play on a machine
+> with no disc — the first version put the cache on top of it and
+> `test_shipclass.TestTheFallback` drew ships out of screen positions. Two
+> things overlaying one buffer must not overlap each other, only the buffer.
+> `mis_setup` wipes the cache after every load so no stale stamp can match
+> a frame counter and draw a tracer to a byte of somebody's hull. The
+> match code is ~175 bytes of bank 4 and its state 9 after `bank4_end`;
+> the window is at **166**.
+>
+> **And two persistence tests were writing the block to the disc RAW**, to
+> put a rubbish tag where `fleet_disc_save` would have put a real one --
+> after a jump and a hundred playing frames, so the header they wrote was
+> a ship's screen position and the save came back rejected. They pack the
+> fleet and stamp the header through `fleet_save` and `fleet_disc_save`
+> first, then poke, then `fdc_fleet_save`, with the stubs spinning in
+> between so no frame runs. The overlay is the reason a test may no longer
+> assume the block holds the last save between frames.
+
 ### Three cheap wins, measured, and one declined
 
 *"Υπάρχει τρόπος να επιταχύνουμε το framerate;"* -- asked a second time, so

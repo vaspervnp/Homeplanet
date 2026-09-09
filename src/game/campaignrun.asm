@@ -209,6 +209,14 @@ mis_setup:
     ;  frame, but the first frame of a new mission comes after a briefing and
     ;  a screen wipe, and a stale 1 carried across from the mission just left
     ;  would offer JUMP over the top of a picket that has only just spawned.
+    ;  The tracers' projection cache shares its bytes with the fleet block
+    ;  (src/main.asm), which a load has just filled: wipe it, so no stamp
+    ;  matches a frame by accident.
+    ld hl,shot_pos
+    ld de,shot_pos + 1
+    ld bc,ENT_MAX * SHOT_POS_SIZE - 1
+    ld (hl),0
+    ldir
     xor a
     ld (mis_complete),a
     ld (mis_leave_ok),a

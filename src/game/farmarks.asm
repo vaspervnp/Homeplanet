@@ -196,6 +196,18 @@ mark_tier_for:
     cp ENT_F_ENEMY
     jr nz,@mt_keep
     ld (pilot_locked),a                 ; nonzero: ENT_F_ENEMY itself
+    ;  ...and WHICH, the nearest of them, for the gun and for pilot_match:
+    ;  the slot is ENT_MAX - phase4_index, as shot_cache reckons it, and
+    ;  the depth proj_z_raw. pilot_frame resets pilot_lock_z every frame.
+    ld a,(proj_z_raw)
+    ld hl,pilot_lock_z
+    cp (hl)
+    jr nc,@mt_keep                      ; no nearer than the one held
+    ld (hl),a
+    ld a,(phase4_index)
+    neg
+    add a,ENT_MAX
+    ld (pilot_lock_slot),a
 @mt_keep:
     ld a,c
     or a                                ; CF clear: list it
@@ -308,11 +320,10 @@ pilot_reticle:
     cp ENT_MAX
     ret nc
     ;  THE INK IS THE LOCK. mark_tier_for set pilot_locked this frame if a
-    ;  flying hostile projected inside the box; it is read once here and
-    ;  cleared, so next frame's projection starts from "nothing in it".
-    ld hl,pilot_locked
-    ld a,(hl)
-    ld (hl),0
+    ;  flying hostile projected inside the box. pilot_frame is what spends
+    ;  it, at the top of the NEXT frame, before that frame's projection --
+    ;  it is the same byte that makes the ship match the target's motion.
+    ld a,(pilot_locked)
     or a
     ld a,PEN_WHITE
     jr z,@pr_pen

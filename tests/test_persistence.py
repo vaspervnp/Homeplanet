@@ -238,6 +238,27 @@ class TestTheUnlocksSurviveThePowerGoingOff(DiscFixture):
         h.jump_mission(self.c)
         self.assertEqual(self.byte("MIS_INDEX"), 1, "the jump was refused")
 
+    def write_the_block_with(self, unlock_bytes):
+        """Pack the fleet and stamp the header as a jump would, then put
+        `unlock_bytes` where the tag and the field go and write the block to
+        the disc as it stands -- the only way to put on the disc something
+        fleet_disc_save would not have written.
+
+        PACKED FIRST, AND WITH NO GAME FRAME IN BETWEEN: the block shares its
+        bytes with the tracers' projection cache (shot_pos, src/main.asm), so
+        after a playing frame the header is a ship's screen position. Both
+        stubs spin at the end, so between them nothing but the interrupt runs.
+        """
+        def stub(*names):
+            calls = b"".join(bytes([0xCD, self.sym[n] & 0xFF, self.sym[n] >> 8]) for n in names)
+            self.c.write_ram(h.STUB, bytes([0x01, self.sym["GA_BANK_4"], 0x7F, 0xED, 0x49])
+                             + calls + bytes([0x18, 0xFE]))
+            self.c.set_pc(h.STUB)
+            self.c.run_frames(120)
+        stub("FLEET_SAVE", "FLEET_DISC_SAVE")
+        h.write_bank4(self.c, self.sym["FLEET_UNLOCKS"], unlock_bytes)
+        stub("FDC_FLEET_SAVE")
+
     def test_a_salvaged_frigate_is_still_salvaged_after_a_reset(self):
         self.c = self.fresh_machine()
         self.run_the_game(self.c)
@@ -268,12 +289,7 @@ class TestTheUnlocksSurviveThePowerGoingOff(DiscFixture):
 
         #  Everything else about the save stays valid: a real header, a real
         #  fleet, and rubbish where the tag should be.
-        h.write_bank4(self.c, self.sym["FLEET_UNLOCKS"], b"\x5A\x01")
-        addr = self.sym["FDC_FLEET_SAVE"]
-        self.c.write_ram(h.STUB, bytes([0xCD, addr & 0xFF, addr >> 8,
-                                        0x18, 0xFE]))       # call it, then spin
-        self.c.set_pc(h.STUB)
-        self.c.run_frames(120)
+        self.write_the_block_with(b"\x5A\x01")
 
         self.power_cycle(self.c)
 
@@ -291,11 +307,7 @@ class TestTheUnlocksSurviveThePowerGoingOff(DiscFixture):
         self.run_the_game(self.c)
         self.save_with(self.sym["CAMP_UNLOCK_FRIGATE"])
 
-        h.write_bank4(self.c, self.sym["FLEET_UNLOCKS"],
-                    bytes([self.sym["FLEET_UNLOCK_TAG"], 0xFF]))
-        addr = self.sym["FDC_FLEET_SAVE"]
-        self.c.write_ram(h.STUB, bytes([0xCD, addr & 0xFF, addr >> 8, 0x18, 0xFE]))
-        self.c.set_pc(h.STUB)
+        self.write_the_block_with(bytes([self.sym["FLEET_UNLOCK_TAG"], 0xFF]))
         self.c.run_frames(120)
 
         self.power_cycle(self.c)

@@ -705,10 +705,13 @@ pilot_pitch:        defb 0              ; the orbit's pitch, for when the ship i
 pilot_fought:       defb 0              ; something hostile flew while this ship was flown
 pilot_locked:       defb 0              ; a flying hostile projected inside the reticle this frame
 pilot_ret_pen:      defb 0              ; ...and the ink the ticks are drawn in because of it
+pilot_lock_slot:    defb 0              ; the nearest of those, by slot
+pilot_lock_z:       defb 0              ; ...and its depth, reset to #FF by pilot_frame
+pilot_prev_slot:    defb 0              ; the ship pilot_prev_pos belongs to, #FF for none
+pilot_prev_pos:     defs 6              ; where the matched target was last frame
 phase4_sorted_n:    defb 0              ; how many entries phase4_order holds from last frame
 shot_count:         defb 0
 shot_list:          defs SHOT_MAX * 2
-shot_pos:           defs ENT_MAX * SHOT_POS_SIZE
 shot_dots_a:        defs SHOT_LIST_SIZE
 shot_dots_b:        defs SHOT_LIST_SIZE
 shot_left:          defb 0
@@ -878,7 +881,22 @@ fleet_buffer:
 ;  the player's region is ever saved, so twenty of the slots could not be
 ;  filled, and the record carried six bytes a ship that a restored fleet
 ;  throws away. 960 bytes for 28 ships; 728 for 56.
-    defs ENT_PLAYER_MAX * FLEET_REC_SIZE, 0
+    defs CLASS_STANDIN_SIZE - FLEET_HDR_SIZE, 0
+;  ...AND SO DOES THE TRACERS' PROJECTION CACHE, behind the stand-in. shot_pos
+;  is ENT_MAX entries of SHOT_POS_SIZE, stamped with the frame they were made
+;  in and read only while a playing frame is drawing its shots; the block is
+;  read and written only while the world is stopped -- a save on the way out
+;  of a mission, a load at boot, on a reset and on the way out of the
+;  tutorial. Never both at once, so the 304 bytes are the window's once
+;  instead of twice. BEHIND THE STAND-IN and not at the block's start,
+;  because the stand-in IS live during play on a machine with no disc: the
+;  first version put the cache on top of it and the stand-ins were a ship's
+;  screen positions. It runs four bytes past the fleet into the unlocks
+;  field and two bytes of pad, which are equally only read while stopped.
+;  mis_setup zeroes the cache after every load, so no stale stamp can match
+;  a frame counter by chance and draw a tracer to a byte of somebody's hull.
+shot_pos:
+    defs ENT_PLAYER_MAX * FLEET_REC_SIZE - (CLASS_STANDIN_SIZE - FLEET_HDR_SIZE), 0
 ; ----------------------------------------------------------------------------
 ;  What the campaign has unlocked, in the block's PAD and not in its header.
 ;
@@ -910,6 +928,8 @@ fleet_unlocks:
 ;  jump wipe's, txt_big's and pilot_ram's.
 ; ----------------------------------------------------------------------------
 fleet_pad:
+    defs 2, 0                           ; shot_pos's last entry ends here: see above
+fleet_scratch:
 pilot_scan:         defw 0              ; pilot_ram's walk over the hostile region
 pilot_scan_slot:    defb 0
 ;  order_squad_centre's box: (min, max) a word each, x then y then z, in
@@ -966,12 +986,18 @@ scan_dy:            defb 0              ; ...its height off the plane
 scan_x:             defw 0              ; ...its column on the screen
 scan_tip:           defw 0              ; ...and its stalk: top row, rows
 cbt_hostiles:       defb 0              ; how many hostiles fly, counted at the top of cbt_update
+pilot_lock_now:     defb 0              ; this frame's copy of pilot_locked, for pilot_frame
+pm_target:          defw 0              ; pilot_match's three cursors
+pm_prev:            defw 0
+pm_ours:            defw 0
 fleet_pad_end:
     defs FLEET_BLOCK_SIZE - (fleet_pad_end - fleet_block), 0
 bank4_limit:
     assert fleet_pad_end - fleet_block <= FLEET_BLOCK_SIZE, "the scratch overflows the save block's pad"
 
     assert fleet_buffer == fleet_block + FLEET_HDR_SIZE, "the fleet must follow its header"
+    assert shot_pos == fleet_block + CLASS_STANDIN_SIZE, "shot_pos does not start where the stand-in ends"
+    assert shot_pos + ENT_MAX * SHOT_POS_SIZE <= fleet_scratch, "shot_pos runs into the pad's scratch"
     assert fleet_unlocks == fleet_buffer + ENT_PLAYER_MAX * FLEET_REC_SIZE, "the unlocks must follow the fleet"
     assert bank4_limit - fleet_block == FLEET_BLOCK_SIZE, "the save block is not whole sectors"
 ;  The one that decides how big the fleet may be. FLEET.DAT is two raw sectors
