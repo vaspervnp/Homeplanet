@@ -1097,9 +1097,11 @@ emulator's keymap has no TAB entry, so no test can press it. `S` does the same
 thing and is tested.
 
 The camera orbits whatever is selected (§4.3) — **where the squadron IS**,
-the middle of the box round its flying ships (`order_squad_centre`, bank 4:
-min and max on each axis and one shift, because a centre of mass wants a
-divide), on the owner's instruction: *"Όταν κεντράρεις σε squadron να
+the MEAN of its flying ships (`order_squad_centre`, bank 4: a 24-bit sum an
+axis and a 24-by-8 restoring divide by the count — it was the middle of the
+box round them, one shift instead of a divide, until one ship away at a
+patch dragged the camera into empty space; see "The camera went to nobody"
+below), on the owner's instruction: *"Όταν κεντράρεις σε squadron να
 κεντράρεις εκεί που είναι τώρα, όχι στην resting θέση του."* It used to
 orbit the squadron's *station*, so that the view settled the moment an
 order was given instead of drifting along behind the formation; what that
@@ -6755,6 +6757,53 @@ rule working, so a second hostile sits far off to keep the fight on.
 > between so no frame runs. The overlay is the reason a test may no longer
 > assume the block holds the last save between frames.
 
+### The camera went to nobody: the box's middle, and one ship away at a patch
+
+*"Κάποια στιγμή στην πίστα 3 έχασα όλο τον στόλο. Δεν έβλεπα πλοία, η
+μετακίνηση στην πίστα ήταν αδύνατη και μόνο σε κάποιο zoom level έβλεπα
+κάτι. Υπάρχει περίπτωση να ήταν υπερχείλιση μνήμης;"* — between the second
+wave and the third.
+
+**Not memory. The camera.** The centring took the middle of the bounding
+box round the selected squadron's flying ships, and a box has no notion of
+how many ships are where: one ship of sixteen twenty thousand units out —
+a harvester at a far patch, a straggler still closing on the last ship of
+a wave, a corvette off to a wreck — puts the middle ten thousand from
+everybody. Measured on the build the owner had: one ship poked to 20000,
+**focus 8950, visible 0**. The visible radius is 8191 at the default step
+and only the widest steps reach it, which is "only at some zoom level I
+saw something"; the move disc opens at the focus, which is "moving was
+impossible". Between waves two and three is exactly when the fleet is
+spread out: ships coming home from a kill at their own pace, harvesters
+out working.
+
+**The fix is the statistic, not the code.** `order_squad_centre` sums each
+axis in 24 bits over the squadron's members and divides by the count — a
+24-by-8 restoring divide, twenty-four steps with the quotient shifted in
+behind the dividend, the magnitude divided and the sign put back — so the
+same straggler moves the focus by a sixteenth of its distance. The divide
+is the second one in the game (`wave_pct_of` is the other) and it earns its
+place the way that one did: the divisor is whatever fleet the player has.
+The offset-binary box of the morning is gone with it. Measured in the same
+56-ship scene: **2.08 fps either way**, the sums and the divide at 5.7% of
+the frame against the box's 4.2% -- the walk over fifty-five members is the
+cost, whatever is done per member.
+
+> **And one combat test fell over the frame boundary on the divide's few
+> hundred T-states.** `test_the_order_is_dropped_when_the_last_target_dies`
+> waited `(CBT_COOLDOWN + 4) * 4` emulator frames for the killing ship's
+> gun to come round and re-acquire -- under one cooldown at the fight's
+> real frame rate, and passing for as long as the boundary fell its way.
+> It polls now. "Wait for the thing, do not count frames", the fourth
+> appearance of that sentence in one day.
+
+**Tested from the report**: `test_one_ship_away_at_a_patch_does_not_take_the_camera_with_it`
+pokes one ship of the selection to 20000, asks that the focus move by at
+most a sixteenth of that, and that the visible count not fall. The three
+tests that modelled the box middle model the mean now, truncating towards
+zero as the Z80 does, and `middle_of` moved up into `ControlFixture` where
+both classes that wanted it can reach it.
+
 ### Three cheap wins, measured, and one declined
 
 *"Υπάρχει τρόπος να επιταχύνουμε το framerate;"* -- asked a second time, so
@@ -6781,7 +6830,9 @@ Three of those were code and are done; the fourth was declined.
   coordinates, so min and max are four instructions each with no call and
   no overflow case; the middle is the 17-bit sum halved through the carry
   and flipped back. Smaller by thirty bytes and about a fifth of the cost.
-  `ord_box` is the (min, max) pairs, in the save block's pad.
+  `ord_box` is the (min, max) pairs, in the save block's pad. **(Since
+  replaced by the mean — the box was the wrong statistic, not just a slow
+  one; see "The camera went to nobody".)**
 - **The search knows when there is nothing to find.** `cbt_prey_roll`, at
   the top of every `cbt_update`, now also runs `mis_count_hostiles` into
   `cbt_hostiles` (the pad again), and a FRIENDLY searcher returns at once

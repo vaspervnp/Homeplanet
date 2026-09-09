@@ -1197,27 +1197,24 @@ order_add_clamped:
 ;  thirteen thousand T-states for a full fleet.
 ; ----------------------------------------------------------------------------
 order_squad_centre:
-    ;  THE BOX IS KEPT IN OFFSET BINARY -- each word's sign bit flipped --
-    ;  so that an UNSIGNED byte-pair compare orders two coordinates and SBC
-    ;  HL,DE's overflow, which this file tests P/V for everywhere else, never
-    ;  comes into it. Min starts at the top of the range and max at the
-    ;  bottom; (min, max) a word each, per axis, in ord_box. The first
-    ;  version called a signed compare helper six times a ship and was
-    ;  measured at 8% of a 56-ship frame; this is about a fifth of that.
-    ld hl,ord_box
-    ld b,3
-@osc_clear:
-    ld (hl),#FF
-    inc hl
-    ld (hl),#FF
-    inc hl
+    ;  THE MEAN, NOT THE BOX. The first version took the middle of the
+    ;  bounding box, which is one shift instead of a divide -- and ONE ship
+    ;  away on business drags that middle half way to it: a harvester at a
+    ;  patch ten thousand units out, a straggler still chasing the last of a
+    ;  wave, and the camera sits on empty space with nothing inside the
+    ;  visible radius. "Έχασα όλο τον στόλο ... μόνο σε κάποιο zoom level
+    ;  έβλεπα κάτι." Measured: one ship of sixteen at 20000 put the focus at
+    ;  8950 and the visible count at zero. The mean moves by a sixteenth of
+    ;  that. So: a 24-bit sum per axis over the squadron's flying ships, then
+    ;  a 24-by-8 restoring divide by the count -- the only other divide in
+    ;  the game is wave_pct_of's, and this one is the same shape.
+    ld hl,ord_sum
+    ld de,ord_sum + 1
+    ld bc,9 - 1
     ld (hl),0
-    inc hl
-    ld (hl),0
-    inc hl
-    djnz @osc_clear
+    ldir
     xor a
-    ld (ord_seen),a
+    ld (ord_seen),a                     ; the count
     ld hl,entities + ENT_FLAGS
     ld b,ENT_PLAYER_MAX
 @osc_one:
@@ -1230,48 +1227,42 @@ order_squad_centre:
     cp (hl)
     dec hl
     jr nz,@osc_next
-    ld a,1
+    ld a,(ord_seen)
+    inc a
     ld (ord_seen),a
     push hl
     push bc
     ld de,-ENT_FLAGS
     add hl,de                           ; HL -> ENT_X: the three axes are consecutive
-    ld de,ord_box
+    ld de,ord_sum
+    ld (ord_sum_ptr),de
     ld b,3
 @osc_axis:
     push bc
-    ld c,(hl)
+    ld e,(hl)
+    inc hl
+    ld d,(hl)
+    inc hl                              ; DE = this axis, HL -> the next
+    push hl
+    ld a,d
+    add a,a
+    sbc a,a
+    ld c,a                              ; C = its sign, spread
+    ld hl,(ord_sum_ptr)
+    ld a,(hl)
+    add a,e
+    ld (hl),a
     inc hl
     ld a,(hl)
-    inc hl
-    xor #80
-    ld b,a                              ; BC = this axis in offset binary, HL -> the next
-    ex de,hl                            ; HL -> this axis's min, DE = the record cursor
-    ld a,(hl)
-    sub c
+    adc a,d
+    ld (hl),a
     inc hl
     ld a,(hl)
-    sbc a,b                             ; min - v
-    jr c,@osc_min_ok                    ; min < v: keep it
-    ld (hl),b
-    dec hl
-    ld (hl),c
-    inc hl
-@osc_min_ok:
-    inc hl                              ; -> its max
-    ld a,c
-    sub (hl)
-    inc hl
-    ld a,b
-    sbc a,(hl)                          ; v - max
-    jr c,@osc_max_ok                    ; v < max: keep it
-    ld (hl),b
-    dec hl
-    ld (hl),c
-    inc hl
-@osc_max_ok:
-    inc hl                              ; -> the next axis's min
-    ex de,hl                            ; HL = the record cursor, DE -> the box
+    adc a,c
+    ld (hl),a
+    inc hl                              ; 24 bits: 56 ships at 32767 is 1.8M
+    ld (ord_sum_ptr),hl
+    pop hl
     pop bc
     djnz @osc_axis
     pop bc
@@ -1283,38 +1274,73 @@ order_squad_centre:
     ld a,(ord_seen)
     or a
     ret z                               ; CF clear: nothing to centre on
-    ;  cam_focus = (min + max) >> 1, each axis. The 17-bit sum of the two
-    ;  offset-binary words, halved with the carry coming in at the top, is
-    ;  the middle in offset binary; the sign flip takes it back.
-    ld hl,ord_box
+    ;  cam_focus = sum / count, each axis: the sum's magnitude through a
+    ;  24-by-8 restoring divide, 24 steps, the quotient shifted in behind the
+    ;  dividend, then the sign put back. The quotient is inside 16 bits by
+    ;  construction, a mean of coordinates being one.
+    ld hl,ord_sum
+    ld (ord_sum_ptr),hl
     ld de,cam_focus_x
     ld b,3
 @osc_mid:
     push bc
     push de
+    ld hl,(ord_sum_ptr)
     ld e,(hl)
     inc hl
     ld d,(hl)
-    inc hl                              ; DE = min
-    ld c,(hl)
     inc hl
-    ld b,(hl)
-    inc hl                              ; BC = max, HL -> the next axis
-    ex de,hl                            ; HL = min, DE -> the next axis
-    add hl,bc                           ; CF:HL = min + max
-    rr h
-    rr l                                ; ...halved, the carry in at the top
-    ld a,h
-    xor #80
-    ld h,a                              ; ...and signed again
-    ex de,hl                            ; DE = the middle, HL -> the next axis
-    ex (sp),hl                          ; HL = the focus cursor, the axis cursor kept
+    ld c,(hl)
+    inc hl                              ; C:DE = the sum
+    ld (ord_sum_ptr),hl
+    ld a,c
+    add a,a
+    sbc a,a
+    ld (ord_neg),a                      ; #FF: negative
+    or a
+    jr z,@osc_abs_ok
+    xor a
+    sub e
+    ld e,a
+    ld a,0
+    sbc a,d
+    ld d,a
+    ld a,0
+    sbc a,c
+    ld c,a                              ; C:DE = |sum|
+@osc_abs_ok:
+    ex de,hl                            ; C:HL = |sum|
+    ld a,(ord_seen)
+    ld e,a                              ; E = the count
+    xor a                               ; A = the remainder
+    ld b,24
+@osc_div:
+    add hl,hl
+    rl c
+    rla                                 ; the next bit of the dividend into the remainder
+    cp e
+    jr c,@osc_div_no
+    sub e
+    inc l                               ; ...and a quotient bit where the dividend's bit was
+@osc_div_no:
+    djnz @osc_div                       ; HL = the quotient
+    ld a,(ord_neg)
+    or a
+    jr z,@osc_signed
+    xor a
+    sub l
+    ld l,a
+    ld a,0
+    sbc a,h
+    ld h,a
+@osc_signed:
+    ex de,hl                            ; DE = the mean
+    pop hl                              ; HL = the focus cursor
     ld (hl),e
     inc hl
     ld (hl),d
     inc hl
-    ex (sp),hl                          ; HL -> the next axis again
-    pop de                              ; DE = the focus cursor, moved on
+    ex de,hl                            ; DE = the focus cursor, moved on
     pop bc
     djnz @osc_mid
     scf

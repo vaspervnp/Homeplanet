@@ -101,6 +101,26 @@ class ControlFixture(unittest.TestCase):
         self.hold(cpc.KEY_ENTER, frames=25)
         self.assertEqual(self.byte("DISC_ACTIVE"), 1, "the move disc did not open")
 
+    def middle_of(self, squad):
+        """Where the camera centres now: the MEAN of the squadron's flying
+        ships (order_squad_centre), not its station and not the middle of
+        the box round them -- one ship away at a patch dragged that half way
+        to it. The Z80 divides the magnitude, so the quotient truncates
+        towards zero."""
+        base = self.sym["ENTITIES"]
+        pts = []
+        for slot in range(self.sym["ENT_PLAYER_MAX"]):
+            r = self.c.read_ram(base + slot * ENT_SIZE, ENT_SIZE)
+            if (r[ENT_FLAGS] & 5) == 1 and r[ENT_SQUAD] == squad:
+                pts.append(struct.unpack("<hhh", r[:6]))
+        self.assertTrue(pts, f"squadron {squad} has no ship")
+
+        def mean(vals):
+            total = sum(vals)
+            q = abs(total) // len(vals)
+            return -q if total < 0 else q
+        return tuple(mean([p[i] for p in pts]) for i in range(3))
+
 
 class TestCamera(ControlFixture):
 
@@ -528,18 +548,6 @@ class TestSelectionAndCamera(ControlFixture):
     def focus(self):
         return tuple(self.word("CAM_FOCUS_X", i * 2, signed=True) for i in range(3))
 
-    def middle_of(self, squad):
-        """Where the camera centres now: the middle of the box round the
-        squadron's flying ships (order_squad_centre), not its station."""
-        base = self.sym["ENTITIES"]
-        pts = []
-        for slot in range(self.sym["ENT_PLAYER_MAX"]):
-            r = self.c.read_ram(base + slot * ENT_SIZE, ENT_SIZE)
-            if (r[ENT_FLAGS] & 5) == 1 and r[ENT_SQUAD] == squad:
-                pts.append(struct.unpack("<hhh", r[:6]))
-        self.assertTrue(pts, f"squadron {squad} has no ship")
-        return tuple((min(p[i] for p in pts) + max(p[i] for p in pts)) >> 1 for i in range(3))
-
     def test_the_camera_follows_the_selected_squadron(self):
         """The middle of the squadron's box, since "να κεντράρεις εκεί που
         είναι τώρα": read with the battle paused, so the box holds still
@@ -575,7 +583,11 @@ class TestSelectionAndCamera(ControlFixture):
         self.assertEqual(self.byte("SEL_MOTHERSHIP"), 1)
         self.hold("1", frames=25)
         self.assertEqual(self.byte("SEL_MOTHERSHIP"), 0)
-        self.assertEqual(self.focus(), self.dest_of(1))
+        #  ...to where the squadron IS: the mean of its ships, which is the
+        #  station give or take the lattice's asymmetry, not the station.
+        self.assertEqual(self.focus(), self.middle_of(1))
+        for a, b in zip(self.focus(), self.dest_of(1)):
+            self.assertLess(abs(a - b), 400)
 
     def test_the_mothership_is_not_in_a_squadron(self):
         """It is the fleet's base, not part of the fleet."""
@@ -787,12 +799,40 @@ class TestOrders(ControlFixture):
         for _ in range(3):
             h.run_to_stable_point(self.c, self.sym)
             self.c.run_frames(1)
-        xs, ys, zs = zip(*(struct.unpack("<hhh", self.c.read_ram(base + s * ENT_SIZE, 6)) for s in ships))
-        want = ((min(xs) + max(xs)) >> 1, (min(ys) + max(ys)) >> 1, (min(zs) + max(zs)) >> 1)
+        want = self.middle_of(sel)
         focus = tuple(self.word("CAM_FOCUS_X", i * 2, signed=True) for i in range(3))
         station = struct.unpack("<hhh", self.c.read_ram(self.sym["SQUAD_DEST"] + (sel - 1) * 6, 6))
         self.assertEqual(focus, want, f"the focus is not the squadron's middle (station {station})")
         self.assertNotEqual(focus, station, "the focus stayed on the station")
+
+    def test_one_ship_away_at_a_patch_does_not_take_the_camera_with_it(self):
+        """"Έχασα όλο τον στόλο ... μόνο σε κάποιο zoom level έβλεπα κάτι."
+        With the middle of the BOX, one ship of sixteen at 20000 put the
+        focus at 8950 and the visible count at zero, measured. The mean
+        moves by a sixteenth of the straggler's distance and the fleet stays
+        on the screen."""
+        self.c.write_ram(self.sym["ORDER_PAUSED"], b"\x01")
+        base = self.sym["ENTITIES"]
+        sel = self.byte("SQUAD_SEL")
+        ships = [s for s in range(self.sym["ENT_PLAYER_MAX"])
+                 if self.c.read_ram(base + s * ENT_SIZE + ENT_FLAGS, 1)[0] & 1
+                 and self.c.read_ram(base + s * ENT_SIZE + ENT_SQUAD, 1)[0] == sel]
+        self.assertGreater(len(ships), 10)
+        h.run_to_stable_point(self.c, self.sym)
+        home = tuple(self.word("CAM_FOCUS_X", i * 2, signed=True) for i in range(3))
+        seen_home = self.byte("PHASE4_VISIBLE")
+        self.c.write_ram(base + ships[-1] * ENT_SIZE, struct.pack("<hhh", 20000, 0, 20000))
+        for _ in range(3):
+            h.run_to_stable_point(self.c, self.sym)
+            self.c.run_frames(1)
+        h.run_to_stable_point(self.c, self.sym)
+        focus = tuple(self.word("CAM_FOCUS_X", i * 2, signed=True) for i in range(3))
+        self.assertEqual(focus, self.middle_of(sel))
+        for axis in (0, 2):
+            self.assertLess(abs(focus[axis] - home[axis]), 20000 // len(ships) + 50,
+                            f"the straggler dragged the camera to {focus}")
+        self.assertGreaterEqual(self.byte("PHASE4_VISIBLE"), seen_home - 2,
+                                "the fleet left the screen because one ship was far away")
 
     def test_r_stations_the_squadron_on_the_mothership(self):
         self.hold("d", frames=30)

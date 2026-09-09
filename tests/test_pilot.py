@@ -285,12 +285,17 @@ class TestTheCameraRidesBehindIt(PilotFixture):
         self.hold(cpc.KEY_SPACE)                             # ...and SPACE is the pause again
         self.assertEqual(self.byte("ORDER_PAUSED"), 1)
         self.c.run_frames(20)
-        #  ...to the squadron: the middle of the box round its flying ships,
-        #  which the dead one is no longer in.
-        base = self.sym["ENTITIES"]
+        #  ...to the squadron: the MEAN of its flying ships, which the dead
+        #  one is no longer in. The Z80 divides the magnitude: truncation
+        #  towards zero.
         pts = [struct.unpack("<hhh", self.rec(s)[:6]) for s in range(self.PLAYER_MAX)
                if (self.field(s, ENT_FLAGS) & 5) == 1 and self.field(s, ENT_SQUAD) == self.byte("SQUAD_SEL")]
-        want = tuple((min(q[i] for q in pts) + max(q[i] for q in pts)) >> 1 for i in range(3))
+
+        def mean(vals):
+            total = sum(vals)
+            q = abs(total) // len(vals)
+            return -q if total < 0 else q
+        want = tuple(mean([q[i] for q in pts]) for i in range(3))
         self.assertEqual(self.focus(), want, "the camera did not go back to the squadron")
 
 

@@ -932,10 +932,12 @@ fleet_pad:
 fleet_scratch:
 pilot_scan:         defw 0              ; pilot_ram's walk over the hostile region
 pilot_scan_slot:    defb 0
-;  order_squad_centre's box: (min, max) a word each, x then y then z, in
-;  offset binary -- see the routine.
-ord_box:            defs 12
+;  order_squad_centre's sums: 24 bits an axis, x then y then z, the count,
+;  a cursor, and the sign of the sum being divided -- see the routine.
+ord_sum:            defs 9
 ord_seen:           defb 0
+ord_sum_ptr:        defw 0
+ord_neg:            defb 0
 ;  The scanner's frame (game/farmarks.asm): all written before they are read.
 scan_me:            defw 0
 scan_walk:          defw 0

@@ -568,13 +568,18 @@ class TestTheFleetComesHomeWhenTheShootingStops(CombatFixture):
         self.assertEqual(len(crew), self.SHIPS)
 
         self.fight_it_out()
-        #  Re-acquisition happens when a ship is next ready to shoot, so give
-        #  every weapon time to come off cooldown. A game frame is four of the
-        #  emulator frames run_frames counts.
-        self.c.run_frames((CBT_COOLDOWN + 4) * TICKS_PER_GAME_FRAME)
-
-        still_attacking = [s for s in crew
-                           if self.ent(s, ENT_ORDER)[0] == ENT_ORDER_ATTACK]
+        #  Re-acquisition happens when a ship is next ready to shoot, so every
+        #  weapon has to come off cooldown first -- and a game frame is NOT
+        #  four emulator frames in a fight, it is nearer ten, so a fixed wait
+        #  of (CBT_COOLDOWN + 4) * 4 was under one cooldown and passed on the
+        #  frame boundary until the frame got a little heavier. Poll, bounded:
+        #  the ship that fired the killing shot is the last to come round.
+        for _ in range(40):
+            still_attacking = [s for s in crew
+                               if self.ent(s, ENT_ORDER)[0] == ENT_ORDER_ATTACK]
+            if not still_attacking:
+                break
+            self.c.run_frames(10)
         self.assertEqual(still_attacking, [],
                          f"slots {still_attacking} are still under an attack "
                          f"order with nothing left alive to attack")
