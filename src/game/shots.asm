@@ -28,10 +28,25 @@
 ;  path of cbt_fire_if_able. Both run with the window at rest.
 ; ----------------------------------------------------------------------------
 
+;  THE FLOWN SHIP'S OWN SHOT IS A BOLT, AND IT FLIES -- "να φαίνεται η βολή
+;  μου που πηγαίνει προς τον εχθρό". Every other tracer lands the frame it
+;  is fired; the pilot's leaves the middle of the view (the ship itself is
+;  never drawn) and crosses to its target over SHOT_BOLT_STEPS frames, a
+;  quarter of the way a frame, two pixels long so it reads as a streak,
+;  aimed afresh each frame at where the target IS. One in flight at a time;
+;  the damage still lands when the gun fires, the picture follows.
+;  shot_note arms it instead of listing the shot, shot_bolt draws it from
+;  the top of shot_draw, and it goes through the same dot lists so the same
+;  erase takes it off.
+
 ;  Tracers a frame. Four is a busy frame; the fleet fires once in
 ;  CBT_COOLDOWN frames a ship, and what is dropped past four is dropped.
 SHOT_MAX            equ 4
-SHOT_DOTS           equ SHOT_MAX * 3
+;  ...and their dots, plus the bolt's two.
+SHOT_DOTS           equ SHOT_MAX * 3 + 2
+;  The bolt is drawn on steps 1..SHOT_BOLT_STEPS-1, at step/SHOT_BOLT_STEPS
+;  of the way; on the last it is gone.
+SHOT_BOLT_STEPS     equ 4
 ;  A dot in a buffer's list: the byte's address and the mask that was ORed in.
 SHOT_DOT_SIZE       equ 3
 SHOT_LIST_SIZE      equ 1 + SHOT_DOTS * SHOT_DOT_SIZE
@@ -75,6 +90,12 @@ shot_cache:
 ;  Uses: AF, DE, HL
 ; ----------------------------------------------------------------------------
 shot_note:
+    ld a,(cbt_index)
+    neg
+    add a,ENT_MAX
+    ld hl,pilot_slot
+    cp (hl)
+    jr z,@shot_note_bolt                ; the flown ship: a bolt, not a tracer
     ld a,(shot_count)
     cp SHOT_MAX
     ret nc                              ; a busy frame: the rest are not drawn
@@ -93,6 +114,12 @@ shot_note:
     inc hl
     ld a,(cbt_target)
     ld (hl),a
+    ret
+@shot_note_bolt:
+    ld a,1
+    ld (shot_bolt_step),a
+    ld a,(cbt_target)
+    ld (shot_bolt_victim),a
     ret
 
 
@@ -186,6 +213,7 @@ shot_where:
 ;  Uses: everything
 ; ----------------------------------------------------------------------------
 shot_draw:
+    call shot_bolt                      ; the flown ship's own shot, in flight
     ld a,(shot_count)
     or a
     ret z
@@ -204,16 +232,7 @@ shot_draw:
 
     ld a,(shot_shooter)
     call shot_where
-    jr c,@shot_from
-    ;  Not projected -- unless it is the ship the player is INSIDE, which is
-    ;  never drawn: its shots leave from the middle of the view.
-    ld a,(shot_shooter)
-    ld hl,pilot_slot
-    cp (hl)
-    jp nz,@shot_done_one                ; one of them is off the screen: no tracer
-    ld hl,SCR_CENTRE_X
-    ld c,PROJ_CENTRE_Y
-@shot_from:
+    jp nc,@shot_done_one                ; one of them is off the screen: no tracer
     ld (shot_ax),hl
     ld l,c
     ld h,0
@@ -221,9 +240,104 @@ shot_draw:
     ld a,(shot_victim)
     call shot_where
     jp nc,@shot_done_one
+    call shot_quarter
 
-    ;  A quarter of the way from the shooter to the target, both axes,
-    ;  signed. sy is 0..199 either end, so the difference wants nine bits.
+    ;  The shooter's ink: ENT_F_ENEMY is bit 1, so `and 2 : or 1` is 3 for
+    ;  theirs and 1 for ours -- section 2's inks, read straight off the flag.
+    ld a,(shot_shooter)
+    call ent_addr
+    ld de,ENT_FLAGS
+    add hl,de
+    ld a,(hl)
+    and ENT_F_ENEMY
+    or PEN_WHITE
+    add a,a
+    add a,a                             ; four masks a pen in gfx_pen_mask
+    ld (shot_pen4),a
+
+    ld b,3
+@shot_dot:
+    push bc
+    call shot_advance
+    call shot_plot
+    pop bc
+    djnz @shot_dot
+
+@shot_done_one:
+    ld hl,shot_left
+    dec (hl)
+    jp nz,@shot_next
+    xor a
+    ld (shot_count),a
+    ret
+
+
+; ----------------------------------------------------------------------------
+;  shot_bolt -- the flown ship's shot, one step further along its flight
+;  Uses: everything
+;
+;  Drawn from the middle of the view, which is where the flown ship's gun
+;  is, to where its target was projected THIS frame -- so a target that
+;  moves is still hit, on the screen as in the hull. Two dots, the second
+;  half a step on. Dropped the frame nobody is flying or the target is off
+;  the screen; spent by itself on the last step.
+; ----------------------------------------------------------------------------
+shot_bolt:
+    ld a,(shot_bolt_step)
+    or a
+    ret z
+    ld b,a                              ; B = this frame's step, 1..
+    inc a
+    cp SHOT_BOLT_STEPS
+    jr c,@sb_more
+    xor a                               ; the last: gone after this one
+@sb_more:
+    ld (shot_bolt_step),a
+    ld a,(pilot_slot)
+    cp ENT_MAX
+    jr nc,@sb_off
+    ld a,(shot_bolt_victim)
+    call shot_where
+    jr nc,@sb_off                       ; HL = sx, C = sy
+    ld de,SCR_CENTRE_X
+    ld (shot_ax),de
+    ld de,PROJ_CENTRE_Y
+    ld (shot_ay),de
+    call shot_quarter
+    ld a,PEN_WHITE * 4
+    ld (shot_pen4),a
+@sb_step:
+    push bc
+    call shot_advance
+    pop bc
+    djnz @sb_step
+    call shot_plot
+    ;  ...and the second pixel, half a step on.
+    ld hl,(shot_dx)
+    sra h
+    rr l
+    ld (shot_dx),hl
+    ld hl,(shot_dy)
+    sra h
+    rr l
+    ld (shot_dy),hl
+    call shot_advance
+    jp shot_plot
+@sb_off:
+    xor a
+    ld (shot_bolt_step),a
+    ret
+
+
+; ----------------------------------------------------------------------------
+;  shot_quarter -- a quarter of the way from (shot_ax, shot_ay) to HL, C
+;  In : HL = the target's sx, C = its sy; (shot_ax), (shot_ay) = from
+;  Out: (shot_dx), (shot_dy) = the step, signed
+;  Uses: AF, DE, HL
+;
+;  sy is 0..199 either end, so the difference wants nine bits.
+; ----------------------------------------------------------------------------
+shot_quarter:
     ld de,(shot_ax)
     or a
     sbc hl,de
@@ -244,23 +358,14 @@ shot_draw:
     sra d
     rr e
     ld (shot_dy),de
+    ret
 
-    ;  The shooter's ink: ENT_F_ENEMY is bit 1, so `and 2 : or 1` is 3 for
-    ;  theirs and 1 for ours -- section 2's inks, read straight off the flag.
-    ld a,(shot_shooter)
-    call ent_addr
-    ld de,ENT_FLAGS
-    add hl,de
-    ld a,(hl)
-    and ENT_F_ENEMY
-    or PEN_WHITE
-    add a,a
-    add a,a                             ; four masks a pen in gfx_pen_mask
-    ld (shot_pen4),a
 
-    ld b,3
-@shot_dot:
-    push bc
+; ----------------------------------------------------------------------------
+;  shot_advance -- (shot_ax, shot_ay) += (shot_dx, shot_dy)
+;  Uses: DE, HL
+; ----------------------------------------------------------------------------
+shot_advance:
     ld hl,(shot_ax)
     ld de,(shot_dx)
     add hl,de
@@ -269,16 +374,28 @@ shot_draw:
     ld de,(shot_dy)
     add hl,de
     ld (shot_ay),hl
-    ;  Inside the playfield, or not at all: a ship's centre may sit in the
-    ;  HUD's strip -- the sprite is clipped there, this has to clip itself.
+    ret
+
+
+; ----------------------------------------------------------------------------
+;  shot_plot -- one dot at (shot_ax, shot_ay) in (shot_pen4), remembered
+;  Uses: everything
+;
+;  Inside the playfield, or not at all: a ship's centre may sit in the HUD's
+;  strip -- the sprite is clipped there, this has to clip itself. If the
+;  buffer's list is full the dot stays on the screen until something else
+;  passes over it.
+; ----------------------------------------------------------------------------
+shot_plot:
+    ld hl,(shot_ay)
     ld a,h
     or a
-    jr nz,@shot_skip
+    ret nz
     ld a,l
     cp HUD_TOP
-    jr nc,@shot_skip
+    ret nc
     cp CTX_BAR_H
-    jr c,@shot_skip
+    ret c
     ld hl,(shot_ax)
     call gfx_pixel_setup                ; DE = the byte, C = the pixel
     ld a,(shot_pen4)
@@ -295,7 +412,7 @@ shot_draw:
     call shot_lists
     ld a,(hl)
     cp SHOT_DOTS
-    jr nc,@shot_skip                    ; the list is full: it stays on screen
+    ret nc                              ; the list is full: it stays on screen
     ld b,a
     inc (hl)
     inc hl
@@ -311,14 +428,4 @@ shot_draw:
     ld (hl),d
     inc hl
     ld (hl),c
-@shot_skip:
-    pop bc
-    djnz @shot_dot
-
-@shot_done_one:
-    ld hl,shot_left
-    dec (hl)
-    jp nz,@shot_next
-    xor a
-    ld (shot_count),a
     ret

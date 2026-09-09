@@ -278,6 +278,13 @@ class TestTheGenerator(WaveFixture):
         by the next key it presses."""
         h.dismiss_briefing(self.c)
         self.c.write_ram(self.sym["ORDER_PAUSED"], b"\x01")    # see below
+        #  ...AND LET THE FRAME IN FLIGHT FINISH before pinning. The pause
+        #  byte lands at an emulator-frame boundary, which is somewhere
+        #  inside a game frame; if that frame had already passed the paused
+        #  check, its cbt_update still runs -- and draws the prey coin AFTER
+        #  the pin. One xorshift step, exactly, and it read as a re-seed the
+        #  day the bolt moved the boundary.
+        h.run_to_stable_point(self.c, self.sym)
         h.pin_rng(self.c, 0x5A5A)
         for key in ("z", "x", "p", "f"):
             self.hold(key)

@@ -161,6 +161,15 @@ class TestTheDots(ShotFixture):
         #  the dots were; the lists must empty and the dots' own plane clear.
         self.poke(self.ENEMY, ENT_FLAGS, b"\x00")
         self.poke(self.GUN, 0, struct.pack("<hhh", -20000, 0, -20000))
+        #  ...AND PAN THE CAMERA OFF THE GUN. It is moth_slot, so the view
+        #  follows it to the middle of the screen wherever it goes -- which is
+        #  exactly where the dots were, because the enemy sat on the view
+        #  axis behind it. Whether the pixel under the gun's own centre is lit
+        #  is a fact about the sprite map, and it changed the day the
+        #  interceptor was repainted: the test read a ship and called it a
+        #  dot that stayed. Four thousand units of pan puts the gun off to
+        #  one side and leaves black where the dots were.
+        self.c.write_ram(self.sym["CAM_PAN"], struct.pack("<hhh", 4000, 0, 0))
         self.c.run_frames(60)
         self.assertEqual(self.dot_list("SHOT_DOTS_A"), [])
         self.assertEqual(self.dot_list("SHOT_DOTS_B"), [])

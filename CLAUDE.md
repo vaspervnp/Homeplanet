@@ -6555,6 +6555,132 @@ sprites, in a spread fight they flash between the pairs. One pixel is what a
 Mode 1 tracer can be; if it wants to be more, the second lever is a 2×1 dot
 at the same cost per list entry.
 
+#### The reticle goes red, and the pilot's shot flies
+
+*"Όταν είμαι σε V και έχω στο στόχαστρο εχθρό να γίνεται κόκκινο το
+στόχαστρο και να φαίνεται η βολή μου που πηγαίνει προς τον εχθρό."*
+
+**The lock is a by-product of the box test that already runs.** `mark_tier_for`
+decides per entity whether it projects inside the reticle's box, so on the
+"inside" path it reads the entity's flags and, for a FLYING hostile (ENEMY
+and not DISABLED, so a wreck adrift in the box is not a lock), sets
+`pilot_locked`; `pilot_reticle` reads the byte once, clears it, and draws the
+four ticks in `PEN_RED` or `PEN_WHITE` from `pilot_ret_pen`. Nothing else
+asks the question, and the box is the one in `PILOT_BOX_HW/HH` — the same
+box that decides what is a sprite. Range is not consulted: the gun fires at
+the nearest hostile in `CBT_RANGE` whatever the reticle says, and the red is
+aiming feedback, not a promise.
+
+**The flown ship's shot is a BOLT.** Every other tracer is three dots for one
+frame; `shot_note` sees the shooter is `pilot_slot` and, instead of listing
+it, arms `shot_bolt_step` with the victim beside it. `shot_bolt`, at the top
+of `shot_draw`, then draws two pixels a frame — at `step/SHOT_BOLT_STEPS` of
+the way from the middle of the view to where the victim was projected THIS
+frame, and half a step on — for steps 1..3 of 4, in the fleet's ink,
+through the same per-buffer dot lists, so `shot_erase` takes it off exactly
+as it takes a tracer off. Re-aimed each frame, so a target that moves is
+still hit on the screen as it was in the hull; dropped the frame nobody is
+flying or the victim is off the screen; one in flight at a time, and a
+second shot inside the flight restarts it. `SHOT_DOTS` grew by the bolt's
+two so a busy frame's tracers cannot push it out of the list, and
+`mis_init` zeroes the step with the other three counts.
+
+`shot_draw`'s dot was lifted into `shot_plot`, its quarter-step into
+`shot_quarter` and the walk into `shot_advance`, so the bolt is those three
+and thirty lines. The dead branch that drew the pilot's tracer from the
+centre went with it. About 140 bytes of bank 4; the window is at **15**.
+
+> **Measured in the emulator, frame by frame:** the shot lands on frame N
+> and the bolt is on the buffers of N, N+1 and N+2 at 163, 166 and 172 of
+> the way to an enemy at 175, then gone. `tests/test_marks.TestTheBolt` is
+> that trace as assertions — two dots, the fleet's ink, between the reticle
+> and the enemy, further along each frame — and its fixture had to warm the
+> gun: `place()` leaves `ENT_TIMER` at 255, which is a cooldown of 255
+> frames, and the first version watched a gun that never fired. SPACE is
+> tapped rather than held there, because the trigger is an edge and the
+> pause parks the timer at one, so the frame the game resumes spends the
+> edge before the gun is ready.
+
+> **AND A SHOT TEST READ A SHIP AND CALLED IT A DOT.**
+> `test_the_dots_are_taken_off_again_when_the_buffer_is_next_drawn` failed
+> on this build and the bolt had nothing to do with it: its gun is
+> `moth_slot`, so the camera keeps it in the middle of the screen, its
+> enemy sits on the view axis behind it so every dot lands on the gun's
+> own centre pixel -- and whether THAT pixel is lit is a fact about
+> `art/spritemap.png`, which the owner had repainted in the working tree.
+> Against the committed map the test passed; against the repainted one the
+> interceptor's centre is white. Proved by stashing the PNG alone and
+> rebuilding. The test pans the camera four thousand units off the gun
+> now, so the place the dots were is black whatever the sprite looks like.
+> The build reads the sprites off that PNG when it exists, so an
+> uncommitted repaint is a different game for every test in the suite.
+
+> **AND ONE MORE FRAME-BOUNDARY TEST, in the RNG's own file.**
+> `test_it_is_stirred_once_and_never_again` wrote the pause byte, pinned
+> `SYS_RNG`, held four keys and expected the seed untouched -- and read the
+> seed advanced by exactly ONE xorshift step (checked in Python: 5729 is one
+> step from `#5A5A`). The pause lands at an emulator-frame boundary, which
+> is somewhere inside a game frame; the frame in flight had passed the
+> `order_paused` check and its `cbt_update` drew the prey coin after the
+> pin. It parks at the stable point between the pause and the pin now.
+> Nothing about the generator changed; the bolt's few instructions a frame
+> moved which emulator frame the pause landed in.
+
+#### The scanner is Elite's oval, twice the size, with the height on a stalk
+
+*"στο V το κάτω δεξιά ραντάρ να είναι μεγαλύτερο (x2), οβάλ όπως στο elite
+και να βλέπω και την διαφορά ύψους στους εχθρούς."*
+
+`pilot_scanner` draws an **oval** 80 × 60 (`SCAN_W_BYTES` 20, `SCAN_H` 60,
+half axes `SCAN_RX` 38 and `SCAN_RY` 19) — the plane the ship flies in, seen
+flat — out of `scan_oval`, a table of the half height at each pixel of half
+width, `round(19·sqrt(1 − (i/38)²))`. **A column at a time, as the run of
+rows between the last column's height and its own**, top and bottom, at
+`cx±i`: that is what leaves the steep sides without gaps, and the test asks
+for ink in every row of the right-hand half. 156 `gfx_vline` calls a frame,
+about a twentieth of a cockpit frame by hand count.
+
+A hostile's mark is `(right, ahead)` as before but **`ahead` is halved** for
+the flattening and **clamped to the oval's height at its column** — read
+straight out of the same table — so a mark is never in the rectangle's corner
+outside the plane. **The height is a stalk**: the Y delta's high byte, shifted
+like the others and clamped to `SCAN_HALF_V` (10), drawn as a run from the
+plane point up or down to the tip, with a pixel either side of the tip as a
+bar. So level is a dash, above is a `T`, below an inverted one, which is
+Elite's reading. +Y is UP — `pilot_frame`'s UP adds to `ENT_Y` and
+`proj_point`'s sy is the centre minus it — and the test places a hostile
+5000 units up and asks for the stalk to rise.
+
+**`SCAN_SHIFT` is 1 now, 512 units a pixel across and 1024 up.** At the old
+1024 the doubled oval showed the same forty thousand units twice as coarse
+as it needed to: a fight is inside 2560 units and everything in it sat
+within three pixels of the ship. The oval still spans forty thousand across;
+a picket ten thousand ahead is half way up it and gun range is five pixels.
+
+**Where the 214 bytes came from, in two levers:**
+
+- **The save block's pad is scratch.** `fleet_block` is padded to two whole
+  sectors and 288 of those bytes have never held anything, and they are in
+  the window whether used or not. Everything that is *written before it is
+  read inside one call* — the scanner's working set, `order_squad_centre`'s
+  box, the homeplanet's per-pass set, the jump wipe's walk and band,
+  `txt_big`'s glyph, `pilot_ram`'s walk — is declared inside the pad now,
+  between `fleet_unlocks` and a `defs` that fills the rest, with an assert
+  that it fits. A save copies whatever it holds and a load overwrites it,
+  both harmlessly, because nothing here survives a frame. **Nothing that
+  does — `pilot_pitch`, `pilot_fought`, the shot lists — may go there.**
+  Sixty-one bytes of the window.
+- **The tune's streams and periods went to bank 6**: `gen/mus_menu.asm` is
+  included in the `BANK 3` section now, 233 bytes, and `mus_peek` copies an
+  entry (`MUS_ENTRY`, 3 bytes) into `bank7_line` through `bank6_copy` when a
+  voice advances, `mus_write_block` the period the same way. Legal because
+  `mus_update` runs once a game frame with the window at rest, and cheap
+  because a note lasts seconds. The stream pointers hold bank-6 addresses;
+  nothing else changed, and `test_sound`'s and `test_title`'s music tests
+  read the pointers, not the notes.
+
+Bank 4's window is at **29**.
+
 ### The wave marker: where INCOMING is coming from
 
 `future.md` item 2, and the item was wrong about the game: it wanted a mark

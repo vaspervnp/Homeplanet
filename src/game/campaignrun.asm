@@ -63,6 +63,7 @@ mis_init:
     ld (shot_count),a                   ; ...and no tracer is waiting or on a buffer
     ld (shot_dots_a),a                  ;    (the lists live after bank4_end, so
     ld (shot_dots_b),a                  ;    they hold whatever powered up)
+    ld (shot_bolt_step),a               ; ...and no bolt of the pilot's is in flight
     ld (wavem_fixed),a                  ; ...and the wave marker follows the bearing
     ld (mis_saved),a                    ; nothing banked yet
     ld (campaign_unlocks),a             ; ...and nothing reverse-engineered

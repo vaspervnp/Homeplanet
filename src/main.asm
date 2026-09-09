@@ -528,7 +528,6 @@ bank4_start:
 ;  register at all -- see the head of the file -- so nothing about it has to
 ;  run in the interrupt, which is the other half of why it may live here.
 ;  (sys/music.asm -- the player -- is in BANK 4 now; its state stays in sound.asm)
-    include "gen/mus_menu.asm"
     include "game/wavesdraw.asm"
 ;  The music player. Nothing in it runs from the interrupt -- mus_update is
 ;  called from demo_update and title_draw, both with the window at rest --
@@ -702,60 +701,10 @@ pilot_ent:          defw 0
 ;  The tracers (game/shots.asm): this frame's shots, where every slot was
 ;  projected, and per buffer the dots that are on it. The three counts are
 ;  zeroed by mis_init; nothing else needs a starting value.
-pilot_scan:         defw 0              ; pilot_ram's walk over the hostile region
-pilot_scan_slot:    defb 0
 pilot_pitch:        defb 0              ; the orbit's pitch, for when the ship is handed back
 pilot_fought:       defb 0              ; something hostile flew while this ship was flown
-;  order_squad_centre's box: min x y z, then max x y z, six bytes on.
-ord_min_x:          defw 0
-ord_min_y:          defw 0
-ord_min_z:          defw 0
-ord_max_x:          defw 0
-ord_max_y:          defw 0
-ord_max_z:          defw 0
-ord_seen:           defb 0
-ord_focus_ptr:      defw 0
-;  The scanner's frame (game/farmarks.asm): all written before they are read.
-scan_me:            defw 0
-scan_walk:          defw 0
-scan_left:          defb 0
-scan_sin:           defb 0
-scan_cos:           defb 0
-scan_dx:            defb 0
-scan_dz:            defb 0
-scan_t:             defb 0
-scan_ahead:         defb 0
-;  Scratch that used to sit inside the image, for want of anywhere else: the
-;  homeplanet's per-pass working set, the jump wipe's walk and per-ship band,
-;  and txt_big's glyph. All written before they are read; the file was over
-;  its ceiling by a dozen bytes the day the pilot learned to hand the ship
-;  back, and these were the dozen. Lever 2 in the memory map's list.
-planet_at_x:        defw 0
-planet_at_y:        defw 0
-planet_next_cx:     defw 0
-planet_next_cy:     defw 0
-planet_row_ptr:     defw 0
-planet_erasing:     defb 0
-planet_hw:          defb 0
-planet_prev:        defb 0
-planet_cols:        defb 0
-planet_from:        defb 0
-jfx_i:              defb 0              ; the walk over phase4_vis
-jfx_n:              defb 0
-jfx_bx0:            defb 0              ; this ship's band: bar start (signed), reach
-jfx_reach:          defb 0
-jfx_by:             defb 0              ; the rows the BAR covers...
-jfx_bh:             defb 0
-jfx_cy:             defb 0              ; ...and the rows the SPRITE covers
-jfx_ch:             defb 0
-jfx_fy:             defb 0              ; which of the two the next fill is using
-jfx_fh:             defb 0
-jfx_sy:             defb 0
-jfx_spr_h:          defb 0
-jfx_half_h:         defb 0
-txt_big_glyph:      defw 0
-txt_big_rows:       defb 0
-txt_big_reps:       defb 0
+pilot_locked:       defb 0              ; a flying hostile projected inside the reticle this frame
+pilot_ret_pen:      defb 0              ; ...and the ink the ticks are drawn in because of it
 shot_count:         defb 0
 shot_list:          defs SHOT_MAX * 2
 shot_pos:           defs ENT_MAX * SHOT_POS_SIZE
@@ -770,6 +719,8 @@ shot_ay:            defw 0
 shot_dx:            defw 0
 shot_dy:            defw 0
 shot_pen4:          defb 0
+shot_bolt_step:     defb 0              ; the flown ship's own shot: which step of its flight, 0 = none
+shot_bolt_victim:   defb 0              ; ...and the slot it was fired at
 ;  The wave marker's arrival point and the Mothership marker it borrows
 ;  moth_border around (game/wavesdraw.asm).
 wave_point:         defs 6
@@ -946,8 +897,82 @@ fleet_buffer:
 ; ----------------------------------------------------------------------------
 fleet_unlocks:
     defs 2, 0
-    defs FLEET_BLOCK_SIZE - FLEET_HDR_SIZE - ENT_PLAYER_MAX * FLEET_REC_SIZE - 2, 0
+; ----------------------------------------------------------------------------
+;  THE REST OF THE PAD IS SCRATCH. 288 bytes of the two sectors hold nothing
+;  and are carried to the disc and back on every save, so per-pass working
+;  storage -- everything below is WRITTEN BEFORE IT IS READ inside one call --
+;  lives here and costs the window nothing: a save copies whatever it holds,
+;  harmlessly, and a load overwrites it with whatever the disc had, which
+;  the next pass overwrites again before reading. Nothing that has to
+;  survive from one frame to the next may go here; pilot_pitch and the like
+;  stay above. The scanner's, the squadron centring's, the homeplanet's, the
+;  jump wipe's, txt_big's and pilot_ram's.
+; ----------------------------------------------------------------------------
+fleet_pad:
+pilot_scan:         defw 0              ; pilot_ram's walk over the hostile region
+pilot_scan_slot:    defb 0
+;  order_squad_centre's box: min x y z, then max x y z, six bytes on.
+ord_min_x:          defw 0
+ord_min_y:          defw 0
+ord_min_z:          defw 0
+ord_max_x:          defw 0
+ord_max_y:          defw 0
+ord_max_z:          defw 0
+ord_seen:           defb 0
+ord_focus_ptr:      defw 0
+;  The scanner's frame (game/farmarks.asm): all written before they are read.
+scan_me:            defw 0
+scan_walk:          defw 0
+scan_left:          defb 0
+scan_sin:           defb 0
+scan_cos:           defb 0
+scan_dx:            defb 0
+scan_dz:            defb 0
+scan_t:             defb 0
+scan_ahead:         defb 0
+;  Scratch that used to sit inside the image, for want of anywhere else: the
+;  homeplanet's per-pass working set, the jump wipe's walk and per-ship band,
+;  and txt_big's glyph. All written before they are read; the file was over
+;  its ceiling by a dozen bytes the day the pilot learned to hand the ship
+;  back, and these were the dozen. Lever 2 in the memory map's list.
+planet_at_x:        defw 0
+planet_at_y:        defw 0
+planet_next_cx:     defw 0
+planet_next_cy:     defw 0
+planet_row_ptr:     defw 0
+planet_erasing:     defb 0
+planet_hw:          defb 0
+planet_prev:        defb 0
+planet_cols:        defb 0
+planet_from:        defb 0
+jfx_i:              defb 0              ; the walk over phase4_vis
+jfx_n:              defb 0
+jfx_bx0:            defb 0              ; this ship's band: bar start (signed), reach
+jfx_reach:          defb 0
+jfx_by:             defb 0              ; the rows the BAR covers...
+jfx_bh:             defb 0
+jfx_cy:             defb 0              ; ...and the rows the SPRITE covers
+jfx_ch:             defb 0
+jfx_fy:             defb 0              ; which of the two the next fill is using
+jfx_fh:             defb 0
+jfx_sy:             defb 0
+jfx_spr_h:          defb 0
+jfx_half_h:         defb 0
+txt_big_glyph:      defw 0
+txt_big_rows:       defb 0
+txt_big_reps:       defb 0
+scan_i:             defb 0              ; the oval's column, 0..SCAN_RX
+scan_prev:          defb 0              ; ...the last column's half height
+scan_hy:            defb 0              ; ...and this one's
+scan_len:           defb 0              ; rows between the two
+scan_right:         defb 0              ; a hostile's mark: across, and
+scan_dy:            defb 0              ; ...its height off the plane
+scan_x:             defw 0              ; ...its column on the screen
+scan_tip:           defw 0              ; ...and its stalk: top row, rows
+fleet_pad_end:
+    defs FLEET_BLOCK_SIZE - (fleet_pad_end - fleet_block), 0
 bank4_limit:
+    assert fleet_pad_end - fleet_block <= FLEET_BLOCK_SIZE, "the scratch overflows the save block's pad"
 
     assert fleet_buffer == fleet_block + FLEET_HDR_SIZE, "the fleet must follow its header"
     assert fleet_unlocks == fleet_buffer + ENT_PLAYER_MAX * FLEET_REC_SIZE, "the unlocks must follow the fleet"
@@ -1132,6 +1157,7 @@ bank6_start:
 ;  bank6_copy. Two hundred and thirty-five bytes of DISC.BIN for five.
     include "gen/zoom.asm"
     include "game/bank6data.asm"        ; tut_table and order_home, read once through bank6_copy
+    include "gen/mus_menu.asm"          ; the tune's three streams and its periods: mus_peek copies them out
 bank6_data_end:
     SPR_SCALE_COPY 6
 bank6_end:

@@ -268,7 +268,8 @@ takes as much damage as your ship had left, and your ship is gone. A fresh
 interceptor into a frigate is a real trade; a shot-up one is a poor
 missile. Wrecks cannot be rammed.
 
-A **reticle** marks the middle of the view. The three nearest ships are
+A **reticle** marks the middle of the view; it turns **red** while a flying
+enemy is inside it, and white again when there is none. The three nearest ships are
 drawn as ships, and the nearest of those larger than anywhere else in the
 game — twice the size inside about four thousand units, three times inside
 three, four times inside two; everything else is a mark like the sensor view's, a dot for a fighter
@@ -276,12 +277,19 @@ and a cross for anything bigger, which is what keeps the cockpit quick in a
 fight. Nothing behind your nose
 is drawn, and nothing closer than about five thousand units ahead of it —
 the cockpit sees the middle distance. The **scanner** at the bottom right
-is for the rest: every enemy that is flying, placed relative to your
-heading — up the box is ahead of you, right is right, a thousand units to
-the pixel — and the white dot in the middle is you. A red dot touching it
-is an enemy in gun range.
+is for the rest: an oval, which is the plane you fly in seen flat, with
+you as the white dot in its middle and every flying enemy a red mark
+placed relative to your heading — up the oval is ahead of you, right is
+right, five hundred units to the pixel across and a thousand up. A mark
+level with you is a dash on the plane; one above or below you stands on a
+**stalk** rising or falling from its point on the plane, the bar at the
+tip being where it is — as in Elite. A mark touching your dot is an enemy
+in gun range.
 
-Your ship's own shots leave from the middle of the view. Its death, a jump,
+Your ship's own shots leave from the middle of the view and **fly**: a
+short white streak crosses from the reticle to the enemy over a few
+frames, following it if it moves. The damage lands when the gun fires; the
+streak is what it looked like. Its death, a jump,
 `V` again, or **the end of the fight** puts the camera back on the squadron:
 once something hostile has been flying while you fly and nothing is any
 more, the ship rejoins its squadron by itself. On a board with nothing to

@@ -36,6 +36,8 @@
 
 MUS_TIMER           equ 200             ; refreshed every frame; must be < 255
 MUS_END             equ #FF
+;  A stream entry: note, volume, duration. Read through mus_peek, out of bank 6.
+MUS_ENTRY           equ 3
 MUS_VOICES          equ 3
 
 
@@ -319,8 +321,8 @@ mus_one:
     ld hl,(mus_ptr_at)
     ld e,(hl)
     inc hl
-    ld d,(hl)                           ; DE = the stream position
-    ld a,(de)
+    ld d,(hl)                           ; DE = the stream position, IN BANK 6
+    call mus_peek                       ; the entry into bank7_line, A = its note
     cp MUS_END
     jr nz,@mus_take
 
@@ -330,16 +332,16 @@ mus_one:
     ld e,(hl)
     inc hl
     ld d,(hl)
+    call mus_peek
 
 @mus_take:
-    ld a,(de)
     ld (mus_note),a
-    inc de
-    ld a,(de)
+    ld a,(bank7_line + 1)
     ld (mus_vol),a
-    inc de
-    ld a,(de)
+    ld a,(bank7_line + 2)
     ld (mus_dur),a
+    inc de
+    inc de
     inc de
 
     ld hl,(mus_ptr_at)
@@ -353,6 +355,32 @@ mus_one:
 
     call mus_write_block
     jr @mus_step
+
+
+; ----------------------------------------------------------------------------
+;  mus_peek -- the MUS_ENTRY bytes at DE, which is in BANK 6, into bank7_line
+;  In : DE = the stream position
+;  Out: A = the entry's first byte (the note), DE unchanged
+;  Uses: AF, BC, HL
+;
+;  THE STREAMS ARE IN BANK 6 and the periods with them: gen/mus_menu.asm is
+;  assembled there, 233 bytes that bank 4's window could not spare the day
+;  the scanner became an oval. The player runs once a game frame with the
+;  window at rest, so a copy through bank6_copy -- which pages bank 6 in
+;  from the low 16K and bank 4 back -- is legal here, and a note lasts
+;  seconds, so it is a few hundred T-states every few seconds. The buffer is
+;  the low 16K's bank7_line, because the destination must not be in the
+;  window (see bank7_copy).
+; ----------------------------------------------------------------------------
+mus_peek:
+    push de
+    ex de,hl
+    ld de,bank7_line
+    ld bc,MUS_ENTRY
+    call bank6_copy
+    pop de
+    ld a,(bank7_line)
+    ret
 
 
 ; ----------------------------------------------------------------------------
@@ -434,11 +462,12 @@ mus_write_block:
     ld e,a
     ld d,0
     push hl
-    ld hl,mus_menu_periods
+    ld hl,mus_menu_periods              ; in bank 6, with the streams
     add hl,de
-    ld e,(hl)
-    inc hl
-    ld d,(hl)                           ; DE = the twelve-bit period
+    ld de,bank7_line
+    ld bc,2
+    call bank6_copy
+    ld de,(bank7_line)                  ; DE = the twelve-bit period
     pop hl
 
     ld (hl),MUS_TIMER                   ; +0 timer
