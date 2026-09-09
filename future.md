@@ -176,6 +176,54 @@ threshold on the piloted ship's frame, then two hull subtractions.
 
 ---
 
+## 8. Match the target's speed and heading while it is in the reticle
+
+*"στο V, όταν έχω εχθρό στο στόχαστρο κάνε match την ταχύτητα και την
+κατεύθυνσή του αυτόματα, ώστε να μην τον προσπερνάω. Μόλις βγει από το
+στόχαστρο ή σκοτωθεί, συνέχισε όπως πριν."* Noted 2026-09-09, not built.
+
+**The problem it answers.** A flown ship flies harder than the AI — 200 a
+frame against `PHASE4_STEP`'s 150 — and always forward, so a pilot who gets
+a hostile into the reticle overtakes it within a few frames and has to turn
+round to find it again. The reticle going red says "now"; nothing lets the
+pilot hold that.
+
+**Design.** While `pilot_locked` is set — a flying hostile projected inside
+the box this frame, the same byte the red reticle reads — `pilot_frame`
+takes the LOCKED ship's yaw as the flown ship's own (or turns towards it at
+`PILOT_TURN` a frame, which reads as the ship settling onto its tail rather
+than snapping) and flies at that ship's speed rather than `PILOT_STEP_HALF`
+doubled: a hostile closing at `PHASE4_STEP` is followed at `PHASE4_STEP`, a
+wave ship holding on the Mothership at zero. The arrow keys still steer;
+matching is what happens when the pilot does nothing. The frame the lock
+goes — the hostile leaves the box, dies, or is crippled — the ship is back to
+its own heading and full speed with nothing to undo, because nothing was
+stored: the lock is recomputed every frame by `mark_tier_for` already.
+
+**Which ship is "the" target.** `pilot_locked` says one is in the box, not
+which. `mark_tier_for` should record the slot as well (`pilot_lock_slot`),
+and take the nearest if several are — `proj_z_raw` is at hand there. That
+is also what the gun aims at only by coincidence (`cbt_retarget_one` picks
+the nearest hostile at any bearing), so the gun should prefer the locked
+slot too while one exists: the ship you are matching is the ship you are
+shooting.
+
+**What a hostile's speed IS.** Nothing stores it — `ENT_SPEED` is read by
+nothing in the game. `cbt_move_enemies` steps a closing hostile by
+`PHASE4_STEP` along its target and a holding one not at all, so "its speed"
+is either 150 or 0, and the simplest honest version is: locked, the flown
+ship steps `PHASE4_STEP` along the target's yaw if the target moved this
+frame and holds otherwise. Whether it moved is its position against last
+frame's — six bytes of scratch in the save block's pad.
+
+**Cost.** ~60 bytes of bank 4, which has 29: the next thing to move out is
+another copied table to bank 6 (1,290 free). Tests by slot: fly at a hostile
+under a held nothing and read the distance between them frame by frame — it
+must stop shrinking while the lock holds and start again the frame the
+hostile is taken out of the box.
+
+---
+
 ## The order to build in
 
 1, then 4 — the verb, then the picture of it. Two and five are afternoons.
