@@ -1190,31 +1190,17 @@ phase4_sort:
     ;  entries below n, so the sort is merely slower -- every index is
     ;  checked against n, and one past it means the list is not last frame's
     ;  at all.
+    ;  ...AND ONLY IF IT IS A PERMUTATION. On a machine whose RAM did not
+    ;  power up as zeros the count byte can match by chance and the list be
+    ;  anything -- sixteen entries of index 0 passed the "below n" check and
+    ;  drew ONE SHIP until a zoom changed the count. phase4_refresh_order
+    ;  (bank 4) checks every index against a seen-table as it refreshes.
     ld hl,phase4_sorted_n
     cp (hl)
     ld (hl),a
     jr nz,@p4_fill_fresh
-    ld b,a
-    ld c,a
-    ld hl,phase4_order
-@p4_refresh:
-    ld a,(hl)
-    cp c
-    jr nc,@p4_fill_fresh                ; not a visible index: start over
-    push hl
-    push bc
-    call phase4_vis_addr                ; HL = &phase4_vis[A]; uses DE too
-    inc hl
-    inc hl
-    inc hl                              ; -> its depth
-    ld a,(hl)
-    pop bc
-    pop hl
-    inc hl
-    ld (hl),a                           ; the depth beside the index, fresh
-    inc hl
-    djnz @p4_refresh
-    jr @p4_filled
+    call phase4_refresh_order           ; bank 4: CF set if the list cannot be trusted
+    jr nc,@p4_filled
 
 @p4_fill_fresh:
     ;  Every entry starts where it is, carrying its own depth.

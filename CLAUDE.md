@@ -6801,6 +6801,23 @@ Three of those were code and are done; the fourth was declined.
   the byte, after `bank4_end` and NOT in the pad, because it has to survive
   a frame. Thirty-five bytes of the low 16K, which now ends at `#25F0`,
   **sixteen bytes before the page**.
+  > **AND IT DREW ONE SHIP ON THE OWNER'S MACHINE.** *"όταν ξεκινάει το
+  > παιχνίδι εμφανίζει ένα σκάφος. Αν ζουμάρω και ξεζουμάρω εμφανίζονται
+  > κανονικά όλα."* `phase4_sorted_n` is after `bank4_end` and
+  > `phase4_order` above `code_end`: neither is in the file, and on a
+  > machine whose RAM does not power up as zeros the count byte matched the
+  > fleet by chance while the list was rubbish that passed "every index
+  > below n" -- sixteen entries of index 0, one ship drawn sixteen times.
+  > Reproduced in cpcemu by poking exactly that; a zoom changes the count
+  > and the list is filled afresh, which is why it "fixed" it. The refresh
+  > is `phase4_refresh_order` in bank 4 now, and it trusts the list only if
+  > it is a PERMUTATION -- `sort_seen`, `ENT_MAX` bytes of the pad, cleared
+  > and ticked per call. Two tests: rubbish under a matching count is
+  > filled afresh, and a reversed permutation is kept and comes out sorted.
+  > The low 16K got twenty-two bytes back in the move.
+  > **Uninitialised state that a fast path TRUSTS needs a check that is
+  > exact, not plausible**; cpcemu's zero RAM is not the machine.
+
 - **The interrupt was declined.** Scanning the keyboard on alternate ticks
   halves `key_scan` and breaks `test_even_a_single_frame_tap_registers`,
   which exists precisely to say the scan has not slipped off the 50 Hz

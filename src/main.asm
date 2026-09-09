@@ -987,6 +987,7 @@ scan_x:             defw 0              ; ...its column on the screen
 scan_tip:           defw 0              ; ...and its stalk: top row, rows
 cbt_hostiles:       defb 0              ; how many hostiles fly, counted at the top of cbt_update
 pilot_lock_now:     defb 0              ; this frame's copy of pilot_locked, for pilot_frame
+sort_seen:          defs ENT_MAX        ; phase4_refresh_order's "this index already": cleared per call
 pm_target:          defw 0              ; pilot_match's three cursors
 pm_prev:            defw 0
 pm_ours:            defw 0

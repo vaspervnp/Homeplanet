@@ -754,3 +754,69 @@ scan_clamp:
 @scan_clamp_back:
     neg
     ret
+
+
+; ----------------------------------------------------------------------------
+;  phase4_refresh_order -- last frame's draw order with this frame's depths
+;  In : A = phase4_visible, which equalled last frame's
+;  Out: CF clear: phase4_order holds a permutation of 0..n-1 with every
+;       depth refreshed from phase4_vis; CF set: it does not, fill it afresh
+;  Uses: everything
+;
+;  The other half of phase4_sort's coherence (src/demo/phase4.asm): the
+;  list is trusted only when every index is below n and NONE REPEATS, which
+;  sort_seen -- ENT_MAX bytes of the save block's pad, cleared here and
+;  written here -- says exactly. A list that is stale but a permutation is
+;  merely a slower sort; a list of power-on rubbish is not a picture.
+; ----------------------------------------------------------------------------
+phase4_refresh_order:
+    ld c,a                              ; C = n
+    push bc
+    ld hl,sort_seen
+    ld de,sort_seen + 1
+    ld bc,ENT_MAX - 1
+    ld (hl),0
+    ldir
+    pop bc
+    ld b,c
+    ld hl,phase4_order
+@pr_one:
+    ld a,(hl)
+    cp c
+    jr nc,@pr_bad                       ; not a visible index
+    push hl
+    push bc
+    ld hl,sort_seen
+    add a,l
+    ld l,a
+    jr nc,@pr_seen_ok
+    inc h
+@pr_seen_ok:
+    ld a,(hl)
+    or a
+    jr nz,@pr_dup                       ; the same index twice: not a permutation
+    ld (hl),1
+    pop bc
+    pop hl
+    push hl
+    push bc
+    ld a,(hl)
+    call phase4_vis_addr                ; HL = &phase4_vis[A]; uses DE too
+    inc hl
+    inc hl
+    inc hl                              ; -> its depth
+    ld a,(hl)
+    pop bc
+    pop hl
+    inc hl
+    ld (hl),a                           ; the depth beside the index, fresh
+    inc hl
+    djnz @pr_one
+    or a                                ; CF clear: trusted
+    ret
+@pr_dup:
+    pop bc
+    pop hl
+@pr_bad:
+    scf
+    ret

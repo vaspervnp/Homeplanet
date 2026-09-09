@@ -372,3 +372,56 @@ class TestViewIndex(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestTheSortDoesNotTrustRubbish(unittest.TestCase):
+    """phase4_sort starts from last frame's order when the visible count is
+    unchanged. On a machine whose RAM did not power up as zeros, the count
+    byte can match by chance and the list be anything: sixteen entries of
+    index 0 passed a "below n" check and the game drew ONE SHIP until a zoom
+    changed the count. The list is trusted only if it is a permutation."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.sym = h.symbols()
+
+    def tearDown(self):
+        h.close(getattr(self, "c", None))
+
+    def order(self):
+        n = self.c.read_ram(self.sym["PHASE4_VISIBLE"], 1)[0]
+        raw = self.c.read_ram(self.sym["PHASE4_ORDER"], n * 2)
+        return n, sorted(raw[2 * i] for i in range(n))
+
+    def test_a_matching_count_over_a_list_of_zeros_is_filled_afresh(self):
+        self.c = h.boot_quick(frames=250, briefing=True)
+        fleet = self.sym["PHASE4_SHIPS"] + 1
+        h.write_bank4(self.c, self.sym["PHASE4_SORTED_N"], bytes([fleet]))
+        self.c.write_ram(self.sym["PHASE4_ORDER"], bytes(2 * self.sym["ENT_MAX"]))
+        h.dismiss_briefing(self.c)
+        h.let_the_game_draw(self.c, self.sym)
+        h.run_to_stable_point(self.c, self.sym)
+        n, idx = self.order()
+        self.assertEqual(n, fleet, "the fixture's fleet is not all on the screen")
+        self.assertEqual(idx, list(range(n)), "the draw order is not a permutation of the visible list")
+
+    def test_a_stale_permutation_is_kept_and_still_sorted(self):
+        """The other half: a list that IS a permutation, in the wrong order,
+        is trusted and comes out sorted by depth all the same."""
+        self.c = h.boot_quick(frames=250)
+        h.let_the_game_draw(self.c, self.sym)
+        h.run_to_stable_point(self.c, self.sym)
+        n, idx = self.order()
+        self.assertGreater(n, 2)
+        #  Reverse it in place, depths and all, and let one frame run.
+        raw = bytearray(self.c.read_ram(self.sym["PHASE4_ORDER"], n * 2))
+        pairs = [raw[i:i + 2] for i in range(0, n * 2, 2)]
+        self.c.write_ram(self.sym["PHASE4_ORDER"], b"".join(reversed(pairs)))
+        self.c.run_frames(1)
+        h.run_to_stable_point(self.c, self.sym)
+        n2, idx2 = self.order()
+        self.assertEqual((n2, idx2), (n, list(range(n))))
+        raw = self.c.read_ram(self.sym["PHASE4_ORDER"], n * 2)
+        depths = [raw[2 * i + 1] for i in range(n)]
+        #  Back to front: the first entry drawn is the farthest, the last the nearest.
+        self.assertEqual(depths, sorted(depths, reverse=True), "the refreshed list did not come out in depth order")
