@@ -338,6 +338,7 @@ class TestTheBolt(MarkFixture):
         self.place(0, (0, 0, 0))
         self.poke(0, 6, bytes([128]))                              # +Z
         self.poke(0, ENT_TIMER, b"\x00")                           # place() leaves a gun cold for 255 frames
+        self.place(self.ENT_MAX - 1, (0, 30000, 0), enemy=True)       # 30000 up: past PROJ_V_LIMIT, never listed   # a fight on, or V is refused
         h.write_bank4(self.c, self.sym["AUTO_ARMED"], b"\x00")
         self.c.write_ram(self.sym["SQUAD_SEL"], b"\x01")
         self.c.write_ram(self.sym["ORDER_PAUSED"], b"\x00")
@@ -377,22 +378,28 @@ class TestTheBolt(MarkFixture):
             #  Where the bolt aims: shot_pos, the projection cache, which is
             #  stamped before mark_tier_for decides whether to LIST the ship.
             raw = h.read_cpu(self.c, self.sym["SHOT_POS"] + enemy * self.sym["SHOT_POS_SIZE"], 4)
-            frames.append((self.byte("DEMO_FRAMES"), self.dots_on(name), raw[0] | (raw[1] << 8)))
+            frames.append((self.byte("DEMO_FRAMES"), self.dots_on(name), (raw[0] | (raw[1] << 8), raw[2])))
             self.c.run_frames(1)
         self.c.key_up(cpc.KEY_SPACE)
         self.assertLess(self.c.read_ram(self.sym["ENTITIES"] + enemy * ENT_SIZE + ENT_HULL, 1)[0], 255,
                         "the shot never landed")
         bolt = [(f, dots, ex) for f, dots, ex in frames if dots]
         self.assertGreaterEqual(len(bolt), 2, f"the bolt was not seen in flight: {frames}")
-        cx, cy = 160, self.sym["PROJ_CENTRE_Y"]
-        last = 0
-        for f, dots, ex in bolt[:self.sym["SHOT_BOLT_STEPS"] - 1]:
+        #  From the muzzle at the bottom centre of the view to the enemy: every
+        #  dot within two pixels of that line, and further along it each frame.
+        mx, my = 160, self.sym["SHOT_MUZZLE_Y"]
+        last = -1
+        for f, dots, (ex, ey) in bolt[:self.sym["SHOT_BOLT_STEPS"] - 1]:
             self.assertEqual(len(dots), 2, f"frame {f}: a bolt is two dots, saw {dots}")
+            vx, vy = ex - mx, ey - my
+            length = (vx * vx + vy * vy) ** 0.5
             for x, y, mask in dots:
                 self.assertIn(mask, self.PEN1, f"frame {f}: the bolt is not in the fleet's ink")
-                self.assertTrue(cx <= x <= ex + 2, f"frame {f}: dot {(x, y)} is not between the reticle and the enemy at {ex}")
-                self.assertLessEqual(abs(y - cy), 12, f"frame {f}: dot {(x, y)} is off the line")
-            along = min(x for x, y, m in dots) - cx
+                t = ((x - mx) * vx + (y - my) * vy) / (length * length)
+                off = abs((x - mx) * vy - (y - my) * vx) / length
+                self.assertTrue(0 <= t <= 1.05, f"frame {f}: dot {(x, y)} is not between the muzzle and the enemy at {(ex, ey)}")
+                self.assertLessEqual(off, 2.5, f"frame {f}: dot {(x, y)} is off the line to {(ex, ey)}")
+            along = min(((x - mx) * vx + (y - my) * vy) / (length * length) for x, y, m in dots)
             self.assertGreater(along, last, f"frame {f}: the bolt did not move on ({along} after {last})")
             last = along
 
@@ -541,7 +548,10 @@ class TestTheScanner(TestTheReticleBox):
 
     def test_the_table_is_the_ellipse(self):
         rx = self.sym["SCAN_RX"]
-        table = h.read_bank4(self.c, self.sym["SCAN_OVAL"], rx + 1)
+        with open("build/bank6.raw", "rb") as f:
+            image = f.read()
+        off = self.sym["SCAN_OVAL_B6"] - 0x4000
+        table = image[off:off + rx + 1]
         self.assertEqual(list(table), [self.half_height(i) for i in range(rx + 1)])
 
     def test_the_oval_and_the_ship_are_drawn_while_flying(self):
@@ -743,6 +753,10 @@ class TestTheScaledSprites(MarkFixture):
         import math
         self.c.write_ram(self.sym["ORDER_PAUSED"], b"\x00")
         h.write_bank4(self.c, self.sym["AUTO_ARMED"], b"\x00")
+        #  V is refused on a quiet board: one live hostile, far off and never
+        #  projected, keeps the fight on -- and stays through the clear below,
+        #  or the wrecks alone would end the fight and hand the ship back.
+        self.place(self.ENT_MAX - 1, (0, 30000, 0), enemy=True)       # 30000 up: past PROJ_V_LIMIT, never listed
         self.c.key_down("v")
         self.c.run_frames(30)
         self.c.key_up("v")
@@ -755,7 +769,7 @@ class TestTheScaledSprites(MarkFixture):
         a = 2 * math.pi * yaw / 256
         ahead = (math.sin(a), -math.cos(a))
         right = (-math.cos(a), math.sin(a))
-        for slot in range(self.PLAYER_MAX, self.ENT_MAX):
+        for slot in range(self.PLAYER_MAX, self.ENT_MAX - 1):
             self.poke(slot, ENT_FLAGS, b"\x00")
         for i, (x, d, cls) in enumerate(hostiles):
             px = int(round(mx + ahead[0] * d + right[0] * x))
@@ -900,11 +914,14 @@ class TestTheScaledSprites(MarkFixture):
             self.assertEqual(self.pen_at(x + dx, y + dy), 3, f"no cross at {(dx, dy)} for the destroyer")
         for dx, dy in ((-2, -2), (2, 2), (-2, 2), (2, -2)):
             self.assertEqual(self.pen_at(x + dx, y + dy), 0, "the destroyer is more than a cross")
-        #  ...and the nearest three ARE sprites: many red pixels about them.
+        #  ...and the nearest three ARE sprites: many pixels about them, red
+        #  OR blue -- an enemy sprite is red with blue shading, and a repaint
+        #  of the tier B tail-on view left it six red and six blue; a mark is
+        #  red only, a dot 2 and a cross 5.
         for v in enemies[:3]:
-            reds = sum(1 for dx in range(-8, 9) for dy in range(-6, 7)
-                       if 0 <= v["sx"] + dx < 320 and self.pen_at(v["sx"] + dx, v["sy"] + dy) == 3)
-            self.assertGreater(reds, 6, f"the hostile at depth {v['z']} is not a sprite")   # a dot is 2, a cross 5
+            inked = sum(1 for dx in range(-8, 9) for dy in range(-6, 7)
+                        if 0 <= v["sx"] + dx < 320 and self.pen_at(v["sx"] + dx, v["sy"] + dy) in (2, 3))
+            self.assertGreater(inked, 6, f"the hostile at depth {v['z']} is not a sprite")
 
 
 class TestTheZoomLadderScales(MarkFixture):

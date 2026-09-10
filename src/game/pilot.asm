@@ -92,6 +92,19 @@ pilot_toggle:
     jr c,pilot_end                      ; flying one already: hand it back
     call order_have_squadron
     ret nc                              ; the Mothership is not flown
+    ;  ONLY WHILE THERE IS A FIGHT ON -- "να μην μπορώ να μπω σε V αν δεν
+    ;  είναι ενεργή η μάχη". Something hostile flying, which is the question
+    ;  pilot_frame asks to END the flight; asked here it means V cannot be
+    ;  taken on a quiet board, and pilot_fought's "not on a quiet board"
+    ;  exception is only for the frames between. The tutorial is let in: its
+    ;  V lesson comes after its fight, on purpose.
+    ld a,(tut_active)
+    or a
+    jr nz,@pilot_take
+    call mis_count_hostiles             ; uses everything; nothing is live yet
+    or a
+    ret z
+@pilot_take:
 
     ;  The lead ship: the first flying one of the selection, walking the
     ;  flags byte the way wave_health does, with the squadron beside it.
@@ -117,6 +130,12 @@ pilot_toggle:
     ld (hl),ENT_ORDER_PILOT
     ld a,(cam_pitch)
     ld (pilot_pitch),a                  ; the orbit's pitch, kept for the way back
+    ld a,(cam_yaw)
+    ld (pilot_yaw),a                    ; ...and its yaw: "όταν επιστρέφω από το V να
+                                        ;  πηγαίνει η κάμερα εκεί που ήταν όταν πάτησα
+                                        ;  να μπω". The flight writes cam_yaw every
+                                        ;  frame, and without this the view came back
+                                        ;  turned to wherever the ship last pointed.
     xor a
     ld (pilot_fought),a                 ; no fight seen yet: see pilot_frame
     ld (pilot_locked),a                 ; ...and nothing in the reticle yet
@@ -161,6 +180,8 @@ pilot_end:
     ;  pilot_frame has been overriding every frame.
     ld a,(pilot_pitch)
     ld (cam_pitch),a
+    ld a,(pilot_yaw)
+    ld (cam_yaw),a
     jp order_apply_zoom
 
 

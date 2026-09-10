@@ -30,8 +30,8 @@
 
 ;  THE FLOWN SHIP'S OWN SHOT IS A BOLT, AND IT FLIES -- "να φαίνεται η βολή
 ;  μου που πηγαίνει προς τον εχθρό". Every other tracer lands the frame it
-;  is fired; the pilot's leaves the middle of the view (the ship itself is
-;  never drawn) and crosses to its target over SHOT_BOLT_STEPS frames, a
+;  is fired; the pilot's leaves the bottom of the view (the ship itself is
+;  never drawn; its gun is under the nose) and crosses to its target over SHOT_BOLT_STEPS frames, a
 ;  quarter of the way a frame, two pixels long so it reads as a streak,
 ;  aimed afresh each frame at where the target IS. One in flight at a time;
 ;  the damage still lands when the gun fires, the picture follows.
@@ -47,6 +47,12 @@ SHOT_DOTS           equ SHOT_MAX * 3 + 2
 ;  The bolt is drawn on steps 1..SHOT_BOLT_STEPS-1, at step/SHOT_BOLT_STEPS
 ;  of the way; on the last it is gone.
 SHOT_BOLT_STEPS     equ 4
+;  ...FROM THE GUN UNDER THE NOSE, at the bottom of the view, not from the
+;  reticle. "Δεν βλέπω στο V να βαράω με το space": with a target locked and
+;  held in the reticle, a bolt from the middle of the view to the target is a
+;  bolt of no length, two white pixels on top of a red sprite. From the
+;  bottom centre it crosses seventy lines to a centred target -- Elite's gun.
+SHOT_MUZZLE_Y       equ HUD_TOP - 6
 ;  A dot in a buffer's list: the byte's address and the mask that was ORed in.
 SHOT_DOT_SIZE       equ 3
 SHOT_LIST_SIZE      equ 1 + SHOT_DOTS * SHOT_DOT_SIZE
@@ -276,8 +282,8 @@ shot_draw:
 ;  shot_bolt -- the flown ship's shot, one step further along its flight
 ;  Uses: everything
 ;
-;  Drawn from the middle of the view, which is where the flown ship's gun
-;  is, to where its target was projected THIS frame -- so a target that
+;  Drawn from the muzzle at the bottom of the view (SHOT_MUZZLE_Y, under the
+;  reticle) to where its target was projected THIS frame -- so a target that
 ;  moves is still hit, on the screen as in the hull. Two dots, the second
 ;  half a step on. Dropped the frame nobody is flying or the target is off
 ;  the screen; spent by itself on the last step.
@@ -301,7 +307,7 @@ shot_bolt:
     jr nc,@sb_off                       ; HL = sx, C = sy
     ld de,SCR_CENTRE_X
     ld (shot_ax),de
-    ld de,PROJ_CENTRE_Y
+    ld de,SHOT_MUZZLE_Y
     ld (shot_ay),de
     call shot_quarter
     ld a,PEN_WHITE * 4

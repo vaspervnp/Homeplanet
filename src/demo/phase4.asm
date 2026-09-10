@@ -545,7 +545,7 @@ phase4_commands:
     jr nc,@p4_next_number
     ld a,c
     push bc
-    call squad_select
+    call squad_select_or_move           ; bank 4: select, or SHIFT moves the selection into it
     pop bc
 @p4_next_number:
     inc c

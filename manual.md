@@ -170,6 +170,7 @@ starting fleet is all squadron 1.
 | key | what it does |
 |---|---|
 | `1` – `9` | select that squadron |
+| `SHIFT` + `1` – `9` | move **every ship of the selection** into that squadron, and select it. The number need not exist yet: it is born where the ships are |
 | `0` | select the **Mothership** — every squadron is deselected |
 | `D` | **divide** the selected squadron in half; the new half takes the next free number |
 | `L` | move one ship to the next number, creating it if need be |
@@ -247,9 +248,11 @@ was.
 
 ## 7. Flying a ship yourself
 
-Press `V` with a squadron selected and its lead ship is yours. The camera
-drops **inside the cockpit**, looking along the nose; the rest of the
-squadron goes on doing what it was told.
+Press `V` with a squadron selected **while there is a fight on** — something
+hostile flying, anywhere — and its lead ship is yours. On a quiet board `V`
+does nothing. The camera drops **inside the cockpit**, looking along the
+nose; the rest of the squadron goes on doing what it was told, and when the
+stick comes back the camera returns to the orbit you left it in.
 
 | key | while flying |
 |---|---|
@@ -293,9 +296,9 @@ level with you is a dash on the plane; one above or below you stands on a
 tip being where it is — as in Elite. A mark touching your dot is an enemy
 in gun range.
 
-Your ship's own shots leave from the middle of the view and **fly**: a
-short white streak crosses from the reticle to the enemy over a few
-frames, following it if it moves. The damage lands when the gun fires; the
+Your ship's own shots leave from the gun under the nose, at the bottom of
+the view, and **fly**: a white streak rises to the enemy over a few frames,
+following it if it moves. The damage lands when the gun fires; the
 streak is what it looked like. Its death, a jump,
 `V` again, or **the end of the fight** puts the camera back on the squadron:
 once something hostile has been flying while you fly and nothing is any
@@ -532,6 +535,7 @@ fresh fleet each round and no campaign at stake.
 | key | in the game |
 |---|---|
 | `1`–`9` | select squadron |
+| `SHIFT` + `1`–`9` | move the whole selection into that squadron |
 | `0` | select the Mothership, centre on it, clear the pan |
 | cursor keys | orbit / move the disc / pan / fly |
 | `Z` `X` `+` `-` | zoom |

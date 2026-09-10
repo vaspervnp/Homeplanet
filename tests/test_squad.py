@@ -585,3 +585,65 @@ class TestANewSquadronIsBornWhereItsShipsAre(SquadFixture):
         new = [s for s in self.members() if s not in (0, 1)][0]
         self.assertEqual(self.c.read_ram(self.sym["SQUAD_FORM"] + new, 1)[0], shape,
                          f"squadron {new} peeled off in a different formation")
+
+
+class TestShiftAndANumberMovesTheWholeSelection(SquadFixture):
+    """"Όταν έχω επιλεγμένο ένα squadron πχ 3 και πατήσω Shift + έναν αριθμό
+    squadron (πχ 1) όλα να μεταφέρονται στο 1." SHIFT is a modifier to the
+    emulator, asserted by holding an uppercase character -- 'Q' is bound to
+    nothing."""
+
+    def shifted(self, key, frames=HOLD_FRAMES):
+        self.c.key_down("Q")
+        self.c.key_down(key)
+        self.c.run_frames(frames)
+        self.c.key_up(key)
+        self.c.key_up("Q")
+        self.c.run_frames(HOLD_FRAMES)
+
+    def test_shift_and_a_number_moves_every_ship_of_the_selection_there(self):
+        self.tap("d")                                   # squadron 2 is born from half of 1
+        self.tap("2")
+        self.assertEqual(self.selected(), 2)
+        before = self.members()
+        self.assertGreater(len(before[2]), 1)
+        self.shifted("1")
+        after = self.members()
+        self.assertNotIn(2, after, "squadron 2 still has ships")
+        self.assertEqual(sorted(after[1]), sorted(before[1] + before[2]), "not every ship went to 1")
+        self.assertEqual(self.selected(), 1, "the selection did not follow the ships")
+        #  ...and nothing was lost: the counts are squadrons 1..9, without the Mothership's 0.
+        self.assertEqual(self.total(), sum(len(v) for sq, v in before.items() if sq))
+
+    def test_shift_and_a_number_makes_that_squadron_if_it_did_not_exist(self):
+        before = self.members()
+        self.shifted("5")
+        after = self.members()
+        self.assertEqual(sorted(after.get(5, [])), sorted(before[1]), "squadron 5 is not the whole of 1")
+        self.assertNotIn(1, after)
+        self.assertEqual(self.selected(), 5)
+        #  ...and it is stationed where its ships are, not at a stale row.
+        ships = [pos for slot, (sq, pos) in self.fleet().items() if sq == 5]
+        self.assertLess(manhattan(self.station(5), ships[0]), 4000, "squadron 5 was stationed away from its ships")
+
+    def test_shift_and_the_selections_own_number_does_nothing(self):
+        before = self.members()
+        self.shifted("1")
+        self.assertEqual(self.members(), before)
+        self.assertEqual(self.selected(), 1)
+
+    def test_a_plain_number_still_only_selects(self):
+        self.tap("d")
+        before = self.members()
+        self.tap("1")
+        self.assertEqual(self.members(), before, "a plain number moved ships")
+        self.assertEqual(self.selected(), 1)
+
+    def test_the_mothership_is_not_moved_into_a_squadron(self):
+        self.tap("0")
+        self.assertEqual(self.c.read_ram(self.sym["SEL_MOTHERSHIP"], 1)[0], 1)
+        moth = self.c.read_ram(self.sym["MOTH_SLOT"], 1)[0]
+        before = self.fleet()
+        self.shifted("3")
+        self.assertEqual(self.fleet()[moth][0], before[moth][0], "the Mothership was moved into a squadron")
+        self.assertEqual(self.members(), self.members(before))

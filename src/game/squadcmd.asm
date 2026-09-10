@@ -419,6 +419,58 @@ squad_move_prev:
 ;  bigger formation they just made.
 ;  Uses: everything
 ; ----------------------------------------------------------------------------
+; ----------------------------------------------------------------------------
+;  squad_select_or_move -- a squadron key: select it, or with SHIFT held
+;  move the whole selection into it
+;  In : A = the squadron number 1..SQUAD_MAX
+;  Uses: everything
+;
+;  "Όταν έχω επιλεγμένο ένα squadron πχ 3 και πατήσω Shift + έναν αριθμό
+;  squadron (πχ 1) όλα να μεταφέρονται στο 1." One key, two meanings,
+;  decided by a modifier the player is holding: the same shape as SHIFT and
+;  the cursor keys on the move disc. Called from phase4_commands' digit loop
+;  in place of squad_select, so the low 16K did not move.
+; ----------------------------------------------------------------------------
+squad_select_or_move:
+    ld c,a
+    ld a,KEY_SHIFT
+    call key_down                       ; AF, HL
+    ld a,c
+    jp nc,squad_select
+    ;  ...and fall into squad_move_all_to.
+
+; ----------------------------------------------------------------------------
+;  squad_move_all_to -- every ship of the selection into squadron A, and
+;  the selection with them
+;  In : A = the squadron number 1..SQUAD_MAX
+;  Uses: everything
+;
+;  Refused while the Mothership is selected: its ENT_SQUAD is SQUAD_NONE,
+;  and "everything in the selection" would be the base. A squadron that is
+;  only now being made gets its station from the first ship moved, through
+;  squad_move_ship and squad_born, like d, m, n and c. The selection follows
+;  the ships, so the player keeps pointing at what they just moved.
+; ----------------------------------------------------------------------------
+squad_move_all_to:
+    ld c,a
+    push bc
+    call order_have_squadron
+    pop bc
+    ret nc                              ; the Mothership is not a squadron
+    ld a,(squad_sel)
+    cp c
+    ret z                               ; already there
+    ld b,a                              ; take from the selection
+@sq_move_all:
+    push bc
+    call squad_move_ship                ; ...give to C, one ship a pass
+    pop bc
+    jr c,@sq_move_all
+    ld a,c
+    ld (squad_sel),a
+    jp squad_refresh
+
+
 squad_combine:
     call squad_find_active
     or a

@@ -90,3 +90,9 @@ over_fire_table:
     defb    8,   19, 5
     defb    9,   20, 4
 over_fire_table_end:
+
+;  The scanner's oval (game/farmarks.asm): its half height at each pixel of
+;  half width, round(SCAN_RY * sqrt(1 - (i / SCAN_RX)^2)); copied into
+;  bank7_line at the top of pilot_scanner. tests/test_marks re-derives it.
+scan_oval_b6:       defb 19, 19, 19, 19, 19, 19, 19, 19, 19, 18, 18, 18, 18, 18, 18, 17, 17, 17, 17, 16, 16, 16, 15, 15, 15, 14, 14, 13, 13, 12, 12, 11, 10, 9, 8, 7, 6, 4, 0
+    assert $ - scan_oval_b6 == SCAN_RX + 1

@@ -6694,6 +6694,85 @@ a picket ten thousand ahead is half way up it and gun range is five pixels.
 
 Bank 4's window is at **29**.
 
+> **`LIB_TRACK` IS 27.** `make test` stopped with *"track 26 sector #C1
+> is not blank: an AMSDOS file has reached the library area -- raise
+> LIB_TRACK"* -- `tools/discbanks.py`'s guard doing exactly what it was
+> written to do the day `MUSIC2.BIN` landed on bank 5. Six AMSDOS files
+> now (`DISC`, `MINI`, `MINI2`, `HOME.BAS`, `REVIVE8B.SCR`, `MUSIC3`) and
+> three of them carry the bank-4 image, which grew by the day's work; the
+> catalogue reached track 26. Libraries are tracks 27–38, one short of
+> `FLEET_TRACK` 39, so this is the LAST notch: the next growth needs a
+> smaller bank-4 image, or `LIB_TRACKS_PER_BANK` back to 3 with
+> `LIB_SECTORS` 27, or the fleet's track moved. Unverified on Retro Virtual
+> Machine, like every track move before it.
+
+#### SHIFT and a squadron number moves the whole selection there
+
+*"Όταν έχω επιλεγμένο ένα squadron πχ 3 και πατήσω Shift + έναν αριθμό
+squadron (πχ 1) όλα να μεταφέρονται στο 1."* `squad_select_or_move` (bank
+4) is what the digit loop in `phase4_commands` calls now: `key_down` of
+`KEY_SHIFT` decides between `squad_select` and `squad_move_all_to`, so the
+low 16K did not move — one key, two meanings, decided by a modifier the
+player is holding, the disc's SHIFT + cursor shape. The move is
+`squad_move_ship` in a loop, from the selection to the number, so a
+squadron that did not exist is born where its first ship is exactly as `d`,
+`m`, `n` and `c` make one; the selection follows the ships. Refused with the
+Mothership selected — its `ENT_SQUAD` is `SQUAD_NONE`, and "everything in
+the selection" would be the base — and a no-op on the selection's own
+number. Five tests in `test_squad`, by slot; SHIFT is pressed the way
+`test_phase5` presses it, by holding `Q`. Not on the help page: bank 7 has
+four bytes. **It cost bank 4 its last bytes**, and the scanner's oval table
+paid: `scan_oval_b6` is in bank 6 now and `pilot_scanner` copies it into
+`bank7_line` at the top of every call, 39 bytes of data for ten of code. An
+`equ` naming `bank7_line` for it failed to assemble -- RASM's `equ` cannot
+forward-reference a label declared later in the file -- so the reads name
+`bank7_line` themselves.
+
+#### V only in a fight, and the orbit comes back as it was
+
+*"Να μην μπορώ να μπω σε V αν δεν είναι ενεργή η μάχη."* `pilot_toggle`
+asks `mis_count_hostiles` — the same question `pilot_frame` asks to END the
+flight — and refuses on zero; the tutorial is let through, because its `V`
+lesson comes after its fight on purpose. `pilot_fought`'s "not on a quiet
+board" exception now only covers the frames between taking the stick and
+the count. Every fixture that pressed `V` on mission 1's empty board had to
+stage a hostile first: `test_pilot`'s `a_fight` puts one far off and cold,
+and `test_marks`' cockpit fixtures park one **30000 units up**, past
+`PROJ_V_LIMIT`, so it keeps the fight on without ever being listed — the
+first version put it behind the ship and it turned up in a visible-count
+test.
+
+*"Όταν επιστρέφω από το V να πηγαίνει η κάμερα εκεί που ήταν όταν πάτησα να
+μπω."* The flight writes `cam_yaw` every frame and only `cam_pitch` was
+kept, so the orbit came back turned to wherever the ship last pointed.
+`pilot_yaw` beside `pilot_pitch`, saved on the way in and put back by
+`pilot_end`; the zoom's `cam_dist` was already restored by
+`order_apply_zoom`, and the focus follows the selection anyway.
+
+> **And the run's lives test counted white pixels against a number.** Three
+> tier B interceptors at the three-quarter were "more than thirty white
+> pixels" -- twenty-four after the repaint. It reads the block out of
+> `build/bank7.raw` at the view the lives use and asks for exactly three
+> of it. Fourth art-tied threshold this week; the sprite map is the owner's
+> to repaint, and a test that knows how many white pixels a ship has is
+> wrong the day it is repainted.
+>
+> **And a sprite test read the owner's repaint as a mark.** The
+> nearest-three test counted RED pixels round a hostile and called it a
+> sprite above six; the tier B tail-on interceptor, repainted, has six red
+> and six blue. It counts red or blue now — a mark is red only.
+
+> **And the bolt had to leave from the bottom of the view.** *"Δεν βλέπω
+> στο V να βαράω με το space."* With a target locked and held under the
+> reticle, a bolt from the middle of the view to the target was a bolt of
+> no length: both dots on (160, 89), the target's own pixel, white on red.
+> Traced in the emulator -- the hull dropped, the dots landed on the
+> sprite. `SHOT_MUZZLE_Y`, six lines above the HUD, is the gun under the
+> nose, and the bolt rises seventy lines to a centred target the way
+> Elite's does. The lock made the invisible case the COMMON case; before it
+> the target drifted about the view and the bolt usually had somewhere to
+> go.
+
 #### The lock: aim at it, and fly as it flies
 
 *"Όταν έχω εχθρό στο στόχαστρο κάνε match την ταχύτητα και την κατεύθυνσή

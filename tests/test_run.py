@@ -471,12 +471,35 @@ class TestTheLivesAreShips(RunFixture):
                 n += bin(b & 0xF0 & ~((b & 0x0F) << 4) & 0xFF).count("1")   # pen 1 only
         return n
 
+    def white_in_a_life(self):
+        """Pen-1 pixels in the interceptor's tier B block at the view the lives
+        are drawn in (view 1, the three-quarter), read off build/bank7.raw --
+        so the test asks for the sprite as painted, whatever it is painted."""
+        with open("build/bank7.raw", "rb") as f:
+            image = f.read()
+        block, w_bytes, hgt = (self.sym["INTERCEPTOR_B_BLOCK_SZ"], self.sym["INTERCEPTOR_B_W_BYTES"],
+                               self.sym["INTERCEPTOR_B_H"])
+        off = self.sym["INTERCEPTOR_B"] - 0x4000 + 1 * 2 * block          # view 1, pre-shift 0
+        n = 0
+        for r in range(hgt):
+            row = image[off + r * w_bytes * 2: off + (r + 1) * w_bytes * 2]
+            for b in range(w_bytes - 1):                                  # the last byte is the pre-shift's
+                m, d = row[b * 2], row[b * 2 + 1]
+                for k in range(4):
+                    sh = 3 - k
+                    drawn = ((m >> (sh + 4)) & 1) == 0 or ((m >> sh) & 1) == 0
+                    pen = ((d >> (sh + 4)) & 1) | (((d >> sh) & 1) << 1)
+                    n += drawn and pen == 1
+        return n
+
     def test_three_ships_then_two(self):
         self.jump_into_the_run()
         self.begin()
         self.step(2)
         three = self.white_top_left()
-        self.assertGreater(three, 30, "no lives drawn")     # three tier B ships
+        white = self.white_in_a_life()
+        self.assertGreater(white, 0, "the interceptor's tier B three-quarter has no white in it")
+        self.assertEqual(three, 3 * white, "the three lives are not three of the sprite")
         self.poke7("MINI_HITS", 1)
         self.step(2)
         two = self.white_top_left()

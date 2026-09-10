@@ -421,10 +421,11 @@ SCAN_SHIFT          equ 1
 
 scan_rect:          defb SCAN_X_BYTES, SCAN_Y, SCAN_W_BYTES, SCAN_H
 
-;  The oval's half height at each pixel of half width, 0..SCAN_RX:
-;  round(SCAN_RY * sqrt(1 - (i / SCAN_RX)^2)). tests/test_marks re-derives it.
-scan_oval:          defb 19, 19, 19, 19, 19, 19, 19, 19, 19, 18, 18, 18, 18, 18, 18, 17, 17, 17, 17, 16, 16, 16, 15, 15, 15, 14, 14, 13, 13, 12, 12, 11, 10, 9, 8, 7, 6, 4, 0
-    assert $ - scan_oval == SCAN_RX + 1
+;  The oval's half height at each pixel of half width, 0..SCAN_RX, is
+;  scan_oval in BANK 6 (game/bank6data.asm), copied into bank7_line at the
+;  top of every pilot_scanner -- 39 bytes of bank 4 the SHIFT-and-a-number
+;  command needed. Everything below reads it there.
+    assert SCAN_RX + 1 <= B7_BUF_SIZE, "the oval's table does not fit the line buffer"
 
 ; ----------------------------------------------------------------------------
 ;  pilot_scanner -- the oval, the ship and the hostiles, while flying
@@ -438,16 +439,21 @@ pilot_scanner:
     or a
     ret nz
 
+    ;  The oval's table, down from bank 6 for the length of this call.
+    ld hl,scan_oval_b6
+    ld de,bank7_line
+    ld bc,SCAN_RX + 1
+    call bank6_copy
     ;  The oval, in ink 2 -- chrome, the HUD's own ink for a thing that is
     ;  not a ship -- column by column out of scan_oval, then its rectangle,
     ;  once. Column i draws the rows between the last column's height and
     ;  its own, top and bottom, at cx+i and cx-i; column 0 is one pixel each.
-    ld a,(scan_oval)
+    ld a,(bank7_line)
     ld (scan_prev),a
     xor a
     ld (scan_i),a
 @scan_col:
-    ld hl,scan_oval
+    ld hl,bank7_line                    ; the oval's table, copied down
     ld a,(scan_i)
     add a,l
     ld l,a
@@ -632,7 +638,7 @@ scan_plot:
     jr z,@scan_abs_ok
     neg
 @scan_abs_ok:
-    ld hl,scan_oval
+    ld hl,bank7_line                    ; the oval's table, copied down
     add a,l
     ld l,a
     jr nc,@scan_oval_ok

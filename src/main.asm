@@ -702,6 +702,7 @@ pilot_ent:          defw 0
 ;  projected, and per buffer the dots that are on it. The three counts are
 ;  zeroed by mis_init; nothing else needs a starting value.
 pilot_pitch:        defb 0              ; the orbit's pitch, for when the ship is handed back
+pilot_yaw:          defb 0              ; ...and its yaw, so the view comes back where it was
 pilot_fought:       defb 0              ; something hostile flew while this ship was flown
 pilot_locked:       defb 0              ; a flying hostile projected inside the reticle this frame
 pilot_ret_pen:      defb 0              ; ...and the ink the ticks are drawn in because of it

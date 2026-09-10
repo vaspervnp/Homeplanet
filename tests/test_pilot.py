@@ -72,7 +72,22 @@ class PilotFixture(unittest.TestCase):
         self.c.key_up(key)
         self.c.run_frames(release)
 
+    def a_fight(self, where=(12000, 0, 12000)):
+        """One hostile, far off and cold, so that there IS a fight for V to
+        be taken in -- V is refused on a quiet board -- and nothing shoots."""
+        e = self.ENT_MAX - 1
+        self.poke(e, ENT_X, struct.pack("<hhh", *where))
+        self.poke(e, ENT_CLASS, bytes([0]))
+        self.poke(e, ENT_HULL, b"\xff")
+        self.poke(e, ENT_SQUAD, b"\xff")
+        self.poke(e, ENT_ORDER, b"\x00")
+        self.poke(e, ENT_TARGET, b"\xff")
+        self.poke(e, ENT_TIMER, b"\xff")
+        self.poke(e, ENT_FLAGS, bytes([F_ACTIVE | F_ENEMY]))
+        return e
+
     def take_the_stick(self):
+        self.a_fight()
         self.hold("v")
         p = self.pilot()
         self.assertLess(p, self.PLAYER_MAX, "V did not take a ship")
@@ -93,6 +108,29 @@ class TestVTakesAShipAndGivesItBack(PilotFixture):
             r = self.rec(s)
             if r[ENT_FLAGS] & F_ACTIVE and not r[ENT_FLAGS] & F_DISABLED:
                 self.assertNotEqual(r[ENT_SQUAD], sel, f"slot {s} is a lower-numbered ship of the squadron")
+
+    def test_the_camera_comes_back_where_it_was(self):
+        """"όταν επιστρέφω από το V να πηγαίνει η κάμερα εκεί που ήταν όταν
+        πάτησα να μπω". The flight writes cam_yaw and cam_pitch every frame;
+        both are kept on the way in and put back on the way out, so the orbit
+        the player left is the orbit they return to -- whatever the ship was
+        pointing at when V was pressed again."""
+        #  An orbit that is not the default: turn and tilt first.
+        self.hold(cpc.KEY_LEFT, frames=30)
+        self.hold(cpc.KEY_UP, frames=20)
+        yaw, pitch = self.byte("CAM_YAW"), self.byte("CAM_PITCH")
+        self.assertNotEqual(yaw, 0)
+        p = self.take_the_stick()
+        #  Fly a while, turning, so the cockpit's yaw is nowhere near the orbit's.
+        self.c.key_down(cpc.KEY_RIGHT)
+        self.c.run_frames(80)
+        self.c.key_up(cpc.KEY_RIGHT)
+        self.assertNotEqual(self.byte("CAM_YAW"), yaw, "the fixture did not turn the cockpit away")
+        self.hold("v")
+        self.assertEqual(self.pilot(), self.NONE)
+        self.c.run_frames(10)
+        self.assertEqual((self.byte("CAM_YAW"), self.byte("CAM_PITCH")), (yaw, pitch),
+                         "the camera did not come back to the orbit V was pressed from")
 
     def test_v_again_hands_it_back_idle(self):
         p = self.take_the_stick()
@@ -258,8 +296,10 @@ class TestTheCameraRidesBehindIt(PilotFixture):
         p = self.take_the_stick()
         self.c.run_frames(40)
         self.assertEqual(self.pilot(), p, "the ship was handed back with the hostile still flying")
-        #  ...and the fight ends: the hostile is a wreck, which is not flying.
+        #  ...and the fight ends: the hostile is a wreck, which is not flying,
+        #  and so is the far one take_the_stick keeps for V to be taken in.
         self.poke(e, ENT_FLAGS, bytes([F_ACTIVE | F_ENEMY | F_DISABLED]))
+        self.poke(self.ENT_MAX - 1, ENT_FLAGS, bytes([F_ACTIVE | F_ENEMY | F_DISABLED]))
         for _ in range(20):
             self.c.run_frames(10)
             if self.pilot() >= self.ENT_MAX:
@@ -268,12 +308,22 @@ class TestTheCameraRidesBehindIt(PilotFixture):
             self.fail("the fight ended and the ship was not handed back")
         self.assertEqual(self.field(p, ENT_ORDER), self.IDLE)
 
-    def test_a_quiet_board_does_not_hand_it_back(self):
-        """Mission 1 has nothing hostile until the first wave. Ending V the
-        frame it began would make it a key that does nothing there."""
+    def test_v_is_refused_with_nothing_hostile_flying(self):
+        """"Να μην μπορώ να μπω σε V αν δεν είναι ενεργή η μάχη." Mission 1
+        has nothing hostile until the first wave: V does nothing there, and
+        with a hostile flying -- even one far off -- it takes the ship."""
+        self.hold("v")
+        self.assertEqual(self.pilot(), self.NONE, "V took a ship on a board with no fight on it")
+        self.a_fight()
+        self.hold("v")
+        self.assertLess(self.pilot(), self.PLAYER_MAX)
+
+    def test_a_fight_far_off_does_not_hand_it_back(self):
+        """pilot_fought's other half: a hostile flying anywhere keeps the
+        flight, however far."""
         p = self.take_the_stick()
         self.c.run_frames(100)
-        self.assertEqual(self.pilot(), p, "V ended on a board with no fight on it")
+        self.assertEqual(self.pilot(), p, "V ended with a hostile still flying")
 
     def test_its_death_hands_the_camera_back_to_the_station(self):
         p = self.take_the_stick()
