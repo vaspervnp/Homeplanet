@@ -208,14 +208,17 @@ tables:
 # it and is not. Converting is cheap and pure, so it IS part of every build --
 # unlike `make ships`, which re-renders the 3D models.
 #
-# ...UNLESS art/spritemap.png EXISTS, in which case the sprites come off THAT:
-# one PNG with every class, tier and view, painted in GIMP with
-# art/homeplanet.gpl, and tools/spritemap.py cuts it back into the eight
-# spr_*.asm. `python3 tools/spritemap.py export` writes the map from the
-# projects; delete the map to go back to them. See the tool's docstring for
-# the layout and the fifth colour.
-ifneq ($(wildcard art/spritemap.png),)
-$(SPRITES) &: art/spritemap.png $(patsubst %,art/%.retrotools.json,$(SHIP_CLASSES)) tools/spritemap.py tools/rt2sprite.py
+# ...UNLESS THE SPRITE MAPS EXIST, in which case the sprites come off THEM:
+# art/spritemap-a.png, -b.png and -c.png, one sheet a size tier with every
+# class and view, painted in Aseprite (the .aseprite beside each is the same
+# picture) or GIMP with art/homeplanet.gpl -- or, if the three are not all
+# there, the older combined art/spritemap.png. tools/spritemap.py cuts them
+# back into the eight spr_*.asm. `python3 tools/spritemap.py split` writes the
+# sheets from the combined map or the projects; delete the maps to go back to
+# the projects. See the tool's docstring for the layout and the fifth colour.
+SPRITE_MAPS := $(wildcard art/spritemap.png art/spritemap-a.png art/spritemap-b.png art/spritemap-c.png)
+ifneq ($(SPRITE_MAPS),)
+$(SPRITES) &: $(SPRITE_MAPS) $(patsubst %,art/%.retrotools.json,$(SHIP_CLASSES)) tools/spritemap.py tools/rt2sprite.py
 	$(PYTHON) tools/spritemap.py import
 else
 $(GEN_DIR)/spr_%.asm: art/%.retrotools.json tools/rt2sprite.py

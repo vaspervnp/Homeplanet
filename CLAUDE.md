@@ -670,16 +670,27 @@ The renderer normalises every class into the same sprite box, so "bigger" is
 not available — `span` and the shape carry it, and `class_tier_bias` gives the
 three capitals one more size step at the same distance.
 
-**Or paint them in GIMP.** `python3 tools/spritemap.py export` writes
-`art/spritemap.png` — every class, tier and view on one indexed PNG, one row
-a class in the game's class order, tiers A/B/C left to right, six views each
-— and `art/homeplanet.gpl` is its palette for GIMP 3. **When the PNG exists
-the build reads the sprites off it** (the Makefile's `ifneq $(wildcard
-art/spritemap.png)`), through `tools/spritemap.py import`, which cuts the
-cells by arithmetic and hands the pixels to `rt2sprite.convert` — so the
-`.asm` it emits is the same generator's, and
-`tests/test_ships.TestTheSpriteMapRoundTrips` proves export-then-import is
-the identity. **Five colours, not four**: a sprite pixel is a drawn pen or
+**Or paint them in Aseprite or GIMP.** `python3 tools/spritemap.py split`
+writes **three sheets, one a size tier**: `art/spritemap-a.png`, `-b.png`
+and `-c.png`, eight rows (one a class, in the game's order) by six columns
+(one a yaw view), every cell exactly the tier's size, 2 pixels apart both
+ways and 4 in from the edge — a uniform grid, which is what Aseprite's
+*Import Sprite Sheet* wants (By Rows, the cell size, offset 4,4, padding
+2,2) — and beside each a **`.aseprite`** of the same picture: indexed, the
+five colours as its palette with magenta as the TRANSPARENT index, a grid of
+the cell pitch, and a named slice per sprite (`interceptor/2` is the
+interceptor's third view). The writer is `write_aseprite`, straight from
+the format's spec, and `tests/test_ships` parses the files back, decompresses
+the cel and compares it with the PNG — but **no Aseprite has opened them
+here**; the first time one does is the real test. The older combined
+`art/spritemap.png` (one PNG, tiers A/B/C left to right) is what `export`
+writes and what `split` reads when it exists; `art/homeplanet.gpl` is the
+palette for GIMP 3. **When the sheets exist the build reads the sprites off
+them** — all three, else the combined map — through `tools/spritemap.py
+import` (the Makefile's `SPRITE_MAPS` wildcard), which cuts the cells by
+arithmetic and hands the pixels to `rt2sprite.convert`, so the `.asm` it
+emits is the same generator's, and `tests/test_ships.TestTheSpriteMapRoundTrips`
+proves export-then-import and export-split-import are both the identity. **Five colours, not four**: a sprite pixel is a drawn pen or
 NOT DRAWN, and "drawn black" is not "not drawn" — the ships' shadow sides
 are painted black over what is behind them — so the map's magenta is the
 mask and black is pen 0. The grid must not move; anything outside a cell is

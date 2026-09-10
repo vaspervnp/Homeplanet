@@ -442,6 +442,53 @@ class TestTheSpriteMapRoundTrips(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             png = os.path.join(tmp, "map.png")
             subprocess.run([sys.executable, tool, "export", "--png", png], check=True, capture_output=True)
-            r = subprocess.run([sys.executable, tool, "import", "--check", "--png", png], capture_output=True, text=True)
+            #  --sheets at an empty directory, so the combined map is what is read.
+            r = subprocess.run([sys.executable, tool, "import", "--check", "--png", png, "--sheets", tmp],
+                               capture_output=True, text=True)
             self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
             self.assertNotIn("DIFFERS", r.stdout)
+
+    def test_the_three_sheets_split_from_the_map_import_to_the_same_sprites(self):
+        """export -> split -> import off the sheets is the identity too, and
+        the .aseprite beside each sheet is that sheet: parsed from the format's
+        spec, its one cel decompresses to the PNG's own bytes, its transparent
+        index is the map's NOT DRAWN, and it carries a slice per sprite."""
+        import struct, subprocess, sys, tempfile, os, zlib
+        from PIL import Image
+        tool = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tools", "spritemap.py")
+        with tempfile.TemporaryDirectory() as tmp:
+            png = os.path.join(tmp, "map.png")
+            subprocess.run([sys.executable, tool, "export", "--png", png], check=True, capture_output=True)
+            subprocess.run([sys.executable, tool, "split", "--png", png, "--sheets", tmp], check=True, capture_output=True)
+            r = subprocess.run([sys.executable, tool, "import", "--check", "--png", png, "--sheets", tmp],
+                               capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            self.assertNotIn("DIFFERS", r.stdout)
+            for t in "abc":
+                data = open(os.path.join(tmp, f"spritemap-{t}.aseprite"), "rb").read()
+                size, magic, frames, W, H, depth = struct.unpack_from("<IHHHHH", data, 0)
+                self.assertEqual((size, magic, frames, depth), (len(data), 0xA5E0, 1, 8))
+                self.assertEqual(data[28], 4, "the transparent index is not NOT DRAWN")
+                self.assertEqual(struct.unpack_from("<H", data, 32)[0], 5)
+                fsize, fmagic = struct.unpack_from("<IH", data, 128)
+                self.assertEqual((fsize, fmagic), (len(data) - 128, 0xF1FA))
+                n = struct.unpack_from("<I", data, 140)[0]
+                off, cel, slices = 144, None, []
+                for _ in range(n):
+                    csize, kind = struct.unpack_from("<IH", data, off)
+                    body = data[off + 6:off + csize]
+                    if kind == 0x2005:
+                        w, h = struct.unpack_from("<HH", body, 16)
+                        self.assertEqual((w, h), (W, H))
+                        cel = zlib.decompress(body[20:])
+                    if kind == 0x2022:
+                        ln = struct.unpack_from("<H", body, 12)[0]
+                        slices.append(body[14:14 + ln].decode())
+                    off += csize
+                self.assertEqual(off, len(data), "chunks do not fill the frame")
+                img = Image.open(os.path.join(tmp, f"spritemap-{t}.png"))
+                self.assertEqual(img.size, (W, H))
+                self.assertEqual(cel, img.tobytes(), "the cel is not the sheet")
+                self.assertEqual(len(slices), 8 * 6)
+                self.assertIn("interceptor/0", slices)
+                self.assertIn("destroyer/5", slices)
