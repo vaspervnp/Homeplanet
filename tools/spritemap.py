@@ -3,6 +3,7 @@
 
     python3 tools/spritemap.py export                 # art/*.retrotools.json -> art/spritemap.png
     python3 tools/spritemap.py split                  # art/spritemap.png -> art/spritemap-{a,b,c}.png + .aseprite
+    python3 tools/spritemap.py aseprite               # the three .aseprite again, from the sheets as they are
     python3 tools/spritemap.py import                 # the maps -> src/gen/spr_*.asm
     python3 tools/spritemap.py import --check         # ...and compare with what the JSONs give
 
@@ -300,6 +301,31 @@ def split(src: str = PNG, pngs: dict = SPLIT, ases: dict = ASEPRITE) -> None:
     print(f"from {origin}")
 
 
+def aseprite(pngs: dict = SPLIT, ases: dict = ASEPRITE) -> None:
+    """The three .aseprite files again, from the sheet PNGs as they are -- for
+    after a sheet has been repainted and exported, or an .aseprite saved by
+    Aseprite wants its slices and grid back. Reads the sheets, never the
+    combined map, so a repainted sheet is never overwritten."""
+    docs = {cls: rt2sprite.load_project(project_path(cls)) for cls in CLASSES}
+    sizes = tier_sizes(docs[CLASSES[0]], CLASSES[0])
+    for t, (w, h) in zip(TIERS, sizes):
+        cells, W, H = sheet_layout(w, h)
+        (gw, gh), at = read_map(pngs[t])
+        if (gw, gh) != (W, H):
+            raise SystemExit(f"{pngs[t]} is {gw}x{gh}; the sheet wants {W}x{H} -- the grid has moved")
+        img = Image.new("P", (W, H), NONE)
+        pal = []
+        for c in COLOURS:
+            pal += list(c)
+        img.putpalette(pal + [0] * (768 - len(pal)))
+        px = img.load()
+        for y in range(H):
+            for x in range(W):
+                px[x, y] = at(x, y)
+        write_aseprite(ases[t], img, w, h, t)
+        print(f"wrote {ases[t]} from {pngs[t]}")
+
+
 def import_map(check: bool, png: str = PNG, gen: str = GEN, sheets: dict = SPLIT) -> int:
     docs = {cls: rt2sprite.load_project(project_path(cls)) for cls in CLASSES}
     if all(os.path.exists(sheets[t]) for t in TIERS):
@@ -353,7 +379,7 @@ def palette() -> None:
 
 def main(argv) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("what", choices=["export", "split", "import", "palette"])
+    ap.add_argument("what", choices=["export", "split", "aseprite", "import", "palette"])
     ap.add_argument("--check", action="store_true", help="import: compare with the projects, write nothing")
     ap.add_argument("--png", default=PNG, help="the combined map to write or read (default art/spritemap.png)")
     ap.add_argument("--sheets", default=ART, help="split/import: the directory of the three spritemap-{a,b,c} sheets (default art/)")
@@ -366,6 +392,9 @@ def main(argv) -> int:
         return 0
     if args.what == "split":
         split(args.png, sheets, ases)
+        return 0
+    if args.what == "aseprite":
+        aseprite(sheets, ases)
         return 0
     if args.what == "palette":
         palette()
