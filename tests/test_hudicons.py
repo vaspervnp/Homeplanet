@@ -104,5 +104,36 @@ class TestTheSheet(unittest.TestCase):
         self.assertEqual(hudicons.read(hudicons.PNG), hudicons.pictures())
 
 
+class TestTheIconsAreInBank5(unittest.TestCase):
+    """hud2.md section 6: the icons travel in bank 5's spare, read off the
+    disc by lib_load with the libraries. What the build put on the disc has
+    to be the sheet, byte for byte, where the symbol file says it is."""
+
+    def test_bank5_raw_holds_every_icon_encoded_as_the_sheet(self):
+        sym = {}
+        for line in open(os.path.join(ROOT, "build", "homeplanet.sym")):
+            parts = line.split()
+            if len(parts) >= 2 and parts[1].startswith("#"):
+                sym[parts[0].upper()] = int(parts[1][1:], 16)
+        base = sym["HUD_ICONS"] - 0x4000
+        raw = open(os.path.join(ROOT, "build", "bank5.raw"), "rb").read()
+        pics = hudicons.read(hudicons.PNG)
+        for i, (name, _, _, _, _, _) in enumerate(hudicons.ICONS):
+            want = bytes(hudicons.encode(pics[name]))
+            got = raw[base + i * hudicons.ICON_BYTES:base + (i + 1) * hudicons.ICON_BYTES]
+            self.assertEqual(got, want, f"{name} is not on the disc as drawn")
+            self.assertEqual(sym[f"ICON_{name.upper()}"], i)
+        self.assertEqual(sym["HUD_ICONS_END"] - sym["HUD_ICONS"], len(hudicons.ICONS) * hudicons.ICON_BYTES)
+        self.assertLessEqual(sym["BANK5_DATA_END"], sym["SPR_SCALE_ORG"])
+
+    def test_a_pen_lands_in_the_plane_the_blitter_expects(self):
+        """Pen 1 is the high nibble, pen 2 the low, pen 3 both; NOT DRAWN is
+        black. The frame cell is the sharpest case: a blue row is #0F,#0F,#0F,#0F."""
+        pics = hudicons.pictures()
+        self.assertEqual(hudicons.encode(pics["frame"])[:4], [0x0F, 0x0F, 0x0F, 0x0F])
+        self.assertEqual(hudicons.encode(pics["frame_hot"])[:4], [0xF0, 0xF0, 0xF0, 0xF0])
+        self.assertEqual(hudicons.encode(pics["frame"])[4:8], [0x08, 0x00, 0x00, 0x01])
+
+
 if __name__ == "__main__":
     unittest.main()

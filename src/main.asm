@@ -1148,7 +1148,14 @@ bank5_start:
     include "gen/spr_salvage.asm"          ; swapped with the interceptor: see bank 7
     include "gen/spr_mothership.asm"
     include "gen/spr_harvester.asm"
+;  The HUD's button icons (hud2.md section 6): 2560 bytes of Mode 1 data read
+;  with the window at rest, in the one bank that had the room -- three
+;  libraries and nothing else, so the 2756 bytes between them and the scaled
+;  blitter's copy were being read off the disc every boot and thrown away.
+;  Lever 1 exactly. bank5_data_end <= SPR_SCALE_ORG below is the guard.
+    include "gen/hudicons.asm"
 bank5_data_end:
+    print "bank 5 data ends at", {hex}bank5_data_end, " free before the scaled blitter:", SPR_SCALE_ORG - bank5_data_end
     SPR_SCALE_COPY 5                    ; gfx/sprscale.asm, at SPR_SCALE_ORG
 bank5_end:
     assert bank5_data_end <= SPR_SCALE_ORG, "bank 5's data has grown into the scaled blitter"

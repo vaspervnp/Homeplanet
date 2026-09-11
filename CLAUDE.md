@@ -5577,8 +5577,12 @@ sheets' own `write_ase`, the same kind of grid (16×16, offset 4,4, padding
 10,10 — the gap under each cell carries a 3×5-font label, outside the sprite),
 same five-colour palette. `tests/test_hudicons.py` holds the checked-in PNG to the
 tool's pictures until the owner repaints it, and keeps every icon one pixel
-inside its cell, which is where the selection frame goes. The icons have no
-home in memory yet; hud2.md §6 says where to look.
+inside its cell, which is where the selection frame goes. **The icons live in
+bank 5**: `tools/hudicons.py import` writes `src/gen/hudicons.asm` (2560
+bytes, no mask) and `src/main.asm` includes it after the harvester library,
+in the 2756 bytes between bank 5's three libraries and the scaled blitter's
+copy that `lib_load` was reading off the disc and throwing away. 196 left
+there; the build prints it. Read them with `bankn_copy`, `A = GA_BANK_5`.
 
 ### The help page
 

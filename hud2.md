@@ -12,7 +12,9 @@
 *"Τα ενεργά squadrons θα φαίνονται γραφικά με τον τίτλο Squadrons και μετά
 μπλε γραμμούλα για τα ενεργά και άσπρη για τα μη ενεργά. Θα φαίνεται μόνο ο
 αριθμός (1 ως 9) και ο αριθμός σκαφών του επιλεγμένου."* *"Το επιλεγμένο
-squadron να ξεχωρίζει με κόκκινο."*
+squadron να ξεχωρίζει με κόκκινο."* *"Πήγαινε τη δεύτερη γραμμή του κάτω hud
+με τα squadrons κλπ στη δεύτερη γραμμή του πάνω hud και τη δεύτερη γραμμή του
+πάνω hud στο κάτω hud."*
 
 *"Το Hull και το Base ποσοστό να είναι γραφικά (progress bars). Να είναι
 στην πρώτη γραμμή του πάνω hud. Να φύγουν από εκεί το κείμενο για τις
@@ -121,20 +123,27 @@ discipline and nothing per frame. `RU nnnn` and `M nn` fit after the two bars
 (40 characters: 4 + 9 + 1 + 4 + 9 + 1 + 11 = 39) and come up here with them,
 because the HUD's bottom half is now the buttons.
 
-**Line 2 is the description**: when a button is selected — not pressed,
-selected — its one-line description appears there **with its key in
-parentheses after it** (*"μαζί με το πλήκτρο του σε παρένθεση"*), for **4
-seconds** (200 ticks on `sys_tick_50hz`, the way the countdown counts), and
-then clears. `CLOSE ON THE TARGET AND FIRE (A)`. The line is forty characters
-and the captions are authored in `tools/hudicons.py` beside the pictures,
-where `tests/test_hudicons.py` holds every one of them inside the forty, in
-the font's own range, with the key on the end; `python3 tools/hudicons.py
-list` prints them and `mockup` draws the screen with one up. A group has no
-key and gets no parentheses. **When no description is up the line carries
-the state** the old bar carried — `PAUSED`, the countdown, the build panel's
-readout — in the inks it had. The words live in bank 7 with the rest of the
-stopped-world text; bank 7 has four bytes free, so a table goes to bank 6
-first (see the `bank7_data_end <= SPR_SCALE_ORG` assert).
+**Line 2 is the fleet: the squadrons, the yard, the way out.** `SQUADRONS`
+in the chrome ink, then **nine marks**, one a squadron, a little vertical
+line each (2 × 7 pixels at an 8-pixel pitch, 72 pixels for the nine): **blue
+for a squadron with ships in it, white for an empty one, and RED for the
+selected one** — the owner's assignment, written down here because it is the
+reverse of the palette's usual "white is the thing" and must not be
+"corrected" — and after them **only the selected squadron's number and its
+ship count**, in white: `2 15`. Nine counts of two digits were 40 bytes of
+the old row; this is 9 + 1 + 9 + 4 characters' worth and tells the player the
+two things they act on — which squadrons exist, and how big the one they are
+about to order is. The marks are `scr_fill_rect`s from `squad_count`, which
+is derived every frame already, so the row repaints on the same
+`phase4_hud_changed` shadow it does now. After them the **yard's readout**
+(`>SCT 4`) and **`JUMP` / `LAND`** at the right in the attention ink. So the
+whole top strip is the state of the fleet, and it is read at a glance in
+three kinds of mark: a bar, a tick, a word.
+
+The **message row's word** (`INCOMING`, `YARD: FRIGATE`, `AUTO RESPONSE ON`)
+and what the old context bar said that was not a key list — `PAUSED`,
+`JUMPING nn ESC CANCEL`, the build panel's class and price and its `ENTER
+BUY` / `NEED MORE RU` — go to the bottom strip's text line, below.
 
 **The playfield shrinks by ten lines** (20..167), and `PROJ_CENTRE_Y` moves to
 `(CTX_BAR_H + HUD_TOP) / 2` = 94, which `src/main.asm` already asserts
@@ -145,47 +154,64 @@ bars.
 
 ## 5. The bottom strip — DECIDED IN OUTLINE
 
-Lines 168..183 are the sixteen buttons; lines 184..199 are one text row.
+Lines 168..183 are the sixteen buttons; lines 184..199 are one text row, and
+it is **the buttons' own line**: when a button is selected — not pressed,
+selected — its one-line description appears there **with its key in
+parentheses after it** (*"μαζί με το πλήκτρο του σε παρένθεση"*), for **4
+seconds** (200 ticks on `sys_tick_50hz`, the way the countdown counts), and
+then clears. `CLOSE ON THE TARGET AND FIRE (A)`. The line is forty
+characters and the captions are authored in `tools/hudicons.py` beside the
+pictures, where `tests/test_hudicons.py` holds every one of them inside the
+forty, in the font's own range, with the key on the end; `python3
+tools/hudicons.py list` prints them and `mockup` draws the screen with one
+up. A group has no key and gets no parentheses. **When no description is up
+the line carries the state** — `PAUSED`, the countdown, the build panel's
+readout, `INCOMING` and the unlock news — in the inks those had. The words
+live in bank 7 with the rest of the stopped-world text; bank 7 has four
+bytes free, so a table goes to bank 6 first (see the `bank7_data_end <=
+SPR_SCALE_ORG` assert). Three rows' worth of text becomes one, so the
+strip's repaint gets cheaper, not dearer.
 
-**The squadron list is graphical.** `SQUADRONS` in the chrome ink, then
-**nine marks**, one a squadron, a little vertical line each (2 × 7 pixels at
-an 8-pixel pitch, 72 pixels for the nine): **blue for a squadron with ships
-in it, white for an empty one, and RED for the selected one** — the owner's
-assignment, written down here because it is the reverse of the palette's
-usual "white is the thing" and must not be "corrected" — and after them **only the selected squadron's
-number and its ship count**, in white: `2 15`. Nine counts of two digits
-were 40 bytes of the old row; this is 9 + 1 + 9 + 4 characters' worth and
-tells the player the two things they act on — which squadrons exist, and how
-big the one they are about to order is. The marks are `scr_fill_rect`s from
-`squad_count`, which is derived every frame already, so the row repaints on
-the same `phase4_hud_changed` shadow it does now.
+## 6. Where the room is — DONE: bank 5
 
-The rest of the row is the **yard's readout** (`>SCT 4`) and **`JUMP` /
-`LAND`** at the right in the attention ink. `HULL`, `BASE`, `RU` and `M`
-have gone up to line 1, and the **message row's word** (`INCOMING`, `YARD:
-FRIGATE`, `AUTO RESPONSE ON`) goes to the top strip's line 2, where the
-state lives when no description is up — it is news, and news is what that
-line is for. Three rows' worth of text becomes one, so the strip's repaint
-gets cheaper, not dearer.
+The icons are **2560 bytes** — forty of them at 64: sixteen rows of four
+Mode 1 bytes, encoded by `rt2sprite.encode_mode1_byte` exactly as a sprite's
+data is, and **no mask**, because a button is drawn onto the black of the
+HUD's strip. `tools/hudicons.py import` writes `src/gen/hudicons.asm` off the
+PNG (the Makefile runs it when the PNG or the tool changes), with `hud_icons`
+and an `ICON_<NAME>` index per icon, and `src/main.asm` includes it in
+**bank 5**.
 
-## 6. Where the room is
+**Bank 5 was the one bank with room, and the room was already being read.**
+Banks 5, 6 and 7 all print 16378 of 16384 because the scaled blitter's copy
+sits at `SPR_SCALE_ORG` (`#7D64`) and ends at the top; what that figure
+hides is the gap between each bank's DATA and that origin. Bank 7's data
+ended at `#7D60`, four bytes short; bank 6's at `#7948`, 1052 bytes; bank
+5's — three libraries and nothing else — at `#72A0`, **2756 bytes** that
+`lib_load` reads off the disc every boot and nothing ever looked at. Lever 1
+of CLAUDE.md's four, exactly. It ends at `#7CA0` now, **196 bytes** before
+the blitter, and the existing `bank5_data_end <= SPR_SCALE_ORG` assert is
+the guard; the build prints the figure.
 
-The bar is bank-4 code by the narrow rule (it repaints only when the
-selection moves, with the window at rest), and bank 4's window is at 24
-bytes. The icons are 40 × 128 bytes = 5 KB of sprite data with no home:
-bank 7 is full, banks 5 and 6 are full to the byte with the scaled blitter's
-copies. The candidates, in the order to try them:
+**How the bar will read them.** An icon is drawn with the window at rest
+(the bar repaints only when the selection moves), so the draw code is bank 4
+and the icon comes down through `bankn_copy` with `A = GA_BANK_5` — 64
+bytes into the save block's pad, which has 135 bytes left after
+`fleet_pad_end` — and is written into both buffers' strips from there: four
+bytes a row, sixteen rows, `TXT_ROW_STRIDE` apart, no mask and no shift,
+because the buttons sit on byte columns (x = 4 + 20·i is byte 5·i + 1). The
+two frame cells overlay an icon the same way, pen 0 skipped. Nothing new in
+the low 16K, which is at its page edge.
 
-1. **A fourth track's worth of sectors is already read** — `LIB_SECTORS` 32
-   fills the 16 KB window exactly, so no.
-2. **Drop the scaled blitter's copy from ONE bank** and route that bank's
+`tests/test_hudicons.TestTheIconsAreInBank5` reads `build/bank5.raw` at the
+symbol file's `HUD_ICONS` and compares every icon with the sheet encoded in
+Python; `test_shipclass`'s content test already says the machine's bank 5 is
+`bank5.raw`.
+
+The other candidates, kept for the day 196 bytes is not enough:
+
+1. **Drop the scaled blitter's copy from ONE bank** and route that bank's
    scaled blits through another — costs a page flip per scaled sprite, only
-   in the cockpit and at the innermost zooms.
-3. **Icons as 1bpp masks** (one plane, 32 bytes each, 1.3 KB for forty) drawn
-   through `txt_draw`'s pen machinery: white icons only, blue and red painted
-   as a second overlay where an icon needs them. Cheapest by far, and the
-   pictures above are mostly one ink.
-4. **A ninth bank does not exist** on a 6128.
-
-Option 3 is the one to measure first: it fits the low 16K's slack if the
-draw code is bank 4 and the masks are bank 6 behind `bank6_copy`.
+   in the cockpit and at the innermost zooms. About 660 bytes.
+2. **Bank 6** has 1052 spare, for the words and tables the bar will want.
+3. **A ninth bank does not exist** on a 6128.

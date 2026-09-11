@@ -27,6 +27,7 @@ BUILD_DIR := build
 SHIP_CLASSES := interceptor frigate mothership harvester scout bomber \
                 salvage destroyer
 SPRITES := $(patsubst %,$(GEN_DIR)/spr_%.asm,$(SHIP_CLASSES))
+HUD_ICONS := $(GEN_DIR)/hudicons.asm
 
 MAIN   := $(SRC_DIR)/main.asm
 DISC   := $(SRC_DIR)/disc.asm
@@ -109,7 +110,7 @@ all: $(BANKED)
 # and fails on the first `make clean` with "File to include was not found" --
 # which is how it was found. Same lesson as the $(MUSIC_BIN) note below, one
 # step further in: a dependency that is only true after a clean is still true.
-$(GAME_RAW) $(SPRITE_RAW) $(LIB_RAW) $(SYM) &: $(ASM_SOURCES) $(TABLES) $(SPRITES) $(MUSIC_GEN) | $(BUILD_DIR)
+$(GAME_RAW) $(SPRITE_RAW) $(LIB_RAW) $(SYM) &: $(ASM_SOURCES) $(TABLES) $(SPRITES) $(MUSIC_GEN) $(HUD_ICONS) | $(BUILD_DIR)
 	$(RASM) $(MAIN) $(RASMFLAGS) -s -sa -ec -os $(SYM)
 	rm -f rasmoutput.cpr
 
@@ -125,7 +126,7 @@ $(GAME_LZ): $(GAME_RAW) tools/lzpack.py
 # ...and the same two steps again for MINI.BIN. The mini build's bank 5-7
 # images would be identical to the game's, so it does not write them; the
 # game's copies are what discbanks.py puts on the disc.
-$(MINI_RAW) $(MINI_SPRITE_RAW) $(MINI_SYM) &: $(ASM_SOURCES) $(TABLES) $(SPRITES) $(MUSIC_GEN) | $(MINI_DIR)
+$(MINI_RAW) $(MINI_SPRITE_RAW) $(MINI_SYM) &: $(ASM_SOURCES) $(TABLES) $(SPRITES) $(MUSIC_GEN) $(HUD_ICONS) | $(MINI_DIR)
 	$(RASM) $(MINI_MAIN) $(RASMFLAGS) -s -sa -ec -os $(MINI_SYM)
 	rm -f rasmoutput.cpr
 
@@ -135,7 +136,7 @@ $(MINI_SPRITE_LZ): $(MINI_SPRITE_RAW) tools/lzpack.py
 $(MINI_GAME_LZ): $(MINI_RAW) tools/lzpack.py
 	$(PYTHON) tools/lzpack.py $(MINI_RAW) $(MINI_GAME_LZ)
 
-$(MINI2_RAW) $(MINI2_SPRITE_RAW) $(MINI2_SYM) &: $(ASM_SOURCES) $(TABLES) $(SPRITES) $(MUSIC_GEN) | $(MINI2_DIR)
+$(MINI2_RAW) $(MINI2_SPRITE_RAW) $(MINI2_SYM) &: $(ASM_SOURCES) $(TABLES) $(SPRITES) $(MUSIC_GEN) $(HUD_ICONS) | $(MINI2_DIR)
 	$(RASM) $(MINI2_MAIN) $(RASMFLAGS) -s -sa -ec -os $(MINI2_SYM)
 	rm -f rasmoutput.cpr
 
@@ -224,6 +225,10 @@ else
 $(GEN_DIR)/spr_%.asm: art/%.retrotools.json tools/rt2sprite.py
 	$(PYTHON) tools/rt2sprite.py $< --out $@
 endif
+
+# The HUD's button icons, off the sheet the owner repaints (hud2.md). Bank 5.
+$(HUD_ICONS): art/hudicons.png tools/hudicons.py tools/spritemap.py tools/rt2sprite.py
+	$(PYTHON) tools/hudicons.py import
 
 # Ship sprites. Not part of `all`: the projects in art/ are checked in, and
 # re-rendering them is something you do when you have changed a model, not
