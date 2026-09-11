@@ -50,9 +50,10 @@
 ;  it cannot do is call key_inject or key_clear, which are bank 4, so it
 ;  carries its own two-instruction copies of their bit arithmetic.
 ;
-;  DRAWING. An icon is sixty-four bytes in bank 5 and the only RAM outside
-;  the window is the low 16K, so it comes down in two halves of thirty-two
-;  through bank7_line and goes onto the screen a row at a time. The bar is
+;  DRAWING. An icon is fifty-six bytes in bank 5 -- fourteen rows, the cell's
+;  top and bottom rows being the frame's blank margin -- and the only RAM
+;  outside the window is the low 16K, so it comes down in two halves of
+;  twenty-eight through bank7_line and goes onto the screen a row at a time. The bar is
 ;  repainted only when the selection or the group changes -- and whenever
 ;  hud_draw is repainting the strips (phase4_hud_dirty), because that is when
 ;  a page wipe has taken the row away. Twice, once into each buffer.
@@ -84,10 +85,13 @@ KEY_JOY_FIRE1       equ 9*8 + 5
 ;  Uses: everything
 ; ----------------------------------------------------------------------------
 bar_update:
-    ld a,(disc_active)
-    ld hl,pan_active
+    ;  An edge the orders menu planted this frame is a command already chosen,
+    ;  not a press of ours: the ENTER that picked MOVE DISC must open the disc
+    ;  and not press whatever the frame is on.
+    ld a,(key_injected)
+    ld hl,disc_active
     or (hl)
-    ld hl,eco_build_open                ; ENTER is the yard's while the panel is up
+    ld hl,pan_active
     or (hl)
     ret nz
     ld a,(pilot_slot)
@@ -127,6 +131,13 @@ bar_update:
     call bar_show
 @bar_no_right:
 
+    ;  With the build panel up the arrows still walk the bar -- "τα βελάκια
+    ;  δεξιά αριστερά και η επιλογή κουμπιών να έχουν απόλυτη προτεραιότητα"
+    ;  -- but ENTER is the panel's (it buys) and so is ESC (it shuts it).
+    ld a,(eco_build_open)
+    or a
+    ret nz
+
     ;  ESC closes an open group -- and is taken out of the frame, or the
     ;  orders menu would open on top of it. With no group open it is the
     ;  menu's, as everywhere else.
@@ -141,6 +152,46 @@ bar_update:
     call bar_key_clear
 @bar_no_esc:
 
+    ;  A KEY THAT IS A VISIBLE BUTTON SELECTS IT -- "όταν πατάω ένα πλήκτρο
+    ;  που αντιστοιχεί σε ορατό κουμπί, να επιλέγεται το κουμπι και να
+    ;  εκτελείται η εντολή". The command runs as it always did, because the
+    ;  key is left in the snapshot for phase4_commands; this only moves the
+    ;  frame onto the button, which puts its caption up. ENTER is skipped:
+    ;  it is the bar's own press and MOVE's key both, and a bare ENTER means
+    ;  "press what the frame is on". A key whose button is in a closed group
+    ;  moves nothing.
+    call bar_list
+    ld c,0
+@bar_scan:
+    push bc
+    push hl
+    ld a,(hl)
+    ld l,a
+    ld h,0
+    ld de,hud_icon_key
+    add hl,de
+    ld a,(hl)
+    or a
+    jr z,@bar_scan_next
+    cp KEY_ENTER
+    jr z,@bar_scan_next
+    call key_hit
+    jr c,@bar_scan_hit
+@bar_scan_next:
+    pop hl
+    pop bc
+    inc hl
+    inc c
+    djnz @bar_scan
+    jr @bar_enter
+@bar_scan_hit:
+    pop hl
+    pop bc
+    ld a,c
+    ld (bar_sel),a
+    call bar_show
+
+@bar_enter:
     ld a,KEY_ENTER
     ld c,KEY_JOY_FIRE1
     call bar_hit2
@@ -587,7 +638,7 @@ bar_draw_frame:
     call scr_fill_rect
     ld a,(bar_x)
     ld b,a
-    ld c,HUD_BTN_Y + HUD_ICON_ROWS - 1
+    ld c,HUD_BTN_Y + HUD_BTN_H - 1
     ld d,HUD_ICON_W_BYTES
     ld e,1
     ld a,SOLID_INK_2
@@ -602,14 +653,14 @@ bar_draw_frame:
     add hl,hl                           ; the pixel column
     push hl
     ld c,HUD_BTN_Y
-    ld b,HUD_ICON_ROWS
+    ld b,HUD_BTN_H
     ld a,PEN_BLUE
     call gfx_vline
     pop hl
     ld de,HUD_ICON_W_BYTES * 4 - 1
     add hl,de
     ld c,HUD_BTN_Y
-    ld b,HUD_ICON_ROWS
+    ld b,HUD_BTN_H
     ld a,PEN_BLUE
     call gfx_vline
     ld a,HUD_TOP
@@ -628,20 +679,23 @@ bar_draw_frame:
 ;  just past the half it copied, which is where the next one starts.
 ; ----------------------------------------------------------------------------
 bar_draw_icon:
-    ld (bar_x),a                        ; (A is the icon for a moment)
     ld l,a
     ld h,0
     add hl,hl
     add hl,hl
+    add hl,hl                           ; * 8
+    ld e,l
+    ld d,h
     add hl,hl
     add hl,hl
-    add hl,hl
-    add hl,hl                           ; * HUD_ICON_BYTES (64)
+    add hl,hl                           ; * 64...
+    or a
+    sbc hl,de                           ; ...- 8 = * HUD_ICON_BYTES (56: fourteen rows)
     ld de,hud_icons
     add hl,de                           ; the source, in bank 5
     ld a,b
     ld (bar_x),a
-    ld c,HUD_BTN_Y
+    ld c,HUD_BTN_Y + 1                  ; the cell's first row is the frame's margin
     call @bdi_half
     ;  ...and the second half: HL and C have moved on
 @bdi_half:
@@ -653,7 +707,7 @@ bar_draw_icon:
     pop bc
     push hl                             ; the source, for the second half
     ld hl,bank7_line
-    ld b,BAR_HALF / HUD_ICON_W_BYTES    ; eight rows
+    ld b,BAR_HALF / HUD_ICON_W_BYTES    ; seven rows
 @bdi_row:
     push bc
     push hl

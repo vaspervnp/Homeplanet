@@ -141,9 +141,8 @@ CTX_BUY_FLEET       equ 3               ; the fleet's own slots are all spoken f
 ctx_bar:
     ;  The button bar first: it paints its row when it has changed, and it
     ;  runs from bank 6 (game/hudbar.asm) through the low 16K's trampoline.
-    ld a,GA_BANK_6
     ld ix,bar_frame
-    call bankn_call
+    call bank6_call
     call ctx_changed
     ld hl,ctx_dirty
     ld a,(hl)
@@ -307,8 +306,13 @@ ctx_static:
 ;  button presses its key by planting the edge for the commands to find.
 ; ----------------------------------------------------------------------------
 bar_hook:
-    ld a,GA_BANK_6
     ld ix,bar_update
+    ;  ...and fall into bank6_call
+
+;  bank6_call -- IX in bank 6, through the trampoline: the four sites that
+;  reach the bar share the two bytes of "which bank".
+bank6_call:
+    ld a,GA_BANK_6
     jp bankn_call
 
 

@@ -537,7 +537,7 @@ bank4_start:
 ;  upwards is ordinary executable RAM -- and this is code that runs once,
 ;  before the first mission, so it has no business competing for the low 16K
 ;  that everything in the frame loop has to share.
-    include "gfx/bigtext.asm"
+    ;  (gfx/bigtext.asm -- txt_big -- runs from BANK 5 now, through bankn_call)
     include "game/help.asm"
     include "game/menu.asm"
     include "game/title.asm"
@@ -1000,9 +1000,6 @@ jfx_fh:             defb 0
 jfx_sy:             defb 0
 jfx_spr_h:          defb 0
 jfx_half_h:         defb 0
-txt_big_glyph:      defw 0
-txt_big_rows:       defb 0
-txt_big_reps:       defb 0
 scan_i:             defb 0              ; the oval's column, 0..SCAN_RX
 scan_prev:          defb 0              ; ...the last column's half height
 scan_hy:            defb 0              ; ...and this one's
@@ -1176,6 +1173,8 @@ bank5_start:
 ;  blitter's copy were being read off the disc every boot and thrown away.
 ;  Lever 1 exactly. bank5_data_end <= SPR_SCALE_ORG below is the guard.
     include "gen/hudicons.asm"
+    include "gfx/bigtext.asm"           ; txt_big: CODE, run from this bank through bankn_call
+    include "game/hudmarks.asm"         ; the squadron marks and their alarm: CODE, the same way
     include "game/bank5data.asm"        ; tut_table, order_home, the fire table, the scanner's oval:
                                         ;  read once each through bankn_copy, out of bank 6 until
                                         ;  the button bar needed the room there
@@ -1216,13 +1215,15 @@ bank6_start:
 ;  bank6_copy. Two hundred and thirty-five bytes of DISC.BIN for five.
     include "gen/zoom.asm"
     include "gen/mus_menu.asm"          ; the tune's three streams and its periods: mus_peek copies them out
+    include "game/bank6data.asm"        ; the title's ship table, read once a title frame through bank6_copy
     include "game/hudbar.asm"           ; the button bar: CODE, run from this bank through bankn_call
 bank6_data_end:
     print "bank 6 data ends at", {hex}bank6_data_end, " free before the scaled blitter:", SPR_SCALE_ORG - bank6_data_end
     assert bar_top_icons_end - bar_top_icons == BAR_SLOTS, "the bar's top row is not BAR_SLOTS icons"
     assert BAR_X0 + (BAR_SLOTS - 1) * BAR_PITCH + HUD_ICON_W_BYTES <= SCR_BYTES_PER_LINE, "the button row runs off the screen"
-    assert HUD_ICON_ROWS == HUD_BTN_H, "the icons are not the height of the button row"
+    assert HUD_ICON_ROWS + 2 == HUD_BTN_H, "the icons plus the frame's two rows are not the height of the button row"
     assert BAR_HALF <= B7_BUF_SIZE, "half an icon does not fit bank7_line"
+    assert TITLE_SHIPS * 8 <= B7_BUF_SIZE, "the title's ship table does not fit bank7_line"
     SPR_SCALE_COPY 6
 bank6_end:
     assert bank6_data_end <= SPR_SCALE_ORG, "bank 6's data has grown into the scaled blitter"

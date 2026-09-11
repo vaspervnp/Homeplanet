@@ -425,11 +425,16 @@ class TestTheBanks(ClassFixture):
             self.page_in(bank)
             got = bytearray(h.read_cpu(self.c, BANK_WINDOW, len(want)))
             want = bytearray(want)
-            if name == "bank6":
-                #  The button bar RUNS from bank 6 and keeps its state there
-                #  (game/hudbar.asm): bar_sel..bar_x move the moment the game
-                #  draws. Those bytes are RAM by design; the rest is the disc's.
-                lo, hi = self.sym["BAR_SEL"] - BANK_WINDOW, self.sym["BAR_X"] + 1 - BANK_WINDOW
+            #  Two banks hold CODE now, and code has state: the button bar's in
+            #  bank 6 (bar_sel..bar_x, game/hudbar.asm) and txt_big's three
+            #  bytes of scratch in bank 5 (gfx/bigtext.asm), which the title
+            #  screen has already written by the time this reads. Those bytes
+            #  are RAM by design; the rest is the disc's.
+            live = {"bank6": [("BAR_SEL", "BAR_X")],
+                    "bank5": [("TXT_BIG_GLYPH", "TXT_BIG_REPS"), ("HUD_MARK_PEN", "HUD_MARK_Y")]}
+            for first, last in live.get(name, []):
+                lo = self.sym[first] - BANK_WINDOW
+                hi = self.sym[last] + 1 - BANK_WINDOW
                 got[lo:hi] = want[lo:hi] = bytes(hi - lo)
             self.assertEqual(bytes(got), bytes(want), f"{name} is not what was written")
 

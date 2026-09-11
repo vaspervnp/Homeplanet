@@ -1135,7 +1135,14 @@ class TestASquadronShotAtShootsBack(CombatFixture):
                 break
         else:
             self.fail("the squadron never killed the one ship that shot it")
-        self.c.run_frames(40)
+        #  POLLED, not counted: the order is spent the frame a gun comes round
+        #  and finds nothing, and forty emulator frames stopped being enough the
+        #  day the squadron alarm's end repaints the strip. "Wait for the
+        #  thing, do not count frames."
+        for _ in range(60):
+            if all(self.order_of(s) == ENT_ORDER_NONE for s in range(4)):
+                break
+            self.c.run_frames(10)
         self.assertEqual([self.order_of(s) for s in range(4)], [ENT_ORDER_NONE] * 4,
                          "the retaliation order outlived its target")
 

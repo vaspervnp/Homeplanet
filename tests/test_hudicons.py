@@ -119,7 +119,7 @@ class TestTheIconsAreInBank5(unittest.TestCase):
         base = sym["HUD_ICONS"] - 0x4000
         raw = open(os.path.join(ROOT, "build", "bank5.raw"), "rb").read()
         pics = hudicons.read(hudicons.PNG)
-        banked = [i for i in hudicons.ICONS if not i[0].startswith("frame")]
+        banked = hudicons.BANKED
         for i, (name, _, _, _, _, _) in enumerate(banked):
             want = bytes(hudicons.encode(pics[name]))
             got = raw[base + i * hudicons.ICON_BYTES:base + (i + 1) * hudicons.ICON_BYTES]
@@ -131,11 +131,16 @@ class TestTheIconsAreInBank5(unittest.TestCase):
 
     def test_a_pen_lands_in_the_plane_the_blitter_expects(self):
         """Pen 1 is the high nibble, pen 2 the low, pen 3 both; NOT DRAWN is
-        black. The frame cell is the sharpest case: a blue row is #0F,#0F,#0F,#0F."""
+        black. The frame cell is the sharpest case -- and the encoding is rows
+        1..14 of the cell, so its first row is the frame's SIDES: a blue
+        leftmost pixel and a blue rightmost one."""
         pics = hudicons.pictures()
-        self.assertEqual(hudicons.encode(pics["frame"])[:4], [0x0F, 0x0F, 0x0F, 0x0F])
-        self.assertEqual(hudicons.encode(pics["frame_hot"])[:4], [0xF0, 0xF0, 0xF0, 0xF0])
-        self.assertEqual(hudicons.encode(pics["frame"])[4:8], [0x08, 0x00, 0x00, 0x01])
+        self.assertEqual(len(hudicons.encode(pics["frame"])), 14 * 4)
+        self.assertEqual(hudicons.encode(pics["frame"])[:4], [0x08, 0x00, 0x00, 0x01])
+        self.assertEqual(hudicons.encode(pics["frame_hot"])[:4], [0x80, 0x00, 0x00, 0x10])
+        #  ...and MENU's third cell row, ..WWWWWWWWWWWW.., as pen 1: the two
+        #  outer bytes half lit in the high nibble, the inner two full.
+        self.assertEqual(hudicons.encode(pics["menu"])[8:12], [0x30, 0xF0, 0xF0, 0xC0])
 
 
 if __name__ == "__main__":

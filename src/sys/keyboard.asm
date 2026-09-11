@@ -274,6 +274,8 @@ key_scan:
 ;  the end of this one would throw it away unseen.
 ; ----------------------------------------------------------------------------
 key_consume:
+    xor a
+    ld (key_injected),a                 ; a new frame: nothing planted yet
     di
     ld hl,key_edge
     ld de,key_hits
@@ -395,6 +397,7 @@ key_digit:
 ;  interrupt you are on. key_scan owns key_edge; everything else -- key_hit,
 ;  key_clear, key_inject -- works on key_hits.
 key_state:          defs KEY_ROWS, 0    ; held now, as of the last 50 Hz scan
+key_injected:       defb 0              ; key_inject planted an edge this frame (the bar asks)
 key_edge:           defs KEY_ROWS, 0    ; edges accumulated since key_consume
 key_hits:           defs KEY_ROWS, 0    ; this frame's snapshot of key_edge
 

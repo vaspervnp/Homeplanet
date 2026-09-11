@@ -147,7 +147,9 @@ title_draw:
     call bank7_fetch                    ; bank 7: title_words[0]
     ld hl,bank7_line
     ld c,TITLE_Y
-    call txt_big
+    ld ix,txt_big                       ; bank 5, through the trampoline
+    ld a,GA_BANK_5
+    call bankn_call
 
     ;  One call a game frame. It writes no PSG register -- it fills the three
     ;  voice blocks and lets snd_update do what it already does -- and it
@@ -802,6 +804,9 @@ title_planet_dot:
 ;  Uses: everything
 ; ----------------------------------------------------------------------------
 title_draw_ships:
+    ld a,(lib_ok)
+    or a
+    ret z                               ; no disc: the table (bank 6) and the art are not there
     ;  Open the clip to the whole screen so the flight can sit anywhere, and
     ;  put it BACK before returning. Restoring it in title_key instead does
     ;  not work: title_key only clears the flag, and the frame loop goes on
@@ -815,7 +820,11 @@ title_draw_ships:
     ld (spr_clip_top),a                 ; ...both ends, and both put back below
     ld (spr_enemy),a
 
-    ld hl,title_ship_table
+    ld hl,title_ship_table              ; bank 6: down into bank7_line first
+    ld de,bank7_line
+    ld bc,TITLE_SHIPS * 8
+    call bank6_copy
+    ld hl,bank7_line
     ld a,TITLE_SHIPS
     ld (title_left),a
 

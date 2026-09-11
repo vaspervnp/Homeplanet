@@ -308,6 +308,10 @@ key_clear:
 ; ----------------------------------------------------------------------------
 key_inject:
     push af
+    ld a,1
+    ld (key_injected),a                 ; ...so the button bar leaves this frame's edges alone
+    pop af
+    push af
     rrca
     rrca
     rrca

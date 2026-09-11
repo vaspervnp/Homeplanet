@@ -5593,7 +5593,12 @@ context line at `HUD_TEXT_Y` 184, the selected button's caption at
 walks it and fires it too. The tutorial has the bar live, put at rest by
 `bar_reset` on entry and at the move-disc step, and a nineteenth step for
 it. Its state is bank-6 RAM: tests read it with `harness.read_bank`, never
-`read_bank4`.
+`read_bank4`. A squadron's mark carries its number in a 4×7 black digit and
+blinks while it is shot at (`hud_alarm`, `hud_marks`, `hud_alarm_frame`, all
+in `game/hudmarks.asm`, BANK 5, reached through `bankn_call`; the icons are
+stored as fourteen rows to make its room); `txt_big` runs from bank 5 and the title's
+ship table is in bank 6 to pay for it, so `TITLE_SHIP_TABLE` is read off
+`bank6.raw` and `TXT_BIG_*`'s scratch is masked out of bank 5's comparison.
 
 `hud2.md` is the plan: sixteen-pixel button icons along the bottom strip,
 some of them groups; the top strip two lines, the second carrying a selected

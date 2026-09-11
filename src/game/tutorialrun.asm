@@ -111,9 +111,7 @@ tut_enter:
     ;  ...and the button bar at rest -- frame on MOVE, no group -- because
     ;  step 8 says "ENTER ARROWS ENTER TO MOVE IT", which is true of ENTER
     ;  at rest and of nothing else. Bank 6, through the trampoline.
-    ld a,GA_BANK_6
-    ld ix,bar_reset
-    call bankn_call
+    call tut_a_bar_rest
     xor a
     ld (tut_step),a
     ld (tut_flags),a
@@ -365,9 +363,8 @@ tut_g_look:
 ;  after the frame moves, and not before, because tut_enter put the bar at
 ;  rest. Asked of bank 6 through the trampoline; the answer comes back in L.
 tut_g_bar:
-    ld a,GA_BANK_6
     ld ix,bar_tick_get
-    call bankn_call
+    call bank6_call
     ld a,l                              ; the tick the frame last moved at
     ld hl,tut_fresh
     bit 0,(hl)
@@ -387,9 +384,8 @@ tut_g_bar:
 ;  ARROWS ENTER TO MOVE IT" is true the moment the line goes up -- the frame
 ;  is wherever step 2 left it, and ENTER presses what the frame is on.
 tut_a_bar_rest:
-    ld a,GA_BANK_6
     ld ix,bar_reset
-    jp bankn_call
+    jp bank6_call
 
 
 ;  --- 3. Z and X zoom, and the step has to move BOTH ways ---------------------

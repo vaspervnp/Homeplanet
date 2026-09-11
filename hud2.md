@@ -131,6 +131,42 @@ with the code, like the chase's; tests read it with `harness.read_bank`,
 which parks the machine in `scr_wait_vsync`, copies the bytes down and jumps
 back in. `tests/test_hudbar.py` reads the row and the frame off the pixels.
 
+**A key that is a visible button selects it** (*"όταν πατάω ένα πλήκτρο που
+αντιστοιχεί σε ορατό κουμπί, να επιλέγεται το κουμπί και να εκτελείται η
+εντολή"*): `bar_update` scans the row showing for a key hit this frame and
+moves the frame onto that button — its caption comes up — leaving the key in
+the snapshot so the command runs as it always did. ENTER is skipped (it is
+the bar's own press and MOVE's key), and a key whose button is inside a
+closed group moves nothing. **The arrows walk the bar with the build panel
+open too** (*"τα βελάκια δεξιά αριστερά και η επιλογή κουμπιών να έχουν
+απόλυτη προτεραιότητα"*); ENTER and ESC stay the panel's there. The move
+disc, the pan and the cockpit keep the arrows, because for them the arrows
+are the tool itself.
+
+**Each mark carries its number** (*"οι γραμμές των squadron να έχουν μέσα
+τον αριθμό με μαύρο από 1 ως 9, με μισού πλάτους γράμματα"*): a 4×7 digit
+font in `game/hudmarks.asm` (`hud_digits`, one nibble a row), cut out of the
+mark's byte in black — both planes cleared where the digit is set, which is
+the whole font engine. The marks and their alarm run from **bank 5**, like
+`txt_big`; the room is the icons', stored as fourteen rows now because a
+cell's top and bottom rows are the frame's blank margin by the sheet's own
+rule (296 bytes back).
+
+**The squadron under attack blinks** (*"να αναβοσβήνει η γραμμή του
+squadron που δέχεται επίθεση"*): `cbt_retaliate`, which every hit already
+reaches, flags the target's squadron in `hud_alarm` (a byte a squadron, low
+16K) and restarts `hud_alarm_left`; while that runs, `hud_alarm_frame` (from
+`wave_draw`) redraws the nine marks into the back buffer every frame with
+the tick's phase — bit 4 of `sys_tick_50hz`, sixteen ticks on, sixteen off
+— blanking the flagged ones on the off phase, and when it runs out clears
+the flags and marks the strip dirty so both buffers settle. `hud_marks` (bank
+4, in `game/wavesdraw.asm`) is the marks' one loop, called by `hud_draw` with
+the phase on. The room: `txt_big` runs from bank 5 now (the ORBIT icon left
+the bank to make its 112 bytes), the title's ship table is in bank 6 and
+comes down into `bank7_line` each title frame, `bank6_call` shares the
+trampoline's bank byte, and the hit's arithmetic is computed once for the
+alarm and the auto response.
+
 **The joystick walks it too** (*"τα κουμπιά να επιλέγονται και με
 joystick"*): joystick 1 is row 9 of the matrix, which `key_scan` reads with
 the rest, so the stick's left and right are two more key ids beside the

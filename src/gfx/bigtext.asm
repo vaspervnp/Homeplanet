@@ -15,10 +15,8 @@
 ;  low one, exactly as txt_draw_char explains at greater length.
 ; ----------------------------------------------------------------------------
 
-TXT_BIG_SCALE       equ 4
-TXT_BIG_W_BYTES     equ 8               ; one glyph: 8 source pixels, 4x
-TXT_BIG_H           equ TXT_CHAR_H * TXT_BIG_SCALE
-TXT_BIG_INK         equ #F0             ; four pixels of pen 1
+;  (TXT_BIG_SCALE, TXT_BIG_W_BYTES, TXT_BIG_H and TXT_BIG_INK are in gfx/text.asm,
+;  which the low 16K includes before main.asm's layout asserts read them.)
 
 
 ; ----------------------------------------------------------------------------
@@ -26,7 +24,16 @@ TXT_BIG_INK         equ #F0             ; four pixels of pen 1
 ;  In : A = a SOLID_INK_* byte
 ;  Uses: AF
 ; ----------------------------------------------------------------------------
+;  IN BANK 5 NOW, reached through bankn_call (sys/libload.asm) from the title
+;  screen and the two endings, which is why the ink comes in C and not A --
+;  the trampoline needs A for the bank -- and why the three bytes of scratch
+;  are declared here rather than in the save block's pad: the pad is bank 4's
+;  window, and with bank 5 paged in a store to it would land on the icons.
+;  Both callers hand it a string in bank7_line, which is the low 16K. It
+;  calls nothing but scr_line_addr and reads nothing but txt_font, both low.
+;  Moved for the room: the squadron alarm needed a hundred bytes of bank 4.
 txt_big_set_ink:
+    ld a,c
     ld (@txt_big_ink),a
     ret
 
@@ -151,3 +158,7 @@ txt_big_char:
 ; ============================================================================
 ;  (txt_big_glyph, txt_big_rows and txt_big_reps -- the glyph being drawn --
 ;  are after bank4_end in src/main.asm; written before they are read.)
+
+txt_big_glyph:      defw 0
+txt_big_rows:       defb 0
+txt_big_reps:       defb 0

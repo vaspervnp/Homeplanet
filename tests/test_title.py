@@ -315,13 +315,16 @@ class TestThePlanet(TitleFixture):
         self.assertGreater(looked, 200, "the night side was never sampled")
 
     def ship_boxes(self):
-        """Where the flight is, out of title_ship_table in bank 4.
+        """Where the flight is, out of title_ship_table -- in bank 6 now, so
+        off build/bank6.raw, what the build put on the disc.
 
         Eight bytes an entry: x in BYTE columns as a signed word, y, the
         sprite, its width in bytes, its height, and its bank.
         """
         n = self.sym["TITLE_SHIPS"]
-        raw = self.banked("TITLE_SHIP_TABLE", n * 8)
+        with open("build/bank6.raw", "rb") as f:
+            off = self.sym["TITLE_SHIP_TABLE"] - 0x4000
+            raw = f.read()[off:off + n * 8]
         out = []
         for i in range(n):
             e = raw[i * 8:i * 8 + 8]

@@ -43,6 +43,9 @@ wave_draw:
     call pilot_reticle                  ; ...and the reticle, while a ship is flown
     call pilot_scanner                  ; ...and the scanner beside it
     call wave_marker                    ; ...and where INCOMING is coming from
+    ld ix,hud_alarm_frame               ; ...and the squadron alarm's blink, EVERY frame:
+    ld a,GA_BANK_5                      ; bank 5, game/hudmarks.asm
+    call bankn_call
 
     call wave_changed
     ld hl,wave_dirty

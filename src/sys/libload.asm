@@ -342,8 +342,8 @@ bankn_copy:
 ; ----------------------------------------------------------------------------
 ;  bankn_call -- run a routine that lives in an extended bank, from bank 4
 ;  In : A = the bank's GA value, IX = the routine
-;  Out: whatever the routine leaves in DE, HL and the flags
-;  Uses: AF, BC (and whatever the routine uses)
+;  Out: whatever the routine leaves in BC, DE, HL and the flags
+;  Uses: AF (and whatever the routine uses)
 ;
 ;  chase_run's shape made general: the OUT happens with the CPU down here,
 ;  and bank 4 is back before the RET reaches a return address that is in it.
@@ -355,13 +355,28 @@ bankn_copy:
 ;  is clobbered on the way out, so an answer comes back in L.
 ; ----------------------------------------------------------------------------
 bankn_call:
+    ;  WITHOUT A DISC the banks hold whatever powered up: nothing here may
+    ;  run. L = 0 is every caller's "nothing" (the bar's state, the gate).
+    push af
+    ld a,(lib_ok)
+    or a
+    jr nz,@bankn_ok
+    pop af
+    ld l,0
+    ret
+@bankn_ok:
+    pop af
     ld (bank_home),a
+    push bc                             ; BC carries the routine's arguments
     ld b,GA_PORT
     ld c,a
     out (c),c
+    pop bc
     call @bankn_go
+    push bc
     ld bc,GA_PORT * 256 + GA_BANK_4
     out (c),c
+    pop bc
     ld a,GA_BANK_4
     ld (bank_home),a
     ret

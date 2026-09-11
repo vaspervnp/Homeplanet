@@ -206,8 +206,10 @@ over_draw:
     ld d,(hl)
     inc hl
     inc hl                              ; past the x, re-read below
-    ld a,(hl)                           ; ...and its ink
-    call txt_big_set_ink
+    ld c,(hl)                           ; ...and its ink: txt_big is bank 5, C carries it
+    ld ix,txt_big_set_ink
+    ld a,GA_BANK_5
+    call bankn_call
 
     ex de,hl                            ; HL = the title, in bank 7
     xor a
@@ -220,9 +222,13 @@ over_draw:
     ld b,(hl)                           ; its x
     ld hl,bank7_line
     ld c,OVER_TITLE_Y
-    call txt_big_at
-    ld a,TXT_BIG_INK
-    call txt_big_set_ink
+    ld ix,txt_big_at
+    ld a,GA_BANK_5
+    call bankn_call
+    ld c,TXT_BIG_INK                    ; ...and the ink put back
+    ld ix,txt_big_set_ink
+    ld a,GA_BANK_5
+    call bankn_call
 
     ;  The three lines. Their strings are back to back after the title, so the
     ;  walk is the cursor bank7_fetch hands back -- exactly what stops the help

@@ -49,31 +49,7 @@ TITLE_CONT_X        equ 9               ; the saved-campaign key line, 31 charac
 ;  THE FOUR STRINGS ARE IN BANK 7 -- title_words in game/screentext.asm, fetched
 ;  a line at a time by title_draw through bank7_fetch. Only their columns stay.
 
-title_ship_table:
-    defw   36
-    defb  104
-    defw  frigate_c
-    defb  FRIGATE_C_W_BYTES, FRIGATE_C_H
-    defb  GA_BANK_6
-    defw   18
-    defb   92
-    defw  interceptor_c
-    defb  INTERCEPTOR_C_W_BYTES, INTERCEPTOR_C_H
-    defb  GA_BANK_7
-    defw   55
-    defb   94
-    defw  interceptor_c
-    defb  INTERCEPTOR_C_W_BYTES, INTERCEPTOR_C_H
-    defb  GA_BANK_7
-    defw    7
-    defb  120
-    defw  interceptor_c
-    defb  INTERCEPTOR_C_W_BYTES, INTERCEPTOR_C_H
-    defb  GA_BANK_7
-    defw   66
-    defb  122
-    defw  interceptor_c
-    defb  INTERCEPTOR_C_W_BYTES, INTERCEPTOR_C_H
-    defb  GA_BANK_7
+;  (title_ship_table is in BANK 6 -- game/bank6data.asm -- and comes down
+;  into bank7_line for each title frame: forty bytes, which is the buffer.)
 
 TITLE_SHIPS         equ 5

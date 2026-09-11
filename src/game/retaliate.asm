@@ -54,18 +54,15 @@
 ;  Uses: everything
 ; ----------------------------------------------------------------------------
 cbt_retaliate:
-    ld a,(auto_armed)
-    or a
-    ret z                               ; not armed: the ordinary game
     ld a,(tut_active)
     or a
-    ret nz
+    ret nz                              ; the stage teaches A; nothing here runs
 
     ld hl,(cbt_ent)
     ld de,ENT_FLAGS
     add hl,de
     bit 1,(hl)                          ; ENT_F_ENEMY
-    ret z                               ; our own shot: nothing to answer
+    ret z                               ; our own shot: no alarm, nothing to answer
 
     ld a,(cbt_target)
     call ent_addr
@@ -73,8 +70,26 @@ cbt_retaliate:
     add hl,de
     ld a,(hl)
     or a
-    ret z                               ; SQUAD_NONE: the Mothership
+    ret z                               ; SQUAD_NONE: the Mothership has BASE's bar
     ld c,a                              ; the squadron that was hit
+
+    ;  THE SQUADRON ALARM, on every hit: its mark blinks for HUD_ALARM_FRAMES
+    ;  (game/wavesdraw.asm, hud_alarm_frame) -- "να αναβοσβήνει η γραμμή του
+    ;  squadron που δέχεται επίθεση".
+    ld hl,hud_alarm
+    add a,l
+    ld l,a
+    jr nc,@cbt_alarm_set
+    inc h
+@cbt_alarm_set:
+    ld (hl),1
+    ld a,HUD_ALARM_FRAMES
+    ld (hud_alarm_left),a
+
+    ;  ...and the auto response, if it is armed.
+    ld a,(auto_armed)
+    or a
+    ret z                               ; not armed: the ordinary game
 
     ld a,(cbt_index)
     neg

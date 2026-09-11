@@ -196,9 +196,13 @@ class WipeFixture(unittest.TestCase):
 
     @staticmethod
     def hud_bytes(ram):
-        """Every byte of the bottom strip, to compare against itself."""
+        """Every byte of the bottom strip, to compare against itself -- less
+        the description line, which is the button bar's own four-second
+        caption (J pressed a visible button) and expires on its own clock."""
+        desc = h.symbols()["HUD_DESC_Y"]
         return bytes(ram[h.screen_offset(y, x)]
-                     for y in range(HUD_TOP, 200) for x in range(WIDTH))
+                     for y in range(HUD_TOP, 200) if not desc <= y < desc + 8
+                     for x in range(WIDTH))
 
     @staticmethod
     def bar_bytes(ram):

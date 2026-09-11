@@ -660,6 +660,15 @@ class TestTheFleetStrip(BarFixture):
     def line(self, which, base=None):
         return self.strip_cells(y=self.sym["CTX_Y" if which == 1 else "CTX_Y2"], base=base)
 
+    def mark_rows(self, n, ink):
+        """What a mark's HUD_SQ_MARK_H bytes are in `ink` (a solid ink byte)
+        with squadron n's digit cut out of it, off the font the build put on
+        the disc (game/hudmarks.asm, bank 5)."""
+        with open("build/bank5.raw", "rb") as f:
+            off = self.sym["HUD_DIGITS"] - 0x4000 + (n - 1) * 7
+            font = f.read()[off:off + 7]
+        return [ink & ~((m << 4) | m) & 0xFF for m in font]
+
     def test_line_one_is_the_hull_captions_the_treasury_and_the_mission(self):
         text, inks = self.line(1)
         for word in ("HULL", "BASE", "RU", "M"):
@@ -697,11 +706,21 @@ class TestTheFleetStrip(BarFixture):
             x = self.sym["HUD_SQ_MARK_X"] + (n - 1) * self.sym["HUD_SQ_MARK_STEP"]
             col = [ram[h.screen_offset(self.sym["CTX_Y2"] + r, x)]
                    for r in range(self.sym["HUD_SQ_MARK_H"])]
-            want = 0xFF if n == sel else 0x0F if counts[n] else 0xF0
-            self.assertEqual(set(col), {want}, f"squadron {n}'s mark is {col}")
+            ink = 0xFF if n == sel else 0x0F if counts[n] else 0xF0
+            self.assertEqual(col, self.mark_rows(n, ink), f"squadron {n}'s mark is {col}")
         self.assertEqual(sel, 1)
         self.assertIn(f"{sel} {counts[sel]:>2}", text)
         self.assertNotIn(":", text, "the old >n:cc slots are still drawn")
+
+    def test_every_digit_is_a_different_picture_and_none_is_solid(self):
+        """The number is what tells the marks apart, so no two may share a
+        shape, and a digit that cut nothing out would be no digit."""
+        seen = set()
+        for n in range(1, 10):
+            rows = tuple(self.mark_rows(n, 0xFF))
+            self.assertNotEqual(rows, (0xFF,) * 7, f"digit {n} cuts nothing out")
+            self.assertNotIn(rows, seen, f"digit {n} looks like another")
+            seen.add(rows)
 
     def test_selecting_another_squadron_moves_the_red_mark(self):
         #  Make squadron 2 with `d`, then select it: its mark goes red and 1's blue.
@@ -709,14 +728,83 @@ class TestTheFleetStrip(BarFixture):
         self.hold("2")
         self.assertEqual(self.byte("SQUAD_SEL"), 2, "2 did not select")
         ram = self.c.read_ram(h.front_buffer(self.c), 0x4000)
-        y = self.sym["CTX_Y2"] + 3
+        y = self.sym["CTX_Y2"]
         x1 = self.sym["HUD_SQ_MARK_X"]
         x2 = x1 + self.sym["HUD_SQ_MARK_STEP"]
-        self.assertEqual(ram[h.screen_offset(y, x1)], 0x0F, "squadron 1's mark is not blue")
-        self.assertEqual(ram[h.screen_offset(y, x2)], 0xFF, "squadron 2's mark is not red")
+        col1 = [ram[h.screen_offset(y + r, x1)] for r in range(7)]
+        col2 = [ram[h.screen_offset(y + r, x2)] for r in range(7)]
+        self.assertEqual(col1, self.mark_rows(1, 0x0F), "squadron 1's mark is not blue")
+        self.assertEqual(col2, self.mark_rows(2, 0xFF), "squadron 2's mark is not red")
         text, _ = self.line(2)
         counts = self.c.read_ram(self.sym["SQUAD_COUNT"], 10)
         self.assertIn(f"2 {counts[2]:>2}", text)
+
+
+class TestTheSquadronAlarm(BarFixture):
+    """"Να αναβοσβήνει η γραμμή του squadron που δέχεται επίθεση": a hit an
+    enemy lands on one of ours flags its squadron, and for HUD_ALARM_FRAMES
+    the flagged marks go on and off with the tick's phase."""
+
+    def mark(self, n, base=None):
+        if base is None:
+            base = h.front_buffer(self.c)
+        ram = self.c.read_ram(base, 0x4000)
+        x = self.sym["HUD_SQ_MARK_X"] + (n - 1) * self.sym["HUD_SQ_MARK_STEP"]
+        return ram[h.screen_offset(self.sym["CTX_Y2"] + 3, x)]
+
+    def flag(self, n):
+        return self.c.read_ram(self.sym["HUD_ALARM"] + n, 1)[0]
+
+    def lit(self, n, ink):
+        """Row 3 of squadron n's mark in `ink`, digit cut out (see mark_rows)."""
+        with open("build/bank5.raw", "rb") as f:
+            m = f.read()[self.sym["HUD_DIGITS"] - 0x4000 + (n - 1) * 7 + 3]
+        return ink & ~((m << 4) | m) & 0xFF
+
+    def test_a_flagged_squadrons_mark_blinks_and_then_stands_again(self):
+        red1, white2 = self.lit(1, 0xFF), self.lit(2, 0xF0)
+        self.assertEqual(self.mark(1), red1)            # selected: red, steady
+        self.c.write_ram(self.sym["HUD_ALARM"] + 1, b"\x01")
+        self.c.write_ram(self.sym["HUD_ALARM_LEFT"], bytes([40]))
+        seen, seen2 = set(), set()
+        for _ in range(60):
+            self.c.run_frames(2)
+            seen.add(self.mark(1))
+            seen2.add(self.mark(2))
+        self.assertEqual(seen, {0x00, red1}, f"the mark did not blink: {seen}")
+        self.assertEqual(seen2, {white2}, f"squadron 2's mark, not flagged, moved: {seen2}")
+        self.c.write_ram(self.sym["HUD_ALARM_LEFT"], bytes([3]))
+        self.c.run_frames(120)
+        self.assertEqual(self.byte("HUD_ALARM_LEFT"), 0)
+        self.assertEqual(self.flag(1), 0, "the flag was not cleared when the alarm ran out")
+        for base in (0x8000, 0xC000):
+            self.assertEqual(self.mark(1, base), red1, f"the mark is not back in {base:#06x}")
+
+    def call_retaliate(self, shooter_slot, target_slot):
+        e = self.sym["ENTITIES"] + shooter_slot * 20
+        self.c.write_ram(self.sym["CBT_ENT"], bytes([e & 0xFF, e >> 8]))
+        self.c.write_ram(self.sym["CBT_TARGET"], bytes([target_slot]))
+        addr = self.sym["CBT_RETALIATE"]
+        self.c.write_ram(h.STUB, bytes([0x01, 0xC4, 0x7F, 0xED, 0x49,       # bank 4 under the window
+                                        0xCD, addr & 0xFF, addr >> 8, 0x18, 0xFE]))
+        self.c.set_pc(h.STUB)
+        self.c.run_frames(2)
+
+    def test_an_enemys_hit_on_one_of_ours_raises_it(self):
+        """cbt_retaliate, driven through a stub: an enemy shooter, and a
+        target in squadron 1."""
+        ent = self.sym["ENTITIES"]
+        shooter = self.sym["ENT_MAX"] - 1
+        self.c.write_ram(ent + shooter * 20 + 11, bytes([3]))          # ACTIVE + ENEMY
+        self.assertEqual(self.c.read_ram(ent + 12, 1)[0], 1, "slot 0 is not in squadron 1")
+        self.call_retaliate(shooter, 0)
+        self.assertEqual(self.flag(1), 1, "squadron 1 was not flagged")
+        self.assertEqual(self.byte("HUD_ALARM_LEFT"), self.sym["HUD_ALARM_FRAMES"])
+
+    def test_our_own_shot_raises_nothing(self):
+        self.call_retaliate(1, 0)
+        self.assertEqual(self.c.read_ram(self.sym["HUD_ALARM"], 10), bytes(10))
+        self.assertEqual(self.byte("HUD_ALARM_LEFT"), 0)
 
 
 class TestTheStripIsOwned(BarFixture):

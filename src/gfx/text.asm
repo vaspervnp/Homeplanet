@@ -32,6 +32,12 @@
 
 TXT_CHAR_W_BYTES    equ 2               ; 8 pixels, Mode 1
 TXT_CHAR_H          equ 8
+;  ...and the 4x font of gfx/bigtext.asm, whose code runs from bank 5: its
+;  equates live here so the layout asserts in main.asm can see them.
+TXT_BIG_SCALE       equ 4
+TXT_BIG_W_BYTES     equ 8               ; one glyph: 8 source pixels, 4x
+TXT_BIG_H           equ TXT_CHAR_H * TXT_BIG_SCALE
+TXT_BIG_INK         equ #F0             ; four pixels of pen 1
 
 ;  --- colour -------------------------------------------------------------
 ;  Everything above produces PEN 1: four 1bpp pixels are their own Mode 1 byte

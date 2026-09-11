@@ -33,7 +33,7 @@ class BarFixture(unittest.TestCase):
     def setUpClass(cls):
         cls.sym = h.symbols()
         cls.icons = hudicons.read(hudicons.PNG)
-        cls.index = {name: i for i, (name, _, _, _, _, _) in enumerate(hudicons.ICONS)}
+        cls.index = {name: i for i, (name, _, _, _, _, _) in enumerate(hudicons.BANKED)}
 
     def setUp(self):
         self.c = h.boot_quick(frames=250)
@@ -87,8 +87,10 @@ class BarFixture(unittest.TestCase):
         return [[ram[h.screen_offset(y0 + r, x0 + x)] for x in range(4)] for r in range(16)]
 
     def icon_bytes(self, name):
+        """The cell's sixteen rows, the top and bottom blank: the bank holds
+        rows 1..14, and the row is drawn from HUD_BTN_Y + 1."""
         data = hudicons.encode(self.icons[name])
-        return [data[r * 4:(r + 1) * 4] for r in range(16)]
+        return [[0] * 4] + [list(data[r * 4:(r + 1) * 4]) for r in range(14)] + [[0] * 4]
 
     def framed_slot(self, base=None):
         """Which slot carries the blue frame: a top line of four #0F bytes and
@@ -160,9 +162,11 @@ class TestTheRow(BarFixture):
         raw = open(os.path.join(ROOT, "build", "bank5.raw"), "rb").read()
         base = self.sym["HUD_ICONS"] - 0x4000
         i = self.index["station"]
-        want = raw[base + i * 64:base + (i + 1) * 64]
+        want = raw[base + i * 56:base + (i + 1) * 56]
         cell = self.slot_bytes(1)
-        self.assertEqual(bytes(b for row in cell for b in row), want)
+        self.assertEqual(bytes(b for row in cell[1:15] for b in row), want)
+        self.assertEqual(cell[0], [0] * 4)
+        self.assertEqual(cell[15], [0] * 4)
 
 
 class TestTheArrows(BarFixture):
@@ -240,6 +244,54 @@ class TestPressing(BarFixture):
         self.hold(cpc.KEY_ENTER)
         self.assertEqual(h.read_bank4(self.c, self.sym["AUTO_ARMED"], 1)[0], 1,
                          "ATTACK did not do what A does")
+
+
+class TestAKeySelectsItsButton(BarFixture):
+    """"Όταν πατάω ένα πλήκτρο που αντιστοιχεί σε ορατό κουμπί, να επιλέγεται
+    το κουμπί και να εκτελείται η εντολή." The frame follows the key, the
+    command still runs, and a key whose button is not showing moves nothing."""
+
+    def test_space_selects_pause_and_pauses(self):
+        self.hold(cpc.KEY_SPACE)
+        self.assertEqual(self.byte("ORDER_PAUSED"), 1, "SPACE did not pause")
+        self.assertEqual(self.framed_slot(), 9, "the frame did not follow SPACE to PAUSE")
+        self.assertEqual(self.desc_line(), hudicons.caption("pause"))
+
+    def test_b_selects_build_and_opens_the_yard(self):
+        self.hold("b")
+        self.assertEqual(self.byte("ECO_BUILD_OPEN"), 1, "B did not open the yard")
+        self.assertEqual(self.framed_slot(), 6, "the frame did not follow B to BUILD")
+
+    def test_a_key_whose_button_is_in_a_closed_group_moves_nothing(self):
+        self.hold("t")                          # TOW, inside ECONOMY+
+        self.assertEqual(self.framed_slot(), 0)
+        self.assertEqual(self.desc_line(), "")
+
+    def test_inside_a_group_a_members_key_selects_it(self):
+        self.go(12)                             # ECONOMY+
+        self.hold(cpc.KEY_ENTER)
+        self.assert_icon_at(1, "tow")
+        self.hold("e")                          # REPAIR, the second member
+        self.assertEqual(self.framed_slot(), 2, "the frame did not follow E to REPAIR")
+        self.assertEqual(self.desc_line(), hudicons.caption("repair"))
+
+    def test_the_arrows_walk_the_bar_with_the_build_panel_open_and_enter_stays_the_panels(self):
+        """"Τα βελάκια δεξιά αριστερά και η επιλογή κουμπιών να έχουν απόλυτη
+        προτεραιότητα": the yard's panel takes , . and ENTER, not the arrows."""
+        self.hold("b")
+        self.assertEqual(self.byte("ECO_BUILD_OPEN"), 1)
+        self.assertEqual(self.framed_slot(), 6)              # B selected BUILD
+        self.go(9)                                           # PAUSE, panel still up
+        self.assertEqual(self.byte("ECO_BUILD_OPEN"), 1, "walking the bar shut the panel")
+        self.hold(cpc.KEY_ENTER)
+        self.assertEqual(self.byte("ORDER_PAUSED"), 0, "ENTER pressed the button instead of buying")
+
+    def test_enter_does_not_jump_the_frame_to_move(self):
+        """ENTER is MOVE's key and the bar's own press: with the frame on
+        ATTACK it presses ATTACK, and the frame stays there."""
+        self.go(3)
+        self.hold(cpc.KEY_ENTER)
+        self.assertEqual(self.framed_slot(), 3)
 
 
 class TestTheJoystick(BarFixture):

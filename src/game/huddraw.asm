@@ -110,39 +110,13 @@ hud_draw:
     ld c,CTX_Y2
     call phase4_hud_label
 
-    ;  The nine marks. One byte wide -- four pixels -- HUD_SQ_MARK_H lines
-    ;  tall, HUD_SQ_MARK_STEP bytes apart: a little line each, which is what
-    ;  was asked for, and a fill rather than a glyph so no font row is spent.
-    ld b,1                              ; the squadron
-    ld c,HUD_SQ_MARK_X                  ; ...and its byte column
-@hud_mark:
-    push bc
-    ld a,b
-    ld hl,squad_sel
-    cp (hl)
-    ld a,SOLID_INK_3                    ; the selected one: red
-    jr z,@hud_mark_pen
-    ld a,b
-    call squad_count_of
-    or a
-    ld a,SOLID_INK_2                    ; ships in it: blue
-    jr nz,@hud_mark_pen
-    ld a,SOLID_INK_1                    ; empty: white
-@hud_mark_pen:
-    pop bc
-    push bc
-    ld b,c                              ; x
-    ld c,CTX_Y2
-    ld d,1
-    ld e,HUD_SQ_MARK_H
-    call scr_fill_rect
-    pop bc
-    inc c
-    inc c                               ; HUD_SQ_MARK_STEP
-    inc b
-    ld a,b
-    cp SQUAD_MAX + 1
-    jr c,@hud_mark
+    ;  The nine marks, with their digits: hud_marks, in BANK 5
+    ;  (game/hudmarks.asm), because it is also the squadron alarm's blink and
+    ;  this page of the low 16K is full. E = the phase: on.
+    ld e,1
+    ld ix,hud_marks
+    ld a,GA_BANK_5
+    call bankn_call
 
     ;  The selected squadron's number and its count -- and nothing for the
     ;  others, which is the point: which squadrons exist is the marks, and the
@@ -398,3 +372,13 @@ hud_sq_label:       defb "SQUADRONS",0
 hud_sel_text:       defb "0",0          ; the digit is patched in
 hud_bar_pct:        defb 0
 hud_bar_col:          defb 0
+
+;  THE SQUADRON ALARM -- "να αναβοσβήνει η γραμμή του squadron που δέχεται
+;  επίθεση". A byte a squadron, set by cbt_retaliate the frame one of its
+;  ships is hit, and a countdown of game frames after the last hit anywhere;
+;  while it runs hud_marks draws the flagged marks on alternate phases of the
+;  50 Hz tick (game/wavesdraw.asm). In the low 16K so the tests read it with
+;  read_ram, in the page the marks' loop just left.
+hud_alarm:          defs SQUAD_MAX + 1, 0
+hud_alarm_left:     defb 0
+hud_alarm_phase:    defb 0
