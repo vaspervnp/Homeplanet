@@ -144,9 +144,12 @@ disc, the pan and the cockpit keep the arrows, because for them the arrows
 are the tool itself.
 
 **Each mark carries its number** (*"οι γραμμές των squadron να έχουν μέσα
-τον αριθμό με μαύρο από 1 ως 9, με μισού πλάτους γράμματα"*): a 4×7 digit
-font in `game/hudmarks.asm` (`hud_digits`, one nibble a row), cut out of the
-mark's byte in black — both planes cleared where the digit is set, which is
+τον αριθμό με μαύρο από 1 ως 9, με μισού πλάτους γράμματα"*): the marks are
+**6 × 9 pixels** now (*"taller by 2 and wider by 2 to fit the numbers"*), a
+byte and the left half of the next at the same 8-pixel pitch, and a 4×7
+digit font in `game/hudmarks.asm` (`hud_digits`, one nibble a row, a blank
+row above and below) is cut out of the mark in black with a one-pixel margin
+all round — both planes cleared where the digit is set, which is
 the whole font engine. The marks and their alarm run from **bank 5**, like
 `txt_big`; the room is the icons', stored as fourteen rows now because a
 cell's top and bottom rows are the frame's blank margin by the sheet's own

@@ -661,13 +661,21 @@ class TestTheFleetStrip(BarFixture):
         return self.strip_cells(y=self.sym["CTX_Y" if which == 1 else "CTX_Y2"], base=base)
 
     def mark_rows(self, n, ink):
-        """What a mark's HUD_SQ_MARK_H bytes are in `ink` (a solid ink byte)
-        with squadron n's digit cut out of it, off the font the build put on
-        the disc (game/hudmarks.asm, bank 5)."""
+        """A mark's HUD_SQ_MARK_H rows of two bytes -- six pixels, a byte and
+        the left half of the next -- in `ink` (a solid ink byte) with squadron
+        n's digit cut out at pixels 1..4, off the font the build put on the
+        disc (game/hudmarks.asm, bank 5)."""
+        hgt = self.sym["HUD_SQ_MARK_H"]
         with open("build/bank5.raw", "rb") as f:
-            off = self.sym["HUD_DIGITS"] - 0x4000 + (n - 1) * 7
-            font = f.read()[off:off + 7]
-        return [ink & ~((m << 4) | m) & 0xFF for m in font]
+            off = self.sym["HUD_DIGITS"] - 0x4000 + (n - 1) * hgt
+            font = f.read()[off:off + hgt]
+        rows = []
+        for m in font:
+            n0 = m >> 1
+            b0 = ink & ~((n0 << 4) | n0) & 0xFF
+            b1 = ink & ~(0x88 if m & 1 else 0) & 0xCC
+            rows.append([b0, b1])
+        return rows
 
     def test_line_one_is_the_hull_captions_the_treasury_and_the_mission(self):
         text, inks = self.line(1)
@@ -704,7 +712,8 @@ class TestTheFleetStrip(BarFixture):
         ram = self.c.read_ram(h.front_buffer(self.c), 0x4000)
         for n in range(1, 10):
             x = self.sym["HUD_SQ_MARK_X"] + (n - 1) * self.sym["HUD_SQ_MARK_STEP"]
-            col = [ram[h.screen_offset(self.sym["CTX_Y2"] + r, x)]
+            col = [[ram[h.screen_offset(self.sym["CTX_Y2"] + r, x)],
+                    ram[h.screen_offset(self.sym["CTX_Y2"] + r, x + 1)]]
                    for r in range(self.sym["HUD_SQ_MARK_H"])]
             ink = 0xFF if n == sel else 0x0F if counts[n] else 0xF0
             self.assertEqual(col, self.mark_rows(n, ink), f"squadron {n}'s mark is {col}")
@@ -717,8 +726,10 @@ class TestTheFleetStrip(BarFixture):
         shape, and a digit that cut nothing out would be no digit."""
         seen = set()
         for n in range(1, 10):
-            rows = tuple(self.mark_rows(n, 0xFF))
-            self.assertNotEqual(rows, (0xFF,) * 7, f"digit {n} cuts nothing out")
+            rows = tuple(tuple(r) for r in self.mark_rows(n, 0xFF))
+            self.assertNotEqual(rows, ((0xFF, 0xCC),) * self.sym["HUD_SQ_MARK_H"], f"digit {n} cuts nothing out")
+            self.assertEqual(rows[0], (0xFF, 0xCC), f"digit {n} reaches the mark's top row")
+            self.assertEqual(rows[-1], (0xFF, 0xCC), f"digit {n} reaches the mark's bottom row")
             self.assertNotIn(rows, seen, f"digit {n} looks like another")
             seen.add(rows)
 
@@ -731,8 +742,9 @@ class TestTheFleetStrip(BarFixture):
         y = self.sym["CTX_Y2"]
         x1 = self.sym["HUD_SQ_MARK_X"]
         x2 = x1 + self.sym["HUD_SQ_MARK_STEP"]
-        col1 = [ram[h.screen_offset(y + r, x1)] for r in range(7)]
-        col2 = [ram[h.screen_offset(y + r, x2)] for r in range(7)]
+        hgt = self.sym["HUD_SQ_MARK_H"]
+        col1 = [[ram[h.screen_offset(y + r, x1)], ram[h.screen_offset(y + r, x1 + 1)]] for r in range(hgt)]
+        col2 = [[ram[h.screen_offset(y + r, x2)], ram[h.screen_offset(y + r, x2 + 1)]] for r in range(hgt)]
         self.assertEqual(col1, self.mark_rows(1, 0x0F), "squadron 1's mark is not blue")
         self.assertEqual(col2, self.mark_rows(2, 0xFF), "squadron 2's mark is not red")
         text, _ = self.line(2)
@@ -756,10 +768,12 @@ class TestTheSquadronAlarm(BarFixture):
         return self.c.read_ram(self.sym["HUD_ALARM"] + n, 1)[0]
 
     def lit(self, n, ink):
-        """Row 3 of squadron n's mark in `ink`, digit cut out (see mark_rows)."""
+        """Row 3's first byte of squadron n's mark in `ink`, digit cut out."""
+        hgt = self.sym["HUD_SQ_MARK_H"]
         with open("build/bank5.raw", "rb") as f:
-            m = f.read()[self.sym["HUD_DIGITS"] - 0x4000 + (n - 1) * 7 + 3]
-        return ink & ~((m << 4) | m) & 0xFF
+            m = f.read()[self.sym["HUD_DIGITS"] - 0x4000 + (n - 1) * hgt + 3]
+        n0 = m >> 1
+        return ink & ~((n0 << 4) | n0) & 0xFF
 
     def test_a_flagged_squadrons_mark_blinks_and_then_stands_again(self):
         red1, white2 = self.lit(1, 0xFF), self.lit(2, 0xF0)

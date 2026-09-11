@@ -129,7 +129,8 @@ HUD_SQ_X            equ 0
 HUD_SQ_CHARS        equ 9               ; "SQUADRONS"
 HUD_SQ_MARK_X       equ 19
 HUD_SQ_MARK_STEP    equ 2
-HUD_SQ_MARK_H       equ 7
+HUD_SQ_MARK_W       equ 6               ; pixels: a byte and half the next, "wider by 2 to fit the numbers"
+HUD_SQ_MARK_H       equ 9               ; lines: the digit's seven with a line above and below
 HUD_SEL_X           equ 38
 HUD_SEL_N_X         equ 42
 HUD_YARD_X          equ 50
