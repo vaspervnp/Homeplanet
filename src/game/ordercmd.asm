@@ -36,7 +36,8 @@ order_init:
     ld hl,order_home                    ; in bank 6, so:
     ld de,squad_dest
     ld bc,SQUAD_MAX * 6
-    call bank6_copy
+    ld a,GA_BANK_5                      ; game/bank5data.asm
+    call bankn_copy
     xor a
     ld (disc_active),a
     ld (order_paused),a
@@ -68,7 +69,12 @@ order_update:
     ld a,(pan_active)
     or a
     jr nz,@ord_pan_has_cursors
-    call order_camera
+    ;  Otherwise the arrows are the BUTTON BAR's (game/hudbar.asm), and they
+    ;  orbit the camera with SHIFT held -- "με shift και βελάκια να ελέγχω το
+    ;  3d space όπως πριν" -- in the tutorial as everywhere.
+    ld a,KEY_SHIFT
+    call key_down
+    call c,order_camera
     jr @ord_shared
 @ord_pilot_has_cursors:
     call pilot_frame                    ; game/pilot.asm: steer, fly, aim the camera

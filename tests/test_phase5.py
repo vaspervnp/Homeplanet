@@ -124,32 +124,35 @@ class ControlFixture(unittest.TestCase):
 
 class TestCamera(ControlFixture):
 
+    #  SHIFT + the arrows orbit (hud2.md section 2): the bare arrows walk the
+    #  button bar now. hold_shifted holds Q, which the emulator takes as the
+    #  modifier and the game binds to nothing.
     def test_cursor_keys_orbit_the_camera(self):
         before = self.byte("CAM_YAW")
-        self.hold(cpc.KEY_RIGHT)
+        self.hold_shifted(cpc.KEY_RIGHT, frames=40)
         after = self.byte("CAM_YAW")
         self.assertNotEqual(after, before, "the camera did not yaw")
         self.assertEqual((after - before) % CAM_YAW_STEP, 0,
                          f"yaw moved by {(after - before) % 256}, not a multiple of {CAM_YAW_STEP}")
 
         #  Left must yaw the other way, i.e. the difference wraps downwards.
-        self.hold(cpc.KEY_LEFT)
+        self.hold_shifted(cpc.KEY_LEFT, frames=40)
         self.assertGreaterEqual((self.byte("CAM_YAW") - after) % 256, 128,
                                 "left and right yaw the same way")
 
     def test_pitch_is_clamped_to_the_design_limit(self):
         """Section 4.3: pitch is limited to +/-75 degrees."""
-        self.hold(cpc.KEY_UP, frames=250)
+        self.hold_shifted(cpc.KEY_UP, frames=250)
         self.assertEqual(self.byte("CAM_PITCH", signed=True), CAM_PITCH_MAX,
                          "pitch did not clamp going up")
 
-        self.hold(cpc.KEY_DOWN, frames=400)
+        self.hold_shifted(cpc.KEY_DOWN, frames=400)
         self.assertEqual(self.byte("CAM_PITCH", signed=True), -CAM_PITCH_MAX,
                          "pitch did not clamp going down")
 
     def test_the_view_actually_changes_when_the_camera_moves(self):
         before = bytes(self.c.read_ram(h.front_buffer(self.c), 0x4000))
-        self.hold(cpc.KEY_RIGHT, frames=60)
+        self.hold_shifted(cpc.KEY_RIGHT, frames=60)
         after = bytes(self.c.read_ram(h.front_buffer(self.c), 0x4000))
         self.assertNotEqual(before, after, "orbiting did not redraw anything")
 
@@ -419,7 +422,7 @@ class TestPause(ControlFixture):
         """'Η μάχη παγώνει, οι εντολές συνεχίζουν.'"""
         self.hold(cpc.KEY_SPACE, frames=25)
         before = self.byte("CAM_YAW")
-        self.hold(cpc.KEY_RIGHT)
+        self.hold_shifted(cpc.KEY_RIGHT, frames=40)
         self.assertNotEqual(self.byte("CAM_YAW"), before,
                             "pausing froze the camera too")
 

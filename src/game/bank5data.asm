@@ -1,28 +1,29 @@
 ; ============================================================================
-;  bank6data.asm -- read-once tables that moved to BANK 6 for the room
+;  bank5data.asm -- read-once tables that moved to BANK 5 for the room
 ;
-;  Both are copied down whole through bank6_copy and never fetched a line
+;  Both are copied down whole through bankn_copy with A = GA_BANK_5 and never fetched a line
 ;  at a time, so which bank they sit in is one byte in the copy routine's
 ;  caller. They were in bank 7 with the words until gfx/sprscale.asm's copy
-;  of the scaled blitter needed the top of that bank; bank 6 had two
+;  of the scaled blitter needed the top of that bank; bank 5 had two
 ;  kilobytes idle.
 ; ============================================================================
 
 ; ----------------------------------------------------------------------------
 ;  tut_table -- the tutorial's steps: (gate, entry act) per row, in bank 4
 ;  code addresses. Data, so it lives in a bank; tut_row copies a row down
-;  through bank6_copy.
+;  through bankn_copy with A = GA_BANK_5.
 ; ----------------------------------------------------------------------------
 tut_table:
     ;  --- Act 1: looking. No enemies; nothing can go wrong. -----------------
     defw tut_g_look,    tut_a_none
+    defw tut_g_bar,     tut_a_none      ; the button bar: hud2.md
     defw tut_g_zoom,    tut_a_none
     defw tut_g_pan,     tut_a_none
     defw tut_g_view,    tut_a_none
     ;  --- Act 2: the fleet --------------------------------------------------
     defw tut_g_squad,   tut_a_none
     defw tut_g_info,    tut_a_none
-    defw tut_g_move,    tut_a_none
+    defw tut_g_move,    tut_a_bar_rest  ; the bar at rest, so ENTER is the disc
     defw tut_g_form,    tut_a_none
     defw tut_g_split,   tut_a_none
     defw tut_g_dock,    tut_a_none
@@ -43,7 +44,7 @@ tut_table_end:
 ;  order_home -- where the nine squadrons are stationed at boot, six bytes a
 ;  row: only row 1 is ever near the fleet, and the other eight are the layout
 ;  a RESTORED fleet fans out into. See "A squadron is born where its ships
-;  are" in CLAUDE.md. Read once by order_init through bank6_copy.
+;  are" in CLAUDE.md. Read once by order_init through bankn_copy with A = GA_BANK_5.
 ; ----------------------------------------------------------------------------
 order_home:
     defw      0,   500,      0           ; 1
@@ -94,5 +95,5 @@ over_fire_table_end:
 ;  The scanner's oval (game/farmarks.asm): its half height at each pixel of
 ;  half width, round(SCAN_RY * sqrt(1 - (i / SCAN_RX)^2)); copied into
 ;  bank7_line at the top of pilot_scanner. tests/test_marks re-derives it.
-scan_oval_b6:       defb 19, 19, 19, 19, 19, 19, 19, 19, 19, 18, 18, 18, 18, 18, 18, 17, 17, 17, 17, 16, 16, 16, 15, 15, 15, 14, 14, 13, 13, 12, 12, 11, 10, 9, 8, 7, 6, 4, 0
-    assert $ - scan_oval_b6 == SCAN_RX + 1
+scan_oval_b5:       defb 19, 19, 19, 19, 19, 19, 19, 19, 19, 18, 18, 18, 18, 18, 18, 17, 17, 17, 17, 16, 16, 16, 15, 15, 15, 14, 14, 13, 13, 12, 12, 11, 10, 9, 8, 7, 6, 4, 0
+    assert $ - scan_oval_b5 == SCAN_RX + 1

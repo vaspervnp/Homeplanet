@@ -87,13 +87,15 @@ CTX_BAR_H           equ 20
 CTX_Y               equ 1               ; line 1
 CTX_Y2              equ 11              ; line 2
 
-;  The bottom strip: sixteen lines of BUTTONS from HUD_TOP (hud2.md; the
-;  icons are in bank 5, the bar is not built yet) and ONE text line under
-;  them, which is the context bar's now -- the state, the build panel's
-;  readout, the message row's word, and the selected button's description.
+;  The bottom strip, THREE lines (hud2.md): sixteen lines of BUTTONS from
+;  HUD_TOP (game/hudbar.asm, the icons in bank 5), the context line under
+;  them -- the state, the build panel's readout, the message row's word --
+;  and under that the selected button's description. 16 + 8 + 8 is the
+;  strip exactly.
 HUD_BTN_Y           equ HUD_TOP
 HUD_BTN_H           equ 16
-HUD_TEXT_Y          equ 190
+HUD_TEXT_Y          equ HUD_TOP + HUD_BTN_H
+HUD_DESC_Y          equ HUD_TEXT_Y + TXT_CHAR_H
 
 ;  Line 1. HULL and BASE are captions on BARS: HUD_BAR_W bytes by HUD_BAR_H
 ;  lines, a blue trough with a white fill, red below HUD_HP_ALARM -- the same
@@ -460,6 +462,7 @@ demo_wait_frame:
 ;  Uses: everything
 ; ----------------------------------------------------------------------------
 phase4_commands:
+    call bar_hook                       ; the button bar, BEFORE any key is read: game/hudbar.asm
     ;  `?` puts the key list up. Checked first and returning at once, so no
     ;  other command can act on the same frame the page opens.
     ld a,KEY_SLASH

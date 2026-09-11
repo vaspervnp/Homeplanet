@@ -134,7 +134,8 @@ help_words_end:
 ;  the exact one, per string, off build/bank7.raw.
 ; ----------------------------------------------------------------------------
 tut_text:
-    defb "ARROW KEYS TURN THE VIEW",0
+    defb "SHIFT+ARROWS TURN THE VIEW",0
+    defb "ARROWS WALK THE BUTTONS BELOW",0
     defb "Z AND X ZOOM IN AND OUT",0
     defb "P PANS  THEN 0 COMES BACK",0
     defb "S SWITCHES TO THE SENSORS",0

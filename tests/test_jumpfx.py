@@ -904,9 +904,17 @@ class TestTheReveal(WipeFixture):
             self.fail("the context bar never reached both buffers")
         before = {base: self.bar_bytes(self.buffer(base))
                   for base in (h.SCREEN_A, h.SCREEN_B)}
-        #  The bottom strip is the buttons' and the context line's now, and in
-        #  ordinary play both are black (hud2.md) -- so "still lit" says
-        #  nothing about it, and it is held to the same byte-for-byte check.
+        #  The bottom strip is the button bar's now (hud2.md), repainted into
+        #  each buffer in turn after the wipe like the top one -- so wait for
+        #  the two buffers to AGREE before taking it as the reference, and
+        #  then hold it to the same byte-for-byte check.
+        for _ in range(200):
+            a, b = (self.hud_bytes(self.buffer(x)) for x in (h.SCREEN_A, h.SCREEN_B))
+            if a == b and any(a):
+                break
+            self.c.run_frames(1)
+        else:
+            self.fail("the button bar never reached both buffers")
         hud_before = {base: self.hud_bytes(self.buffer(base))
                       for base in (h.SCREEN_A, h.SCREEN_B)}
 

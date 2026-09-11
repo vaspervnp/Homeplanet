@@ -50,7 +50,7 @@ GAP = 10              # both ways: the row gap holds each icon's LABEL, the colu
 MARGIN = spritemap.MARGIN
 LABEL_Y = 1           # the label sits this far under its cell, in the gap
 INK = {".": 0, "W": 1, "B": 2, "R": 3, "M": spritemap.NONE}
-DESC_CHARS = 40
+DESC_CHARS = 39               # the line is forty, and bank7_line holds the terminator
 DESC_SECS = 4
 
 # (name, label, description, key, group, picture) -- the LABEL is written
@@ -60,7 +60,7 @@ DESC_SECS = 4
 # DESC_SECS while the button is selected, and DESC_CHARS is that line's width.
 ICONS = [
     # -- row 0: the system, and the camera ------------------------------------
-    ("menu", "MENU", 'THE ORDERS MENU', "ESC", "system", [
+    ("menu", "MENU", 'ORDERS MENU', "ESC", "system", [
         "................",
         "................",
         "................",
@@ -78,7 +78,7 @@ ICONS = [
         "................",
         "................",
     ]),
-    ("pause", "PAUSE", 'FREEZE THE BATTLE. ORDERS WORK.', "SPACE", "system", [
+    ("pause", "PAUSE", 'PAUSE', "SPACE", "system", [
         "................",
         "................",
         "....WWW...WWW...",
@@ -96,7 +96,7 @@ ICONS = [
         "................",
         "................",
     ]),
-    ("help", "HELP", 'THE KEY LIST', "?", "system", [
+    ("help", "HELP", 'KEY LIST', "?", "system", [
         "................",
         "................",
         "....WWWWWWW.....",
@@ -114,7 +114,7 @@ ICONS = [
         "................",
         "................",
     ]),
-    ("music", "MUSIC", 'MUSIC ON OR OFF', "M", "system", [
+    ("music", "MUSIC", 'MUSIC', "M", "system", [
         "................",
         "................",
         ".........WW.....",
@@ -132,7 +132,7 @@ ICONS = [
         "................",
         "................",
     ]),
-    ("zoom_in", "ZOOM+", 'ZOOM IN, ONE STEP OF TWELVE', "Z", "camera", [
+    ("zoom_in", "ZOOM+", 'ZOOM IN', "Z", "camera", [
         "................",
         "................",
         "....WWWW........",
@@ -150,7 +150,7 @@ ICONS = [
         "................",
         "................",
     ]),
-    ("zoom_out", "ZOOM-", 'ZOOM OUT, ONE STEP OF TWELVE', "X", "camera", [
+    ("zoom_out", "ZOOM-", 'ZOOM OUT', "X", "camera", [
         "................",
         "................",
         "....WWWW........",
@@ -168,7 +168,7 @@ ICONS = [
         "................",
         "................",
     ]),
-    ("orbit", "ORBIT", 'TURN THE VIEW. ESC WHEN DONE.', "ARROWS", "camera", [
+    ("orbit", "ORBIT", 'TURN THE VIEW', "ARROWS", "camera", [
         "................",
         "................",
         "................",
@@ -186,7 +186,7 @@ ICONS = [
         "................",
         "................",
     ]),
-    ("pan", "PAN", 'ARROWS DRAG THE VIEW. ESC WHEN DONE.', "P", "camera", [
+    ("pan", "PAN", 'DRAG THE VIEW', "P", "camera", [
         "................",
         ".......WW.......",
         "......WWWW......",
@@ -205,7 +205,7 @@ ICONS = [
         "................",
     ]),
     # -- row 1: the view, and where a squadron goes ----------------------------
-    ("centre", "CENTRE", 'SELECT THE BASE AND CENTRE ON IT', "0", "camera", [
+    ("centre", "CENTRE", 'CENTRE BASE', "0", "camera", [
         "................",
         ".......WW.......",
         ".......WW.......",
@@ -223,7 +223,7 @@ ICONS = [
         ".......WW.......",
         "................",
     ]),
-    ("sensors", "SENSOR", 'TACTICAL VIEW OR SENSORS', "S", "camera", [
+    ("sensors", "SENSOR", 'SENSOR VIEW', "S", "camera", [
         "................",
         "................",
         ".....BBBBBB.....",
@@ -241,7 +241,7 @@ ICONS = [
         "................",
         "................",
     ]),
-    ("move", "MOVE", 'THE MOVE DISC. ENTER TO CONFIRM.', "ENTER", "orders", [
+    ("move", "MOVE", 'MOVE DISC', "ENTER", "orders", [
         "................",
         ".......WW.......",
         ".......WW.......",
@@ -259,7 +259,7 @@ ICONS = [
         "................",
         "................",
     ]),
-    ("station", "DOCK", 'STATION THE SQUADRON ON THE BASE', "R", "orders", [
+    ("station", "DOCK", 'DOCK AT BASE', "R", "orders", [
         "................",
         ".......WW.......",
         ".......WW.......",
@@ -277,7 +277,7 @@ ICONS = [
         "................",
         "................",
     ]),
-    ("formation", "FORM", 'FORMATION: LOOSE WEDGE SPHERE WALL', "F", "orders", [
+    ("formation", "FORM", 'NEXT FORMATION', "F", "orders", [
         "................",
         "................",
         ".......WW.......",
@@ -295,7 +295,7 @@ ICONS = [
         "................",
         "................",
     ]),
-    ("jump", "JUMP", 'JUMP OUT. TEN SECONDS TO CANCEL', "J", "system", [
+    ("jump", "JUMP", 'JUMP OUT', "J", "system", [
         "................",
         "................",
         ".........W......",
@@ -313,7 +313,7 @@ ICONS = [
         "................",
         "................",
     ]),
-    ("land", "LAND", 'LAND ON THE HOMEPLANET', "L", "system", [
+    ("land", "LAND", 'LAND', "L", "system", [
         "................",
         ".......WW.......",
         ".......WW.......",
@@ -331,7 +331,7 @@ ICONS = [
         ".BBBBBBBBBBBBBB.",
         "................",
     ]),
-    ("info", "INFO", 'WHAT THE SQUADRON IS MADE OF', "I", "squadron", [
+    ("info", "INFO", 'SQUAD INFO', "I", "squadron", [
         "................",
         "................",
         ".....BBBBBB.....",
@@ -350,7 +350,7 @@ ICONS = [
         "................",
     ]),
     # -- row 2: combat, and the economy ----------------------------------------
-    ("attack", "ATTACK", 'CLOSE ON THE TARGET AND FIRE', "A", "combat", [
+    ("attack", "ATTACK", 'ATTACK', "A", "combat", [
         "................",
         "................",
         "................",
@@ -368,7 +368,7 @@ ICONS = [
         "................",
         "................",
     ]),
-    ("guard", "GUARD", 'HOLD STATION AND SHOOT WHAT COMES', "G", "combat", [
+    ("guard", "GUARD", 'GUARD', "G", "combat", [
         "................",
         "...WWWWWWWWWW...",
         "..W..........W..",
@@ -386,7 +386,7 @@ ICONS = [
         "................",
         "................",
     ]),
-    ("strafe", "STRAFE", 'ONE PASS AT DOUBLE DAMAGE, THEN HOME', "W", "combat", [
+    ("strafe", "STRAFE", 'STRAFE', "W", "combat", [
         "................",
         ".WW.............",
         "..WW............",
@@ -404,7 +404,7 @@ ICONS = [
         "................",
         "................",
     ]),
-    ("fly", "FLY", 'FLY THE LEAD SHIP YOURSELF', "V", "combat", [
+    ("fly", "FLY", 'FLY LEAD SHIP', "V", "combat", [
         "................",
         "......WWWW......",
         ".....WWWWWW.....",
@@ -422,7 +422,7 @@ ICONS = [
         "................",
         "................",
     ]),
-    ("target_prev", "TGT<", 'PREVIOUS TARGET', ",", "combat", "mirror:target_next"),
+    ("target_prev", "TGT<", 'PREV TARGET', ",", "combat", "mirror:target_next"),
     ("target_next", "TGT>", 'NEXT TARGET', ".", "combat", [
         "................",
         "................",
@@ -441,7 +441,7 @@ ICONS = [
         "................",
         "................",
     ]),
-    ("harvest", "MINE", 'SEND THE HARVESTERS TO THE FIELDS', "H", "economy", [
+    ("harvest", "MINE", 'HARVEST RU', "H", "economy", [
         "................",
         "................",
         "......B....B....",
@@ -459,7 +459,7 @@ ICONS = [
         "................",
         "................",
     ]),
-    ("tow", "TOW", 'SEND THE CORVETTES AFTER THE WRECKS', "T", "economy", [
+    ("tow", "TOW", 'TOW WRECKS', "T", "economy", [
         "................",
         "................",
         "................",
@@ -478,7 +478,7 @@ ICONS = [
         "................",
     ]),
     # -- row 3: the yard, and the squadron -------------------------------------
-    ("build", "BUILD", 'THE YARD: ORDER A SHIP', "B", "economy", [
+    ("build", "BUILD", 'BUILD A SHIP', "B", "economy", [
         "................",
         ".BBBB......BBBB.",
         ".B............B.",
@@ -496,7 +496,7 @@ ICONS = [
         ".BBBB......BBBB.",
         "................",
     ]),
-    ("repair", "REPAIR", 'MEND THE SQUADRON. ONCE A MISSION.', "E", "economy", [
+    ("repair", "REPAIR", 'REPAIR SHIPS', "E", "economy", [
         "................",
         "..........WWW...",
         ".........WWWWW..",
@@ -514,7 +514,7 @@ ICONS = [
         "..WW............",
         "................",
     ]),
-    ("recycle", "SCRAP", 'BREAK THE SQUADRON UP FOR RU', "Y", "economy", [
+    ("recycle", "SCRAP", 'SCRAP FOR RU', "Y", "economy", [
         "................",
         "................",
         "....WWWWWW......",
@@ -532,7 +532,7 @@ ICONS = [
         "................",
         "................",
     ]),
-    ("divide", "DIVIDE", 'DIVIDE THE SQUADRON IN HALF', "D", "squadron", [
+    ("divide", "DIVIDE", 'DIVIDE', "D", "squadron", [
         "................",
         "................",
         "................",
@@ -550,7 +550,7 @@ ICONS = [
         "................",
         "................",
     ]),
-    ("combine", "JOIN", 'JOIN THE NEXT SQUADRON TO THIS ONE', "C", "squadron", [
+    ("combine", "JOIN", 'JOIN NEXT', "C", "squadron", [
         "................",
         "................",
         "................",
@@ -568,7 +568,7 @@ ICONS = [
         "................",
         "................",
     ]),
-    ("split", "SPLIT", 'ONE SQUADRON PER CLASS', "O", "squadron", [
+    ("split", "SPLIT", 'ONE PER CLASS', "O", "squadron", [
         "................",
         "................",
         "..WW.B....B.WW..",
@@ -586,8 +586,8 @@ ICONS = [
         "................",
         "................",
     ]),
-    ("ship_prev", "SHIP<", 'ONE SHIP TO THE PREVIOUS SQUADRON', "K", "squadron", "mirror:ship_next"),
-    ("ship_next", "SHIP>", 'ONE SHIP TO THE NEXT SQUADRON', "L", "squadron", [
+    ("ship_prev", "SHIP<", 'SHIP TO PREV', "K", "squadron", "mirror:ship_next"),
+    ("ship_next", "SHIP>", 'SHIP TO NEXT', "L", "squadron", [
         "................",
         "................",
         "................",
@@ -606,7 +606,7 @@ ICONS = [
         "................",
     ]),
     # -- row 4: the groups, and the chrome -------------------------------------
-    ("grp_combat", "COMBAT", 'COMBAT: STRAFE FLY TARGET', "", "group", [
+    ("grp_combat", "COMBAT", 'COMBAT', "", "group", [
         "................",
         ".W............W.",
         ".WW..........WW.",
@@ -624,7 +624,7 @@ ICONS = [
         ".W............W.",
         "................",
     ]),
-    ("grp_economy", "ECON", 'ECONOMY: TOW REPAIR RECYCLE', "", "group", [
+    ("grp_economy", "ECON", 'ECONOMY', "", "group", [
         "................",
         "................",
         "....WWWWWWWW....",
@@ -642,7 +642,7 @@ ICONS = [
         "................",
         "................",
     ]),
-    ("grp_squadron", "SQUAD", 'SQUADRON: DIVIDE COMBINE SPLIT SHIPS', "", "group", [
+    ("grp_squadron", "SQUAD", 'SQUADRON', "", "group", [
         "................",
         "................",
         ".......WW.......",
@@ -660,7 +660,7 @@ ICONS = [
         "................",
         "................",
     ]),
-    ("grp_camera", "CAMERA", 'CAMERA: ZOOM ORBIT PAN CENTRE SENSORS', "", "group", [
+    ("grp_camera", "CAMERA", 'CAMERA', "", "group", [
         "................",
         "................",
         "................",
@@ -678,7 +678,7 @@ ICONS = [
         "................",
         "................",
     ]),
-    ("grp_system", "SYSTEM", 'SYSTEM: HELP MUSIC', "", "group", [
+    ("grp_system", "SYSTEM", 'SYSTEM', "", "group", [
         "................",
         "......WWWW......",
         "..W...WWWW...W..",
@@ -696,7 +696,7 @@ ICONS = [
         "......WWWW......",
         "................",
     ]),
-    ("back", "BACK", 'CLOSE THE GROUP', "ESC", "group", [
+    ("back", "BACK", 'BACK', "ESC", "group", [
         "................",
         "................",
         "................",
@@ -852,6 +852,22 @@ def read(png: str = PNG) -> dict:
 
 
 ASM = os.path.join(spritemap.GEN, "hudicons.asm")
+CAPTIONS = os.path.join(spritemap.GEN, "hudcaptions.asm")
+#  A key as the game's equate, for the bar to press it; and its NAME as the
+#  caption shows it: a letter, or a code for the four words (game/hudbar.asm's
+#  bar_names, in that order), or 0 for a group. ARROWS is the ORBIT button,
+#  which presses no key -- it is a mode -- so its key is 0 and its name 4.
+KEY_EQU = {",": "KEY_COMMA", ".": "KEY_PERIOD", "?": "KEY_SLASH", "0": "KEY_0",
+           "ESC": "KEY_ESC", "SPACE": "KEY_SPACE", "ENTER": "KEY_ENTER", "ARROWS": "0", "": "0"}
+NAME_CODE = {"ESC": 1, "SPACE": 2, "ENTER": 3, "ARROWS": 4, "": 0}
+
+
+def key_equate(key: str) -> str:
+    return KEY_EQU.get(key) or f"KEY_{key}"
+
+
+def name_code(key: str) -> int:
+    return NAME_CODE[key] if key in NAME_CODE else ord(key)
 ICON_BYTES = W // 4 * H     # 64: sixteen rows of four bytes, no mask
 
 
@@ -867,22 +883,24 @@ def encode(g) -> list:
     return out
 
 
-def import_icons(png: str = PNG, asm: str = ASM) -> None:
+def import_icons(png: str = PNG, asm: str = ASM, captions: str = CAPTIONS) -> None:
     """art/hudicons.png -> src/gen/hudicons.asm: `hud_icons`, ICON_BYTES each
-    in ICONS order, and an ICON_<NAME> equate per icon with its index."""
+    in ICONS order, and an ICON_<NAME> equate per icon with its index -- and
+    src/gen/hudcaptions.asm: the descriptions, keys and key names."""
     pics = read(png)
+    banked = [i for i in ICONS if not i[0].startswith("frame")]     # the frames are the sheet's, not the game's
     lines = [
         "; GENERATED by tools/hudicons.py import -- do not edit; repaint art/hudicons.png",
         f"; {len(ICONS)} icons, {W}x{H}, {ICON_BYTES} bytes each: rows of {W // 4} Mode 1 bytes, no mask",
         f"HUD_ICON_BYTES      equ {ICON_BYTES}",
         f"HUD_ICON_ROWS       equ {H}",
         f"HUD_ICON_W_BYTES    equ {W // 4}",
-        f"HUD_ICON_COUNT      equ {len(ICONS)}",
+        f"HUD_ICON_COUNT      equ {len(banked)}",
     ]
-    for i, (name, _, _, _, _, _) in enumerate(ICONS):
+    for i, (name, _, _, _, _, _) in enumerate(banked):
         lines.append(f"ICON_{name.upper():13}equ {i}")
     lines.append("hud_icons:")
-    for name, _, _, _, _, _ in ICONS:
+    for name, _, _, _, _, _ in banked:
         lines.append(f"    ; {name}")
         data = encode(pics[name])
         for r in range(H):
@@ -892,6 +910,24 @@ def import_icons(png: str = PNG, asm: str = ASM) -> None:
     os.makedirs(os.path.dirname(asm), exist_ok=True)
     with open(asm, "w") as f:
         f.write("\n".join(lines) + "\n")
+    #  ...and the captions, for bank 6 beside the bar: the descriptions in
+    #  icon order, the key each icon presses, and the key's name code.
+    cap = [
+        "; GENERATED by tools/hudicons.py import -- do not edit; the words are in ICONS",
+        "; the descriptions, in icon order, zero-terminated; the bar appends \" (KEY)\"",
+        "hud_desc_text:",
+    ]
+    for name, _, desc, key, _, _ in banked:
+        cap.append(f'    defb "{desc}",0' if desc else "    defb 0")
+    cap.append("hud_desc_text_end:")
+    cap.append("; the key an icon presses (0: none), by icon")
+    cap.append("hud_icon_key:")
+    cap.append("    defb " + ",".join(key_equate(k) for _, _, _, k, _, _ in banked))
+    cap.append("; ...and how the caption names it: a letter, 1..4 a word, 0 nothing")
+    cap.append("hud_icon_name:")
+    cap.append("    defb " + ",".join(str(name_code(k)) for _, _, _, k, _, _ in banked))
+    with open(captions, "w") as f:
+        f.write("\n".join(cap) + "\n")
 
 
 def preview(png: str = PNG, out: str = PREVIEW, scale: int = 4):
@@ -1038,7 +1074,7 @@ def main(argv) -> int:
         print(mockup())
     elif cmd == "import":
         import_icons()
-        print(f"wrote {ASM}: {len(ICONS)} icons, {ICON_BYTES * len(ICONS)} bytes")
+        print(f"wrote {ASM}: {len(ICONS) - 2} icons, {ICON_BYTES * (len(ICONS) - 2)} bytes; and {CAPTIONS}")
     elif cmd == "list":
         at, _, _ = cells()
         for (name, label, desc, key, group, _), (_, x, y) in zip(ICONS, at):

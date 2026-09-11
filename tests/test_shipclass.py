@@ -423,8 +423,15 @@ class TestTheBanks(ClassFixture):
             with open(os.path.join(BUILD_DIR, f"{name}.raw"), "rb") as f:
                 want = f.read()
             self.page_in(bank)
-            got = h.read_cpu(self.c, BANK_WINDOW, len(want))
-            self.assertEqual(got, want, f"{name} is not what was written")
+            got = bytearray(h.read_cpu(self.c, BANK_WINDOW, len(want)))
+            want = bytearray(want)
+            if name == "bank6":
+                #  The button bar RUNS from bank 6 and keeps its state there
+                #  (game/hudbar.asm): bar_sel..bar_x move the moment the game
+                #  draws. Those bytes are RAM by design; the rest is the disc's.
+                lo, hi = self.sym["BAR_SEL"] - BANK_WINDOW, self.sym["BAR_X"] + 1 - BANK_WINDOW
+                got[lo:hi] = want[lo:hi] = bytes(hi - lo)
+            self.assertEqual(bytes(got), bytes(want), f"{name} is not what was written")
 
     def test_every_class_points_into_the_window(self):
         """A sprite address is meaningless without the bank beside it, and the

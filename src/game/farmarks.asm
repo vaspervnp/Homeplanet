@@ -440,10 +440,11 @@ pilot_scanner:
     ret nz
 
     ;  The oval's table, down from bank 6 for the length of this call.
-    ld hl,scan_oval_b6
+    ld hl,scan_oval_b5
     ld de,bank7_line
     ld bc,SCAN_RX + 1
-    call bank6_copy
+    ld a,GA_BANK_5                      ; game/bank5data.asm
+    call bankn_copy
     ;  The oval, in ink 2 -- chrome, the HUD's own ink for a thing that is
     ;  not a ship -- column by column out of scan_oval, then its rectangle,
     ;  once. Column i draws the rows between the last column's height and

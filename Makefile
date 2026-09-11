@@ -27,7 +27,7 @@ BUILD_DIR := build
 SHIP_CLASSES := interceptor frigate mothership harvester scout bomber \
                 salvage destroyer
 SPRITES := $(patsubst %,$(GEN_DIR)/spr_%.asm,$(SHIP_CLASSES))
-HUD_ICONS := $(GEN_DIR)/hudicons.asm
+HUD_ICONS := $(GEN_DIR)/hudicons.asm $(GEN_DIR)/hudcaptions.asm
 
 MAIN   := $(SRC_DIR)/main.asm
 DISC   := $(SRC_DIR)/disc.asm
@@ -227,7 +227,7 @@ $(GEN_DIR)/spr_%.asm: art/%.retrotools.json tools/rt2sprite.py
 endif
 
 # The HUD's button icons, off the sheet the owner repaints (hud2.md). Bank 5.
-$(HUD_ICONS): art/hudicons.png tools/hudicons.py tools/spritemap.py tools/rt2sprite.py
+$(HUD_ICONS) &: art/hudicons.png tools/hudicons.py tools/spritemap.py tools/rt2sprite.py
 	$(PYTHON) tools/hudicons.py import
 
 # Ship sprites. Not part of `all`: the projects in art/ are checked in, and

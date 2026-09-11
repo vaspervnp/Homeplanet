@@ -329,9 +329,47 @@ bankn_copy:
     out (c),c
     pop bc
     ldir
-    ld bc,GA_PORT * 256 + GA_BANK_4
+    ;  ...and HOME goes back under the window: bank 4, unless bankn_call has
+    ;  put a routine in another bank and said so. The one way code in bank 6
+    ;  can copy out of bank 5 and still be there when the copy returns.
+    ld b,GA_PORT
+    ld a,(bank_home)
+    ld c,a
     out (c),c
     ret
+
+
+; ----------------------------------------------------------------------------
+;  bankn_call -- run a routine that lives in an extended bank, from bank 4
+;  In : A = the bank's GA value, IX = the routine
+;  Out: whatever the routine leaves in DE, HL and the flags
+;  Uses: AF, BC (and whatever the routine uses)
+;
+;  chase_run's shape made general: the OUT happens with the CPU down here,
+;  and bank 4 is back before the RET reaches a return address that is in it.
+;  bank_home is set to the bank for the duration, so a bankn_copy the routine
+;  makes comes back to IT and not to bank 4 -- the button bar (game/hudbar.asm,
+;  bank 6) pages the icons in from bank 5 that way. NOT re-entrant: a routine
+;  reached through this must not come through it again. The routine may not
+;  call bank 4, nor bank7_fetch, which pages bank 4 back unconditionally. A
+;  is clobbered on the way out, so an answer comes back in L.
+; ----------------------------------------------------------------------------
+bankn_call:
+    ld (bank_home),a
+    ld b,GA_PORT
+    ld c,a
+    out (c),c
+    call @bankn_go
+    ld bc,GA_PORT * 256 + GA_BANK_4
+    out (c),c
+    ld a,GA_BANK_4
+    ld (bank_home),a
+    ret
+@bankn_go:
+    jp (ix)
+
+;  Which bank is "at rest" right now: bank 4, except inside bankn_call.
+bank_home:          defb GA_BANK_4
 
 
 ; ----------------------------------------------------------------------------

@@ -59,11 +59,11 @@ CLASS_SALVAGE = 6
 ENT_ORDER_ATTACK = 2
 
 #  Step indices, 0-based, mirrored from tut_table in src/game/tutorialrun.asm.
-S_LOOK, S_ZOOM, S_PAN, S_VIEW = 0, 1, 2, 3
-S_SQUAD, S_INFO, S_MOVE, S_FORM, S_SPLIT, S_DOCK = 4, 5, 6, 7, 8, 9
-S_MINE, S_BUILD = 10, 11
-S_TARGET, S_FIGHT, S_PAUSE, S_FLY, S_SALVAGE = 12, 13, 14, 15, 16
-S_LEAVE = 17
+S_LOOK, S_BAR, S_ZOOM, S_PAN, S_VIEW = 0, 1, 2, 3, 4
+S_SQUAD, S_INFO, S_MOVE, S_FORM, S_SPLIT, S_DOCK = 5, 6, 7, 8, 9, 10
+S_MINE, S_BUILD = 11, 12
+S_TARGET, S_FIGHT, S_PAUSE, S_FLY, S_SALVAGE = 13, 14, 15, 16, 17
+S_LEAVE = 18
 
 
 # ---------------------------------------------------------------------------
@@ -376,7 +376,7 @@ class TestTheLineOnTheScreen(TutFixture):
     def test_the_first_instruction_is_on_the_screen_in_both_buffers(self):
         for base, rows in self.rows().items():
             joined = "".join(rows)
-            self.assertIn("ARROW KEYS TURN THE VIEW", joined,
+            self.assertIn("SHIFT+ARROWS TURN THE VIEW", joined,
                           f"buffer #{base:04X} does not carry the instruction; "
                           f"it reads {sorted(rows)}")
             self.assertIn(f"1/{TUT_STEPS}", joined,
@@ -391,13 +391,16 @@ class TestTheLineOnTheScreen(TutFixture):
                              f"buffer #{base:04X} still carries the hull readout")
 
     def test_the_line_changes_when_a_step_is_satisfied(self):
+        #  SHIFT + the arrows turn the view now; Q is the emulator's SHIFT.
+        self.c.key_down("Q")
         self.c.key_down(cpc.KEY_LEFT)
         self.c.run_frames(150)
         self.c.key_up(cpc.KEY_LEFT)
+        self.c.key_up("Q")
         self.c.run_frames(60)
-        self.assertEqual(self.step(), S_ZOOM, "turning the camera did nothing")
+        self.assertEqual(self.step(), S_BAR, "turning the camera did nothing")
         joined = "".join("".join(v) for v in self.rows(8).values())
-        self.assertIn("Z AND X ZOOM IN AND OUT", joined)
+        self.assertIn("ARROWS WALK THE BUTTONS BELOW", joined)
         self.assertIn(f"2/{TUT_STEPS}", joined)
 
 
@@ -671,19 +674,35 @@ class TestTheSalvageStep(GateFixture):
 # ---------------------------------------------------------------------------
 class TestActOneLooking(GateFixture):
 
+    def turn(self, frames):
+        """SHIFT + LEFT: the bare arrows walk the button bar now."""
+        self.c.key_down("Q")
+        self.c.key_down(cpc.KEY_LEFT)
+        self.c.run_frames(frames)
+        self.c.key_up(cpc.KEY_LEFT)
+        self.c.key_up("Q")
+
     def test_the_camera_has_to_turn_a_quarter_of_a_turn(self):
         self.at_step(S_LOOK)
-        self.c.key_down(cpc.KEY_LEFT)
-        self.c.run_frames(20)               # about two game frames: 16/256
-        self.c.key_up(cpc.KEY_LEFT)
+        self.turn(20)                       # about two game frames: 16/256
         self.c.run_frames(30)
         self.assert_stuck(S_LOOK, "a nudge of the camera")
 
+        self.turn(150)
+        self.c.run_frames(40)
+        self.assert_moved(S_LOOK, "turning the camera a quarter turn")
+
+    def test_the_bare_arrows_do_not_turn_the_view_but_walk_the_bar(self):
+        self.at_step(S_LOOK)
         self.c.key_down(cpc.KEY_LEFT)
         self.c.run_frames(150)
         self.c.key_up(cpc.KEY_LEFT)
         self.c.run_frames(40)
-        self.assert_moved(S_LOOK, "turning the camera a quarter turn")
+        self.assert_stuck(S_LOOK, "the bare arrows")
+
+        self.at_step(S_BAR)
+        self.hold(cpc.KEY_RIGHT)
+        self.assert_moved(S_BAR, "walking the bar")
 
     def test_the_zoom_has_to_move_both_ways(self):
         self.at_step(S_ZOOM)
@@ -917,12 +936,20 @@ class TestTheWholeThing(TutFixture):
 
     def test_a_player_can_get_all_the_way_through_it(self):
         c = self.c
-        #  1 -- the camera
+        #  1 -- the camera, with SHIFT
+        c.key_down("Q")
         c.key_down(cpc.KEY_LEFT)
         c.run_frames(150)
         c.key_up(cpc.KEY_LEFT)
+        c.key_up("Q")
         c.run_frames(40)
-        self.expect(S_ZOOM, "turning the camera")
+        self.expect(S_BAR, "turning the camera")
+        #  2 -- the button bar
+        c.key_down(cpc.KEY_RIGHT)
+        c.run_frames(30)
+        c.key_up(cpc.KEY_RIGHT)
+        c.run_frames(40)
+        self.expect(S_ZOOM, "walking the bar")
 
         #  2 -- the zoom, both ways
         for _ in range(2):

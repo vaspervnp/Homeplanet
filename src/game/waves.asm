@@ -787,5 +787,4 @@ wave_dirty:         defb 0
 ;  #FF so the first frame is always a change and demo_init has nothing to do.
 wave_pct_shadow:    defb #FF
 wave_moth_shadow:   defb #FF
-wave_say_shadow:    defb #FF
 

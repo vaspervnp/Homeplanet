@@ -115,9 +115,13 @@ class TestVTakesAShipAndGivesItBack(PilotFixture):
         both are kept on the way in and put back on the way out, so the orbit
         the player left is the orbit they return to -- whatever the ship was
         pointing at when V was pressed again."""
-        #  An orbit that is not the default: turn and tilt first.
+        #  An orbit that is not the default: turn and tilt first -- with
+        #  SHIFT, since the bare arrows walk the button bar (hud2.md).
+        self.c.key_down("Q")
         self.hold(cpc.KEY_LEFT, frames=30)
         self.hold(cpc.KEY_UP, frames=20)
+        self.c.key_up("Q")
+        self.c.run_frames(20)
         yaw, pitch = self.byte("CAM_YAW"), self.byte("CAM_PITCH")
         self.assertNotEqual(yaw, 0)
         p = self.take_the_stick()
@@ -262,9 +266,11 @@ class TestTheCameraRidesBehindIt(PilotFixture):
         never stamped with the current frame while it is being flown."""
         zoom_dist = self.word("CAM_DIST")
         pitch0 = self.byte("CAM_PITCH")
+        self.c.key_down("Q")                                 # SHIFT: the bare arrows are the bar's
         self.c.key_down(cpc.KEY_UP)                          # an orbit pitch to come back to
         self.c.run_frames(30)
         self.c.key_up(cpc.KEY_UP)
+        self.c.key_up("Q")
         self.c.run_frames(20)
         pitch1 = self.byte("CAM_PITCH")
         self.assertNotEqual(pitch1, 0)

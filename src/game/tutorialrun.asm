@@ -108,6 +108,12 @@ tut_enter:
     ld a,1
     ld (tut_active),a
     ld (tut_fresh),a
+    ;  ...and the button bar at rest -- frame on MOVE, no group -- because
+    ;  step 8 says "ENTER ARROWS ENTER TO MOVE IT", which is true of ENTER
+    ;  at rest and of nothing else. Bank 6, through the trampoline.
+    ld a,GA_BANK_6
+    ld ix,bar_reset
+    call bankn_call
     xor a
     ld (tut_step),a
     ld (tut_flags),a
@@ -248,7 +254,8 @@ tut_row:
     add hl,de                           ; ...an address in BANK 6, so:
     ld de,bank7_line
     ld bc,TUT_STEP_SIZE
-    call bank6_copy                     ; the row, down into the low 16K
+    ld a,GA_BANK_5                      ; game/bank5data.asm
+    call bankn_copy                     ; the row, down into the low 16K
     ld hl,bank7_line
     ret
 
@@ -352,7 +359,40 @@ tut_g_look:
     ret
 
 
-;  --- 2. Z and X zoom, and the step has to move BOTH ways ---------------------
+;  --- 2. The arrows walk the button bar -----------------------------------------
+;  "Φτιάξε και το tutorial να λαμβάνει υπόψη του τις αλλαγές." The gate is the
+;  bar's own answer to "is a description up" -- which it is for four seconds
+;  after the frame moves, and not before, because tut_enter put the bar at
+;  rest. Asked of bank 6 through the trampoline; the answer comes back in L.
+tut_g_bar:
+    ld a,GA_BANK_6
+    ld ix,bar_tick_get
+    call bankn_call
+    ld a,l                              ; the tick the frame last moved at
+    ld hl,tut_fresh
+    bit 0,(hl)
+    jr z,@tut_bar_cmp
+    ld (tut_mark),a                     ; arming: remember, do not fire
+    or a
+    ret
+@tut_bar_cmp:
+    ld hl,tut_mark
+    sub (hl)
+    ret z                               ; CF clear: it has not moved since
+    scf
+    ret
+
+
+;  The entry act of the move-disc step: the bar back at rest, so that "ENTER
+;  ARROWS ENTER TO MOVE IT" is true the moment the line goes up -- the frame
+;  is wherever step 2 left it, and ENTER presses what the frame is on.
+tut_a_bar_rest:
+    ld a,GA_BANK_6
+    ld ix,bar_reset
+    jp bankn_call
+
+
+;  --- 3. Z and X zoom, and the step has to move BOTH ways ---------------------
 ;  Both, because zooming one way and stopping teaches half of it -- and the
 ;  game opens on step 5 of twelve, so both directions are always available.
 tut_g_zoom:
@@ -1059,7 +1099,7 @@ tut_draw:
 ;  four bytes against a second bank flip a frame.
 ; ----------------------------------------------------------------------------
 tut_of_text:
-    defb "/18",0
+    defb "/19",0
 tut_of_text_end:
 
 

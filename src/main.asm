@@ -402,7 +402,8 @@ low_end:
     assert HUD_MIS_JUMP_X + 4 * TXT_CHAR_W_BYTES <= SCR_BYTES_PER_LINE, "JUMP runs off the screen"
     ;  ...and the bottom strip: the buttons, then the context line.
     assert HUD_BTN_Y + HUD_BTN_H <= HUD_TEXT_Y, "the buttons run into the context line"
-    assert HUD_TEXT_Y + TXT_CHAR_H <= SCR_HEIGHT_PX, "the context line runs off the screen"
+    assert HUD_TEXT_Y + TXT_CHAR_H <= HUD_DESC_Y, "the context line runs into the description line"
+    assert HUD_DESC_Y + TXT_CHAR_H <= SCR_HEIGHT_PX, "the description line runs off the screen"
 
 ;  ...and its two fields against each other and against the screen edge.
 ;  txt_draw clips at the edge and says nothing, so these are the only guard.
@@ -1175,6 +1176,9 @@ bank5_start:
 ;  blitter's copy were being read off the disc every boot and thrown away.
 ;  Lever 1 exactly. bank5_data_end <= SPR_SCALE_ORG below is the guard.
     include "gen/hudicons.asm"
+    include "game/bank5data.asm"        ; tut_table, order_home, the fire table, the scanner's oval:
+                                        ;  read once each through bankn_copy, out of bank 6 until
+                                        ;  the button bar needed the room there
 bank5_data_end:
     print "bank 5 data ends at", {hex}bank5_data_end, " free before the scaled blitter:", SPR_SCALE_ORG - bank5_data_end
     SPR_SCALE_COPY 5                    ; gfx/sprscale.asm, at SPR_SCALE_ORG
@@ -1211,9 +1215,14 @@ bank6_start:
 ;  destination, so the whole move was five `ldir`s becoming five calls to
 ;  bank6_copy. Two hundred and thirty-five bytes of DISC.BIN for five.
     include "gen/zoom.asm"
-    include "game/bank6data.asm"        ; tut_table and order_home, read once through bank6_copy
     include "gen/mus_menu.asm"          ; the tune's three streams and its periods: mus_peek copies them out
+    include "game/hudbar.asm"           ; the button bar: CODE, run from this bank through bankn_call
 bank6_data_end:
+    print "bank 6 data ends at", {hex}bank6_data_end, " free before the scaled blitter:", SPR_SCALE_ORG - bank6_data_end
+    assert bar_top_icons_end - bar_top_icons == BAR_SLOTS, "the bar's top row is not BAR_SLOTS icons"
+    assert BAR_X0 + (BAR_SLOTS - 1) * BAR_PITCH + HUD_ICON_W_BYTES <= SCR_BYTES_PER_LINE, "the button row runs off the screen"
+    assert HUD_ICON_ROWS == HUD_BTN_H, "the icons are not the height of the button row"
+    assert BAR_HALF <= B7_BUF_SIZE, "half an icon does not fit bank7_line"
     SPR_SCALE_COPY 6
 bank6_end:
     assert bank6_data_end <= SPR_SCALE_ORG, "bank 6's data has grown into the scaled blitter"
@@ -1650,7 +1659,7 @@ ENDIF
 ;  The counter says "/18" in so many bytes, so the number of steps is on the
 ;  screen as a literal and has to agree with the table. There is no arithmetic
 ;  that turns TUT_STEPS into two characters at assembly time.
-    assert TUT_STEPS == 18, "the tutorial no longer has eighteen steps, and the /18 on the screen says it does"
+    assert TUT_STEPS == 19, "the tutorial no longer has nineteen steps, and the /19 on the screen says it does"
 
 ;  ...and there has to be a line for every one of them. A SUM, with the same
 ;  limitation as the class-name check above -- one long line and three short

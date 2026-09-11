@@ -323,7 +323,8 @@ over_fires:
     ld hl,(over_fire_ptr)
     ld de,bank7_line
     ld bc,OVER_FIRE_CHUNK * 3
-    call bank6_copy                     ; ...and it puts bank 4 back itself
+    ld a,GA_BANK_5                      ; game/bank5data.asm
+    call bankn_copy                     ; ...and it puts bank 4 back itself
     ld (over_fire_ptr),hl
     ld hl,bank7_line
     ld (over_fire_buf),hl

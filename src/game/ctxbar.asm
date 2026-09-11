@@ -139,6 +139,11 @@ CTX_BUY_FLEET       equ 3               ; the fleet's own slots are all spoken f
 ;  and if it did paint the strip into this buffer and the next one.
 ; ----------------------------------------------------------------------------
 ctx_bar:
+    ;  The button bar first: it paints its row when it has changed, and it
+    ;  runs from bank 6 (game/hudbar.asm) through the low 16K's trampoline.
+    ld a,GA_BANK_6
+    ld ix,bar_frame
+    call bankn_call
     call ctx_changed
     ld hl,ctx_dirty
     ld a,(hl)
@@ -178,7 +183,7 @@ ctx_bar:
     jp z,ctx_draw_pilot
     ;  CTX_PLAYING: no key list any more -- the buttons say what the keys do.
     ;  The message row's word, when there is one, and nothing otherwise.
-    jr ctx_draw_message
+    jp ctx_draw_message
 
 ;  HL -> a whole line of the bar, from the left-hand edge.
 ctx_line:
@@ -274,6 +279,12 @@ ctx_static:
     ld a,(ctx_key)
     or a
     ret nz                              ; a page is closing: the playing frame paints
+    ;  The two endings own all 200 lines and draw their SPACE prompt in the
+    ;  strip; blanking under them would cut it in half.
+    ld a,(mis_failed)
+    ld hl,mis_won
+    or (hl)
+    ret nz
     ld hl,ctx_dirty
     ld a,(hl)
     or a
@@ -282,9 +293,23 @@ ctx_static:
     ld b,0
     ld c,CTX_LINE_Y
     ld d,SCR_BYTES_PER_LINE
-    ld e,TXT_CHAR_H
+    ld e,SCR_HEIGHT_PX - CTX_LINE_Y     ; ...and the description line under it
     xor a
     jp scr_fill_rect
+
+
+; ----------------------------------------------------------------------------
+;  bar_hook -- the button bar's keys, from the top of phase4_commands
+;
+;  Bank 4's end of game/hudbar.asm: the bar is bank 6 and the frame loop is
+;  the low 16K, which had three bytes for a CALL and none for the trampoline's
+;  arguments. It has to run before phase4_commands reads a key, because a
+;  button presses its key by planting the edge for the commands to find.
+; ----------------------------------------------------------------------------
+bar_hook:
+    ld a,GA_BANK_6
+    ld ix,bar_update
+    jp bankn_call
 
 
 ; ----------------------------------------------------------------------------

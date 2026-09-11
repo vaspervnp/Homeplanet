@@ -63,114 +63,172 @@ keys orbit the camera whenever nothing else has them; once they walk the
 button bar by default, orbiting is a MODE the player enters — like PAN is
 already — and leaves with ESC.
 
-## 2. What the arrows do — the rule
+## 2. What the arrows do — BUILT
 
-> The cursor keys belong to the move disc, the pan, the orbit and the cockpit
-> while one of those is open. Otherwise they walk the button bar, and nothing
-> else may take them.
+> The cursor keys belong to the move disc, the pan, the cockpit and the build
+> panel while one of those is open, and to the tutorial throughout. Otherwise
+> they walk the button bar, and nothing else may take them.
 
 "Absolute priority" means the bar is the DEFAULT owner rather than the
-fallback: `order_update`'s chain today is disc → pilot → pan → orbit, and it
-becomes disc → pilot → pan → orbit-mode → bar. Left and right move the
-selection frame along the row; ENTER presses the button under it; ESC closes
-an open group (BACK) or opens the menu as it does now. Up and down step
-between the two rows while a group is open.
+fallback. `order_update`'s chain is disc → pilot → pan → **orbit mode** →
+nothing: orbiting the camera, which used to be what the arrows did when
+nothing else had them, is a MODE now — the ORBIT button enters it, ENTER
+leaves it, exactly as PAN is a mode — and `orbit_mode` (low 16K, beside
+`pan_active`) is what `order_update` asks before it calls `order_camera`.
+The tutorial keeps the old arrows outright, because its first lesson is that
+they turn the view, and the bar is not drawn there.
 
-**Every key still works.** A button INJECTS its key the way the orders menu
-does (`key_inject`), so the bar is a second front end onto `phase4_commands`
-and not a second copy of any command — the exact reason the menu was built
-that way. Pressing `A` and pressing the ATTACK button are the same event by
-construction.
+LEFT and RIGHT move the frame along the row and wrap; ENTER presses the
+button under it; ESC closes an open group, and opens the menu as it does now
+when none is. **Every key still works.** A button PRESSES ITS KEY: the bar
+plants the key's edge into `key_hits` the way the orders menu's `key_inject`
+does, and `phase4_commands`, which runs straight after (the bar is hooked at
+its top, one `CALL` in the low 16K), acts on it in the same frame. So the
+bar is a second front end onto the commands and not a second copy of any of
+them, and pressing `A` and pressing ATTACK are the same event by
+construction. The ENTER that pressed the button is taken OUT of the frame's
+snapshot first, or `order_update` would open the move disc on top of every
+press; the ESC that closed a group likewise, or the menu would open.
 
-## 3. The bar's layout — TO DECIDE
+## 3. The bar's layout — BUILT
 
-Sixteen slots. A first cut, to be argued with:
+Sixteen slots at a 20-pixel pitch (`BAR_X0` 1, `BAR_PITCH` 5 bytes):
 
 ```
-MENU PAUSE | MOVE STATION FORMATION | ATTACK GUARD | HARVEST BUILD | JUMP | INFO HELP
-   + groups: COMBAT+ (strafe, fly, target prev/next)
-             ECONOMY+ (tow, repair, recycle)
-             SQUADRON+ (divide, combine, split, ship prev/next)
-             CAMERA+ (zoom in/out, orbit, pan, centre, sensors)
+MOVE DOCK FORM ATTACK GUARD MINE BUILD JUMP INFO PAUSE MENU | COMBAT+ ECONOMY+ SQUADRON+ CAMERA+ SYSTEM+
+   COMBAT+   : BACK STRAFE FLY TARGET< TARGET>
+   ECONOMY+  : BACK TOW REPAIR RECYCLE
+   SQUADRON+ : BACK DIVIDE JOIN SPLIT SHIP< SHIP>
+   CAMERA+   : BACK ZOOM+ ZOOM- ORBIT PAN CENTRE SENSORS
+   SYSTEM+   : BACK HELP MUSIC
 ```
 
-That is 12 direct + 4 groups = 16. A group opens its members on the second
-row; BACK (or ESC) closes it. `LAND` replaces `JUMP` on the last mission, as
-the HUD's word does today, through `mis_is_last`.
+**MOVE is first, and the frame starts on it**, so ENTER with nothing
+selected opens the move disc exactly as it always did: the key every player
+has learned keeps working, and the bar is discovered from it rather than in
+its way. Eleven direct buttons and five groups, and **a group opens as a SUB-BAR in
+the same row** — BACK first, then its members, the frame landing on the
+first member — rather than as a second row: one row is what the strip has
+above the context line, and a sub-bar is the same thing to look at and to
+walk. BACK or ESC closes it and puts the frame back on the group's button.
+`JUMP` wears `LAND` on the last mission, as the HUD's word does; the key is
+`J` either way. The groups are the last five slots in the order of their
+icons, so a group's slot is arithmetic and `bar_close` needs no table.
 
-**Modal buttons stay modal.** `, .` mean "step the target" with the panel
-shut and "step the price list" with it open; the bar shows whichever pair is
-live, which is what the context bar does now in words.
+**It runs from bank 6.** The bar wanted ~300 bytes of code and ~600 of
+words; bank 4 had 111 to its window, the low 16K 31 to its page, bank 7
+four. Bank 6 had a thousand, and the chase had set the precedent for CODE in
+a sprite bank. `game/hudbar.asm` is assembled into bank 6 after the tune's
+streams, runs with the window at rest from two bank-4 call sites through
+**`bankn_call`** (`sys/libload.asm`: `A` = bank, `IX` = routine, and
+`bank_home` says which bank `bankn_copy` should page BACK to — so bank-6
+code can copy the icons in from bank 5 and still be there when the copy
+returns), and calls nothing but the low 16K. It carries its own copies of
+`key_inject`'s and `key_clear`'s bit arithmetic, because those are bank 4.
+An icon comes down in two halves of thirty-two through `bank7_line`, the one
+RAM outside the window, and goes on a row at a time. The state is in bank 6
+with the code, like the chase's; tests read it with `harness.read_bank`,
+which parks the machine in `scr_wait_vsync`, copies the bytes down and jumps
+back in. `tests/test_hudbar.py` reads the row and the frame off the pixels.
 
-## 4. The top strip: two lines — TO BUILD
+**The joystick walks it too** (*"τα κουμπιά να επιλέγονται και με
+joystick"*): joystick 1 is row 9 of the matrix, which `key_scan` reads with
+the rest, so the stick's left and right are two more key ids beside the
+arrows' and fire one beside ENTER (`KEY_JOY_*` in `game/hudbar.asm`).
 
-`CTX_BAR_H` 10 → 20, two text rows, and **the context bar's key list is gone
-from it**: the buttons are what say which keys are live now, so `ESC MENU
-ENTER MOVE B BUILD A ATTACK` has no job left. What the old bar said that was
-not a key list — `PAUSED`, `JUMPING nn ESC CANCEL`, the build panel's class
-and price and its `ENTER BUY` / `NEED MORE RU` — is STATE, and it moves to
-line 2 (below).
+**The tutorial plays by the same rules** (*"φτιάξε και το tutorial να
+λαμβάνει υπόψη του τις αλλαγές"*): the bar is drawn and live on the stage,
+`tut_enter` puts it at rest (frame on MOVE, no group) through `bar_reset`,
+step 1 says `SHIFT+ARROWS TURN THE VIEW`, and a new step 2 — `ARROWS WALK THE
+BUTTONS BELOW`, gated on the bar's own "a description is up" —
+makes nineteen steps. Bank 7 had 42 bytes and the two lines took 36.
 
-**Line 1 is the fleet's health, as bars.** `HULL` and `BASE` — the two
-figures `wave_draw` puts on the HUD's third row today — become two
-**progress bars**, 72 pixels (18 bytes) by 6 lines: a blue frame, a white
-fill, and the fill turns red below `HUD_HP_ALARM` (33%), which is the same
-moment the figure turns red today. The caption stays a word in the chrome
-ink. `wave_pct` and the Mothership's own percentage are already computed
-every fourth frame; a bar is `fill = 70 * pct / 100` and one `scr_fill_rect`
-per buffer when the byte changes, so the cost is the HUD's own dirty-flag
-discipline and nothing per frame. `RU nnnn` and `M nn` fit after the two bars
-(40 characters: 4 + 9 + 1 + 4 + 9 + 1 + 11 = 39) and come up here with them,
-because the HUD's bottom half is now the buttons.
+**Modal buttons stay modal.** `, .` are on the COMBAT group as TARGET< and
+TARGET>; with the build panel open the panel has ENTER and `,` `.`, and the
+bar stands aside until it closes.
 
-**Line 2 is the fleet: the squadrons, the yard, the way out.** `SQUADRONS`
-in the chrome ink, then **nine marks**, one a squadron, a little vertical
-line each (2 × 7 pixels at an 8-pixel pitch, 72 pixels for the nine): **blue
-for a squadron with ships in it, white for an empty one, and RED for the
-selected one** — the owner's assignment, written down here because it is the
-reverse of the palette's usual "white is the thing" and must not be
-"corrected" — and after them **only the selected squadron's number and its
-ship count**, in white: `2 15`. Nine counts of two digits were 40 bytes of
-the old row; this is 9 + 1 + 9 + 4 characters' worth and tells the player the
-two things they act on — which squadrons exist, and how big the one they are
-about to order is. The marks are `scr_fill_rect`s from `squad_count`, which
-is derived every frame already, so the row repaints on the same
-`phase4_hud_changed` shadow it does now. After them the **yard's readout**
-(`>SCT 4`) and **`JUMP` / `LAND`** at the right in the attention ink. So the
-whole top strip is the state of the fleet, and it is read at a glance in
-three kinds of mark: a bar, a tick, a word.
+## 4. The top strip: two lines — BUILT
 
-The **message row's word** (`INCOMING`, `YARD: FRIGATE`, `AUTO RESPONSE ON`)
-and what the old context bar said that was not a key list — `PAUSED`,
-`JUMPING nn ESC CANCEL`, the build panel's class and price and its `ENTER
-BUY` / `NEED MORE RU` — go to the bottom strip's text line, below.
+`CTX_BAR_H` is **20**, two text rows (`CTX_Y` 1, `CTX_Y2` 11), and **the
+context bar's key list is gone from it**: the buttons are what will say
+which keys are live, so `ESC MENU ENTER MOVE B BUILD A ATTACK` has no job
+left and ordinary play draws nothing on the context line at all. What the
+old bar said that was not a key list — `PAUSED`, `JUMPING nn ESC CANCEL`,
+`RECYCLE?`, the move disc's and the cockpit's lines, the build panel's class
+and price and its `ENTER BUY` / `NEED MORE RU` — is STATE, and it moved with
+`ctx_bar` to the bottom strip's text line (§5).
 
-**The playfield shrinks by ten lines** (20..167), and `PROJ_CENTRE_Y` moves to
-`(CTX_BAR_H + HUD_TOP) / 2` = 94, which `src/main.asm` already asserts
-against. The reticle, the scanner box, `MOTH_CENTRE_Y`, `JFX_TOP` and the
-homeplanet's horizon all read the equates, and the tests that read the bar
-back off the pixels (`tests/test_ctxbar.py`) read words today and must learn
-bars.
+**`game/huddraw.asm` draws the strip**, and it is `phase4_hud` reshaped:
+the same shadow compare (`phase4_hud_changed`), the same dirty counter, the
+same state in `demo/phase4.asm`, and a whole-strip blank followed by
+everything but the bars. It was written for bank 4 by the narrow rule and
+**lives in the low 16K by arithmetic**: bank 4 was 24 bytes from its window
+and this is four hundred, while removing the old `phase4_hud` — nine
+`>n:cc` slots and their row walker — had just given the low 16K two pages
+back. Low 16K `free:` 402 after, hand-written code at `#25E1`; bank 4
+**139**, up from 24.
 
-## 5. The bottom strip — DECIDED IN OUTLINE
+**Line 1 is the fleet's health, as bars.** `HULL` and `BASE` are captions in
+the chrome ink on two **bars**, 18 bytes by 6 lines (`HUD_BAR_*`): a blue
+trough (`SOLID_INK_2`) with the inner four lines overwritten from the left
+in white for `(pct × 46 + 128) >> 8` bytes — `pct × 18 / 100` rounded, one
+`mul_u8` and no divide, 0 at 0 and 18 at 100 — and in **red below
+`HUD_HP_ALARM`**, the same third at which the old figure turned. `hud_bar`
+is bank 4, in `game/wavesdraw.asm`, and `wave_draw` draws exactly the two
+bars on `wave_dirty`: the hull moves every time a shot lands, so the bars
+keep the flag the figures had, and `hud_draw` sets it whenever it has
+blanked the strip under them. `RU nnnn` and `M nn` follow at bytes 56 and
+72; the mission number keeps its two right-aligned digits.
 
-Lines 168..183 are the sixteen buttons; lines 184..199 are one text row, and
-it is **the buttons' own line**: when a button is selected — not pressed,
-selected — its one-line description appears there **with its key in
-parentheses after it** (*"μαζί με το πλήκτρο του σε παρένθεση"*), for **4
-seconds** (200 ticks on `sys_tick_50hz`, the way the countdown counts), and
-then clears. `CLOSE ON THE TARGET AND FIRE (A)`. The line is forty
-characters and the captions are authored in `tools/hudicons.py` beside the
-pictures, where `tests/test_hudicons.py` holds every one of them inside the
-forty, in the font's own range, with the key on the end; `python3
-tools/hudicons.py list` prints them and `mockup` draws the screen with one
-up. A group has no key and gets no parentheses. **When no description is up
-the line carries the state** — `PAUSED`, the countdown, the build panel's
-readout, `INCOMING` and the unlock news — in the inks those had. The words
-live in bank 7 with the rest of the stopped-world text; bank 7 has four
-bytes free, so a table goes to bank 6 first (see the `bank7_data_end <=
-SPR_SCALE_ORG` assert). Three rows' worth of text becomes one, so the
-strip's repaint gets cheaper, not dearer.
+**Line 2 is the squadrons.** `SQUADRONS`, then **nine marks** — one byte by
+seven lines at a two-byte pitch, `scr_fill_rect`s from `squad_count` — blue
+with ships, white empty, **red for the selected one** (the owner's
+assignment, and the reverse of "white is the thing": leave it), then the
+selected squadron's number and its count (`2 15`) and nothing for the others,
+the yard's five-character readout at byte 50, and `JUMP` / `LAND` at byte 72
+in the attention ink, through `mis_leave_word` as before. With the base
+selected (`0`) there is no number and no count. **The tutorial owns this
+line** while it runs: `tut_draw` is reached from `wave_draw` on the same
+flag, blanks the line and draws its instruction there, and `hud_draw` leaves
+line 2 alone while `tut_active` is set. What the tutorial gives up is the
+marks; the HULL and BASE bars stay.
+
+**The playfield is 20..167** and `PROJ_CENTRE_Y` is **94**, in
+`src/equ/memmap.asm` and `tools/gentables.py` both, asserted equal and equal
+to `(CTX_BAR_H + HUD_TOP) / 2`. Everything that reads the equates followed —
+the jump wipe, the Mothership marker's band, the horizon's asserts, the
+reticle and the scanner. `MG_TEXT_Y` moved 16 → 20 to clear the strip. The
+mission field, the way-out word, the message's ink and every reader of the
+old rows in the tests read the new symbols now; `test_ctxbar` grew a
+`TestTheFleetStrip` that reads both lines and both bars back off the pixels,
+because every readout bug this project has had passed on the variables.
+
+## 5. The bottom strip — the context line BUILT, the buttons TO BUILD
+
+Lines 168..183 (`HUD_BTN_Y`, `HUD_BTN_H`) are the sixteen buttons, black
+until the bar lands; line 190 (`HUD_TEXT_Y`, `CTX_LINE_Y`) is the **context
+line**, which is `ctx_bar` moved down whole: `PAUSED SPACE RESUME ESC MENU`,
+`JUMPING nn ESC CANCEL`, `RECYCLE? Y CONFIRM ESC CANCEL`, the disc's
+`ARROWS MOVE SHIFT HEIGHT ENTER OK ESC`, the cockpit's `ARROWS FLY SPACE
+FIRE V BACK`, the build panel's `SCOUT 25 RU , . PICK ENTER BUY`, with the
+inks they had. **The message row's word came here too** — `INCOMING`,
+`YARD: FRIGATE`, `AUTO RESPONSE ON` — drawn by `ctx_draw_message` while
+PLAYING (and while flying, where it outranks the cockpit's key line for its
+few seconds): `ctx_classify` folds `wave_saying` into `ctx_sub`, so the
+shadow repaints on the word's two transitions and not on its countdown, and
+`wave_changed` no longer compares it. A state outranks the message: `PAUSED`
+over `INCOMING`, as the old bar's contexts outranked each other.
+
+**The description is BUILT.** When the frame moves, `bar_show` notes the
+tick and `bar_desc_state` answers `ctx_classify`'s question every frame:
+while `sys_tick_50hz − bar_tick < 200` (four seconds) and no state or
+message outranks it, the context is `CTX_DESC` with the icon in `ctx_sub`,
+and `ctx_draw_desc` has `bar_caption` build the line — the description from
+`gen/hudcaptions.asm` (`tools/hudicons.py import` writes it beside the icons:
+descriptions, keys, key names) and the key in parentheses after it — into
+`bank7_line` and draws it white. The descriptions were shortened to fit a
+forty-character line with ` (ARROWS)` on the end and bank 6's room:
+`PAUSE THE BATTLE (SPACE)`, `TURN THE VIEW (ARROWS)`.
 
 ## 6. Where the room is — DONE: bank 5
 

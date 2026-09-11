@@ -847,6 +847,44 @@ def screen_offset(y: int, x_byte: int) -> int:
     return ((y & 7) * 0x800) + ((y >> 3) * 80) + x_byte
 
 
+def read_bank(c: cpc.CPC, bank: int, addr: int, size: int) -> bytes:
+    """Read `size` bytes of extended bank `bank` (a GA value, e.g. 0xC6) at a
+    window address, WITHOUT stopping the game.
+
+    The emulator has no reader for the extended banks, and a stub that pages
+    one in and spins would leave the CPU spinning. So: park the machine inside
+    scr_wait_vsync -- whose own registers are dead and whose stack is the
+    frame loop's -- run a stub that saves the registers, pages the bank in,
+    copies the bytes down to the RESULT scratch, pages bank 4 back, restores
+    the registers and JUMPS to scr_wait_vsync's start, which then returns to
+    the frame loop as if nothing had happened. The
+    button bar's state (game/hudbar.asm, bank 6) is read this way.
+    """
+    sym = symbols()
+    vs = sym["SCR_WAIT_VSYNC"]
+    assert size <= 0x80
+    if not run_until_pc_in(c, vs, vs + 0x0D):        # the loop is thirteen bytes; scr_flip follows
+        raise RuntimeError("never caught the frame loop at scr_wait_vsync")
+    #  Every register is saved and put back: the caller of scr_wait_vsync
+    #  may well be counting vsyncs in B (demo_wait_frame's djnz), and a
+    #  clobbered B is a five-second stall that reads as "the key did nothing".
+    stub = bytes([
+        0xF5, 0xC5, 0xD5, 0xE5,                       # push af, bc, de, hl
+        0x01, bank, 0x7F, 0xED, 0x49,                 # ld bc,#7Fxx : out (c),c
+        0x21, addr & 0xFF, addr >> 8,                 # ld hl,addr
+        0x11, RESULT & 0xFF, RESULT >> 8,             # ld de,RESULT
+        0x01, size & 0xFF, size >> 8,                 # ld bc,size
+        0xED, 0xB0,                                   # ldir
+        0x01, 0xC4, 0x7F, 0xED, 0x49,                 # ld bc,#7FC4 : out (c),c
+        0xE1, 0xD1, 0xC1, 0xF1,                       # pop hl, de, bc, af
+        0xC3, vs & 0xFF, vs >> 8,                     # jp scr_wait_vsync
+    ])
+    c.write_ram(STUB, stub)
+    c.set_pc(STUB)
+    c.run_us(300)
+    return bytes(c.read_ram(RESULT, size))
+
+
 def read_cpu(c: cpc.CPC, addr: int, size: int) -> bytes:
     """Read the way the CPU sees memory, honouring the bank paging.
 

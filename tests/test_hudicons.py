@@ -28,6 +28,7 @@ class TestThePictures(unittest.TestCase):
         for name, label, desc, key, group, _ in hudicons.ICONS:
             cap = hudicons.caption(name)
             self.assertLessEqual(len(cap), hudicons.DESC_CHARS, cap)
+            self.assertLessEqual(len(cap) + 1, 40, f"{cap}: bank7_line is forty bytes")
             self.assertEqual(cap, cap.upper(), cap)
             self.assertTrue(all(32 <= ord(c) <= 90 for c in cap), f"{cap}: outside the font")
             if key:
@@ -118,12 +119,14 @@ class TestTheIconsAreInBank5(unittest.TestCase):
         base = sym["HUD_ICONS"] - 0x4000
         raw = open(os.path.join(ROOT, "build", "bank5.raw"), "rb").read()
         pics = hudicons.read(hudicons.PNG)
-        for i, (name, _, _, _, _, _) in enumerate(hudicons.ICONS):
+        banked = [i for i in hudicons.ICONS if not i[0].startswith("frame")]
+        for i, (name, _, _, _, _, _) in enumerate(banked):
             want = bytes(hudicons.encode(pics[name]))
             got = raw[base + i * hudicons.ICON_BYTES:base + (i + 1) * hudicons.ICON_BYTES]
             self.assertEqual(got, want, f"{name} is not on the disc as drawn")
             self.assertEqual(sym[f"ICON_{name.upper()}"], i)
-        self.assertEqual(sym["HUD_ICONS_END"] - sym["HUD_ICONS"], len(hudicons.ICONS) * hudicons.ICON_BYTES)
+        self.assertEqual(sym["HUD_ICONS_END"] - sym["HUD_ICONS"], len(banked) * hudicons.ICON_BYTES)
+        self.assertNotIn("ICON_FRAME", sym, "the sheet's frame cells are in the bank")
         self.assertLessEqual(sym["BANK5_DATA_END"], sym["SPR_SCALE_ORG"])
 
     def test_a_pen_lands_in_the_plane_the_blitter_expects(self):

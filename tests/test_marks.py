@@ -548,9 +548,9 @@ class TestTheScanner(TestTheReticleBox):
 
     def test_the_table_is_the_ellipse(self):
         rx = self.sym["SCAN_RX"]
-        with open("build/bank6.raw", "rb") as f:
+        with open("build/bank5.raw", "rb") as f:
             image = f.read()
-        off = self.sym["SCAN_OVAL_B6"] - 0x4000
+        off = self.sym["SCAN_OVAL_B5"] - 0x4000
         table = image[off:off + rx + 1]
         self.assertEqual(list(table), [self.half_height(i) for i in range(rx + 1)])
 

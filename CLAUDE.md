@@ -5567,6 +5567,34 @@ inside the file out of it and gives about 900 bytes back. See `todo.md`.
 
 ### The HUD buttons, on branch `hud-buttons`
 
+**The top strip is two lines and the fleet's, and the context bar is a line
+at the bottom.** `CTX_BAR_H` 20, `PROJ_CENTRE_Y` 94, and `game/huddraw.asm`
+(low 16K, by arithmetic — see hud2.md §4) draws HULL and BASE as bars, RU and
+M on line 1, and SQUADRONS as nine marks (blue with ships, white empty, RED
+selected — the owner's assignment) with the selected one's number and count,
+the yard and JUMP on line 2. `wave_draw` draws only the two bars, on
+`wave_dirty`; `ctx_bar` draws its state words and the message row's word at
+`HUD_TEXT_Y` 190, and ordinary play draws nothing there. The old rows
+(`HUD_ROW_*`, `HUD_HP_X` as a figure) are gone; tests read `CTX_Y`,
+`CTX_Y2`, `CTX_LINE_Y`, `HUD_BAR_*`, `HUD_SQ_MARK_*`.
+
+**The button bar runs FROM BANK 6** (`game/hudbar.asm`), the second piece of
+code in a sprite bank after the chase, because bank 4 had 111 bytes and the
+low 16K 31. `bankn_call` (`sys/libload.asm`, `A` = bank, `IX` = routine) is
+the trampoline and `bank_home` is what `bankn_copy` pages back to, so the bar
+copies its icons in from bank 5 and stays in bank 6. It is hooked at the top
+of `phase4_commands` (the keys: LEFT/RIGHT walk it, ENTER presses the key
+under the frame by planting the edge as `key_inject` does, ESC closes a
+group) and at the top of `ctx_bar` (the paint). The arrows are the bar's by
+default and SHIFT + the arrows are the camera's (`order_update` asks `key_down` of
+SHIFT before `order_camera`). The strip is three lines: the buttons, the
+context line at `HUD_TEXT_Y` 184, the selected button's caption at
+`HUD_DESC_Y` 192, drawn by the bar itself. The joystick (row 9 of the matrix)
+walks it and fires it too. The tutorial has the bar live, put at rest by
+`bar_reset` on entry and at the move-disc step, and a nineteenth step for
+it. Its state is bank-6 RAM: tests read it with `harness.read_bank`, never
+`read_bank4`.
+
 `hud2.md` is the plan: sixteen-pixel button icons along the bottom strip,
 some of them groups; the top strip two lines, the second carrying a selected
 button's description for four seconds; and the cursor keys walking the bar

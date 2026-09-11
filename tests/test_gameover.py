@@ -187,8 +187,15 @@ class TestItComesUp(OverFixture):
         one screen is one of them being wrong the first time the other
         changes."""
         self.lose_the_mothership()
-        self.assertEqual(self.strip_text(), "",
-                         "the context bar is still up over the game-over page")
+        #  The context line is the bottom strip's second row now (hud2.md) and
+        #  the page's own SPACE prompt straddles it, so the line is not blank
+        #  -- what must be true is that the BAR is not drawing there: no
+        #  context, and none of its words.
+        self.assertEqual(h.read_bank4(self.c, self.sym["CTX_KEY"], 1)[0], self.sym["CTX_NONE"],
+                         "the context bar still has a context over the game-over page")
+        text = self.strip_text()
+        for word in ("PAUSED", "RESUME", "MENU", "INCOMING", "ARROWS"):
+            self.assertNotIn(word, text, f"the context bar is still up over the game-over page: {text!r}")
 
     def test_nothing_simulates_behind_it(self):
         """Static means static: the same obligation the briefing has.
@@ -226,7 +233,7 @@ class TestTheBurningWorld(OverFixture):
         #  Off build/bank6.raw -- what the build put on the disc -- because
         #  the table is in BANK 6 now, where read_bank4 would hand back
         #  whichever sprite bank happens to be under the window.
-        with open("build/bank6.raw", "rb") as f:
+        with open("build/bank5.raw", "rb") as f:
             bank7 = f.read()
         off = self.sym["OVER_FIRE_TABLE"] - 0x4000
         raw = bank7[off:off + n * 3]
