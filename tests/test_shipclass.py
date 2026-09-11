@@ -111,9 +111,17 @@ class ClassFixture(unittest.TestCase):
         self.c.run_frames(12)
 
     # -- running Z80 --------------------------------------------------------
-    def call(self, addr, setup=b"", collect=b""):
-        """Run `setup`, CALL addr, run `collect`, then stop dead."""
-        code = bytes(setup) + bytes([0xCD, addr & 0xFF, addr >> 8]) \
+    #  ld bc,#7FC4 : out (c),c -- bank 4 under the window. boot_quick returns
+    #  at an arbitrary instant, and if that instant is inside a blit a sprite
+    #  bank is paged in; a stub that then reads a bank-4 table gets sprite
+    #  bytes. It passed for as long as the coin fell the other way.
+    BANK4_IN = bytes([0x01, 0xC4, 0x7F, 0xED, 0x49])
+
+    def call(self, addr, setup=b"", collect=b"", bank4=True):
+        """Run `setup`, CALL addr, run `collect`, then stop dead -- with bank
+        4 put under the window first unless told otherwise."""
+        code = (self.BANK4_IN if bank4 else b"") + bytes(setup) \
+            + bytes([0xCD, addr & 0xFF, addr >> 8]) \
             + bytes(collect) + b"\x18\xfe"
         self.c.write_ram(h.STUB, code)
         self.c.set_pc(h.STUB)

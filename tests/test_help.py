@@ -62,10 +62,11 @@ class HelpFixture(unittest.TestCase):
         self.assertEqual(self.byte("HELP_SHOWN"), 1, "`?` did not open the key list")
 
     def lit_pixels_above_the_hud(self):
-        """How much ink is in the tactical area of the visible screen."""
+        """How much ink is in the PLAYFIELD -- below the top strip, which is
+        the fleet's bars and marks and a few hundred lit bytes on its own."""
         ram = self.c.read_ram(h.front_buffer(self.c), 0x4000)
         return sum(bin(ram[h.screen_offset(y, x)]).count("1")
-                   for y in range(HUD_TOP) for x in range(80))
+                   for y in range(self.sym["CTX_BAR_H"], HUD_TOP) for x in range(80))
 
 
 class TestOpeningAndClosing(HelpFixture):
@@ -166,22 +167,23 @@ class TestItStopsTheWorld(HelpFixture):
 
 class TestTheHudSaysSo(HelpFixture):
 
-    def test_the_strip_offers_the_key(self):
+    def test_the_game_offers_the_key(self):
         """A help screen nobody can find is not help.
 
-        The glyphs are checked rather than the pixels: the label is the last
-        thing on row A and the RU figure is right beside it, so "it is drawn
-        somewhere" would pass with the two overlapping.
+        The HUD's `?HELP` label went with the old bottom strip (hud2.md): the
+        key list is a BUTTON now, on the sheet in bank 5, and it is on the
+        orders menu -- which ESC opens from anywhere -- with its shortcut
+        beside it. Both are checked off the build: the icon's index and the
+        menu's own words on the disc image.
         """
         self.assertEqual(self.byte("HELP_SHOWN"), 0)
-        label = h.read_bank4(self.c, self.sym["PHASE4_HUD_HELP"], 6)
-        self.assertEqual(label, b"?HELP\x00", "the HUD label is not what gets drawn")
-
-        #  And it is actually on the screen, in the HUD strip, not just in ROM.
-        ram = self.c.read_ram(h.front_buffer(self.c), 0x4000)
-        ink = sum(bin(ram[h.screen_offset(y, x)]).count("1")
-                  for y in range(178, 186) for x in range(70, 80))
-        self.assertGreater(ink, 20, "nothing is drawn where the help label should be")
+        self.assertIn("ICON_HELP", self.sym, "the button sheet has no HELP icon")
+        with open("build/bank7.raw", "rb") as f:
+            bank7 = f.read()
+        at, end = self.sym["MENU_WORDS"] - 0x4000, self.sym["MENU_WORDS_END"] - 0x4000
+        rows = bank7[at:end].split(b"\0")
+        self.assertTrue(any(r.rstrip().endswith(b"?") for r in rows),
+                        f"no row of the orders menu names `?`: {rows}")
 
 
 class TestTheColumnsFitBesideEachOther(unittest.TestCase):

@@ -27,8 +27,15 @@
 ; ----------------------------------------------------------------------------
 
 ; ----------------------------------------------------------------------------
-;  wave_draw -- one frame of the hull readout
+;  wave_draw -- one frame of the two hull bars
 ;  Uses: everything
+;
+;  HULL and BASE are BARS on the top strip's first line now (hud2.md, and
+;  game/huddraw.asm for the strip), and this draws exactly those two: their
+;  captions, the treasury and the mission beside them are hud_draw's, on its
+;  own shadow, and the message row's word is the context bar's, on the bottom
+;  text line. wave_dirty is the bars' flag -- set here when a percentage
+;  moves, and by hud_draw whenever it has blanked the strip under them.
 ; ----------------------------------------------------------------------------
 wave_draw:
     call unlock_banner                  ; the centre-screen unlock line, if one is up
@@ -36,15 +43,6 @@ wave_draw:
     call pilot_reticle                  ; ...and the reticle, while a ship is flown
     call pilot_scanner                  ; ...and the scanner beside it
     call wave_marker                    ; ...and where INCOMING is coming from
-    ;  The tutorial owns this row outright while it is running, and wave_dirty
-    ;  goes with it -- one dirty flag for row C whoever is drawing there, which
-    ;  is what makes the coupling with phase4_hud and mis_wipe free. The row is
-    ;  eighty BYTES, which is forty characters, and HULL nnn% and INCOMING
-    ;  already take the first twenty of them; there is no sharing it with a line
-    ;  of instruction. See game/tutorialrun.asm.
-    ld a,(tut_active)
-    or a
-    jp nz,tut_draw
 
     call wave_changed
     ld hl,wave_dirty
@@ -53,110 +51,22 @@ wave_draw:
     ret z
     dec (hl)
 
-    ;  Blank the row first. This is the only thing that ever writes here -- the
-    ;  tactical view is clipped out at spr_clip_bottom and the other two HUD
-    ;  rows are below it -- so this is the whole erase, with no dirty rectangle
-    ;  to record and nothing to co-ordinate with.
-    ld b,0
-    ld c,HUD_ROW_C_Y
-    ld d,SCR_BYTES_PER_LINE
-    ld e,TXT_CHAR_H
-    xor a
-    call scr_fill_rect
-
-    ld hl,wave_hp_label
-    ld b,HUD_HP_X
-    ld c,HUD_ROW_C_Y
-    call phase4_hud_label               ; chrome is ink 2, and puts the pen back
-
-    ;  The figure, and its ink. Section 2 keeps ink 3 for the thing that wants
-    ;  attention, and a fleet down to a third of its hull is the clearest case
-    ;  of that in the game: it is the moment the answer to "one more wave or
-    ;  jump now" changes.
     ld a,(wave_pct)
-    cp HUD_HP_ALARM
-    ld a,PEN_WHITE
-    jr nc,@wave_hp_pen
-    ld a,PEN_RED
-@wave_hp_pen:
-    call txt_set_pen
-
-    ld a,(wave_pct)
-    ld b,HUD_HP_X + 5 * TXT_CHAR_W_BYTES
-    ld c,HUD_ROW_C_Y
-    ld d,3
-    call txt_draw_num
-    ld hl,wave_hp_sign
-    ld b,HUD_HP_X + 8 * TXT_CHAR_W_BYTES
-    ld c,HUD_ROW_C_Y
-    call txt_draw
-    ld a,PEN_WHITE                      ; nothing inherits an ink
-    call txt_set_pen
-
-    ;  THE MOTHERSHIP'S OWN HULL, at the other end of the same row. See
-    ;  wave_moth_percent for why it cannot be read off the fleet's figure: an
-    ;  average of seventeen ships hides the one whose loss ends the campaign.
-    ;  BASE rather than MOTH because BASE is the word the game already uses for
-    ;  it -- the orders menu says CENTRE ON BASE and the help page repeats it --
-    ;  and four letters keeps it the same shape as HULL beside it.
-    ld hl,wave_moth_label
-    ld b,HUD_MOTH_X
-    ld c,HUD_ROW_C_Y
-    call phase4_hud_label
-
+    ld b,HUD_BAR_X
+    call hud_bar
     ld a,(wave_moth_pct)
-    cp HUD_HP_ALARM
-    ld a,PEN_WHITE
-    jr nc,@wave_moth_pen
-    ld a,PEN_RED
-@wave_moth_pen:
-    call txt_set_pen
+    ld b,HUD_MOTH_BAR_X
+    call hud_bar
 
-    ld a,(wave_moth_pct)
-    ld b,HUD_MOTH_X + 5 * TXT_CHAR_W_BYTES
-    ld c,HUD_ROW_C_Y
-    ld d,3
-    call txt_draw_num
-    ld hl,wave_hp_sign
-    ld b,HUD_MOTH_X + 8 * TXT_CHAR_W_BYTES
-    ld c,HUD_ROW_C_Y
-    call txt_draw
-    ld a,PEN_WHITE
-    call txt_set_pen
-
-    ;  ...AND THE MESSAGE LINE. Section 5.5 asks for one and this is it: for a
-    ;  few seconds, the thing that has just happened that the player would
-    ;  otherwise have to infer. A wave arrives six thousand units out and they
-    ;  may be looking the other way, so without INCOMING the first they know of
-    ;  it is a hull figure falling for no reason they can see; and the Frigate
-    ;  unlock is a build panel that silently grows a row three missions after
-    ;  the thing that earned it.
-    ld a,(wave_say)
+    ;  The tutorial owns the strip's SECOND line while it runs, and its
+    ;  instruction is repainted on this same flag: tut_enter and every step
+    ;  change set wave_dirty, and hud_draw sets it whenever it has blanked the
+    ;  strip. One flag for the line whoever is drawing there, which is what
+    ;  makes the coupling with mis_wipe free. See game/tutorialrun.asm.
+    ld a,(tut_active)
     or a
-    ret z
-
-    ;  THE INK SEPARATES THEM, because they share the same eighteen characters
-    ;  and must never be mistaken for each other. INCOMING is section 2's
-    ;  attention ink, like the HULL figure below a third and like JUMP. The
-    ;  unlock is ink 1 -- news about the player's own fleet, in the fleet's own
-    ;  ink -- and a red word in this slot means a threat and nothing else.
-    ld a,(wave_msg)
-    or a
-    ld a,PEN_RED
-    jr z,@wave_say_pen
-    ld a,PEN_WHITE
-@wave_say_pen:
-    call txt_set_pen
-
-    ld a,(wave_msg)
-    ld hl,wave_say_text
-    call bank7_fetch                    ; the words are in bank 7
-    ld hl,bank7_line
-    ld b,HUD_SAY_X
-    ld c,HUD_ROW_C_Y
-    call txt_draw
-    ld a,PEN_WHITE
-    jp txt_set_pen
+    jp nz,tut_draw
+    ret
 
 
 ; ----------------------------------------------------------------------------
@@ -164,9 +74,9 @@ wave_draw:
 ;  Uses: everything
 ;
 ;  Two shadows and the same shape as phase4_hud_changed, for the same reason:
-;  hull falls with nobody pressing anything. The INCOMING countdown is compared
-;  as a yes/no rather than as a number, because it ticks every frame and only
-;  its two transitions are worth a repaint.
+;  hull falls with nobody pressing anything. The message row's word used to
+;  be compared here too; it is the context bar's now (ctx_classify folds
+;  wave_saying into ctx_sub), so the bars repaint for the hull and nothing else.
 ; ----------------------------------------------------------------------------
 wave_changed:
     ld a,(wave_pct)
@@ -180,11 +90,6 @@ wave_changed:
     ld a,(wave_moth_pct)
     ld hl,wave_moth_shadow
     cp (hl)
-    jr nz,@wave_hp_diff
-
-    call wave_saying
-    ld hl,wave_say_shadow
-    cp (hl)
     ret z
 
 @wave_hp_diff:
@@ -192,8 +97,6 @@ wave_changed:
     ld (wave_pct_shadow),a
     ld a,(wave_moth_pct)
     ld (wave_moth_shadow),a
-    call wave_saying
-    ld (wave_say_shadow),a
     ld a,2                              ; once into each screen buffer
     ld (wave_dirty),a
     ret
@@ -275,9 +178,7 @@ wave_saying:
     ret
 
 
-wave_hp_label:      defb "HULL",0
-wave_moth_label:    defb "BASE",0
-wave_hp_sign:       defb "%",0
+;  (HULL and BASE are captions on the top strip, in game/huddraw.asm)
 ;  Indexed by wave_msg, so the ORDER here is WAVE_MSG_*: message n+1 is the
 ;  class unlocked by bit n of campaign_unlocks. Every one must fit between
 ;  HUD_SAY_X and HUD_MOTH_X -- eighteen characters -- and src/main.asm asserts

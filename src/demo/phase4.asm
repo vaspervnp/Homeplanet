@@ -77,79 +77,66 @@ DEMO_TICKS_PER_FRAME equ 4              ; 50 Hz / 4 = 12.5 fps
 ;  out of the strip is what lets the HUD be redrawn only when it changes.
 HUD_TOP             equ 168
 
-;  ...and the context bar owns the strip ABOVE this line, by the same bargain:
-;  ships are clipped out of it, so it only has to be repainted when the words
-;  on it change. One 8-pixel text row and a scanline of air under it.
-;
-;  The playfield is 10..167 rather than 0..167. That is 158 lines of the 200,
-;  and it moves the middle of the visible band from y=84 to y=89 -- CLOSER to
-;  the y=100 the projection centres on, not further from it.
-CTX_BAR_H           equ 10
-CTX_Y               equ 1
+;  ...and the strip ABOVE this line is the fleet's, by the same bargain:
+;  ships are clipped out of it, so it only has to be repainted when what it
+;  says changes. TWO text rows now (hud2.md): line 1 the hull bars, the
+;  treasury and the mission; line 2 the squadrons, the yard and the way out.
+;  The playfield is 20..167, 148 lines, and its middle is 94, which is what
+;  PROJ_CENTRE_Y (src/equ/memmap.asm) has to be.
+CTX_BAR_H           equ 20
+CTX_Y               equ 1               ; line 1
+CTX_Y2              equ 11              ; line 2
 
-;  HUD: two rows of five slots at the bottom of the screen.
-HUD_ROW_A_Y         equ 178
-HUD_ROW_B_Y         equ 188
+;  The bottom strip: sixteen lines of BUTTONS from HUD_TOP (hud2.md; the
+;  icons are in bank 5, the bar is not built yet) and ONE text line under
+;  them, which is the context bar's now -- the state, the build panel's
+;  readout, the message row's word, and the selected button's description.
+HUD_BTN_Y           equ HUD_TOP
+HUD_BTN_H           equ 16
+HUD_TEXT_Y          equ 190
 
-;  ...and a THIRD row above them, which cost nothing to find. Section 5.5
-;  budgets a 32-pixel strip and HUD_TOP is 168, but the two rows above are at
-;  178 and 188 -- so lines 168..177 have been part of the HUD's strip and black
-;  since the day it was drawn. The fleet's hull percentage lives there
-;  (game/waves.asm); neither existing row had four characters to spare.
-;  168 and not 169, which is what it was first and what it looked wrong at.
-;  The strip's three rows want the SAME gap between them or they read as two
-;  blocks rather than three lines: at 169 the gap to row A is two scanlines and
-;  A to B is three, and the hull figure visibly leans on the squadron list. At
-;  168 all three gaps are three. The cost is that the glyphs sit hard against
-;  the last line of the playfield -- which is the line a sprite is already
-;  clipped in half on, so there is nothing there to crowd.
-HUD_ROW_C_Y         equ 168
-HUD_HP_X            equ 2
-HUD_HP_CHARS        equ 9               ; "HULL 100%"
-HUD_SAY_X           equ 24
-
-;  The Mothership's own hull, at the far end of the row from the fleet's. The
-;  row is eighty bytes; HULL nnn% takes 2..20 and INCOMING 24..40, so the right
-;  half was empty. Sixty rather than forty-four so the two figures are at
-;  OPPOSITE ends and cannot be read as one pair -- "ξεχωριστά" was the whole
-;  ask, and a reader who has to work out which percentage is which has been
-;  given one number, not two.
-HUD_MOTH_X          equ 60
-
-;  Below this the figure goes to ink 3. Section 2 keeps that ink for the thing
-;  that wants attention, and a third of a fleet's hull is when the answer to
-;  "one more wave or jump now" changes.
+;  Line 1. HULL and BASE are captions on BARS: HUD_BAR_W bytes by HUD_BAR_H
+;  lines, a blue trough with a white fill, red below HUD_HP_ALARM -- the same
+;  third at which the old figure turned red, the moment the answer to "one
+;  more wave or jump now" changes. An average of seventeen ships hides the
+;  one whose loss ends the campaign, which is why the Mothership has a bar
+;  of its own.
+HUD_HP_X            equ 0
+HUD_HP_CHARS        equ 4               ; "HULL", "BASE"
+HUD_BAR_X           equ 9
+HUD_BAR_W           equ 18
+HUD_BAR_H           equ 6
+HUD_BAR_Y           equ CTX_Y + 1
+HUD_MOTH_X          equ 28
+HUD_MOTH_BAR_X      equ 37
 HUD_HP_ALARM        equ 33
-HUD_X               equ 2
-HUD_ENTRY_CHARS     equ 5               ; ">n:cc"
-HUD_ENTRY_BYTES     equ HUD_ENTRY_CHARS * 2
-HUD_PER_ROW         equ 5
-
-;  The right-hand half of the strip: resources above, the yard below.
-HUD_RU_X            equ 54          ; two bytes clear of the squadron list,
-                                        ; which ends at 52; four digits then
-                                        ; reach 70, where ?HELP starts
-HUD_YARD_X          equ 44
-HUD_MIS_X           equ 56
+HUD_RU_X            equ 56
+HUD_RU_NUM_X        equ HUD_RU_X + 3 * TXT_CHAR_W_BYTES     ; four digits, to 70
+HUD_MIS_X           equ 72              ; one clear cell after the RU figure, digits to the edge
 ;  TWO DIGITS, because the campaign is twenty missions long and this field was
-;  one. It was written when there were eight of them.
-;
-;  MEASURED RATHER THAN REASONED ABOUT, and the first guess was backwards.
-;  txt_draw_num fills its field from the RIGHT, so what survived was the UNITS
-;  and what was dropped was the tens: mission 10 drew `M 0` and mission 11 drew
-;  `M 1`. So it was not merely wrong for the last eleven missions, it was
-;  AMBIGUOUS -- 1 and 11 read alike, 10 and 20 read alike -- which is worse,
-;  because a wrong number invites a second look and a plausible one does not.
-;  src/main.asm asserts the width against MIS_COUNT now.
-;
-;  Right-aligned, and that is what makes it free: @txt_pad blanks the unused
-;  places with SPACES, so `M  1` and `M 20` put JUMP in the same column and the
-;  label does not jitter as the campaign goes on.
+;  one. Right-aligned, so `M  1` and `M 20` sit alike. src/main.asm asserts the
+;  width against MIS_COUNT.
 HUD_MIS_DIGITS      equ 2
 HUD_MIS_NUM_X       equ HUD_MIS_X + 2 * TXT_CHAR_W_BYTES
-HUD_MIS_JUMP_X      equ HUD_MIS_NUM_X + (HUD_MIS_DIGITS + 1) * TXT_CHAR_W_BYTES
-;  What is left of row A after the RU figure, one character clear of it.
-HUD_HELP_X          equ 70
+
+;  Line 2. SQUADRONS, then nine marks HUD_SQ_MARK_STEP bytes apart -- blue
+;  with ships, white empty, red selected (the owner's assignment) -- then the
+;  selected squadron's number and count, the yard's five-character readout,
+;  and JUMP / LAND at the right in the attention ink.
+HUD_SQ_X            equ 0
+HUD_SQ_CHARS        equ 9               ; "SQUADRONS"
+HUD_SQ_MARK_X       equ 19
+HUD_SQ_MARK_STEP    equ 2
+HUD_SQ_MARK_H       equ 7
+HUD_SEL_X           equ 38
+HUD_SEL_N_X         equ 42
+HUD_YARD_X          equ 50
+HUD_YARD_CHARS      equ 5               ; ">SCT 4"
+HUD_MIS_JUMP_X      equ 72
+
+;  The message row's word -- INCOMING, YARD: FRIGATE, AUTO RESPONSE ON -- is
+;  drawn on the bottom text line by the context bar, from its left edge.
+HUD_SAY_X           equ 0
 
 ;  The semantic palette of section 2, by name.
 PEN_WHITE           equ 1
@@ -312,7 +299,7 @@ demo_update:
 ;  both buffers, after both wipes.
 @p4_static_done:
     call phase4_rects_reset
-    call ctx_changed
+    call ctx_static                     ; ctx_changed, and the line blanked under the page
     jp @p4_frame_counted                ; JP: the whole playing path is between
 
 @p4_playing:
@@ -426,10 +413,10 @@ demo_update:
     call moth_draw
     call phase4_draw_explosions
     call phase4_draw_disc
-    call phase4_hud
-    ;  The hull readout owns the top row of the HUD's strip and keeps its own
-    ;  dirty flag, because it changes every time a shot lands and phase4_hud's
-    ;  costs ninety thousand T-states to honour. See game/waves.asm.
+    call hud_draw                       ; the top strip, bank 4: game/huddraw.asm
+    ;  The two hull bars keep their own dirty flag, because the hull changes
+    ;  every time a shot lands and hud_draw's whole-strip repaint costs ninety
+    ;  thousand T-states to honour. See game/waves.asm.
     call wave_draw
 
 ;  ...and the context bar last of all, for the same reason the HUD is drawn
@@ -2072,375 +2059,10 @@ phase4_draw_disc:
     jp mark_cross                       ; ...and the rectangle that erases it
 
 
-; ----------------------------------------------------------------------------
-;  phase4_hud -- the squadron strip (Homeplanet.md section 5.5)
-;
-;  Two rows of five: squadrons 1-5 above, 6-9 below. Every slot is drawn every
-;  frame whether the squadron exists or not, so the layout never shifts under
-;  the player's eye and an emptied squadron blanks itself.
-;
-;      >3:07     selected, squadron 3, seven ships
-;       4:12     not selected
-;               (blank -- no such squadron)
-;
-;  Drawn last, after the ships, so a ship that flies over the strip is
-;  overwritten rather than the other way round.
-;  Uses: everything
-; ----------------------------------------------------------------------------
-phase4_hud:
-    call phase4_hud_changed
-    ld hl,phase4_hud_dirty
-    ld a,(hl)
-    or a
-    ret z
-    dec (hl)                            ; once into each buffer
-
-    ;  The hull row is repainted with us, and this is the only coupling between
-    ;  the two. Everything that schedules a mis_wipe marks the HUD dirty, and a
-    ;  wipe clears ALL 200 lines -- including the row above this strip, which
-    ;  wave_draw owns and which nothing else would ever put back. Setting the
-    ;  flag rather than calling it keeps the "once into each buffer" bookkeeping
-    ;  in one place.
-    ld a,2
-    ld (wave_dirty),a
-
-    ld a,1
-    ld (phase4_hud_squad),a
-
-    ld a,HUD_ROW_A_Y
-    ld (phase4_hud_y),a
-    ld a,HUD_X
-    ld (phase4_hud_x),a
-    ld a,HUD_PER_ROW
-    ld (phase4_hud_left),a
-    call phase4_hud_row
-
-    ld a,HUD_ROW_B_Y
-    ld (phase4_hud_y),a
-    ld a,HUD_X
-    ld (phase4_hud_x),a
-    ld a,SQUAD_MAX - HUD_PER_ROW
-    ld (phase4_hud_left),a
-    call phase4_hud_row
-
-    ; --- resources (section 5.5) ------------------------------------------
-    ld hl,phase4_hud_ru_label
-    ld b,HUD_RU_X
-    ld c,HUD_ROW_A_Y
-    call phase4_hud_label
-    ;  All sixteen bits, in four digits. It used to be `ld a,(eco_ru)` into a
-    ;  three-digit field, with a comment saying RU never goes near 65535 --
-    ;  true when the only things to buy cost 35 and 40. All eight classes
-    ;  landing made the Destroyer buyable at 250, so a player has to save past
-    ;  255 to afford one, and the low byte read 0 exactly when they got there.
-    ld hl,(eco_ru)
-    ld b,HUD_RU_X + 3 * TXT_CHAR_W_BYTES
-    ld c,HUD_ROW_A_Y
-    call txt_draw_num4
-
-    ;  The way out of not knowing the keys. Five characters is all the strip
-    ;  has left after the RU figure -- the last glyph starts at byte 78 of 80.
-    ld hl,phase4_hud_help
-    ld b,HUD_HELP_X
-    ld c,HUD_ROW_A_Y
-    call phase4_hud_label
-
-    ; --- the mission -------------------------------------------------------
-    ;  Its number and whether the jump is open. Twelve characters of name
-    ;  would not fit beside the squadron list, so the name lives on the
-    ;  briefing screen the design asks for and this is the reminder.
-    ld hl,phase4_hud_mis_label
-    ld b,HUD_MIS_X
-    ld c,HUD_ROW_B_Y
-    call phase4_hud_label
-    ld a,(mis_index)
-    inc a
-    ld b,HUD_MIS_NUM_X
-    ld c,HUD_ROW_B_Y
-    ld d,HUD_MIS_DIGITS
-    call txt_draw_num
-
-    ;  mis_leave_ok and not mis_complete. The label is a promise that the key
-    ;  works, so it has to track the same byte mis_jump reads -- an objective
-    ;  met with a wave still on the screen is not a jump.
-    ;  WHICH WORD IS BANK 4'S BUSINESS -- blank, JUMP, or LAND on the last
-    ;  mission, where there is nowhere further to go and the key ends the
-    ;  campaign instead of moving it on. It went here first, as three loads and
-    ;  two branches, and cost the LOW 16K a whole page: `free:` 484 to 228,
-    ;  under the ~450 the tests need, and a page of the low 16K is 256 bytes of
-    ;  a DISC.BIN that had 174. One call and two strings in the bank instead.
-    call mis_leave_word
-    jr nc,@p4_mis_show
-    ld a,PEN_RED                        ; ...and section 2 makes 3 the ink
-    call txt_set_pen                    ; that means "look at this"
-@p4_mis_show:
-    ld b,HUD_MIS_JUMP_X
-    ld c,HUD_ROW_B_Y
-    call txt_draw
-    ld a,PEN_WHITE
-    call txt_set_pen
-
-    ; --- the yard ---------------------------------------------------------
-    ;  '*' while a ship is on the slipway, '>' while the panel is open and
-    ;  offering one, blank otherwise.
-    ld a,(eco_build_class)
-    cp CLASS_COUNT
-    jr nc,@p4_yard_idle
-    ld c,a
-    ld a,'*'
-    jr @p4_yard_show
-@p4_yard_idle:
-    ld a,(eco_build_open)
-    or a
-    jr z,@p4_yard_blank
-    ld a,(eco_build_pick)
-    ld l,a
-    ld h,0
-    ld de,eco_build_order
-    add hl,de
-    ld c,(hl)
-    ld a,'>'
-
-@p4_yard_show:
-    ld (phase4_yard_text),a
-    ld a,c
-    add a,a
-    add a,a                             ; four bytes a tag: marker + 3 letters
-    ld l,a
-    ld h,0
-    ld de,class_tag
-    add hl,de
-    ld de,phase4_yard_text + 1
-    ld bc,3
-    ldir
-
-    ;  ...and how many orders are waiting behind it. Section 5.5 asks this
-    ;  strip for "Πόροι (RU) και ουρά κατασκευής" and only the first half of
-    ;  that was ever here; a player cannot manage a queue they cannot see.
-    ;
-    ;  One character, because that is what the row has to spare between the
-    ;  tag and M n JUMP -- and one is enough BY CONSTRUCTION rather than by
-    ;  luck: the count is of orders WAITING, the slipway holds the tenth, so
-    ;  it can never exceed ECO_QUEUE_WAIT = 9. A blank rather than a '0' when
-    ;  the line is empty, so a yard building one ship reads exactly as it read
-    ;  before there was a queue at all.
-    ld a,(eco_queue_len)
-    or a
-    ld a,' '
-    jr z,@p4_yard_depth
-    ld a,(eco_queue_len)
-    add a,'0'
-@p4_yard_depth:
-    ld (phase4_yard_text + 4),a
-
-    ld hl,phase4_yard_text
-    ld b,HUD_YARD_X
-    ld c,HUD_ROW_B_Y
-    jp txt_draw
-
-@p4_yard_blank:
-    ld hl,phase4_hud_blank              ; five spaces: nothing on the slipway
-    ld b,HUD_YARD_X
-    ld c,HUD_ROW_B_Y
-    jp txt_draw
-
-
-; ----------------------------------------------------------------------------
-;  phase4_hud_changed -- has anything the HUD shows moved?
-;
-;  Compares the counts and the selection against a shadow copy rather than
-;  having every command remember to flag itself. Ships will start dying later
-;  and that changes the counts with nobody pressing anything.
-;
-;  Sets the dirty counter to 2, not 1: there are two screen buffers and the
-;  strip has to be redrawn into each of them.
-;  Uses: everything
-; ----------------------------------------------------------------------------
-phase4_hud_changed:
-    ld hl,squad_count
-    ld de,phase4_hud_shadow
-    ld b,SQUAD_MAX + 1
-@p4_hud_cmp:
-    ld a,(de)
-    cp (hl)
-    jr nz,@p4_hud_diff
-    inc hl
-    inc de
-    djnz @p4_hud_cmp
-
-    ld a,(squad_sel)
-    ld hl,phase4_hud_shadow_sel
-    cp (hl)
-    jr nz,@p4_hud_diff
-
-    ;  Resources and the yard live in the same strip. The build TIMER is
-    ;  deliberately not compared: it changes every frame while a ship is on
-    ;  the slipway, and redrawing the strip for a countdown nobody is reading
-    ;  would undo the whole point of the dirty flag.
-    ld hl,(eco_ru)
-    ld de,(phase4_hud_shadow_ru)
-    or a
-    sbc hl,de
-    jr nz,@p4_hud_diff
-    ld a,(eco_build_class)
-    ld hl,phase4_hud_shadow_yard
-    cp (hl)
-    jr nz,@p4_hud_diff
-    call phase4_yard_key
-    ld hl,phase4_hud_shadow_pick
-    cp (hl)
-    jr nz,@p4_hud_diff
-    ld a,(mis_index)
-    add a,a
-    ld hl,mis_leave_ok
-    add a,(hl)
-    ld hl,phase4_hud_shadow_mis
-    cp (hl)
-    ret z
-
-@p4_hud_diff:
-    ld hl,squad_count
-    ld de,phase4_hud_shadow
-    ld bc,SQUAD_MAX + 1
-    ldir
-    ld a,(squad_sel)
-    ld (phase4_hud_shadow_sel),a
-    ld hl,(eco_ru)
-    ld (phase4_hud_shadow_ru),hl
-    ld a,(eco_build_class)
-    ld (phase4_hud_shadow_yard),a
-    call phase4_yard_key
-    ld (phase4_hud_shadow_pick),a
-    ld a,(mis_index)
-    add a,a
-    ld hl,mis_leave_ok
-    add a,(hl)
-    ld (phase4_hud_shadow_mis),a
-    ld a,2
-    ld (phase4_hud_dirty),a
-    ret
-
-
-; ----------------------------------------------------------------------------
-;  phase4_yard_key -- everything about the yard that the strip DRAWS, in a byte
-;  Out: A
-;  Uses: AF, HL
-;
-;  The panel's marker, the class it is offering and how many orders are waiting
-;  all land in one row of five characters, so one shadow byte can watch all
-;  three. The depth goes in the high nibble because it can reach nine and the
-;  other two together cannot reach sixteen; four RRCAs on a value below ten is
-;  a nibble swap and costs four bytes.
-;
-;  The build TIMER is deliberately still not in here, for the reason
-;  phase4_hud_changed gives: it moves every frame and nobody reads it.
-; ----------------------------------------------------------------------------
-phase4_yard_key:
-    ld a,(eco_queue_len)
-    rrca
-    rrca
-    rrca
-    rrca                                ; << 4
-    ld hl,eco_build_open
-    add a,(hl)
-    add a,(hl)                          ; the panel's marker: '>' or nothing
-    ld hl,eco_build_pick
-    add a,(hl)
-    ret
-
-
-;  A caption in ink 2 and the pen put back to 1 afterwards: chrome is blue and
-;  values are white, and nothing may inherit an ink.
-;  In : HL -> the text, B = x in bytes, C = y
-phase4_hud_label:
-    push hl
-    push bc
-    ld a,PEN_BLUE
-    call txt_set_pen
-    pop bc
-    pop hl
-    call txt_draw
-    ld a,PEN_WHITE
-    jp txt_set_pen
-
-
-phase4_hud_row:
-@p4_entry:
-    call phase4_hud_entry
-
-    ld hl,phase4_hud_x
-    ld a,(hl)
-    add a,HUD_ENTRY_BYTES
-    ld (hl),a
-    ld hl,phase4_hud_squad
-    inc (hl)
-
-    ld hl,phase4_hud_left
-    dec (hl)
-    jr nz,@p4_entry
-    ret
-
-
-phase4_hud_entry:
-    ld a,(phase4_hud_squad)
-    call squad_count_of
-    ld (phase4_hud_n),a
-    or a
-    jr nz,@p4_active
-
-    ;  No such squadron: blank the whole slot so nothing stale survives.
-    ld hl,phase4_hud_blank
-    ld a,(phase4_hud_x)
-    ld b,a
-    ld a,(phase4_hud_y)
-    ld c,a
-    jp txt_draw
-
-@p4_active:
-    ;  ">" if this is the selection, otherwise a space.
-    ld a,(phase4_hud_squad)
-    ld hl,squad_sel
-    cp (hl)
-    ld a,' '
-    jr nz,@p4_not_selected
-    ld a,'>'
-@p4_not_selected:
-    ld (phase4_hud_text + 0),a
-
-    ;  Ink 2 for the squadrons that are not selected. The palette is semantic
-    ;  (section 2) and 2 is the shading ink, so the selection is the only white
-    ;  entry in the row -- the eye finds it without reading a digit.
-    ld a,(phase4_hud_squad)
-    ld hl,squad_sel
-    cp (hl)
-    ld a,PEN_WHITE
-    jr z,@p4_entry_pen
-    ld a,PEN_BLUE
-@p4_entry_pen:
-    call txt_set_pen
-
-    ld a,(phase4_hud_squad)
-    add a,'0'
-    ld (phase4_hud_text + 1),a
-
-    ld hl,phase4_hud_text
-    ld a,(phase4_hud_x)
-    ld b,a
-    ld a,(phase4_hud_y)
-    ld c,a
-    call txt_draw
-
-    ;  The count goes in the last two columns of the slot.
-    ld a,(phase4_hud_x)
-    add a,3 * TXT_CHAR_W_BYTES
-    ld b,a
-    ld a,(phase4_hud_y)
-    ld c,a
-    ld d,2
-    ld a,(phase4_hud_n)
-    call txt_draw_num
-    ld a,PEN_WHITE                      ; nothing inherits an ink
-    jp txt_set_pen
+;  phase4_hud, phase4_hud_changed, phase4_yard_key and phase4_hud_label are
+;  bank 4 code now -- game/huddraw.asm, hud_draw -- by the narrow rule: they
+;  run at the HUD's own point in the frame, after every blit and with the
+;  window at rest. Their STATE is below, where the suite's read_ram can see it.
 
 
 ; ============================================================================
@@ -2502,11 +2124,6 @@ phase4_disc_ty:     defb 0
 phase4_disc_by:     defb 0
 phase4_disc_has_base: defb 0
 
-phase4_hud_squad:   defb 0
-phase4_hud_x:       defb 0
-phase4_hud_y:       defb 0
-phase4_hud_left:    defb 0
-phase4_hud_n:       defb 0
 phase4_hud_dirty:   defb 0
 phase4_hud_shadow:  defs SQUAD_MAX + 1, #FF
 phase4_hud_shadow_sel: defb #FF
@@ -2515,11 +2132,7 @@ phase4_hud_shadow_yard: defb #FE
 phase4_hud_shadow_pick: defb #FE
 phase4_hud_shadow_mis:  defb #FE
 
-phase4_hud_ru_label: defb "RU ",0
-phase4_hud_help:     defb "?HELP",0
-phase4_hud_mis_label: defb "M",0
 phase4_yard_text:    defb " XXX ",0      ; marker, tag, and the queue's depth
-phase4_hud_text:    defb " 0:",0        ; the marker and digit are patched in
 
 ;  ONE run of spaces, read from three lengths in. A five-character blank, a
 ;  four and another four were sixteen bytes of nothing written out three times.

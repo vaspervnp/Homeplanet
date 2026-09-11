@@ -115,6 +115,10 @@ game_main:
     include "game/economy.asm"
     include "game/mission.asm"
     include "demo/phase4.asm"
+    include "game/huddraw.asm"          ; the top strip: hud_draw and the HUD's shadows' compare.
+                                        ;  Written for bank 4 by the narrow rule; the arithmetic put
+                                        ;  it here -- the bank overflowed by 384 and the old
+                                        ;  phase4_hud had just given the low 16K two pages back.
 ;  After phase4, because it draws into the HUD's strip and takes its layout
 ;  equates from there. It is the frame loop's simulation like combat and the
 ;  economy, so it stays in the low 16K with them rather than going to bank 4.
@@ -378,12 +382,30 @@ low_end:
 ;  The third HUD row. It has to be inside the strip the HUD owns -- otherwise
 ;  the tactical view draws over it and the dirty-rectangle erase scrubs it --
 ;  and clear of row A, which nothing at run time would notice.
-    assert HUD_ROW_C_Y >= HUD_TOP, "the hull row is outside the strip the HUD owns"
-    assert HUD_ROW_C_Y + TXT_CHAR_H <= HUD_ROW_A_Y, "the hull row runs into the squadron list"
+    ;  The top strip's two lines, left to right (hud2.md). Every field is a
+    ;  literal, so every neighbour is asserted against the one before it.
+    assert CTX_Y2 + TXT_CHAR_H <= CTX_BAR_H, "the strip's second line does not fit it"
+    assert CTX_Y + TXT_CHAR_H <= CTX_Y2, "the strip's two lines overlap"
+    assert HUD_BAR_Y + HUD_BAR_H <= CTX_Y2, "the hull bars run into the second line"
+    assert HUD_HP_X + HUD_HP_CHARS * TXT_CHAR_W_BYTES <= HUD_BAR_X, "HULL runs into its bar"
+    assert HUD_BAR_X + HUD_BAR_W < HUD_MOTH_X, "the fleet's bar runs into BASE"
+    assert HUD_MOTH_X + HUD_HP_CHARS * TXT_CHAR_W_BYTES <= HUD_MOTH_BAR_X, "BASE runs into its bar"
+    assert HUD_MOTH_BAR_X + HUD_BAR_W < HUD_RU_X, "the Mothership's bar runs into RU"
+    assert HUD_RU_NUM_X + 4 * TXT_CHAR_W_BYTES <= HUD_MIS_X, "the RU figure runs into M"
+    assert HUD_MIS_NUM_X + HUD_MIS_DIGITS * TXT_CHAR_W_BYTES <= SCR_BYTES_PER_LINE, "the mission number runs off the screen"
+    assert HUD_SQ_X + HUD_SQ_CHARS * TXT_CHAR_W_BYTES <= HUD_SQ_MARK_X, "SQUADRONS runs into its marks"
+    assert HUD_SQ_MARK_X + SQUAD_MAX * HUD_SQ_MARK_STEP <= HUD_SEL_X, "the squadron marks run into the selection"
+    assert CTX_Y2 + HUD_SQ_MARK_H <= CTX_BAR_H, "the squadron marks run out of the strip"
+    assert HUD_SEL_X + TXT_CHAR_W_BYTES < HUD_SEL_N_X, "the selected squadron's number runs into its count"
+    assert HUD_SEL_N_X + 2 * TXT_CHAR_W_BYTES <= HUD_YARD_X, "the ship count runs into the yard"
+    assert HUD_YARD_X + HUD_YARD_CHARS * TXT_CHAR_W_BYTES <= HUD_MIS_JUMP_X, "the yard runs into JUMP"
+    assert HUD_MIS_JUMP_X + 4 * TXT_CHAR_W_BYTES <= SCR_BYTES_PER_LINE, "JUMP runs off the screen"
+    ;  ...and the bottom strip: the buttons, then the context line.
+    assert HUD_BTN_Y + HUD_BTN_H <= HUD_TEXT_Y, "the buttons run into the context line"
+    assert HUD_TEXT_Y + TXT_CHAR_H <= SCR_HEIGHT_PX, "the context line runs off the screen"
 
 ;  ...and its two fields against each other and against the screen edge.
 ;  txt_draw clips at the edge and says nothing, so these are the only guard.
-    assert HUD_HP_X + HUD_HP_CHARS * TXT_CHAR_W_BYTES <= HUD_SAY_X, "the hull figure runs into INCOMING"
 
 ;  The two that measure a STRING are further down, after the bank-4 includes:
 ;  the hull row's words went across when the Mothership's own figure pushed the
@@ -394,7 +416,7 @@ low_end:
 ;  queue landed -- the marker, the three-letter tag and the depth -- and the
 ;  only thing between it and "M n JUMP" is this line. phase4_yard_text is
 ;  measured rather than counted so that widening the field again cannot pass.
-    assert HUD_YARD_X + (phase4_hud_text - phase4_yard_text - 1) * TXT_CHAR_W_BYTES <= HUD_MIS_X, "the yard readout runs into the mission number"
+    assert phase4_hud_blank - phase4_yard_text - 1 == HUD_YARD_CHARS, "the yard readout is not HUD_YARD_CHARS wide"
 
 ;  THE MISSION NUMBER'S FIELD, AGAINST THE MISSION TABLE. It was one digit,
 ;  written when the campaign was eight missions long. txt_draw_num fills its
@@ -1049,7 +1071,7 @@ bank4_limit:
 ;  cannot count zero bytes in a run, so a single measurement over the whole
 ;  table would be the SUM of the messages and would fail the moment there were
 ;  two of them -- which is not the check anyone wants. Each one is drawn at
-;  HUD_SAY_X on its own, so each one is measured against HUD_MOTH_X on its own.
+;  HUD_SAY_X on its own, so each one is measured against the line's end on its own.
 ;  The HUD's fourth field, and both words that share it. DOWN HERE because
 ;  mis_leave_word and its two strings are in bank 4 -- an ASSERT is evaluated
 ;  where it stands and cannot see an include that has not happened yet, which
@@ -1076,7 +1098,6 @@ bank4_limit:
     assert MIS_DERELICT_FROM <= MIS_DERELICT_UNTIL, "the frigate derelict's range is empty"
     assert MIS_DEST_WRECK_FROM <= MIS_DEST_WRECK_UNTIL, "the destroyer derelict's range is empty"
     assert MIS_DEST_WRECK_UNTIL < MIS_COUNT, "the destroyer derelict outlives the campaign"
-    assert HUD_MOTH_X + HUD_HP_CHARS * TXT_CHAR_W_BYTES <= SCR_BYTES_PER_LINE, "the Mothership's hull runs off the screen"
 
 ;  THE GAME-OVER AND VICTORY SCREENS. Everything here that measures one of
 ;  their STRINGS has moved to the bottom of this file, after the bank-7
@@ -1392,8 +1413,8 @@ ENDIF
 ;  beside the text because ASSERT is evaluated where it stands and the bank is
 ;  included further down than the code that draws it.
 ; ----------------------------------------------------------------------------
-    assert CTX_Y + TXT_CHAR_H <= CTX_BAR_H, "the context bar's text does not fit the strip it owns"
-    assert CTX_BAR_H < HUD_TOP, "the context bar and the HUD strip overlap"
+    assert CTX_LINE_Y + TXT_CHAR_H <= SCR_HEIGHT_PX, "the context line runs off the screen"
+    assert CTX_BAR_H < HUD_TOP, "the top strip and the HUD strip overlap"
 
 ;  A RUN of words draws exactly two characters fewer than it occupies bytes:
 ;  every word but the last is followed by a terminator that stands for the
@@ -1402,7 +1423,6 @@ ENDIF
 ;  which is the reason ctx_run encodes the spacing rather than a sentinel byte
 ;  inside the string -- a byte that draws nothing would have to be subtracted
 ;  here by hand, once per line, for ever.
-    assert ctx_text_play_end - ctx_text_play <= CTX_BAR_CHARS + 2, "the playing line is wider than the screen"
     assert ctx_text_disc_end - ctx_text_disc <= CTX_BAR_CHARS + 2, "the move disc line is wider than the screen"
     assert ctx_text_tutorial_end - ctx_text_tutorial <= CTX_BAR_CHARS + 2, "the tutorial line is wider than the screen"
     assert ctx_text_pilot_end - ctx_text_pilot <= CTX_BAR_CHARS + 2, "the pilot's line is wider than the screen"
@@ -1777,11 +1797,11 @@ ENDIF
     assert (title_prompt - title_text - 1) * TXT_BIG_W_BYTES == SCR_BYTES_PER_LINE, "the title no longer spans the screen"
     assert TITLE_TUT_X + (title_tut_end - title_tut - 1) * TXT_CHAR_W_BYTES <= SCR_BYTES_PER_LINE, "the tutorial prompt runs off the screen"
     assert TITLE_CONT_X + (title_cont_end - title_cont - 1) * TXT_CHAR_W_BYTES <= SCR_BYTES_PER_LINE, "the saved-campaign key line runs off the screen"
-    assert HUD_SAY_X + (wave_say_text_1 - wave_say_text - 1) * TXT_CHAR_W_BYTES <= HUD_MOTH_X, "INCOMING runs into the Mothership's hull"
-    assert HUD_SAY_X + (wave_say_text_2 - wave_say_text_1 - 1) * TXT_CHAR_W_BYTES <= HUD_MOTH_X, "the Frigate unlock message runs into the Mothership's hull"
-    assert HUD_SAY_X + (wave_say_text_3 - wave_say_text_2 - 1) * TXT_CHAR_W_BYTES <= HUD_MOTH_X, "the Destroyer unlock message runs into the Mothership's hull"
-    assert HUD_SAY_X + (wave_say_text_4 - wave_say_text_3 - 1) * TXT_CHAR_W_BYTES <= HUD_MOTH_X, "AUTO RESPONSE ON runs into the Mothership's hull"
-    assert HUD_SAY_X + (wave_say_text_end - wave_say_text_4 - 1) * TXT_CHAR_W_BYTES <= HUD_MOTH_X, "AUTO RESPONSE USED runs into the Mothership's hull"
+    assert HUD_SAY_X + (wave_say_text_1 - wave_say_text - 1) * TXT_CHAR_W_BYTES <= SCR_BYTES_PER_LINE, "INCOMING runs off the context line"
+    assert HUD_SAY_X + (wave_say_text_2 - wave_say_text_1 - 1) * TXT_CHAR_W_BYTES <= SCR_BYTES_PER_LINE, "the Frigate unlock message runs off the context line"
+    assert HUD_SAY_X + (wave_say_text_3 - wave_say_text_2 - 1) * TXT_CHAR_W_BYTES <= SCR_BYTES_PER_LINE, "the Destroyer unlock message runs off the context line"
+    assert HUD_SAY_X + (wave_say_text_4 - wave_say_text_3 - 1) * TXT_CHAR_W_BYTES <= SCR_BYTES_PER_LINE, "AUTO RESPONSE ON runs off the context line"
+    assert HUD_SAY_X + (wave_say_text_end - wave_say_text_4 - 1) * TXT_CHAR_W_BYTES <= SCR_BYTES_PER_LINE, "AUTO RESPONSE USED runs off the context line"
 
 ;  The run's words, in bank 7: centred, and inside the band.
     assert (SCR_BYTES_PER_LINE - (run_say_won - run_say_run - 1) * TXT_CHAR_W_BYTES) / 2 == RUN_RUN_X, "the run's line is not centred"

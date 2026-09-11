@@ -41,6 +41,8 @@ sys.path.insert(0, __file__.rsplit("/", 2)[0])
 
 from tests import harness as h
 
+import cpc  # noqa: E402  (on the path harness put there)
+
 ENT_SIZE = 20
 #  Straight out of the build: the table got bigger when the fleet's
 #  ceiling doubled, and a test that walked a fixed forty-eight would
@@ -203,10 +205,42 @@ class WaveFixture(unittest.TestCase):
         return (b | (b << 4)) & 0xF0
 
     def hull_row(self, base=None, cells=40):
-        """Decode HUD row C back into characters. '?' for anything unknown."""
+        """The top strip's first line -- HULL, BASE, RU, M -- as characters.
+        The percentages are BARS now (hud2.md); see bar_fill for those."""
+        return self.text_row(self.sym["CTX_Y"], base, cells)
+
+    def message_row(self, base=None, cells=40):
+        """The context line under the buttons, where INCOMING and the unlock
+        news are drawn now (game/ctxbar.asm)."""
+        return self.text_row(self.sym["CTX_LINE_Y"], base, cells)
+
+    @staticmethod
+    def bar_expect(pct):
+        """hud_bar's fill in bytes: pct * 18 / 100, rounded, in one mul_u8."""
+        return (pct * 46 + 128) >> 8
+
+    def bar_fill(self, which, base=None):
+        """(fill bytes, ink) of a hull bar off the pixels: the middle row of
+        the trough, counted from its left edge while the bytes are a solid
+        pen 1 (#F0) or pen 3 (#FF)."""
         if base is None:
             base = h.front_buffer(self.c)
-        y = self.sym["HUD_ROW_C_Y"]
+        x0 = self.sym["HUD_BAR_X" if which == "fleet" else "HUD_MOTH_BAR_X"]
+        y = self.sym["HUD_BAR_Y"] + 2
+        ram = self.c.read_ram(base, 0x4000)
+        row = [ram[h.screen_offset(y, x)] for x in range(x0, x0 + self.sym["HUD_BAR_W"])]
+        self.assertTrue(all(b in (0x0F, 0xF0, 0xFF) for b in row), f"not a bar: {row}")
+        fill = 0
+        while fill < len(row) and row[fill] in (0xF0, 0xFF):
+            fill += 1
+        self.assertTrue(all(b == 0x0F for b in row[fill:]), f"a broken fill: {row}")
+        ink = 0 if fill == 0 else (1 if row[0] == 0xF0 else 3)
+        return fill, ink
+
+    def text_row(self, y, base=None, cells=40):
+        """Decode one text row back into characters. '?' for anything unknown."""
+        if base is None:
+            base = h.front_buffer(self.c)
         ram = self.c.read_ram(base, 0x4000)
         rows = [[self._to_pen1(ram[h.screen_offset(y + r, x)]) for x in range(80)]
                 for r in range(CHAR_H)]
@@ -705,7 +739,7 @@ class TestWhatItCosts(WaveFixture):
 
 
 class TestTheMothershipsOwnFigure(WaveFixture):
-    """BASE nnn%, at the other end of row C from the fleet's HULL nnn%.
+    """The BASE bar, beside the fleet's HULL bar on the top strip's first line.
 
     "Να φαίνεται κάπου ξεχωριστά η υγεία του mothership" -- and the reason it
     has to be separate is the whole of this class. Section 8 makes losing the
@@ -723,14 +757,14 @@ class TestTheMothershipsOwnFigure(WaveFixture):
     def test_a_whole_mothership_reads_a_hundred_per_cent(self):
         self.c.run_frames(60)
         self.assertEqual(self.byte("WAVE_MOTH_PCT"), 100)
-        self.assertIn("BASE 100%", self.hull_row())
+        self.assertIn("BASE", self.hull_row())
+        self.assertEqual(self.bar_fill("moth"), (self.sym["HUD_BAR_W"], 1))
 
     def test_it_is_in_both_screen_buffers(self):
         self.c.run_frames(60)
         for base in (0x8000, 0xC000):
-            self.assertIn("BASE 100%", self.hull_row(base=base),
-                          f"the Mothership's hull is missing from "
-                          f"buffer {base:#06x}")
+            self.assertEqual(self.bar_fill("moth", base=base), (self.sym["HUD_BAR_W"], 1),
+                             f"the Mothership's bar is missing from buffer {base:#06x}")
 
     def test_it_is_the_mothership_and_not_the_fleet(self):
         """THE POINT, and it fails against a readout that shows the average.
@@ -752,9 +786,10 @@ class TestTheMothershipsOwnFigure(WaveFixture):
         self.assertLess(moth, 20,
                         f"the Mothership is at a tenth and BASE reads {moth}%")
 
-        row = self.hull_row()
-        self.assertIn(f"HULL {fleet:>3}%", row, f"row C reads {row!r}")
-        self.assertIn(f"BASE {moth:>3}%", row, f"row C reads {row!r}")
+        #  Two bars, two fills -- and the Mothership's is red, below the third.
+        self.assertEqual(self.bar_fill("fleet"), (self.bar_expect(fleet), 1))
+        self.assertEqual(self.bar_fill("moth"), (self.bar_expect(moth), 3))
+        self.assertGreater(self.bar_expect(fleet), self.bar_expect(moth) + 10)
 
     def test_it_repaints_when_only_the_mothership_moves(self):
         """wave_changed compares a shadow per figure, and the Mothership needs
@@ -763,16 +798,16 @@ class TestTheMothershipsOwnFigure(WaveFixture):
         then sit there showing the old number.
         """
         self.c.run_frames(60)
-        before = self.hull_row()
-        self.assertIn("BASE 100%", before)
+        before = self.bar_fill("moth")
+        self.assertEqual(before, (self.sym["HUD_BAR_W"], 1))
 
         full = self.moth_full()
         self.poke_ent(self.moth_slot(), ENT_HULL, full * 3 // 4)
         self.c.run_frames(80)
-        self.assertNotEqual(self.hull_row(), before,
-                            "row C never repainted, so the Mothership's "
+        self.assertNotEqual(self.bar_fill("moth"), before,
+                            "the bar never repainted, so the Mothership's "
                             "figure is still the old one")
-        self.assertIn(f"BASE {self.byte('WAVE_MOTH_PCT'):>3}%", self.hull_row())
+        self.assertEqual(self.bar_fill("moth")[0], self.bar_expect(self.byte("WAVE_MOTH_PCT")))
 
     def test_a_vacated_slot_reads_zero_and_not_its_stale_hull(self):
         """The flags byte is what is asked, not the hull.
@@ -843,7 +878,8 @@ class TestTheReadout(WaveFixture):
 
     def test_a_whole_fleet_reads_a_hundred_per_cent(self):
         self.c.run_frames(60)
-        self.assertIn("HULL 100%", self.hull_row())
+        self.assertIn("HULL", self.hull_row())
+        self.assertEqual(self.bar_fill("fleet"), (self.sym["HUD_BAR_W"], 1))
 
     def test_it_is_in_both_screen_buffers(self):
         """The display page-flips, so a row painted into one buffer and not the
@@ -852,8 +888,10 @@ class TestTheReadout(WaveFixture):
         The context bar shipped exactly that bug."""
         self.c.run_frames(60)
         for base in (0x8000, 0xC000):
-            self.assertIn("HULL 100%", self.hull_row(base=base),
-                          f"the hull row is missing from buffer {base:#06x}")
+            self.assertIn("HULL", self.hull_row(base=base),
+                          f"the hull caption is missing from buffer {base:#06x}")
+            self.assertEqual(self.bar_fill("fleet", base=base), (self.sym["HUD_BAR_W"], 1),
+                             f"the fleet's bar is missing from buffer {base:#06x}")
 
     def test_damage_moves_the_figure(self):
         """And moves it to the value the machine's own class_hull table says,
@@ -864,7 +902,7 @@ class TestTheReadout(WaveFixture):
         want = self.expected_percent()
         self.assertLess(want, 100)
         self.assertEqual(self.byte("WAVE_PCT"), want)
-        self.assertIn(f"HULL {want:>3}%", self.hull_row())
+        self.assertEqual(self.bar_fill("fleet"), (self.bar_expect(want), 1 if want >= self.sym["HUD_HP_ALARM"] else 3))
 
     def test_the_figure_tracks_the_table_over_a_whole_sweep(self):
         """The divide is the only one in the game -- eight steps of a restoring
@@ -894,7 +932,7 @@ class TestTheReadout(WaveFixture):
         the other way; without a word on the screen the first they know of it
         is a hull figure falling for no reason they can see."""
         self.force_wave(frames=60)
-        self.assertIn("INCOMING", self.hull_row())
+        self.assertIn("INCOMING", self.message_row())
 
     def test_the_message_row_can_say_more_than_one_thing(self):
         """Section 5.5 asks for a message line and this row was it with exactly
@@ -912,7 +950,7 @@ class TestTheReadout(WaveFixture):
                          bytes([self.sym["WAVE_SAY_FRAMES"]]))
         self.c.run_frames(4 * TICKS_PER_GAME_FRAME)
 
-        row = self.hull_row()
+        row = self.message_row()
         self.assertIn("YARD: FRIGATE", row)
         self.assertNotIn("INCOMING", row, "the row said both messages at once")
 
@@ -951,8 +989,8 @@ class TestTheReadout(WaveFixture):
         ram = self.c.read_ram(h.front_buffer(self.c), 0x4000)
         hi = lo = 0
         for r in range(CHAR_H):
-            for x in range(self.sym["HUD_SAY_X"], self.sym["HUD_MOTH_X"]):
-                b = ram[h.screen_offset(self.sym["HUD_ROW_C_Y"] + r, x)]
+            for x in range(self.sym["HUD_SAY_X"], self.sym["HUD_SAY_X"] + 40):
+                b = ram[h.screen_offset(self.sym["CTX_LINE_Y"] + r, x)]
                 hi |= b & 0xF0
                 lo |= b & 0x0F
         self.assertTrue(hi or lo, "nothing is drawn on the message row at all")
@@ -960,12 +998,12 @@ class TestTheReadout(WaveFixture):
 
     def test_the_word_goes_away_again(self):
         self.force_wave(frames=60)
-        self.assertIn("INCOMING", self.hull_row())
+        self.assertIn("INCOMING", self.message_row())
         #  WAVE_SAY_FRAMES is 40 game frames; give it more than that and stop
         #  the next wave from landing on top of the check.
         self.c.write_ram(self.sym["WAVE_NEXT"], struct.pack("<H", 0xFFFF))
         self.c.run_frames(60 * TICKS_PER_GAME_FRAME)
-        self.assertNotIn("INCOMING", self.hull_row())
+        self.assertNotIn("INCOMING", self.message_row())
 
     def test_a_shot_landing_does_not_repaint_the_whole_hud(self):
         """The bargain that makes the HUD affordable is that it is repainted
@@ -1002,7 +1040,7 @@ class TestTheReadout(WaveFixture):
         self.assertIn("HULL", self.hull_row())
         self.hold("/")                          # `?` -- the key list
         self.c.run_frames(30)
-        self.hold("\x1b")                       # ESC
+        self.hold(cpc.KEY_ESC)                  # ESC -- a string "\x1b" is not a key
         self.c.run_frames(90)
         for base in (0x8000, 0xC000):
             self.assertIn("HULL", self.hull_row(base=base),

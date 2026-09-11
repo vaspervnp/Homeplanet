@@ -24,14 +24,14 @@ SCR_CENTRE_X = 160
 SCR_CENTRE_Y = 100
 
 #  ...but the projection does NOT centre on the screen, because the screen is
-#  not the playfield any more. CTX_BAR_H (10) and HUD_TOP (168) in
-#  src/demo/phase4.asm own a strip at each end, so the band a ship may be
-#  drawn in runs 10..167 and its middle is 89, eleven lines above the middle
-#  of the screen. Centring on 100 put every projected point eleven lines low.
-#  src/main.asm asserts these against the two equates that actually define them.
-PLAYFIELD_TOP = 10
+#  not the playfield any more. CTX_BAR_H (20, two text rows since hud2.md)
+#  and HUD_TOP (168) in src/demo/phase4.asm own a strip at each end, so the
+#  band a ship may be drawn in runs 20..167 and its middle is 94, six lines
+#  above the middle of the screen. Centring on 100 put every projected point
+#  low. src/main.asm asserts these against the two equates that define them.
+PLAYFIELD_TOP = 20
 PLAYFIELD_BOTTOM = 168               # first line of the HUD, exclusive
-PROJ_CENTRE_Y = (PLAYFIELD_TOP + PLAYFIELD_BOTTOM) // 2      # 89
+PROJ_CENTRE_Y = (PLAYFIELD_TOP + PLAYFIELD_BOTTOM) // 2      # 94
 
 # --- fixed point ------------------------------------------------------------
 #  Trig is 8.8: 1.0 is stored as 256. Values therefore span -256..+256, which

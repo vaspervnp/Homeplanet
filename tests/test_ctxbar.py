@@ -116,7 +116,7 @@ class BarFixture(unittest.TestCase):
         page-flips -- and every page in this game has to be painted into both.
         """
         if y is None:
-            y = self.sym["CTX_Y"]
+            y = self.sym["CTX_LINE_Y"]         # the context line, under the buttons
         if base is None:
             base = h.front_buffer(self.c)
         ram = self.c.read_ram(base, 0x4000)
@@ -168,7 +168,9 @@ class BarFixture(unittest.TestCase):
         return "?"
 
     def strip_bytes(self, base=None) -> bytes:
-        """Every byte of the strip the bar owns, in one screen buffer."""
+        """Every byte of the TOP strip -- the fleet's, hud_draw's -- in one
+        screen buffer. The context line itself is one text row under the
+        buttons; the strip that must be owned outright is this one."""
         if base is None:
             base = h.front_buffer(self.c)
         ram = self.c.read_ram(base, 0x4000)
@@ -182,14 +184,15 @@ class BarFixture(unittest.TestCase):
 
 class TestWhatItSays(BarFixture):
 
-    def test_playing_offers_the_menu_and_the_keys_that_change_meaning(self):
-        """ESC is the way to everything else, and `,`/`.` are the pair whose
-        meaning depends on a mode the player could not previously see."""
+    def test_playing_says_nothing_because_the_buttons_will(self):
+        """The key list -- ESC MENU ENTER MOVE B BUILD A ATTACK -- is gone from
+        the line (hud2.md): the buttons along the bottom are what say which
+        keys are live. Ordinary play leaves the context line BLANK, and the
+        line is the bottom strip's text row, not the top of the screen."""
         text = self.strip_text()
-        self.assertIn("ESC MENU", text, f"the bar reads {text!r}")
-        self.assertIn("B BUILD", text)
-        self.assertIn("A ATTACK", text)
+        self.assertEqual(text, "", f"the context line reads {text!r}")
         self.assertEqual(self.banked("CTX_KEY"), self.sym["CTX_PLAYING"])
+        self.assertGreaterEqual(self.sym["CTX_LINE_Y"], self.sym["HUD_TOP"])
 
     def test_pausing_says_so(self):
         """SPACE freezes the battle and nothing on screen used to say it. A
@@ -447,14 +450,6 @@ class TestTheKeysAreBlue(BarFixture):
     only the words would pass just as happily with the scheme reversed.
     """
 
-    def test_the_playing_line_alternates_key_and_action(self):
-        self.assert_reads([
-            ("ESC", PEN_BLUE), ("MENU", PEN_WHITE),
-            ("ENTER", PEN_BLUE), ("MOVE", PEN_WHITE),
-            ("B", PEN_BLUE), ("BUILD", PEN_WHITE),
-            ("A", PEN_BLUE), ("ATTACK", PEN_WHITE),
-        ])
-
     def test_the_move_disc_line_does_too_and_may_end_on_a_key(self):
         """ESC closes the disc and there is no word for it that is not already
         on the line -- ENTER is OK, so ESC is not-OK -- so the run ends on a
@@ -527,8 +522,9 @@ class TestTheKeysAreBlue(BarFixture):
 
         RU is the HUD's own caption and sets itself to ink 2; the four digits
         beside it are drawn in whatever the bar left, and they must be white.
+        RU is on the top strip's first line now.
         """
-        y = self.sym["HUD_ROW_A_Y"]
+        y = self.sym["CTX_Y"]
 
         def check(where):
             self.c.run_frames(30)
@@ -585,12 +581,11 @@ class TestFlyingAShip(BarFixture):
         self.assertEqual(self.byte("ORDER_PAUSED"), 0, "SPACE paused the game while flying")
         self.assertIn("SPACE FIRE", self.strip_text())
 
-    def test_v_again_puts_the_playing_line_back(self):
+    def test_v_again_takes_the_flying_line_down(self):
         self.hold_v()
         self.hold("v")
         self.assertEqual(self.byte("PILOT_SLOT"), self.sym["ENT_NO_TARGET"])
-        self.assertIn("ESC MENU", self.strip_text())
-        self.assertNotIn("FLY", self.strip_text())
+        self.assertEqual(self.strip_text(), "")
 
     def test_a_pause_entered_first_outranks_it_and_space_resumes(self):
         """SPACE is the resume while paused whatever else is going on, and
@@ -612,11 +607,13 @@ class TestTheFullScreenPages(BarFixture):
         'ESC - BACK' beside its title. Two prompts for one screen is one of
         them being wrong the first time the other changes, so the bar is
         suppressed and the page's own wipe is what removes it."""
+        self.hold(cpc.KEY_SPACE)                # PAUSED, so the line has words on it
+        self.assertTrue(self.strip_text().startswith("PAUSED"))
         self.hold("/")
         self.assertEqual(self.banked("HELP_SHOWN"), 1, "the help page did not open")
         self.assertEqual(self.banked("CTX_KEY"), self.sym["CTX_NONE"])
-        self.assertNotIn("ESC MENU", self.strip_text(),
-                         "the playing bar is still on top of the help page")
+        self.assertNotIn("PAUSED", self.strip_text(),
+                         "the context line is still drawn under the help page")
 
     def test_it_comes_back_into_BOTH_buffers_when_the_page_closes(self):
         """The bug this test was written to find, and it found it.
@@ -636,10 +633,14 @@ class TestTheFullScreenPages(BarFixture):
         self.hold(cpc.KEY_ESC)
         self.assertEqual(self.banked("HELP_SHOWN"), 0)
         self.c.run_frames(40)
-        self.assertIn("ESC MENU", self.strip_text())
+        #  The top strip -- the fleet's -- is what the page wiped and what has
+        #  to come back into both buffers; the context line is blank in play.
+        for base in (0x8000, 0xC000):
+            self.assertIn("SQUADRONS", self.strip_text(y=self.sym["CTX_Y2"], base=base),
+                          f"the fleet strip is missing from buffer {base:#06x}")
         a, b = self.both_strips()
-        self.assertEqual(a, b, "the bar is only in one of the two buffers")
-        self.assertTrue(any(a), "the bar is in neither of them")
+        self.assertEqual(a, b, "the strip is only in one of the two buffers")
+        self.assertTrue(any(a), "the strip is in neither of them")
 
     def test_the_orders_menu_takes_it_down_too(self):
         """menu_prompt already reads 'UP/DOWN  ENTER  ESC', directly under the
@@ -647,12 +648,80 @@ class TestTheFullScreenPages(BarFixture):
         self.hold(cpc.KEY_ESC)
         self.assertEqual(self.banked("MENU_SHOWN"), 1, "the menu did not open")
         self.assertEqual(self.banked("CTX_KEY"), self.sym["CTX_NONE"])
-        self.assertNotIn("ESC MENU", self.strip_text())
+        self.assertEqual(self.strip_text(), "")
+
+
+class TestTheFleetStrip(BarFixture):
+    """The top strip is the FLEET'S now (hud2.md, game/huddraw.asm): line 1
+    the hull bars, RU and the mission; line 2 SQUADRONS as nine marks, the
+    selected one's number and count, the yard and the way out. Read back off
+    the pixels, because every earlier readout bug passed on the variables."""
+
+    def line(self, which, base=None):
+        return self.strip_cells(y=self.sym["CTX_Y" if which == 1 else "CTX_Y2"], base=base)
+
+    def test_line_one_is_the_hull_captions_the_treasury_and_the_mission(self):
+        text, inks = self.line(1)
+        for word in ("HULL", "BASE", "RU", "M"):
+            i = text.find(word)
+            self.assertNotEqual(i, -1, f"line 1 reads {text.rstrip()!r}")
+            self.assertEqual({inks[i + k] for k in range(len(word))}, {PEN_BLUE},
+                             f"{word} is not in the chrome ink")
+        ru = struct.unpack("<H", self.c.read_ram(self.sym["ECO_RU"], 2))[0]
+        self.assertIn(f"RU {ru:04d}", text)
+        self.assertIn("M  1", text)
+
+    def test_the_bars_are_a_blue_trough_with_a_white_fill(self):
+        """A whole fleet: HUD_BAR_W bytes of fill in ink 1 on the bar's middle
+        row, and a row of the chrome ink above it. Both bars, both buffers."""
+        for base in (0x8000, 0xC000):
+            ram = self.c.read_ram(base, 0x4000)
+            for x0 in (self.sym["HUD_BAR_X"], self.sym["HUD_MOTH_BAR_X"]):
+                top = [ram[h.screen_offset(self.sym["HUD_BAR_Y"], x)]
+                       for x in range(x0, x0 + self.sym["HUD_BAR_W"])]
+                mid = [ram[h.screen_offset(self.sym["HUD_BAR_Y"] + 2, x)]
+                       for x in range(x0, x0 + self.sym["HUD_BAR_W"])]
+                self.assertEqual(set(top), {0x0F}, f"the trough at {x0} in {base:#06x}: {top}")
+                self.assertEqual(set(mid), {0xF0}, f"the fill at {x0} in {base:#06x}: {mid}")
+
+    def test_line_two_is_the_squadrons_as_marks(self):
+        """Blue for a squadron with ships in it, white for an empty one, red
+        for the selected one -- the owner's assignment -- then the selected
+        squadron's number and its ship count, and no other figures."""
+        text, inks = self.line(2)
+        self.assertTrue(text.startswith("SQUADRONS"), f"line 2 reads {text.rstrip()!r}")
+        counts = self.c.read_ram(self.sym["SQUAD_COUNT"], 10)
+        sel = self.byte("SQUAD_SEL")
+        ram = self.c.read_ram(h.front_buffer(self.c), 0x4000)
+        for n in range(1, 10):
+            x = self.sym["HUD_SQ_MARK_X"] + (n - 1) * self.sym["HUD_SQ_MARK_STEP"]
+            col = [ram[h.screen_offset(self.sym["CTX_Y2"] + r, x)]
+                   for r in range(self.sym["HUD_SQ_MARK_H"])]
+            want = 0xFF if n == sel else 0x0F if counts[n] else 0xF0
+            self.assertEqual(set(col), {want}, f"squadron {n}'s mark is {col}")
+        self.assertEqual(sel, 1)
+        self.assertIn(f"{sel} {counts[sel]:>2}", text)
+        self.assertNotIn(":", text, "the old >n:cc slots are still drawn")
+
+    def test_selecting_another_squadron_moves_the_red_mark(self):
+        #  Make squadron 2 with `d`, then select it: its mark goes red and 1's blue.
+        self.hold("d")
+        self.hold("2")
+        self.assertEqual(self.byte("SQUAD_SEL"), 2, "2 did not select")
+        ram = self.c.read_ram(h.front_buffer(self.c), 0x4000)
+        y = self.sym["CTX_Y2"] + 3
+        x1 = self.sym["HUD_SQ_MARK_X"]
+        x2 = x1 + self.sym["HUD_SQ_MARK_STEP"]
+        self.assertEqual(ram[h.screen_offset(y, x1)], 0x0F, "squadron 1's mark is not blue")
+        self.assertEqual(ram[h.screen_offset(y, x2)], 0xFF, "squadron 2's mark is not red")
+        text, _ = self.line(2)
+        counts = self.c.read_ram(self.sym["SQUAD_COUNT"], 10)
+        self.assertIn(f"2 {counts[2]:>2}", text)
 
 
 class TestTheStripIsOwned(BarFixture):
-    """The bar is repainted only when the words change, and that is only safe
-    while nothing else can put a pixel in its strip."""
+    """The top strip is repainted only when what it says changes, and that is
+    only safe while nothing else can put a pixel in it."""
 
     def test_nothing_repaints_it_while_the_context_holds(self):
         """Forty characters a frame is not affordable -- the HUD's own
@@ -688,7 +757,7 @@ class TestTheStripIsOwned(BarFixture):
             self.c.key_up(cpc.KEY_UP)
             self.c.run_frames(10)
             self.assertEqual(self.strip_bytes(), before,
-                             "something drew in, or erased out of, the bar's strip")
+                             "something drew in, or erased out of, the fleet strip")
 
     def test_the_strip_is_the_same_in_both_screen_buffers(self):
         """ctx_dirty is set to 2, not 1, for the same reason the HUD's is:
@@ -696,8 +765,8 @@ class TestTheStripIsOwned(BarFixture):
         alternate with whatever the other one still holds."""
         self.c.run_frames(40)
         a, b = self.both_strips()
-        self.assertTrue(any(a), "the bar was not drawn at all")
-        self.assertEqual(a, b, "the bar flickers between the two buffers")
+        self.assertTrue(any(a), "the strip was not drawn at all")
+        self.assertEqual(a, b, "the strip flickers between the two buffers")
 
 
 class TestTheTopClip(BarFixture):
@@ -712,7 +781,7 @@ class TestTheTopClip(BarFixture):
         sym = self.sym
         top = self.byte("SPR_CLIP_TOP")
         self.assertEqual(top, sym["CTX_BAR_H"],
-                         "demo_init did not hand the strip to the context bar")
+                         "demo_init did not hand the top strip to the HUD")
 
         back = self.c.read_ram(sym["SCR_BACK_PAGE"], 1)[0] << 8
         for y in range(200):

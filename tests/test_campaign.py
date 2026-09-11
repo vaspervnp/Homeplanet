@@ -175,11 +175,13 @@ class TestTheMissionNumberOnTheHud(unittest.TestCase):
         h.close(getattr(self, "c", None))
 
     def mission_field(self):
-        """The characters drawn from HUD_MIS_X up to where JUMP begins."""
+        """The characters of the mission field: M and its two digits, on the
+        top strip's first line."""
         ram = self.c.read_ram(h.front_buffer(self.c), 0x4000)
-        y = self.sym["HUD_ROW_B_Y"]
+        y = self.sym["CTX_Y"]
         out = []
-        for bx in range(self.sym["HUD_MIS_X"], self.sym["HUD_MIS_JUMP_X"], 2):
+        for bx in range(self.sym["HUD_MIS_X"],
+                        self.sym["HUD_MIS_NUM_X"] + self.sym["HUD_MIS_DIGITS"] * 2, 2):
             cell = []
             for r in range(self.CHAR_H):
                 a = ram[h.screen_offset(y + r, bx)]
@@ -941,9 +943,10 @@ class TestTheEndOfTheJourney(unittest.TestCase):
         h.let_the_game_draw(self.c, self.sym, 4)
 
     def leave_word(self):
-        """The four characters of the HUD's fourth field, off the pixels."""
+        """The four characters of the way-out field, off the pixels: JUMP or
+        LAND at the right of the top strip's second line."""
         ram = self.c.read_ram(h.front_buffer(self.c), 0x4000)
-        y, out = self.sym["HUD_ROW_B_Y"], []
+        y, out = self.sym["CTX_Y2"], []
         for bx in range(self.sym["HUD_MIS_JUMP_X"],
                         self.sym["HUD_MIS_JUMP_X"] + 8, 2):
             cell = []
@@ -1028,9 +1031,9 @@ class TestTheEndOfTheJourney(unittest.TestCase):
                    if any(ram[h.screen_offset(y + r, x)] for x in range(80)))
 
     def bar_word(self):
-        """The first seven cells of the context bar, off the pixels."""
+        """The first seven cells of the context line, off the pixels."""
         ram = self.c.read_ram(h.front_buffer(self.c), 0x4000)
-        y, x0 = self.sym["CTX_Y"], self.sym["CTX_NAME_X"]
+        y, x0 = self.sym["CTX_LINE_Y"], self.sym["CTX_NAME_X"]
         out = []
         for bx in range(x0, x0 + 7 * 2, 2):
             cell = []

@@ -439,11 +439,11 @@ class TestProjection(EmuFixture):
         self.assertIsNone(self._project((32767, 0, 0), (-32768, 0, 0), 0, 0, 250))
 
     def test_a_point_at_the_focus_lands_dead_centre(self):
-        """Dead centre of the PLAYFIELD, which is eleven lines above the middle
-        of the screen: the context bar owns 0..9 and the HUD 168..199."""
+        """Dead centre of the PLAYFIELD, which is six lines above the middle
+        of the screen: the top strip owns 0..19 and the HUD 168..199."""
         got = self._project((0, 0, 0), (0, 0, 0), 0, 0, 150)
         self.assertEqual(got, (160, g.PROJ_CENTRE_Y, 150))
-        self.assertEqual(g.PROJ_CENTRE_Y, 89)
+        self.assertEqual(g.PROJ_CENTRE_Y, 94)
 
     def test_clips_behind_the_camera(self):
         """A point behind the focus must fall outside the NEAR PLANE.

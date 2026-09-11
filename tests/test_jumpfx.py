@@ -43,7 +43,7 @@ import cpc
 
 #  Mirrored from src/demo/phase4.asm; everything else comes off the build.
 JFX_NONE, JFX_OUT, JFX_IN = 0, 1, 2
-CTX_BAR_H, HUD_TOP = 10, 168
+CTX_BAR_H, HUD_TOP = h.symbols()["CTX_BAR_H"], h.symbols()["HUD_TOP"]
 SOLID_INK_1 = 0xF0
 #  A pixel's two bit planes, for the LEFTMOST pixel of a Mode 1 byte: plane 0
 #  is bit 7 and plane 1 is bit 3. Mirrored from gfx_pen_mask in gfx/line.asm.
@@ -195,8 +195,14 @@ class WipeFixture(unittest.TestCase):
         return bar, hud
 
     @staticmethod
+    def hud_bytes(ram):
+        """Every byte of the bottom strip, to compare against itself."""
+        return bytes(ram[h.screen_offset(y, x)]
+                     for y in range(HUD_TOP, 200) for x in range(WIDTH))
+
+    @staticmethod
     def bar_bytes(ram):
-        """Every byte of the context bar's strip, to compare against itself."""
+        """Every byte of the top strip -- the fleet's -- to compare against itself."""
         return bytes(ram[h.screen_offset(y, x)]
                      for y in range(0, CTX_BAR_H) for x in range(WIDTH))
 
@@ -898,15 +904,20 @@ class TestTheReveal(WipeFixture):
             self.fail("the context bar never reached both buffers")
         before = {base: self.bar_bytes(self.buffer(base))
                   for base in (h.SCREEN_A, h.SCREEN_B)}
+        #  The bottom strip is the buttons' and the context line's now, and in
+        #  ordinary play both are black (hud2.md) -- so "still lit" says
+        #  nothing about it, and it is held to the same byte-for-byte check.
+        hud_before = {base: self.hud_bytes(self.buffer(base))
+                      for base in (h.SCREEN_A, h.SCREEN_B)}
 
         seen, _, _ = self.sample_sweep(JFX_IN)
         self.assertTrue(seen, "the reveal was over before it was watched")
         for base in (h.SCREEN_A, h.SCREEN_B):
             ram = self.buffer(base)
             self.assertEqual(self.bar_bytes(ram), before[base],
-                             f"the sweep changed the context bar in #{base:04X}")
-            self.assertGreater(self.strip_lit(ram)[1], 50,
-                               f"the sweep scrubbed the HUD in buffer #{base:04X}")
+                             f"the sweep changed the fleet strip in #{base:04X}")
+            self.assertEqual(self.hud_bytes(ram), hud_before[base],
+                             f"the sweep changed the bottom strip in #{base:04X}")
 
 
 class TestOnlyAJumpSweeps(WipeFixture):

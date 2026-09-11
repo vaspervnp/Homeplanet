@@ -361,13 +361,8 @@ mini_intro_words_end:
 ;  ", ." keeps its inner space, and that space is doing work -- the comma and
 ;  the full stop are one pixel apart in this font, so ",." reads as ".." at
 ;  8x8, and the pair is the whole reason the bar exists.
-ctx_text_play:
-    defb "ESC",0,"MENU",0
-    defb "ENTER",0,"MOVE",0
-    defb "B",0,"BUILD",0
-    defb "A",0,"ATTACK",0
-    defb 0
-ctx_text_play_end:
+;  (There is no playing line any more: the buttons say what the keys do, and
+;  the context line carries the state and the message row's word.)
 
 ;  "JUMPING" and then the seconds, drawn separately because a number cannot be
 ;  a run. The tail is a run like every other, so ESC is blue and CANCEL white.

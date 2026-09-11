@@ -968,38 +968,28 @@ tut_spawn:
 ; ----------------------------------------------------------------------------
 ;  tut_draw -- one frame of the instruction row
 ;
-;  Reached from wave_draw, which hands row C over whole while the tutorial is
-;  running. IT IS THE WHOLE ROW AND NOT A SHARE OF IT, and that is arithmetic
-;  rather than appetite: the row is 80 BYTES, which is forty characters in a
-;  font that is two bytes wide, and "HULL 100%" plus INCOMING already occupy
-;  bytes 2 to 40 of it. improvements.md called the row "80 characters wide and
-;  free"; it is neither.
+;  Reached from wave_draw, which hands the top strip's SECOND line over whole
+;  while the tutorial is running (hud2.md: line 2 is SQUADRONS, the yard and
+;  JUMP otherwise). IT IS THE WHOLE LINE AND NOT A SHARE OF IT: forty
+;  characters in a font two bytes wide, and an instruction wants most of them.
 ;
-;  What is given up is the fleet's hull percentage, for as long as the tutorial
-;  runs. That is the right thing to give up: the tutorial's fleet is not at
-;  risk -- there is one hostile in it, and mis_update is not even called, so
-;  nothing can be lost -- and a number the player has no decision to make about
-;  is not worth a line of instruction.
+;  What is given up is the squadron marks, for as long as the tutorial runs.
+;  The stage has two squadrons and the instruction says which key selects
+;  which; the HULL and BASE bars on line 1 stay.
 ;
-;  wave_dirty is row C's dirty flag whoever owns the row, which is what makes
-;  the coupling with mis_wipe free: phase4_hud already sets it to 2 whenever
-;  the strip is repainted, and everything that schedules a wipe marks the HUD
-;  dirty. A flag of its own would have been a second thing for mis_wipe to
-;  know about.
+;  wave_dirty is that line's dirty flag whoever owns it, which is what makes
+;  the coupling with mis_wipe free: hud_draw sets it to 2 whenever the strip
+;  is repainted, and everything that schedules a wipe marks the HUD dirty. A
+;  flag of its own would have been a second thing for mis_wipe to know about.
 ;  Uses: everything
 ; ----------------------------------------------------------------------------
 tut_draw:
-    ld hl,wave_dirty
-    ld a,(hl)
-    or a
-    ret z
-    dec (hl)                            ; once into each screen buffer
-
-    ;  Blank the row. Nothing else writes here while the tutorial is up -- the
-    ;  tactical view is clipped out at spr_clip_bottom and the other two HUD
-    ;  rows are below it -- so this is the whole erase.
+    ;  Reached from wave_draw, which has already taken the frame off
+    ;  wave_dirty: the flag is the top strip's second line's, whoever draws
+    ;  there, and hud_draw leaves that line to us while tut_active is set.
+    ;  Blank the line first. Nothing else writes here while the tutorial is up.
     ld b,0
-    ld c,HUD_ROW_C_Y
+    ld c,CTX_Y2
     ld d,SCR_BYTES_PER_LINE
     ld e,TXT_CHAR_H
     xor a
@@ -1020,7 +1010,7 @@ tut_draw:
     call bank7_fetch
     ld hl,bank7_line
     ld b,TUT_TEXT_X
-    ld c,HUD_ROW_C_Y
+    ld c,CTX_Y2
     call txt_draw
 
     ;  n/16 at the right-hand end, in ink 2. It is chrome in exactly the sense
@@ -1032,12 +1022,12 @@ tut_draw:
     ld a,(tut_step)
     inc a
     ld b,TUT_NUM_X
-    ld c,HUD_ROW_C_Y
+    ld c,CTX_Y2
     ld d,2
     call txt_draw_num
     ld hl,tut_of_text
     ld b,TUT_OF_X
-    ld c,HUD_ROW_C_Y
+    ld c,CTX_Y2
     call txt_draw
     ld a,PEN_WHITE                      ; nothing inherits an ink
     jp txt_set_pen

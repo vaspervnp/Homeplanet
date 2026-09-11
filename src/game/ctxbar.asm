@@ -1,7 +1,13 @@
 ; ============================================================================
-;  game/ctxbar.asm -- the context bar along the top of the screen
+;  game/ctxbar.asm -- the context line under the buttons
 ; ============================================================================
-;  What keys do something RIGHT NOW, in one line above the tactical view.
+;  What state the game is in RIGHT NOW, in one line at the bottom of the
+;  screen -- under the button bar hud2.md puts there. It was a KEY LIST along
+;  the top ("ESC MENU ENTER MOVE B BUILD A ATTACK") and the top strip is the
+;  fleet's now (game/huddraw.asm); the keys are the buttons' job. What stayed
+;  is the STATE: PAUSED, the countdown, RECYCLE?, the move disc's and the
+;  cockpit's lines, the build panel's readout -- and the message row's word,
+;  INCOMING and the unlocks, which came here from the old hull row.
 ;
 ;  WHY THIS EXISTS
 ;  ---------------
@@ -89,6 +95,8 @@ CTX_PILOT           equ 8               ; V: the arrows fly a ship and SPACE fir
 ;  the words below -- txt_draw clips at the screen edge rather than wrapping,
 ;  so an overrun is a silently truncated label.
 CTX_BAR_CHARS       equ SCR_BYTES_PER_LINE / TXT_CHAR_W_BYTES
+;  ...and where the line is: the bottom strip's text row (demo/phase4.asm).
+CTX_LINE_Y          equ HUD_TEXT_Y
 
 ;  The build panel's fields, in BYTES across the line. The name is the widest
 ;  thing here and everything after it is placed off the longest one.
@@ -141,12 +149,13 @@ ctx_bar:
     ret z                               ; a full-screen page owns the strip
     dec (hl)
 
-    ;  Blank it first. The bar is the only thing that ever writes here, so
-    ;  this is the whole erase -- there is no dirty rectangle to record and
+    ;  Blank the line first. The bar is the only thing that ever writes here,
+    ;  so this is the whole erase -- there is no dirty rectangle to record and
     ;  nothing else to co-ordinate with.
-    ld bc,#0000                         ; B = x, C = y
+    ld b,0                              ; B = x, C = y
+    ld c,CTX_LINE_Y
     ld d,SCR_BYTES_PER_LINE
-    ld e,CTX_BAR_H
+    ld e,TXT_CHAR_H
     xor a
     call scr_fill_rect
 
@@ -159,17 +168,17 @@ ctx_bar:
     cp CTX_PAUSED
     jp z,ctx_draw_paused
     cp CTX_RECYCLE
-    jr z,ctx_draw_recycle
+    jp z,ctx_draw_recycle
     cp CTX_JUMPING
-    jr z,ctx_draw_jumping
+    jp z,ctx_draw_jumping
     cp CTX_TUTORIAL
     ld hl,ctx_text_tutorial
     jp z,ctx_line
     cp CTX_PILOT
-    ld hl,ctx_text_pilot
-    jp z,ctx_line
-    ld hl,ctx_text_play
-    ;  ...and fall through
+    jp z,ctx_draw_pilot
+    ;  CTX_PLAYING: no key list any more -- the buttons say what the keys do.
+    ;  The message row's word, when there is one, and nothing otherwise.
+    jr ctx_draw_message
 
 ;  HL -> a whole line of the bar, from the left-hand edge.
 ctx_line:
@@ -200,7 +209,7 @@ ctx_run:
     ld (ctx_cursor),hl                  ; where in bank 7 the next word is
     ld a,PEN_BLUE
     ld (ctx_pen),a
-    ld c,CTX_Y                          ; survives, in the push bc below
+    ld c,CTX_LINE_Y                     ; survives, in the push bc below
 
 @ctx_word:
     ;  The next word, down from bank 7; bank7_fetch hands back the cursor.
@@ -246,6 +255,84 @@ ctx_run:
 
 
 ; ----------------------------------------------------------------------------
+;  ctx_static -- the frame's bookkeeping while a full-screen page is up
+;  Uses: everything
+;
+;  Called from @p4_static_done in place of ctx_changed, and it is ctx_changed
+;  plus one thing: the line is BLANKED under a page. The old bar at the top
+;  of the screen needed no blanking -- every page clears from line 0, so
+;  putting the page up took the bar down -- and the line at the bottom is
+;  inside the strip a page's static_wipe deliberately leaves standing. So
+;  PAUSED stayed on the screen under the help page. The paint of whatever
+;  comes next is still left to the first genuinely playing frame, for the
+;  reason @p4_static_done gives: on the frame a page CLOSES its flag is
+;  already clear while the screen still holds the page, and ctx_key is no
+;  longer CTX_NONE, so this does nothing on that frame.
+; ----------------------------------------------------------------------------
+ctx_static:
+    call ctx_changed
+    ld a,(ctx_key)
+    or a
+    ret nz                              ; a page is closing: the playing frame paints
+    ld hl,ctx_dirty
+    ld a,(hl)
+    or a
+    ret z
+    dec (hl)                            ; once into each buffer
+    ld b,0
+    ld c,CTX_LINE_Y
+    ld d,SCR_BYTES_PER_LINE
+    ld e,TXT_CHAR_H
+    xor a
+    jp scr_fill_rect
+
+
+; ----------------------------------------------------------------------------
+;  ctx_draw_message -- the message row's word, from the old hull row
+;
+;  INCOMING, YARD: FRIGATE, YARD: DESTROYER, AUTO RESPONSE ON / USED: for a
+;  few seconds, the thing that has just happened that the player would
+;  otherwise have to infer. THE INK SEPARATES THEM: INCOMING is section 2's
+;  attention ink; the rest are ink 1, news about the player's own fleet in the
+;  fleet's own ink, so a red word here means a threat and nothing else.
+;  ctx_classify folds wave_saying into ctx_sub while PLAYING or PILOT, so the
+;  shadow repaints on the word's two transitions and not on its countdown.
+;  Uses: everything
+; ----------------------------------------------------------------------------
+ctx_draw_message:
+    call wave_saying
+    or a
+    ret z                               ; nothing to say: the line stays blank
+    ld a,(wave_msg)
+    or a
+    ld a,PEN_RED
+    jr z,@ctx_say_pen
+    ld a,PEN_WHITE
+@ctx_say_pen:
+    call txt_set_pen
+    ld a,(wave_msg)
+    ld hl,wave_say_text
+    call bank7_fetch                    ; the words are in bank 7
+    ld hl,bank7_line
+    ld b,HUD_SAY_X
+    ld c,CTX_LINE_Y
+    call txt_draw
+    ld a,PEN_WHITE
+    jp txt_set_pen
+
+
+;  A ship being flown: the message outranks the cockpit's key line while it
+;  is up -- a wave arriving is the one thing a pilot has to be told -- and the
+;  line goes back to ARROWS FLY SPACE FIRE V BACK when it is spent.
+ctx_draw_pilot:
+    call wave_saying
+    or a
+    jr nz,ctx_draw_message
+    ld hl,ctx_text_pilot
+    jp ctx_line
+
+
+; ----------------------------------------------------------------------------
 ;  ctx_draw_paused -- item 1 of the todo list, which belongs here
 ;
 ;  SPACE freezes the battle and nothing on screen said so, and a paused fleet
@@ -274,7 +361,7 @@ ctx_draw_recycle:
     ld hl,ctx_text_recycle
     call ctx_fetch
     ld b,CTX_NAME_X
-    ld c,CTX_Y
+    ld c,CTX_LINE_Y
     call txt_draw                       ; ctx_run puts the pen back
 
     ld hl,ctx_text_recycle_tail
@@ -302,12 +389,12 @@ ctx_draw_jumping:
 @ctx_jump_word:
     call ctx_fetch
     ld b,CTX_NAME_X
-    ld c,CTX_Y
+    ld c,CTX_LINE_Y
     call txt_draw
 
     ld a,(jump_secs)
     ld b,CTX_JUMP_NUM_X
-    ld c,CTX_Y
+    ld c,CTX_LINE_Y
     ld d,2                              ; right-aligned, so ESC does not jitter
     call txt_draw_num
     ld a,PEN_WHITE
@@ -324,7 +411,7 @@ ctx_draw_paused:
     ld hl,ctx_text_paused
     call ctx_fetch
     ld b,CTX_NAME_X
-    ld c,CTX_Y
+    ld c,CTX_LINE_Y
     call txt_draw                       ; ctx_run puts the pen back
 
     ld hl,ctx_text_pause_tail
@@ -354,18 +441,18 @@ ctx_draw_build:
     ld a,(ctx_class)
     call ctx_class_name
     ld b,CTX_NAME_X
-    ld c,CTX_Y
+    ld c,CTX_LINE_Y
     call txt_draw
 
     ld a,(ctx_cost)
     ld b,CTX_COST_X
-    ld c,CTX_Y
+    ld c,CTX_LINE_Y
     ld d,3
     call txt_draw_num
     ld hl,ctx_text_ru
     call ctx_fetch
     ld b,CTX_RU_X
-    ld c,CTX_Y
+    ld c,CTX_LINE_Y
     call phase4_hud_label               ; chrome is ink 2, and puts it back
 
     ld hl,ctx_text_pick
@@ -388,7 +475,7 @@ ctx_draw_build:
     ld hl,ctx_text_buy
     call ctx_fetch
     ld b,CTX_STAT_X
-    ld c,CTX_Y
+    ld c,CTX_LINE_Y
     call txt_draw
     ld a,PEN_WHITE
     jp txt_set_pen
@@ -404,7 +491,7 @@ ctx_draw_build:
 @ctx_build_say:
     call ctx_fetch
     ld b,CTX_STAT_X
-    ld c,CTX_Y
+    ld c,CTX_LINE_Y
     jp txt_draw
 
 
@@ -663,6 +750,11 @@ ctx_classify:
     ;  ...and a ship being flown, BELOW the pause: SPACE is the trigger while
     ;  flying and the resume while paused, and the bar names whichever it is
     ;  right now. game/pilot.asm.
+    ;  Both of these carry the message row's word in ctx_sub -- 0 for quiet,
+    ;  else the message plus one -- so the shadow sees INCOMING arrive and go
+    ;  and repaints exactly twice a message. game/wavesdraw.asm's wave_saying.
+    call wave_saying
+    ld (ctx_sub),a
     ld a,(pilot_slot)
     cp ENT_MAX
     ld a,CTX_PILOT

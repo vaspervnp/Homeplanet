@@ -369,7 +369,7 @@ class TestTheLineOnTheScreen(TutFixture):
         out = {0x8000: set(), 0xC000: set()}
         for _ in range(samples):
             for base in (0x8000, 0xC000):
-                out[base].add(self.r.row(self.c, base, self.sym["HUD_ROW_C_Y"]))
+                out[base].add(self.r.row(self.c, base, self.sym["CTX_Y2"]))
             self.c.run_frames(4)
         return out
 

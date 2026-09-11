@@ -1243,9 +1243,24 @@ class TestTheQueueOnTheScreen(EconomyFixture):
     mission number, and ECO_QUEUE_LEN would say nothing about either.
     """
 
-    YARD_X, YARD_W = 44, 12             # the field, in screen bytes
-    MIS_X, MIS_W = 56, 24               # "M 1 JUMP", which it must not reach
-    ROW_Y, ROW_H = 188, 8
+    YARD_W = 12                         # the field, in screen bytes; its x and y come off the build
+    @property
+    def MIS_X(self):
+        """Where the yard's field ends: the gap up to JUMP must stay blank."""
+        return self.sym["HUD_YARD_X"] + self.sym["HUD_YARD_CHARS"] * 2
+
+    @property
+    def MIS_W(self):
+        return self.sym["HUD_MIS_JUMP_X"] - self.MIS_X
+    ROW_H = 8
+
+    @property
+    def YARD_X(self):
+        return self.sym["HUD_YARD_X"]
+
+    @property
+    def ROW_Y(self):
+        return self.sym["CTX_Y2"]           # the top strip's second line (hud2.md)
 
 
     def setUp(self):
@@ -1293,21 +1308,22 @@ class TestTheQueueOnTheScreen(EconomyFixture):
 
     def test_it_does_not_reach_the_mission_number(self):
         """The field grew a fifth character. txt_draw clips at the screen edge
-        and not at a field, so an overrun would quietly eat 'M 1 JUMP' and
-        nothing at run time would say so. src/main.asm asserts the geometry;
-        this asserts the pixels."""
+        and not at a field, so an overrun would quietly eat the JUMP beside it
+        and nothing at run time would say so. src/main.asm asserts the
+        geometry; this asserts the pixels -- the gap between the yard's field
+        and JUMP stays blank with the deepest queue there is."""
         self.c.run_frames(200)
-        self.assertEqual(self.byte("MIS_COMPLETE"), 1,
-                         "mission 1 is not complete, so JUMP would come and go")
         empty = self.field(self.MIS_X, self.MIS_W)
+        self.assertFalse(any(empty), "the gap after the yard's field is not blank to begin with")
 
         self.hold("b")
         self.set_pick(CLASS_SCOUT)
         self.deepen_to(9)
         self.hold("b")
-        self.assertEqual(self.byte("MIS_COMPLETE"), 1)
+        self.assertTrue(any(self.field(self.YARD_X, self.YARD_W)),
+                        "the yard drew nothing, so this proves nothing")
         self.assertEqual(self.field(self.MIS_X, self.MIS_W), empty,
-                         "the yard readout wrote into the mission field")
+                         "the yard readout wrote past its field towards JUMP")
 
 
 class TestTheResourcesAMissionCarries(EconomyFixture):
@@ -1388,8 +1404,15 @@ class TestTheReadout(EconomyFixture):
     invalidated it was somewhere else entirely.
     """
 
-    RU_X, RU_W = 54, 16                 # the field, in screen bytes
-    RU_Y, RU_H = 176, 10
+    RU_W, RU_H = 16, 10                 # the field, in screen bytes; x and y off the build
+
+    @property
+    def RU_X(self):
+        return self.sym["HUD_RU_X"]         # the top strip's first line (hud2.md)
+
+    @property
+    def RU_Y(self):
+        return self.sym["CTX_Y"] - 1
 
     def readout(self, ru):
         """The pixels of the RU field with that much in hand."""
@@ -1417,20 +1440,22 @@ class TestTheReadout(EconomyFixture):
                              f"{ru} RU is drawn exactly like {seen.get(pixels)} RU")
             seen[pixels] = ru
 
-    def test_it_fits_beside_the_help_hint(self):
-        """Four digits reach byte 70, which is where ?HELP starts.
-
-        txt_draw clips at the screen edge, not at a field, so an overrun would
-        silently overwrite the hint rather than fail.
+    def test_it_fits_before_the_mission_number(self):
+        """Four digits reach byte 70, and M starts at HUD_MIS_X with a clear
+        cell between. txt_draw clips at the screen edge, not at a field, so
+        an overrun would silently overwrite the M rather than fail.
         """
         self.readout(9999)
         ram = self.c.read_ram(h.front_buffer(self.c), 0x4000)
-        label = h.read_bank4(self.c, self.sym["PHASE4_HUD_HELP"], 6)
-        self.assertEqual(label, b"?HELP\x00")
+        end = self.sym["HUD_RU_NUM_X"] + 4 * 2
+        gap = sum(ram[h.screen_offset(y, x)]
+                  for y in range(self.RU_Y, self.RU_Y + self.RU_H)
+                  for x in range(end, self.sym["HUD_MIS_X"]))
+        self.assertEqual(gap, 0, "the widest RU figure ran into the mission number")
         ink = sum(bin(ram[h.screen_offset(y, x)]).count("1")
                   for y in range(self.RU_Y, self.RU_Y + self.RU_H)
-                  for x in range(70, 80))
-        self.assertGreater(ink, 20, "the widest RU figure wiped out ?HELP")
+                  for x in range(self.sym["HUD_MIS_X"], self.sym["HUD_MIS_X"] + 2))
+        self.assertGreater(ink, 5, "the M beside the RU figure is not drawn")
 
 
 class TestHarvesting(EconomyFixture):

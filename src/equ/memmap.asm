@@ -51,7 +51,7 @@ SCR_CENTRE_Y        equ 100
 ;  in src/demo/phase4.asm and are included long after the projection; src/main.asm
 ;  asserts it against them, and against the model's own copy in
 ;  tools/gentables.py, once everything is in scope.
-PROJ_CENTRE_Y       equ 89
+PROJ_CENTRE_Y       equ 94
 
 ; --- Semantic palette (Homeplanet.md section 2) -----------------------------
 ;  The four inks are meanings, not decoration.

@@ -249,7 +249,7 @@ MG_TIER_MID         equ 34
 
 ;  The words, and where they go. MG_TEXT_Y is above the widest ring (the shaft
 ;  reaches MG_CY +/- 46) and MG_LOST_Y is below it.
-MG_TEXT_Y           equ 16
+MG_TEXT_Y           equ 20              ; CTX_BAR_H: clear of the top strip
 MG_LOST_Y           equ 152
 
 ;  The band the chase actually redraws every step: the shaft is MG_CY +/- 46
