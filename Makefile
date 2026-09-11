@@ -91,7 +91,7 @@ RASMFLAGS := -I $(SRC_DIR) -I . -eo
 
 ASM_SOURCES := $(shell find $(SRC_DIR) -name '*.asm' -not -path '$(GEN_DIR)/*')
 
-.PHONY: all tables ships music test run clean dsk-list
+.PHONY: all tables ships icons music test run clean dsk-list
 
 all: $(BANKED)
 
@@ -232,6 +232,13 @@ endif
 ships:
 	$(PYTHON) tools/mkships.py --contact-sheet
 	$(PYTHON) tools/mkships.py --faction enemy --contact-sheet
+
+# The HUD's button icons: tools/hudicons.py's pictures -> art/hudicons.png and
+# .aseprite, in the ship sheets' grid, for the owner to repaint. Not part of
+# `all` for the reason `ships` is not; hud2.md is the plan they belong to.
+icons:
+	$(PYTHON) tools/hudicons.py export
+	$(PYTHON) tools/hudicons.py preview
 
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)

@@ -233,9 +233,18 @@ def write_sheet(png: str, w: int, h: int, grids: dict, tier: str):
 
 
 def write_aseprite(path: str, img, w: int, h: int, tier: str):
-    """The sheet as an .aseprite: one indexed layer, one frame, the five-colour
-    palette with NONE as the transparent index, a grid of the cell pitch, and
-    a slice per sprite. Straight from the format's spec (ase-file-specs.md)."""
+    """One tier's sheet as an .aseprite, a slice per sprite named class/view."""
+    cells, _, _ = sheet_layout(w, h)
+    write_ase(path, img, w, h, [(f"{CLASSES[row]}/{v}", x0, y0, w, h) for row, v, x0, y0 in cells])
+
+
+def write_ase(path: str, img, w: int, h: int, slices: list, margin: int = MARGIN, gap=GAP):
+    """An indexed image as an .aseprite: one layer, one frame, the five-colour
+    palette with NONE as the transparent index, a grid of the cell pitch
+    (w + gap by h + gap, from margin; gap may be an (x, y) pair), and a named
+    slice per (name, x, y, w, h).
+    Straight from the format's spec (ase-file-specs.md). The HUD's icons come
+    through here too."""
     import struct as st
     import zlib
     W, H = img.size
@@ -259,17 +268,17 @@ def write_aseprite(path: str, img, w: int, h: int, tier: str):
     chunks.append(chunk(0x2004, st.pack("<HHHHHHB", 3, 0, 0, 0, 0, 0, 255) + bytes(3) + string("sprites")))
     cel = st.pack("<HhhBHh", 0, 0, 0, 255, 2, 0) + bytes(5) + st.pack("<HH", W, H) + zlib.compress(pixels, 9)
     chunks.append(chunk(0x2005, cel))                                              # the picture, zlib
-    cells, _, _ = sheet_layout(w, h)
-    for row, v, x0, y0 in cells:
-        body = st.pack("<III", 1, 0, 0) + string(f"{CLASSES[row]}/{v}")
-        body += st.pack("<IiiII", 0, x0, y0, w, h)
+    for name, x0, y0, sw, sh in slices:
+        body = st.pack("<III", 1, 0, 0) + string(name)
+        body += st.pack("<IiiII", 0, x0, y0, sw, sh)
         chunks.append(chunk(0x2022, body))                                         # a named slice per sprite
     frame_body = b"".join(chunks)
     n = len(chunks)
     frame = st.pack("<IHHH", 16 + len(frame_body), 0xF1FA, n if n < 0xFFFF else 0xFFFF, 100) + bytes(2) + st.pack("<I", n) + frame_body
     header = st.pack("<IHHHHHIH", 128 + len(frame), 0xA5E0, 1, W, H, 8, 1, 100)
     header += st.pack("<II", 0, 0) + bytes([NONE]) + bytes(3)
-    header += st.pack("<HBBhhHH", len(COLOURS), 1, 1, MARGIN, MARGIN, w + GAP, h + GAP)
+    gx, gy = gap if isinstance(gap, tuple) else (gap, gap)
+    header += st.pack("<HBBhhHH", len(COLOURS), 1, 1, margin, margin, w + gx, h + gy)
     header += bytes(84)
     assert len(header) == 128
     with open(path, "wb") as f:

@@ -16,6 +16,7 @@ make            # generate tables, assemble, produce build/homeplanet.dsk
 make test       # assemble, then run the emulator test suite (~7 min)
 make run        # assemble and screenshot the running game into build/shots/
 make tables     # regenerate the lookup tables only
+make icons      # the HUD button icons -> art/hudicons.{png,aseprite} (branch hud-buttons)
 make dsk-list   # AMSDOS catalogue of the built disc
 make clean
 ```
@@ -5563,6 +5564,21 @@ banks — it was 879 before this. The next thing to add has to either be small,
 or pay for itself: repacking the eight sprite libraries as 3+3+2 across banks
 5-7 (three fit in a window since six yaw views) takes the two that travel
 inside the file out of it and gives about 900 bytes back. See `todo.md`.
+
+### The HUD buttons, on branch `hud-buttons`
+
+`hud2.md` is the plan: sixteen-pixel button icons along the bottom strip,
+some of them groups; the top strip two lines, the second carrying a selected
+button's description for four seconds; and the cursor keys walking the bar
+whenever the disc, the pan, the orbit and the cockpit do not have them. Only
+the first step is built: `tools/hudicons.py` holds the forty pictures and
+writes `art/hudicons.png` and `art/hudicons.aseprite` through the ship
+sheets' own `write_ase`, the same kind of grid (16×16, offset 4,4, padding
+10,10 — the gap under each cell carries a 3×5-font label, outside the sprite),
+same five-colour palette. `tests/test_hudicons.py` holds the checked-in PNG to the
+tool's pictures until the owner repaints it, and keeps every icon one pixel
+inside its cell, which is where the selection frame goes. The icons have no
+home in memory yet; hud2.md §6 says where to look.
 
 ### The help page
 
