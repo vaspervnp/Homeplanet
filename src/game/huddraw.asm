@@ -205,11 +205,13 @@ hud_draw:
 
 
 ; ----------------------------------------------------------------------------
-;  hud_bar -- one hull bar: a blue trough with a white (or red) fill
-;  In : A = the percentage 0..100, B = x in bytes
+;  hud_bar -- one hull bar: a blue (or red) trough with a white (or red) fill
+;  In : A = the percentage 0..100, B = x in bytes, C = the trough's SOLID_INK,
+;       (hud_bar_fill) = the fill's -- see hud_fill_ink in game/wavesdraw.asm
 ;  Uses: everything
 ;
-;  HUD_BAR_W bytes by HUD_BAR_H lines of the chrome ink, then the inner four
+;  HUD_BAR_W bytes by HUD_BAR_H lines of the trough ink -- the chrome ink,
+;  or the alarm ink on the enemy's turn under ENM (game/wavesdraw.asm) -- then the inner four
 ;  lines overwritten from the left for (pct * 46 + 128) >> 8 bytes -- which
 ;  is pct * 18 / 100 rounded, 0 at 0 and 18 at 100, in one mul_u8 and no
 ;  divide. Byte-granular, eighteen steps, which is what a glance reads.
@@ -221,10 +223,10 @@ hud_bar:
     ld (hud_bar_pct),a
     ld a,b
     ld (hud_bar_col),a
+    ld a,c                              ; the trough's ink, the caller's
     ld c,HUD_BAR_Y
     ld d,HUD_BAR_W
     ld e,HUD_BAR_H
-    ld a,SOLID_INK_2
     call scr_fill_rect
 
     ld a,(hud_bar_pct)
@@ -237,12 +239,7 @@ hud_bar:
     or a
     ret z                               ; nothing to fill: a zero width would loop 256
     ld d,a
-    ld a,(hud_bar_pct)
-    cp HUD_HP_ALARM
-    ld a,SOLID_INK_1
-    jr nc,@hud_bar_ink
-    ld a,SOLID_INK_3
-@hud_bar_ink:
+    ld a,(hud_bar_fill)                 ; the fill's ink: the caller's too (hud_fill_ink)
     ld hl,hud_bar_col
     ld b,(hl)
     ld c,HUD_BAR_Y + 1
@@ -364,6 +361,7 @@ phase4_hud_label:
 
 
 hud_hp_label:       defb "HULL",0
+hud_en_label:       defb "ENM ",0       ; ...the enemy's turn: four cells, so the L goes
 hud_moth_label:     defb "BASE",0
 hud_ru_label:       defb "RU",0
 hud_mis_label:      defb "M",0

@@ -26,6 +26,12 @@ chase camera at `y + 128`, not "step along the camera axes"; and the gun did
 not need `cbt_find_enemy` calling by hand, only a timer parked at one. 375
 bytes of bank 4, not 180. Item 7 is the next thing this makes possible.
 
+**Redesigned since**: from the cockpit ONE enemy is drawn (the reticle's, else
+the nearest), with its strength barred over it; a red arrowhead at the edge of
+the view points at it while it is off the screen; nothing else is drawn, the
+scanner is gone, and the bolt is a byte wide. CLAUDE.md "The cockpit shows one
+enemy".
+
 **What.** Press `V` on a selected squadron and the camera drops onto its lead
 ship, the cursor keys steer THAT ship, and `SPACE` (or `A`) fires its gun on
 the edge. `V` again — or its death — hands the squadron back to the AI. The

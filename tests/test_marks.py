@@ -181,12 +181,15 @@ class TestTheFarBand(MarkFixture):
 
 
 class TestTheReticleBox(MarkFixture):
-    """While a ship is flown, only what is inside the reticle is a sprite."""
+    """While a ship is flown, ONE enemy is drawn -- the one in the reticle,
+    else the nearest -- always as a sprite, and nothing else at all: not
+    the other hostiles, not the friendlies. The box is the lock's."""
 
     def fly_with_two_ahead(self):
         """The flown ship at the origin heading +Z (yaw 128), one hostile
         dead ahead inside the box and one off to the side, both close enough
-        to be tier C on their depth alone."""
+        to be tier C on their depth alone. The one ahead is the nearer, so
+        it is the one chosen; the one aside is not drawn at all."""
         self.clear_everything()
         self.c.write_ram(self.sym["MOTH_SLOT"], bytes([1]))
         self.place(1, (0, 0, -30000), cls=1)                       # the base, far away
@@ -211,17 +214,37 @@ class TestTheReticleBox(MarkFixture):
         self.c.write_ram(self.sym["ORDER_PAUSED"], b"\x01")
         self.settle()
         vis = self.visible()
-        ahead = [v for v in vis if v["enemy"] and abs(v["sx"] - 160) <= self.sym["PILOT_BOX_HW"]]
-        aside = [v for v in vis if v["enemy"] and abs(v["sx"] - 160) > self.sym["PILOT_BOX_HW"]]
-        self.assertEqual(len(ahead), 1, f"expected one hostile in the box, saw {vis}")
-        self.assertEqual(len(aside), 1, f"expected one hostile outside it, saw {vis}")
-        return ahead[0], aside[0]
+        enemies = [v for v in vis if v["enemy"]]
+        self.assertEqual(len(enemies), 1, f"expected the one chosen hostile, saw {vis}")
+        self.assertLessEqual(abs(enemies[0]["sx"] - 160), self.sym["PILOT_BOX_HW"], "the chosen hostile is not the one ahead")
+        return enemies[0]
 
-    def test_inside_the_box_a_sprite_outside_it_a_mark(self):
-        ahead, aside = self.fly_with_two_ahead()
-        self.assertLess(aside["z"], self.MARK_Z, "the side ship is far enough to be a mark on depth alone")
-        self.assertNotEqual(ahead["tier"], self.MARK, "the ship in the reticle was marked")
-        self.assertEqual(aside["tier"], self.MARK, "the ship outside the reticle was drawn as a sprite")
+    def test_the_chosen_enemy_is_a_sprite_and_the_other_is_not_drawn(self):
+        ahead = self.fly_with_two_ahead()
+        self.assertEqual(h.read_cpu(self.c, self.sym["PILOT_TARGET"], 1)[0], self.PLAYER_MAX, "the nearer hostile was not the one chosen")
+        self.assertNotEqual(ahead["tier"], self.MARK, "the chosen enemy was drawn as a mark")
+        #  ...and outside the box it is STILL a sprite: the box is the lock's.
+        me = self.byte("PILOT_SLOT")
+        mx, my, mz = struct.unpack("<hhh", self.c.read_ram(self.sym["ENTITIES"] + me * ENT_SIZE, 6))
+        self.poke(self.PLAYER_MAX, 0, struct.pack("<hhh", mx + 3200, my, mz + 6400))
+        self.poke(self.PLAYER_MAX + 1, 0, struct.pack("<hhh", mx - 3200, my, mz + 6400))
+        self.settle()
+        enemies = [v for v in self.visible() if v["enemy"]]
+        self.assertEqual(len(enemies), 1, f"expected the one chosen hostile, saw {enemies}")
+        self.assertGreater(abs(enemies[0]["sx"] - 160), self.sym["PILOT_BOX_HW"], "the fixture did not move it out of the box")
+        self.assertNotEqual(enemies[0]["tier"], self.MARK, "the chosen enemy outside the box was drawn as a mark")
+
+    def test_a_friendly_in_the_box_is_not_drawn_from_the_cockpit(self):
+        """"Θα αγνοεί τα φιλικά σκάφη, δεν θα τα εμφανίζει": a squadron mate
+        dead ahead, inside the reticle, at a depth that would be a sprite."""
+        self.fly_with_two_ahead()
+        me = self.byte("PILOT_SLOT")
+        mx, my, mz = struct.unpack("<hhh", self.c.read_ram(self.sym["ENTITIES"] + me * ENT_SIZE, 6))
+        self.place(2, (mx + 600, my, mz + 6400))
+        self.settle()
+        vis = self.visible()
+        self.assertEqual([v for v in vis if not v["enemy"]], [], f"a friendly is drawn from the cockpit: {vis}")
+        self.assertEqual(len([v for v in vis if v["enemy"]]), 1)
 
     def test_nothing_behind_the_nose_is_drawn_from_the_cockpit(self):
         """The eye is PILOT_CAM_DIST behind the flown ship, inside the near
@@ -324,10 +347,11 @@ class TestTheBolt(MarkFixture):
             mask = raw[3 + i * 3]
             off = addr & 0x3FFF
             #  Screen offset -> (y, byte column): 0x800 a scanline within a
-            #  character row, 80 a character row.
+            #  character row, 80 a character row. A bolt's dot is the whole
+            #  byte, #F0, and reads as its left pixel.
             y = (off // 0x800) + 8 * ((off % 0x800) // 80)
             xb = (off % 0x800) % 80
-            out.append((xb * 4 + self.PEN1.get(mask, -1), y, mask))
+            out.append((xb * 4 + self.PEN1.get(mask, 0), y, mask))
         return out
 
     def test_the_pilots_shot_flies_from_the_reticle_to_the_enemy(self):
@@ -390,15 +414,16 @@ class TestTheBolt(MarkFixture):
         mx, my = 160, self.sym["SHOT_MUZZLE_Y"]
         last = -1
         for f, dots, (ex, ey) in bolt[:self.sym["SHOT_BOLT_STEPS"] - 1]:
-            self.assertEqual(len(dots), 2, f"frame {f}: a bolt is two dots, saw {dots}")
+            #  Two dots, each a byte wide and two lines tall: four entries.
+            self.assertEqual(len(dots), 4, f"frame {f}: a bolt is two byte-wide, two-line dots, saw {dots}")
             vx, vy = ex - mx, ey - my
             length = (vx * vx + vy * vy) ** 0.5
             for x, y, mask in dots:
-                self.assertIn(mask, self.PEN1, f"frame {f}: the bolt is not in the fleet's ink")
+                self.assertEqual(mask, 0xF0, f"frame {f}: the bolt is not a byte of the fleet's ink")
                 t = ((x - mx) * vx + (y - my) * vy) / (length * length)
                 off = abs((x - mx) * vy - (y - my) * vx) / length
-                self.assertTrue(0 <= t <= 1.05, f"frame {f}: dot {(x, y)} is not between the muzzle and the enemy at {(ex, ey)}")
-                self.assertLessEqual(off, 2.5, f"frame {f}: dot {(x, y)} is off the line to {(ex, ey)}")
+                self.assertTrue(-0.05 <= t <= 1.05, f"frame {f}: dot {(x, y)} is not between the muzzle and the enemy at {(ex, ey)}")
+                self.assertLessEqual(off, 5, f"frame {f}: dot {(x, y)} is off the line to {(ex, ey)}")
             along = min(((x - mx) * vx + (y - my) * vy) / (length * length) for x, y, m in dots)
             self.assertGreater(along, last, f"frame {f}: the bolt did not move on ({along} after {last})")
             last = along
@@ -471,7 +496,7 @@ class TestTheLock(MarkFixture):
         self.stage((0, 0, 2000))
         self.frame()                                               # projects: the lock is taken
         self.assertEqual(h.read_cpu(self.c, self.sym["PILOT_LOCKED"], 1)[0], 2, "no lock with a hostile dead ahead")
-        self.assertEqual(h.read_cpu(self.c, self.sym["PILOT_LOCK_SLOT"], 1)[0], self.ENEMY)
+        self.assertEqual(h.read_cpu(self.c, self.sym["PILOT_TARGET"], 1)[0], self.ENEMY)
         self.frame()                                               # pilot_frame spends it
         self.assertEqual(self.c.read_ram(self.sym["ENTITIES"] + ENT_TARGET, 1)[0], self.ENEMY,
                          "the flown ship is not aiming at the locked hostile")
@@ -529,195 +554,6 @@ class TestTheLock(MarkFixture):
         self.assertGreater(gap, hold - 2 * self.step(), f"the ship held at {gap}, well inside the hold distance")
 
 
-class TestTheScanner(TestTheReticleBox):
-    """The Elite-style scanner at the bottom right, while flying: an OVAL --
-    the plane seen flat -- with the ship in the middle, every flying hostile
-    a red mark placed by where it is relative to the ship's heading (up the
-    oval is ahead, right is right) and a STALK from its point on the plane to
-    its height above or below the ship, with a bar across the tip."""
-
-    def oval(self):
-        s = self.sym
-        return s["SCAN_CX"], s["SCAN_CY"], s["SCAN_RX"], s["SCAN_RY"]
-
-    def half_height(self, i):
-        """scan_oval's entry, re-derived: round(RY * sqrt(1 - (i/RX)^2))."""
-        import math
-        _, _, rx, ry = self.oval()
-        return int(round(ry * math.sqrt(max(0.0, 1 - (i / rx) ** 2))))
-
-    def test_the_table_is_the_ellipse(self):
-        rx = self.sym["SCAN_RX"]
-        with open("build/bank5.raw", "rb") as f:
-            image = f.read()
-        off = self.sym["SCAN_OVAL_B5"] - 0x4000
-        table = image[off:off + rx + 1]
-        self.assertEqual(list(table), [self.half_height(i) for i in range(rx + 1)])
-
-    def test_the_oval_and_the_ship_are_drawn_while_flying(self):
-        self.fly_with_two_ahead()
-        cx, cy, rx, ry = self.oval()
-        self.assertEqual(self.pen_at(cx, cy), 1, "no ship in the middle of the scanner")
-        #  The four extremes of the oval, and a point on its curve either
-        #  side, in the chrome ink; the inside black.
-        for x, y in ((cx - rx, cy), (cx + rx, cy), (cx, cy - ry), (cx, cy + ry),
-                     (cx + 20, cy - self.half_height(20)), (cx - 30, cy + self.half_height(30))):
-            self.assertEqual(self.pen_at(x, y), 2, f"no oval at {(x, y)}")
-        self.assertEqual(self.pen_at(cx + 10, cy - 5), 0, "the oval is not hollow")
-        #  ...and it has no gaps on its steep sides: every row between the
-        #  top and the middle has ink somewhere in the right-hand half.
-        for y in range(cy - ry, cy + 1):
-            self.assertTrue(any(self.pen_at(x, y) == 2 for x in range(cx, cx + rx + 1)),
-                            f"row {y} of the oval's right side is empty")
-
-    def mark_for(self, slot):
-        """Where the scanner should put `slot`, modelled from the records:
-        the deltas' high bytes shifted SCAN_SHIFT, rotated by the flown
-        ship's yaw with sin7 and cam_mul7's arithmetic, `ahead` halved and
-        kept inside the oval at that column, the height clamped to
-        SCAN_HALF_V. Returns (plane point, tip). Modelled rather than
-        written down because the flown ship FLIES during the frames V takes,
-        so no fixed distance survives."""
-        import math
-        me = self.pos(self.byte("PILOT_SLOT"))
-        them = self.pos(slot)
-        yaw = self.field(self.byte("PILOT_SLOT"), 6)
-
-        def hi(d):
-            d = max(-32768, min(32767, d))
-            return (d >> 8) >> self.sym["SCAN_SHIFT"]
-
-        def sin7(a):
-            return int(round(127 * math.sin(2 * math.pi * (a & 255) / 256)))
-
-        def mul7(a, b):
-            return ((a * b) * 2) >> 8
-
-        def clamp(v, lim):
-            return max(-lim, min(lim, v))
-
-        dx, dy, dz = hi(them[0] - me[0]), hi(them[1] - me[1]), hi(them[2] - me[2])
-        sn, cs = sin7(yaw), sin7(yaw + 64)
-        right = clamp(mul7(dz, sn) - mul7(dx, cs), self.sym["SCAN_HALF_W"])
-        ahead = clamp((mul7(dx, sn) - mul7(dz, cs)) >> 1, self.half_height(abs(right)) - 1)
-        dy = clamp(dy, self.sym["SCAN_HALF_V"])
-        cx, cy, *_ = self.oval()
-        return (cx + right, cy - ahead), (cx + right, cy - ahead - dy)
-
-    def pos(self, slot):
-        return struct.unpack("<hhh", self.c.read_ram(self.sym["ENTITIES"] + slot * ENT_SIZE, 6))
-
-    def field(self, slot, off):
-        return self.c.read_ram(self.sym["ENTITIES"] + slot * ENT_SIZE + off, 1)[0]
-
-    def assert_mark(self, plane, tip):
-        (px, py), (tx, ty) = plane, tip
-        self.assertEqual(px, tx)
-        for y in range(min(py, ty), max(py, ty) + 1):
-            self.assertEqual(self.pen_at(px, y), 3, f"no stalk at {(px, y)} between {plane} and {tip}")
-        self.assertEqual(self.pen_at(tx - 1, ty), 3, f"no bar left of the tip {tip}")
-        self.assertEqual(self.pen_at(tx + 1, ty), 3, f"no bar right of the tip {tip}")
-
-    def test_a_hostile_ahead_is_a_mark_above_the_ship_and_one_to_the_right_is_right_of_it(self):
-        """The ship heads +Z, so ahead is up and +X is right -- and the
-        model above says exactly which pixels, from where the ships ARE.
-        Both level with the ship: a dash on the plane, no stalk. The fixture
-        places its hostiles at y 0 and the flown ship is not there, so they
-        are brought to its height first -- 150 units below is a pixel of
-        stalk, because the shift floors."""
-        self.fly_with_two_ahead()
-        my = self.pos(self.byte("PILOT_SLOT"))[1]
-        for slot in (self.PLAYER_MAX, self.PLAYER_MAX + 1):
-            x, _, z = self.pos(slot)
-            self.poke(slot, 0, struct.pack("<hhh", x, my, z))
-        self.settle()
-        cx, cy, *_ = self.oval()
-        (ax, ay), atip = self.mark_for(self.PLAYER_MAX)
-        (rx, ry), rtip = self.mark_for(self.PLAYER_MAX + 1)
-        self.assertEqual(ax, cx, "the hostile dead ahead is not in the ship's column")
-        self.assertLess(ay, cy, "the hostile dead ahead is not above the ship")
-        self.assertGreater(rx, cx, "the hostile to the right is not right of it")
-        self.assertEqual(atip, (ax, ay), "level with the ship, yet a stalk")
-        self.assert_mark((ax, ay), atip)
-        self.assert_mark((rx, ry), rtip)
-        #  ...and nothing where a hostile is not: mirrored below, and left.
-        self.assertEqual(self.pen_at(ax, 2 * cy - ay), 0)
-        self.assertEqual(self.pen_at(2 * cx - rx, ry), 0)
-
-    def test_it_turns_with_the_ship(self):
-        """The same two hostiles with the ship heading +X (yaw 64): the one at
-        +Z is now off the LEFT hand, the one at +X,+Z ahead-and-left."""
-        self.fly_with_two_ahead()
-        self.poke(0, 6, bytes([64]))                              # ENT_YAW: +X
-        self.settle()
-        cx, cy, *_ = self.oval()
-        #  sin 64 is 127 and cos 64 is 0, so ahead = dx and right = dz: the
-        #  ship's right hand is (-cos, sin) = (0, 1) = +Z. The hostile at +Z
-        #  is now dead to the right; the one at +X,+Z ahead of that.
-        (ax, ay), atip = self.mark_for(self.PLAYER_MAX)
-        (rx, ry), rtip = self.mark_for(self.PLAYER_MAX + 1)
-        self.assertGreater(ax, cx)
-        self.assertEqual(ay, cy, "the +Z hostile is not dead on the right hand")
-        self.assertLess(ry, cy, "the +X,+Z hostile is not ahead of it")
-        self.assert_mark((ax, ay), atip)
-        self.assert_mark((rx, ry), rtip)
-
-    def test_the_height_is_a_stalk_up_for_above_and_down_for_below(self):
-        """+Y is up: pilot_frame's UP adds to ENT_Y and proj_point's sy is the
-        centre minus it. A hostile 5000 units above the ship gets a stalk
-        rising from its plane point; one 5000 below, a stalk falling."""
-        self.fly_with_two_ahead()
-        me = self.byte("PILOT_SLOT")
-        mx, my, mz = self.pos(me)
-        self.poke(self.PLAYER_MAX, 0, struct.pack("<hhh", mx + 2000, my + 5000, mz + 8000))
-        self.poke(self.PLAYER_MAX + 1, 0, struct.pack("<hhh", mx - 2000, my - 5000, mz + 8000))
-        self.settle()
-        (ux, uy), (utx, uty) = self.mark_for(self.PLAYER_MAX)
-        (dx_, dy_), (dtx, dty) = self.mark_for(self.PLAYER_MAX + 1)
-        #  The shifts FLOOR, so 5000 up is 9 pixels and 5000 down is 10.
-        up = (5000 >> 8) >> self.sym["SCAN_SHIFT"]
-        down = -((-5000 >> 8) >> self.sym["SCAN_SHIFT"])
-        self.assertGreaterEqual(up, 3, "the fixture's height is too small to show")
-        self.assertEqual(uty, uy - up, f"5000 units up is not a stalk of {up} pixels")
-        self.assertEqual(dty, dy_ + down, f"5000 units down is not a stalk of {down} pixels")
-        self.assert_mark((ux, uy), (utx, uty))
-        self.assert_mark((dx_, dy_), (dtx, dty))
-        #  ...and the plane point is where the stalk meets the plane, not
-        #  the tip: the column above the tip is clear, and below the foot.
-        self.assertEqual(self.pen_at(ux, uty - 1), 0)
-        self.assertEqual(self.pen_at(ux, uy + 1), 0)
-
-    def test_a_mark_stays_inside_the_oval(self):
-        """A hostile far ahead and far to the right would land in the
-        rectangle's corner; the mark is held to the oval's edge at its
-        column instead."""
-        self.fly_with_two_ahead()
-        me = self.byte("PILOT_SLOT")
-        mx, my, mz = self.pos(me)
-        self.poke(self.PLAYER_MAX, 0, struct.pack("<hhh", mx + 30000, my, mz + 30000))
-        self.poke(self.PLAYER_MAX + 1, 0, struct.pack("<hhh", mx - 30000, my, mz + 30000))
-        self.settle()
-        cx, cy, rx, ry = self.oval()
-        for slot in (self.PLAYER_MAX, self.PLAYER_MAX + 1):
-            (px, py), tip = self.mark_for(slot)
-            self.assertEqual(abs(px - cx), self.sym["SCAN_HALF_W"])
-            self.assertLess(cy - py, self.half_height(abs(px - cx)), "the mark is outside the oval")
-            self.assert_mark((px, py), tip)
-
-    def test_nothing_of_it_when_nobody_is_flying(self):
-        self.fly_with_two_ahead()
-        self.c.write_ram(self.sym["ORDER_PAUSED"], b"\x00")
-        self.c.key_down("v")
-        self.c.run_frames(30)
-        self.c.key_up("v")
-        self.c.run_frames(20)
-        self.c.write_ram(self.sym["ORDER_PAUSED"], b"\x01")
-        self.settle()
-        cx, cy, rx, ry = self.oval()
-        for x, y in ((cx, cy), (cx - rx, cy), (cx, cy - ry)):
-            self.assertEqual(self.pen_at(x, y), 0, f"the scanner stayed at {(x, y)}")
-
-
 class TestTheScaledSprites(MarkFixture):
     """From the cockpit the nearest ships are drawn larger than tier C --
     x2 under PILOT_X2_RAW camera units ahead, x4 under PILOT_X4_RAW -- by
@@ -771,11 +607,14 @@ class TestTheScaledSprites(MarkFixture):
         right = (-math.cos(a), math.sin(a))
         for slot in range(self.PLAYER_MAX, self.ENT_MAX - 1):
             self.poke(slot, ENT_FLAGS, b"\x00")
+        #  FLYING, and cold: a wreck is never the enemy the cockpit chooses.
+        #  place() leaves the gun at 255 frames' cooldown; a hostile with
+        #  no target yet closes on nobody, and the two frames leave every
+        #  distance inside its band either way.
         for i, (x, d, cls) in enumerate(hostiles):
             px = int(round(mx + ahead[0] * d + right[0] * x))
             pz = int(round(mz + ahead[1] * d + right[1] * x))
             self.place(self.PLAYER_MAX + i, (px, my, pz), enemy=True, cls=cls)
-            self.poke(self.PLAYER_MAX + i, ENT_FLAGS, bytes([F_ACTIVE | F_ENEMY | 4]))   # a wreck: it stays put
         for _ in range(2):
             self.c.run_frames(1)
             h.run_to_stable_point(self.c, self.sym)
@@ -789,18 +628,15 @@ class TestTheScaledSprites(MarkFixture):
         cands.sort(key=lambda v: v["z"])
         return cands, pos
 
-    def test_the_scale_bits_follow_the_distance(self):
+    def test_past_the_bands_the_enemy_is_tier_c_unscaled(self):
         """A camera unit is 128 world units at the default zoom, and the
-        ship flies 400 in the two frames: 2300 is 18 down to 15 camera
-        units, x4 (under PILOT_X4_RAW, 16); 3100 is 24 down to 21, x3
-        (under 24); 4000 is 31 down to 28, x2 (under 32); 5400 is 42 down
-        to 39, tier C on its depth, unscaled."""
-        vis = self.fly_at([(0, 2300, 0), (0, 3100, 0), (0, 4000, 0), (0, 5400, 0)])
-        enemies = sorted([v for v in vis if v["enemy"]], key=lambda v: v["z"])
-        self.assertEqual(len(enemies), 4, vis)
-        #  The bits: 10 is x4, 11 is x3, 01 is x2.
-        self.assertEqual([v["scale"] for v in enemies], [2, 3, 1, 0], enemies)
-        self.assertEqual([v["tier"] for v in enemies], [2, 2, 2, 2], "a scaled ship is tier C scaled")
+        ship flies 400 in the two frames: 5400 is 42 down to 39 camera
+        units, past PILOT_X2_RAW (32), so tier C on its depth and unscaled.
+        The three pixel-exact tests below are the x4, x3 and x2 bands."""
+        vis = self.fly_at([(0, 5400, 0)])
+        enemies = [v for v in vis if v["enemy"]]
+        self.assertEqual(len(enemies), 1, vis)
+        self.assertEqual((enemies[0]["scale"], enemies[0]["tier"]), (0, 2), enemies)
 
     def expected_pixels(self, cls, view, scale):
         """The tier C block of `cls` at `view`, pre-shift 0, out of the bank
@@ -886,42 +722,21 @@ class TestTheScaledSprites(MarkFixture):
                  and self.pen_at(e["sx"] + dx, e["sy"] + dy) != (3 if pen == 1 else pen)]
         self.assertEqual(wrong[:8], [], f"{len(wrong)} of {len(want)} pixels differ")
 
-    def test_only_the_nearest_three_are_sprites_and_the_rest_are_the_sensors_marks(self):
-        """Five hostiles ahead: the three nearest are drawn as sprites, the
-        two furthest as a fighter's dot and a destroyer's cross, whatever
-        their depth says."""
-        K = self.sym["PILOT_SPRITES"]
-        #  Nothing past 8191 world units projects at all, so the far two sit
-        #  just inside that, at tiers C and B -- marks only by the
-        #  nearest-three rule, well inside the reticle's box. The near three
-        #  are unscaled, tier C and B, and spread wide, so that no sprite
-        #  lies over the pixels beside a far one's dot: the first version
-        #  put a x4 sprite in the middle and read its pixels as the dot's.
+    def test_of_five_hostiles_only_the_nearest_is_drawn_and_it_is_a_sprite(self):
+        """Five hostiles ahead, all inside the radius and the box: the
+        nearest is the one chosen and the one drawn; the other four are
+        not in the list at all -- not marks, nothing."""
         vis = self.fly_at([(0, 5400, 0), (2000, 6000, 0), (-2000, 6500, 0), (900, 7000, 0), (-900, 8000, 7)])
-        enemies = sorted([v for v in vis if v["enemy"]], key=lambda v: v["z"])
-        self.assertEqual(len(enemies), 5, vis)
-        self.assertEqual(K, 3)
-        far_fighter, far_capital = enemies[3], enemies[4]
-        self.assertLess(far_fighter["z"], self.MARK_Z, "the fixture's far fighter is a mark on depth alone")
-        #  A dot: one pixel wide, two tall, nothing beside it.
-        x, y = far_fighter["sx"], far_fighter["sy"]
-        self.assertEqual({self.pen_at(x, y - 1), self.pen_at(x, y)}, {3}, "no dot for the fourth hostile")
-        self.assertEqual(self.pen_at(x - 2, y), 0, "the fourth hostile is more than a dot")
-        self.assertEqual(self.pen_at(x + 2, y), 0)
-        #  A cross: the centre and its four neighbours, and nothing diagonal.
-        x, y = far_capital["sx"], far_capital["sy"]
-        for dx, dy in ((0, 0), (-1, 0), (1, 0), (0, -1), (0, 1)):
-            self.assertEqual(self.pen_at(x + dx, y + dy), 3, f"no cross at {(dx, dy)} for the destroyer")
-        for dx, dy in ((-2, -2), (2, 2), (-2, 2), (2, -2)):
-            self.assertEqual(self.pen_at(x + dx, y + dy), 0, "the destroyer is more than a cross")
-        #  ...and the nearest three ARE sprites: many pixels about them, red
-        #  OR blue -- an enemy sprite is red with blue shading, and a repaint
-        #  of the tier B tail-on view left it six red and six blue; a mark is
-        #  red only, a dot 2 and a cross 5.
-        for v in enemies[:3]:
-            inked = sum(1 for dx in range(-8, 9) for dy in range(-6, 7)
-                        if 0 <= v["sx"] + dx < 320 and self.pen_at(v["sx"] + dx, v["sy"] + dy) in (2, 3))
-            self.assertGreater(inked, 6, f"the hostile at depth {v['z']} is not a sprite")
+        enemies = [v for v in vis if v["enemy"]]
+        self.assertEqual(len(enemies), 1, f"expected the one chosen hostile, saw {vis}")
+        self.assertEqual(h.read_cpu(self.c, self.sym["PILOT_TARGET"], 1)[0], self.PLAYER_MAX, "the nearest was not the one chosen")
+        v = enemies[0]
+        self.assertNotEqual(v["tier"], self.MARK)
+        #  A sprite: many pixels about it, red OR blue -- an enemy sprite is
+        #  red with blue shading; a mark is red only, a dot 2 and a cross 5.
+        inked = sum(1 for dx in range(-8, 9) for dy in range(-6, 7)
+                    if 0 <= v["sx"] + dx < 320 and self.pen_at(v["sx"] + dx, v["sy"] + dy) in (2, 3))
+        self.assertGreater(inked, 6, f"the chosen hostile at depth {v['z']} is not a sprite")
 
 
 class TestTheZoomLadderScales(MarkFixture):
@@ -1041,6 +856,207 @@ class TestTheZoomLadderScales(MarkFixture):
         e = vis[self.draw_order(vis)[-1]]                  # drawn last: on top, and among the three
         self.assertEqual(e["scale"], 2)
         self.check_drawn(vis, e, 4, on_top=True)
+
+
+
+class CockpitFixture(MarkFixture):
+    """A flown ship at the origin, heading +Z, the battle paused, with a
+    hostile far up keeping the fight on and nothing else on the screen."""
+
+    def fly(self):
+        """The flown ship at the origin heading +Z (yaw 128): +X is its
+        right, +Y is up. A hostile thirty thousand up keeps the fight on
+        without ever being listed; the base far behind. Returns where the
+        ship is after V, paused."""
+        self.clear_everything()
+        self.c.write_ram(self.sym["MOTH_SLOT"], bytes([1]))
+        self.place(1, (0, 0, -30000), cls=1)
+        self.poke(1, ENT_SQUAD, b"\x00")
+        self.place(0, (0, 0, 0))
+        self.poke(0, 6, bytes([128]))
+        self.place(self.ENT_MAX - 1, (0, 30000, 0), enemy=True)
+        h.write_bank4(self.c, self.sym["AUTO_ARMED"], b"\x00")
+        self.c.write_ram(self.sym["SQUAD_SEL"], b"\x01")
+        self.c.write_ram(self.sym["ORDER_PAUSED"], b"\x00")
+        self.c.key_down("v")
+        self.c.run_frames(30)
+        self.c.key_up("v")
+        self.c.run_frames(20)
+        self.assertEqual(self.byte("PILOT_SLOT"), 0, "V did not take the ship")
+        self.c.write_ram(self.sym["ORDER_PAUSED"], b"\x01")
+        self.settle()
+        return struct.unpack("<hhh", self.c.read_ram(self.sym["ENTITIES"], 6))
+
+    def hand_back(self):
+        self.c.write_ram(self.sym["ORDER_PAUSED"], b"\x00")
+        self.c.key_down("v")
+        self.c.run_frames(30)
+        self.c.key_up("v")
+        self.c.run_frames(20)
+        self.assertGreaterEqual(self.byte("PILOT_SLOT"), self.ENT_MAX)
+        self.c.write_ram(self.sym["ORDER_PAUSED"], b"\x01")
+        self.settle()
+
+
+
+class TestTheArrow(CockpitFixture):
+    """"Θα δείχνει ένα μεγάλο βέλος στις άκρες της οθόνης προς τα που πρέπει
+    να πας για να βρεις εχθρό": while the chosen enemy is off the screen, a
+    red arrowhead at the edge of the view, one of eight, whose apex is in
+    the middle of that edge or in the corner; none while it is on the
+    screen, and none when nobody flies. The shapes are read out of the
+    bank and the placement and the mirroring are the model here."""
+
+    def shape(self, name):
+        """(n, dt, db, b0) as arw_fan reads it: n columns from the apex,
+        column k a run of b0 + db*k rows starting dt*k rows below it."""
+        raw = h.read_bank4(self.c, self.sym[name], 4)
+        s = lambda b: b - 256 if b >= 128 else b
+        return raw[0], s(raw[1]), s(raw[2]), raw[3]
+
+    def apex(self, hdir, vdir):
+        return (160 + hdir * self.sym["ARROW_DX"], self.sym["PROJ_CENTRE_Y"] + vdir * self.sym["ARROW_DY"])
+
+    def expected(self, hdir, vdir):
+        """The pixels of the arrow for a direction, the sums the Z80 does:
+        the sideways head for a level one, the up head -- both halves --
+        for a straight one, else the corner's; each column's run mirrored
+        about the apex when the head points down, the columns running the
+        other way when it points left."""
+        name = "ARROW_SIDE" if vdir == 0 else ("ARROW_UP" if hdir == 0 else "ARROW_CORNER")
+        n, dt, db, b0 = self.shape(name)
+        ax, ay = self.apex(hdir, vdir)
+        halves = (1, -1) if hdir == 0 else (hdir,)
+        out = set()
+        for hh in halves:
+            for k in range(n):
+                top, rows = dt * k, b0 + db * k
+                if vdir > 0:
+                    top = -(top + rows - 1)
+                out.update((ax - hh * k, ay + top + r) for r in range(rows))
+        return out
+
+    def red_about(self, ax, ay):
+        box = self.sym["ARROW_BOX"]
+        return {(x, y) for x in range(ax - box, ax + box + 1) for y in range(ay - box, ay + box + 1)
+                if self.pen_at(x, y) == 3}
+
+    def place_off_screen(self, me, dx, dy, dz=0):
+        mx, my, mz = me
+        self.place(self.PLAYER_MAX, (mx + dx, my + dy, mz + dz), enemy=True)
+        self.settle()
+        self.assertEqual([v for v in self.visible() if v["enemy"]], [], "the fixture's hostile is on the screen")
+        self.assertEqual(h.read_cpu(self.c, self.sym["PILOT_TARGET"], 1)[0], self.PLAYER_MAX, "the hostile was not the one chosen")
+
+    def test_a_hostile_to_the_right_is_an_arrow_pointing_right(self):
+        me = self.fly()
+        self.place_off_screen(me, 12000, 0)
+        self.assertEqual(self.red_about(*self.apex(1, 0)), self.expected(1, 0))
+        #  ...and nowhere else: the other seven edges are clear.
+        for hd, vd in ((-1, 0), (0, -1), (0, 1), (1, -1), (-1, -1), (1, 1), (-1, 1)):
+            self.assertEqual(self.red_about(*self.apex(hd, vd)), set(), f"an arrow at {(hd, vd)} as well")
+
+    def test_the_eight_directions(self):
+        """One boot, the hostile moved round the ship: left, up, down and
+        the four corners. The diagonals are placed at equal offsets, well
+        inside the dead zone's three eighths either way."""
+        me = self.fly()
+        for (dx, dy), (hd, vd) in (((-12000, 0), (-1, 0)), ((0, 12000), (0, -1)), ((0, -12000), (0, 1)),
+                                    ((8000, 8000), (1, -1)), ((-8000, 8000), (-1, -1)),
+                                    ((8000, -8000), (1, 1)), ((-8000, -8000), (-1, 1))):
+            self.place_off_screen(me, dx, dy)
+            got, want = self.red_about(*self.apex(hd, vd)), self.expected(hd, vd)
+            self.assertEqual(got, want, f"the arrow for a hostile at {(dx, dy)}: {len(got & want)} of {len(want)} pixels, {len(got - want)} extra")
+
+    def test_a_hostile_beside_and_above_is_the_cardinal_when_it_is_mostly_one(self):
+        """Three eighths is the dead zone: 12000 across and 3000 up is
+        under it, and reads as RIGHT; 12000 across and 6000 up is over it,
+        and reads as the corner."""
+        me = self.fly()
+        self.place_off_screen(me, 12000, 3000)
+        self.assertEqual(self.red_about(*self.apex(1, 0)), self.expected(1, 0))
+        self.place_off_screen(me, 12000, 6000)
+        self.assertEqual(self.red_about(*self.apex(1, -1)), self.expected(1, -1))
+        self.assertEqual(self.red_about(*self.apex(1, 0)), set())
+
+    def test_no_arrow_while_the_enemy_is_on_the_screen_and_none_after_v(self):
+        me = self.fly()
+        mx, my, mz = me
+        self.place(self.PLAYER_MAX, (mx, my, mz + 6400), enemy=True)
+        self.settle()
+        self.assertEqual(len([v for v in self.visible() if v["enemy"]]), 1, "the hostile ahead is not drawn")
+        for hd, vd in ((1, 0), (-1, 0), (0, -1), (0, 1), (1, -1), (-1, -1), (1, 1), (-1, 1)):
+            self.assertEqual(self.red_about(*self.apex(hd, vd)), set(), f"an arrow at {(hd, vd)} with the enemy on the screen")
+        #  Off the screen: the arrow; the stick handed back: gone.
+        self.poke(self.PLAYER_MAX, 0, struct.pack("<hhh", mx + 12000, my, mz))
+        self.settle()
+        self.assertEqual(self.red_about(*self.apex(1, 0)), self.expected(1, 0))
+        self.hand_back()
+        self.assertEqual(self.red_about(*self.apex(1, 0)), set(), "the arrow stayed after V")
+
+
+class TestTheEnemysBar(CockpitFixture):
+    """"Το σκάφος που θα αντιμετωπίζεις να έχει πάνω την μπάρα με την ισχύ
+    του": PILOT_BAR_W bytes by PILOT_BAR_H lines, PILOT_BAR_UP above where
+    the chosen enemy projects, a red trough with the hull over the class's
+    full in white, in eighths."""
+
+    def bar_rows(self, e):
+        """The bar's bytes, row by row, out of the front buffer."""
+        w, hgt, up = self.sym["PILOT_BAR_W"], self.sym["PILOT_BAR_H"], self.sym["PILOT_BAR_UP"]
+        xb = min(max(e["sx"] // 4 - w // 2, 0), 80 - w)
+        y0 = max(e["sy"] - up, self.sym["CTX_BAR_H"])
+        buf = h.front_buffer(self.c)
+        rows = []
+        for y in range(y0, y0 + hgt):
+            addr = buf + (y // 8) * 80 + (y % 8) * 0x800 + xb
+            rows.append(self.c.read_ram(addr, w))
+        return rows
+
+    def the_enemy(self):
+        enemies = [v for v in self.visible() if v["enemy"]]
+        self.assertEqual(len(enemies), 1, enemies)
+        return enemies[0]
+
+    def test_the_bar_says_how_much_hull_the_enemy_has_left(self):
+        me = self.fly()
+        mx, my, mz = me
+        self.place(self.PLAYER_MAX, (mx + 800, my, mz + 6400), enemy=True)   # off the centre, clear of the ticks
+        self.settle()
+        full = h.read_bank4(self.c, self.sym["CLASS_HULL"], 1)[0]
+        self.assertEqual(full, 255, "the interceptor's full hull is not 255?")
+        w = self.sym["PILOT_BAR_W"]
+        for hull, white in ((255, 8), (128, 4), (16, 1), (200, 6)):
+            self.poke(self.PLAYER_MAX, ENT_HULL, bytes([hull]))
+            self.settle()
+            e = self.the_enemy()
+            want = bytes([0xF0] * white + [0xFF] * (w - white))
+            for row in self.bar_rows(e):
+                self.assertEqual(row, want, f"hull {hull}: the bar reads {row.hex()} where {want.hex()} was wanted")
+
+    def test_the_bar_sits_above_the_sprite_and_goes_with_it(self):
+        me = self.fly()
+        mx, my, mz = me
+        self.place(self.PLAYER_MAX, (mx + 800, my, mz + 6400), enemy=True)
+        self.settle()
+        e = self.the_enemy()
+        up = self.sym["PILOT_BAR_UP"]
+        self.assertGreater(up, 32, "a x4 sprite reaches 32 lines above its centre")
+        #  The line just under the bar is not the bar's: the trough is not there.
+        y = e["sy"] - up + self.sym["PILOT_BAR_H"]
+        buf = h.front_buffer(self.c)
+        xb = e["sx"] // 4 - self.sym["PILOT_BAR_W"] // 2
+        under = self.c.read_ram(buf + (y // 8) * 80 + (y % 8) * 0x800 + xb, self.sym["PILOT_BAR_W"])
+        self.assertNotIn(0xFF, under, "the bar is taller than PILOT_BAR_H")
+        #  Off the screen: the bar is gone from where it was, in both buffers.
+        rows_were = self.bar_rows(e)
+        self.assertTrue(all(0xFF in r or 0xF0 in r for r in rows_were))
+        self.poke(self.PLAYER_MAX, 0, struct.pack("<hhh", mx + 12000, my, mz))
+        self.settle()
+        for _ in range(2):
+            self.assertEqual(set(b"".join(self.bar_rows(e))), {0}, "the bar was not erased")
+            h.run_to_stable_point(self.c, self.sym)
+            self.c.run_frames(1)
 
 
 if __name__ == "__main__":

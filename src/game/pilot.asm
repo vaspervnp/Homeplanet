@@ -141,6 +141,7 @@ pilot_toggle:
     ld (pilot_locked),a                 ; ...and nothing in the reticle yet
     dec a
     ld (pilot_prev_slot),a              ; #FF: no target's last position held
+    ld (pilot_target),a                 ; ...and no enemy chosen to show yet
     ret
 
 @pilot_next:
@@ -238,36 +239,32 @@ pilot_frame:
     ld (hl),ENT_ORDER_PILOT
 
     ; --- the lock, from last frame's projection ---------------------------
-    ;  mark_tier_for set pilot_locked and pilot_lock_slot (the nearest flying
-    ;  hostile inside the reticle's box) while projecting last frame. Spent
-    ;  here: this frame's copy goes in pilot_lock_now, the byte is cleared
-    ;  and the depth reset, so this frame's projection starts from "nothing
-    ;  in the box". The reticle reads the byte AFTER the projection, so it
-    ;  is red on exactly the frames the box has something in it.
+    ;  mark_tier_for set pilot_locked while projecting last frame: the one
+    ;  ship it lists from the cockpit, pilot_target, was inside the
+    ;  reticle's box and flying. Spent here: this frame's copy goes in
+    ;  pilot_lock_now and the byte is cleared, so this frame's projection
+    ;  starts from "nothing in the box". The reticle reads the byte AFTER
+    ;  the projection, so it is red on exactly the frames the box has
+    ;  something in it.
     ld hl,pilot_locked
     ld a,(hl)
     ld (hl),0
     ld (pilot_lock_now),a
-    ld a,#FF
-    ld (pilot_lock_z),a
-    ;  THE SHIP IN THE RETICLE IS THE SHIP THE GUN AIMS AT. cbt_retarget_one
-    ;  hands this ship the nearest hostile at any bearing, which could be one
-    ;  behind it while the player has another lined up; while locked, the
-    ;  target is the locked slot, re-written every frame under the round
-    ;  robin. cbt_fire_if_able still asks cbt_hostile of it before firing.
-    ld a,(pilot_lock_now)
-    or a
-    jr z,@pilot_no_aim
-    ld hl,(pilot_ent)
-    ld de,ENT_TARGET
-    add hl,de
-    ld a,(pilot_lock_slot)
-    ld (hl),a
-@pilot_no_aim:
+    xor a
+    ld (pilot_shown),a                  ; ...and the chosen enemy not yet drawn: mark_tier_for says
 
     ld a,(order_paused)
     or a
-    jp nz,@pilot_camera                 ; frozen with the battle: only the camera
+    jr z,@pilot_live
+    ;  Frozen with the battle: nothing flies, nothing is rammed, but the one
+    ;  enemy shown is still chosen -- a hostile that appears (or is the only
+    ;  one left) while the world stands still is pointed at and drawn, so
+    ;  the cockpit's picture is never a frame behind the pause. pilot_ram's
+    ;  walk records the nearest and declines to crash while paused.
+    call pilot_ram
+    call pilot_choose
+    jp @pilot_camera
+@pilot_live:
 
     ; --- steer ------------------------------------------------------------
     ld a,KEY_CUR_LEFT
@@ -330,6 +327,7 @@ pilot_frame:
     ;  how a fighter kills a frigate it cannot outgun, and it costs the ship.
     call pilot_ram
     ret c                               ; ...it did: there is nothing left to fly
+    call pilot_choose
 
     ; --- climb and dive ---------------------------------------------------
     ld a,KEY_CUR_UP
@@ -388,11 +386,42 @@ pilot_frame:
 
 
 ; ----------------------------------------------------------------------------
+;  pilot_choose -- the one enemy shown, chosen after pilot_ram's walk.
+;  "Θα διαλέγεις μόνο έναν εχθρό να δείξεις": the ship in the reticle if
+;  there is one, else the nearest flying hostile, which pilot_ram's walk
+;  has just found. mark_tier_for lists nothing else from the cockpit,
+;  pilot_arrow points at it while it is off the screen and puts its
+;  strength over it while it is on, and THE GUN AIMS AT IT: cbt_retarget_one
+;  would hand this ship the nearest hostile at any bearing in its own
+;  time, and this is the same answer every frame -- and the reticle's
+;  answer when it has one, so the ship the player has lined up is the one
+;  the shot goes to. cbt_fire_if_able still asks cbt_hostile of it.
+pilot_choose:
+    ld a,(pilot_lock_now)
+    or a
+    jr nz,@pilot_target_kept            ; locked: the target IS the ship in the box
+    ld a,(pilot_near)
+    ld (pilot_target),a
+@pilot_target_kept:
+    ld a,(pilot_target)
+    cp ENT_MAX
+    jr nc,@pilot_no_aim                 ; nothing hostile flying: the fight is ending
+    ld hl,(pilot_ent)
+    ld de,ENT_TARGET
+    add hl,de
+    ld (hl),a
+@pilot_no_aim:
+    ret
+
+; ----------------------------------------------------------------------------
 pilot_ram:
     ld hl,entities + ENT_PLAYER_MAX * ENT_SIZE
     ld (pilot_scan),hl
     ld a,ENT_PLAYER_MAX
     ld (pilot_scan_slot),a
+    ld a,#FF
+    ld (pilot_near),a                   ; the nearest flying hostile, found on the way
+    ld (pilot_near_d),a
     ld b,ENT_ENEMY_MAX
 @pilot_ram_one:
     push bc
@@ -408,6 +437,22 @@ pilot_ram:
     call dist_manhattan                 ; A = how far, in camera units
     cp PILOT_RAM_DIST
     jr c,@pilot_crash
+    ;  ...and is it the nearest so far? The first is always taken, so a
+    ;  hostile at the saturated 255 is still a target; after that strictly
+    ;  nearer, so equals keep the lower slot and the choice does not wander.
+@pilot_ram_near:
+    ld hl,pilot_near_d
+    cp (hl)
+    jr c,@pilot_nearer
+    ld e,a
+    ld a,(pilot_near)
+    inc a
+    jr nz,@pilot_ram_next               ; one is held already, and no further
+    ld a,e
+@pilot_nearer:
+    ld (hl),a
+    ld a,(pilot_scan_slot)
+    ld (pilot_near),a
 @pilot_ram_next:
     ld hl,(pilot_scan)
     ld de,ENT_SIZE
@@ -421,6 +466,11 @@ pilot_ram:
     ret
 
 @pilot_crash:
+    ld e,a
+    ld a,(order_paused)
+    or a
+    ld a,e
+    jr nz,@pilot_ram_near               ; paused: not rammed, but the nearest there is
     pop bc
     ;  The hostile takes the pilot's hull...
     ld hl,(pilot_ent)
@@ -468,7 +518,7 @@ pilot_ram:
 ;  ship stays inside DISC_LIMIT.
 ; ----------------------------------------------------------------------------
 pilot_match:
-    ld a,(pilot_lock_slot)
+    ld a,(pilot_target)
     call ent_addr
     push hl
     ex de,hl
@@ -477,7 +527,7 @@ pilot_match:
     pop de                              ; DE = the target's record
     cp PILOT_HOLD_DIST
     ret nc                              ; CF clear: too far, close on it first
-    ld a,(pilot_lock_slot)
+    ld a,(pilot_target)
     ld hl,pilot_prev_slot
     cp (hl)
     ld (hl),a

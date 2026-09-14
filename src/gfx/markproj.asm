@@ -217,6 +217,10 @@ mark_lattice_step:
 moth_update:
     xor a
     ld (moth_bar),a                     ; no indicator unless we reach the end
+    ld a,(pilot_slot)
+    cp ENT_MAX
+    ret c                               ; from the cockpit no friend is drawn, the
+                                        ; base's marker included (pilot_arrow)
     ld a,(moth_slot)
     call ent_is_active
     ret nc

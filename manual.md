@@ -78,8 +78,14 @@ bottom.
 **selected squadron**, all of its ships summed against what those same
 ships would have undamaged; with the Mothership selected (`0`) it is the
 whole fleet's. **`BASE`** is the Mothership's own hull, which is the one
-number that must not reach zero. A bar turns red below a third. Beside
-them, `RU nnnn` is the treasury and `M nn` the mission number.
+number that must not reach zero. A bar turns red below a third. **While
+anything hostile is flying, the first bar takes turns**: two seconds of
+`HULL`, then two seconds of **`ENM`** on a **red** trough — the enemy's
+strength, every hostile still flying summed against what they would have
+undamaged — so you can see which side is wearing down faster. The
+enemy's fill stays white however low it is: the red trough is what says
+whose bar it is. Beside them, `RU nnnn` is the treasury and `M nn` the
+mission number.
 
 **Line 2 — the squadrons.** `SQUADRONS` and nine numbered marks: **blue**
 for a squadron with ships in it, **white** for an empty number, **red**
@@ -326,25 +332,25 @@ the enemy moves, so you neither overtake it nor lose it, and it stays where
 it is in your view for as long as you keep your nose on it. Further away
 than that you still fly forward to close. Turn away, or let it leave the
 reticle, or kill it, and you are flying on your own again the same frame.
-The three nearest ships are
-drawn as ships, and the nearest of those larger than anywhere else in the
-game — twice the size inside about four thousand units, three times inside
-three, four times inside two; everything else is a mark like the sensor view's, a dot for a fighter
-and a cross for anything bigger, which is what keeps the cockpit quick in a
-fight. Nothing behind your nose
-is drawn, and nothing closer than about five thousand units ahead of it —
-the cockpit sees the middle distance. The **scanner** at the bottom right
-is for the rest: an oval, which is the plane you fly in seen flat, with
-you as the white dot in its middle and every flying enemy a red mark
-placed relative to your heading — up the oval is ahead of you, right is
-right, five hundred units to the pixel across and a thousand up. A mark
-level with you is a dash on the plane; one above or below you stands on a
-**stalk** rising or falling from its point on the plane, the bar at the
-tip being where it is — as in Elite. A mark touching your dot is an enemy
-in gun range.
+**Only one enemy is drawn from the cockpit**: the one in your reticle if
+there is one, else the nearest flying one — always as a ship, larger the
+closer it is (twice the size inside about four thousand units, three times
+inside three, four times inside two), with a small **bar of its strength**
+over it, red draining to white as its hull goes. Your gun aims at that
+ship. Nothing else is drawn at all: not the other enemies, and not your own
+squadron, so the fight goes on around you without cluttering the view.
+While the chosen enemy is **off the screen**, a big red **arrowhead at the
+edge of the view** says which way to turn to find it — in the middle of the
+right or left edge, the top or the bottom, or in a corner for a diagonal —
+and the moment it comes into view the arrow goes and the bar appears over
+it. An enemy exactly behind you draws no arrow: turn, and it will. Nothing
+behind your nose is drawn, and nothing closer than about five thousand
+units ahead of it — the cockpit sees the middle distance. (The oval
+scanner that used to sit at the bottom right is gone; the arrow is what
+points you at the enemy now.)
 
 Your ship's own shots leave from the gun under the nose, at the bottom of
-the view, and **fly**: a white streak rises to the enemy over a few frames,
+the view, and **fly**: a fat white bolt rises to the enemy over a few frames,
 following it if it moves. The damage lands when the gun fires; the
 streak is what it looked like. Its death, a jump,
 `V` again, or **the end of the fight** puts the camera back on the squadron:

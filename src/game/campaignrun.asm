@@ -60,10 +60,6 @@ mis_init:
     ld (run_active),a                   ; ...and the run's flag and page likewise
     ld (run_shown),a
     ld (ban_msg),a                      ; ...and no unlock banner is up
-    ld (shot_count),a                   ; ...and no tracer is waiting or on a buffer
-    ld (shot_dots_a),a                  ;    (the lists live after bank4_end, so
-    ld (shot_dots_b),a                  ;    they hold whatever powered up)
-    ld (shot_bolt_step),a               ; ...and no bolt of the pilot's is in flight
     ld (wavem_fixed),a                  ; ...and the wave marker follows the bearing
     ld (mis_saved),a                    ; nothing banked yet
     ld (campaign_unlocks),a             ; ...and nothing reverse-engineered
@@ -212,13 +208,20 @@ mis_setup:
     ;  would offer JUMP over the top of a picket that has only just spawned.
     ;  The tracers' projection cache shares its bytes with the fleet block
     ;  (src/main.asm), which a load has just filled: wipe it, so no stamp
-    ;  matches a frame by accident.
+    ;  matches a frame by accident. Their lists live in the same block's
+    ;  pad and hold the disc's bytes too, so their counts go to zero HERE,
+    ;  after every load -- a count of rubbish is an AND over rubbish
+    ;  addresses in shot_erase -- and not in mis_init, which runs before it.
     ld hl,shot_pos
     ld de,shot_pos + 1
     ld bc,ENT_MAX * SHOT_POS_SIZE - 1
     ld (hl),0
     ldir
     xor a
+    ld (shot_count),a                   ; no tracer waiting, none on either
+    ld (shot_dots_a),a                  ; buffer, no bolt of the pilot's in
+    ld (shot_dots_b),a                  ; flight
+    ld (shot_bolt_step),a
     ld (mis_complete),a
     ld (mis_leave_ok),a
     ld (mis_failed),a

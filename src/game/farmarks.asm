@@ -116,8 +116,22 @@ mark_tier_for:
     ld a,(proj_z_raw)
     sub PILOT_NEAR_RAW
     jp m,@mt_drop                       ; behind the nose: not drawn at all
-    ;  Near enough to be drawn larger than tier C? The reticle test below
-    ;  still applies -- a ship off to the side is a mark however close.
+    ;  ONE ENEMY AND NOTHING ELSE. "Θα αγνοεί τα φιλικά σκάφη, δεν θα τα
+    ;  εμφανίζει ... θα διαλέγεις μόνο έναν εχθρό να δείξεις": from the
+    ;  cockpit the only thing listed is pilot_target -- the ship in the
+    ;  reticle, else the nearest flying hostile, chosen by pilot_frame
+    ;  before this projection -- and it is always a sprite, scaled by its
+    ;  depth; the box below decides the lock, not the picture. The rest of
+    ;  the battle goes on unseen, and pilot_shown says the target was
+    ;  drawn this frame, so pilot_arrow knows when to point instead.
+    ld a,(phase4_index)
+    neg
+    add a,ENT_MAX                       ; the slot, as shot_cache reckons it
+    ld hl,pilot_target
+    cp (hl)
+    jr nz,@mt_drop
+    ld (pilot_shown),a                  ; nonzero: a hostile's slot
+    ;  Near enough to be drawn larger than tier C?
     ld a,(proj_z_raw)
     cp PILOT_X4_RAW
     jr nc,@mt_not_x4
@@ -171,19 +185,20 @@ mark_tier_for:
 
 @mt_box:
     ;  Outside the reticle's box? sx first, as a word, then sy as a byte.
+    ;  Outside it the target is still a sprite -- the box is the LOCK's.
     ld hl,(proj_sx)
     ld de,SCR_CENTRE_X - PILOT_BOX_HW
     or a
     sbc hl,de
-    jr c,@mt_mark                       ; left of the box
+    jr c,@mt_keep                       ; left of the box
     ld de,PILOT_BOX_HW * 2 + 1
     sbc hl,de                           ; CF is clear here
-    jr nc,@mt_mark                      ; right of it
+    jr nc,@mt_keep                      ; right of it
     ld a,(proj_sy)
     sub PROJ_CENTRE_Y - PILOT_BOX_HH
-    jr c,@mt_mark                       ; above
+    jr c,@mt_keep                       ; above
     cp PILOT_BOX_HH * 2 + 1
-    jr nc,@mt_mark                      ; below
+    jr nc,@mt_keep                      ; below
     ;  INSIDE THE BOX, WHILE FLYING: a hostile here is IN THE RETICLE, and
     ;  pilot_reticle draws the ticks in the alarm ink this frame -- "όταν
     ;  έχω στο στόχαστρο εχθρό να γίνεται κόκκινο το στόχαστρο". A flying
@@ -195,19 +210,9 @@ mark_tier_for:
     and ENT_F_ENEMY + ENT_F_DISABLED
     cp ENT_F_ENEMY
     jr nz,@mt_keep
-    ld (pilot_locked),a                 ; nonzero: ENT_F_ENEMY itself
-    ;  ...and WHICH, the nearest of them, for the gun and for pilot_match:
-    ;  the slot is ENT_MAX - phase4_index, as shot_cache reckons it, and
-    ;  the depth proj_z_raw. pilot_frame resets pilot_lock_z every frame.
-    ld a,(proj_z_raw)
-    ld hl,pilot_lock_z
-    cp (hl)
-    jr nc,@mt_keep                      ; no nearer than the one held
-    ld (hl),a
-    ld a,(phase4_index)
-    neg
-    add a,ENT_MAX
-    ld (pilot_lock_slot),a
+    ld (pilot_locked),a                 ; nonzero: ENT_F_ENEMY itself. WHICH
+                                        ; needs no saying: only pilot_target
+                                        ; reaches this box, so the lock is it
 @mt_keep:
     ld a,c
     or a                                ; CF clear: list it
@@ -357,410 +362,345 @@ pilot_reticle:
     jp mark_bar
 
 
-; ============================================================================
-;  The scanner: where the enemy is, while a ship is being flown
-;
-;  "Όταν είμαι σε V να φαίνεται όπως στο elite δεξιά το scanner με τις θέσεις
-;  των εχθρών." -- and then "να είναι μεγαλύτερο (x2), οβάλ όπως στο elite και
-;  να βλέπω και την διαφορά ύψους στους εχθρούς." Elite's: an OVAL at the
-;  bottom right of the playfield, which is the plane the ship flies in seen
-;  flat, the flown ship a white dot in its middle, and every flying hostile a
-;  red mark placed by where it is RELATIVE TO THE SHIP AND ITS HEADING: up
-;  the oval is ahead, right is right, 512 world units to the pixel across
-;  (SCAN_SHIFT) and twice that up the oval, which is half as tall as it is
-;  wide. THE HEIGHT IS A STALK: from the hostile's point on the plane a line
-;  rises or falls by its height above or below the ship, with a three-pixel
-;  bar at the tip -- so a hostile level with you is a dash on the plane and
-;  one above you is a dash on a stalk. The cockpit shows what is in front;
-;  this is what the cockpit cannot show, which is everything else.
-;
-;  ONE dirty rectangle for the whole box, appended once a frame, so the next
-;  pass through the buffer clears it and the frame is redrawn from nothing --
-;  a rectangle per mark would be twenty slots a frame out of a list sized for
-;  the entities. The marks are drawn straight through gfx_vline for the same
-;  reason, not through mark_dot. The oval is drawn a column at a time out of
-;  scan_oval, a table of its half height per pixel of half width, each column
-;  as the run of rows between its own height and the last column's so the
-;  steep sides have no gaps: 156 gfx_vline calls a frame, about a twentieth
-;  of a cockpit frame, and it is the price of the shape.
-;
-;  The rotation is the pilot's own: a ship with ENT_YAW y flies along world
-;  (sin y, -cos y), so for a hostile at (dx, dz) from the ship
-;      ahead = dx * sin y - dz * cos y,   right = dz * sin y - dx * cos y
-;  with the four products through cam_mul7 on the high bytes of dx and dz,
-;  which is 256 world units of resolution, shifted SCAN_SHIFT more so the
-;  oval's eighty pixels cover forty thousand units. The height is the
-;  Y delta's high byte shifted the same, +Y being up (pilot_frame's UP adds
-;  to ENT_Y, and proj_point's sy is PROJ_CENTRE_Y minus it).
-; ============================================================================
-
-SCAN_W_BYTES        equ 20              ; 80 pixels
-SCAN_H              equ 60
-SCAN_X_BYTES        equ SCR_BYTES_PER_LINE - SCAN_W_BYTES - 1
-SCAN_Y              equ HUD_TOP - SCAN_H - 2
-SCAN_CX             equ SCAN_X_BYTES * 4 + SCAN_W_BYTES * 2          ; pixels
-SCAN_CY             equ SCAN_Y + SCAN_H / 2
-SCAN_RX             equ 38              ; the oval's half width, pixels
-SCAN_RY             equ 19              ; ...and half height: the plane seen flat
-SCAN_HALF_W         equ SCAN_RX - 2                                  ; pixels a mark may reach across
-SCAN_HALF_V         equ SCAN_H / 2 - SCAN_RY - 1                     ; ...and up or down off the plane
-;  A world axis's high byte is 256 units; one more shift makes a pixel 512,
-;  so the oval's eighty pixels are forty thousand units across and, at half
-;  that up the oval, a picket ten thousand units ahead sits half way up it.
-;  Weapons reach 2560 units, five pixels across and two and a half up: a mark
-;  touching the ship is one in range. (It was 1024 a pixel on the forty-pixel
-;  box; the doubled oval keeps the same spread of the world and shows it twice
-;  as fine.)
-SCAN_SHIFT          equ 1
-
-    assert SCAN_Y + SCAN_H <= HUD_TOP, "the scanner reaches into the HUD"
-    assert SCAN_Y > CTX_BAR_H
-    assert SCAN_SHIFT == 1, "scan_delta shifts once; change it with this"
-    assert SCAN_RX * 2 + 2 <= SCAN_W_BYTES * 4, "the oval is wider than its rectangle"
-    assert SCAN_RY + SCAN_HALF_V + 1 <= SCAN_H / 2, "a stalk's tip leaves the rectangle"
-
-scan_rect:          defb SCAN_X_BYTES, SCAN_Y, SCAN_W_BYTES, SCAN_H
-
-;  The oval's half height at each pixel of half width, 0..SCAN_RX, is
-;  scan_oval in BANK 6 (game/bank6data.asm), copied into bank7_line at the
-;  top of every pilot_scanner -- 39 bytes of bank 4 the SHIFT-and-a-number
-;  command needed. Everything below reads it there.
-    assert SCAN_RX + 1 <= B7_BUF_SIZE, "the oval's table does not fit the line buffer"
-
 ; ----------------------------------------------------------------------------
-;  pilot_scanner -- the oval, the ship and the hostiles, while flying
+;  pilot_arrow -- where the chosen enemy is: an arrow at the edge of the
+;                 view while it is off the screen, its strength over it
+;                 while it is on
 ;  Uses: everything
+;  "Θα δείχνει ένα μεγάλο βέλος στις άκρες της οθόνης προς τα που πρέπει να
+;  πας για να βρεις εχθρό (δεξιά, αριστερά, πάνω κάτω, διαγώνια προς όλες
+;  τις κατευθύνσεις)." From wave_draw after the reticle. Which way is the
+;  Mothership indicator's own question, so it is asked the way wave_marker
+;  asks it: moth_border on the target's record, the widest zoom borrowed so
+;  nothing is out of range. Nothing is saved round the call: the cockpit
+;  draws no marker for the base (moth_update, gfx/markproj.asm -- a friend
+;  is a friend), and moth_bar is zeroed afterwards so a camera holding
+;  still, paused, cannot have moth_draw read this bearing as the base's.
+;  moth_place leaves the rotated direction in moth_dx and moth_dy (screen
+;  sense: +y is DOWN), and the eight arrows come from their signs with a
+;  dead zone -- a component counts when it is more than three eighths of
+;  the other, so each diagonal owns about 45 degrees and each cardinal
+;  about the same. The apex sits ARROW_IN pixels inside the edge pointed
+;  at, in the middle of that edge for a cardinal and in the corner for a
+;  diagonal.
+;
+;  THE HEADS ARE SUMS, NOT PICTURES: a head is columns k = 0.. from the
+;  apex away from its edge, column k a run of b0 + db*k rows starting dt*k
+;  rows from the apex -- (n, dt, db, b0) a shape, twelve bytes for the
+;  three where the pictures were a hundred and seventeen, which is what
+;  the window had to have back. Sideways, a run of 2k+1 rows centred on
+;  the apex; up, both halves at once, a run from 2k down to the base; the
+;  corner, a run from the apex down to the diagonal. Down and left are
+;  the same runs mirrored about the apex, so eight arrows are three
+;  records and two signs. One rectangle of ARROW_BOX round the apex covers
+;  every shape, so the next pass through the buffer erases it. Straight
+;  behind has no answer (moth_place's own degenerate case) and draws
+;  nothing.
 ; ----------------------------------------------------------------------------
-pilot_scanner:
+ARROW_IN            equ 16              ; the apex, in from the playfield's edge
+ARROW_BOX           equ 15              ; ...and the rectangle, this far each way
+ARROW_RECT_W        equ 8               ; ...eight bytes wide: 32 pixels from a byte at or before apex - ARROW_BOX
+ARROW_DX            equ SCR_CENTRE_X - 1 - ARROW_IN         ; 143: centre to a side apex
+ARROW_DY            equ PROJ_CENTRE_Y - CTX_BAR_H - ARROW_IN ; 58: centre to the top apex
+    assert PROJ_CENTRE_Y + ARROW_DY + ARROW_BOX < HUD_TOP, "the bottom arrow's rectangle reaches the HUD"
+    assert ARROW_DX - ARROW_BOX >= 0 && ARROW_DY - ARROW_BOX >= 0, "an arrow's rectangle leaves the playfield"
+    assert SCR_CENTRE_X + ARROW_DX + ARROW_BOX + 2 <= SCR_BYTES_PER_LINE * 4, "the right arrow's rectangle runs off the line"
+ARROW_SIDE_N        equ 10              ; a sideways head: ten columns, 19 rows at its base
+ARROW_UP_N          equ 8               ; an up or down head: eight columns a side...
+ARROW_UP_ROWS       equ 16              ; ...and sixteen rows at the apex
+ARROW_CORNER_N      equ 12              ; a corner head: twelve columns and twelve rows
+    assert ARROW_SIDE_N - 1 <= ARROW_BOX && ARROW_UP_N - 1 <= ARROW_BOX && ARROW_CORNER_N - 1 <= ARROW_BOX, "a head is wider than its rectangle"
+    assert ARROW_UP_ROWS - 1 <= ARROW_BOX && ARROW_CORNER_N - 1 <= ARROW_BOX, "a head is taller than its rectangle"
+
+pilot_arrow:
     ld a,(pilot_slot)
     cp ENT_MAX
     ret nc
     ld a,(view_sensors)
     or a
     ret nz
+    ld a,(pilot_target)
+    cp ENT_MAX
+    ret nc                              ; nothing chosen: nothing to point at
+    ld a,(pilot_shown)
+    or a
+    jp nz,pilot_enemy_bar               ; on the screen: its strength instead
 
-    ;  The oval's table, down from bank 6 for the length of this call.
-    ld hl,scan_oval_b5
-    ld de,bank7_line
-    ld bc,SCAN_RX + 1
-    ld a,GA_BANK_5                      ; game/bank5data.asm
-    call bankn_copy
-    ;  The oval, in ink 2 -- chrome, the HUD's own ink for a thing that is
-    ;  not a ship -- column by column out of scan_oval, then its rectangle,
-    ;  once. Column i draws the rows between the last column's height and
-    ;  its own, top and bottom, at cx+i and cx-i; column 0 is one pixel each.
-    ld a,(bank7_line)
-    ld (scan_prev),a
-    xor a
-    ld (scan_i),a
-@scan_col:
-    ld hl,bank7_line                    ; the oval's table, copied down
-    ld a,(scan_i)
-    add a,l
-    ld l,a
-    jr nc,@scan_col_ok
-    inc h
-@scan_col_ok:
-    ld a,(hl)
-    ld (scan_hy),a
-    ld b,a
-    ld a,(scan_prev)
-    sub b
-    inc a
-    ld (scan_len),a                     ; rows from the last height to this one
-    ld a,(scan_prev)
-    neg
-    add a,SCAN_CY
-    ld c,a                              ; the top run starts at cy - prev
-    call scan_pair
-    ld a,(scan_hy)
-    add a,SCAN_CY
-    ld c,a                              ; ...and the bottom one at cy + hy
-    call scan_pair
-    ld a,(scan_hy)
-    ld (scan_prev),a
-    ld hl,scan_i
-    inc (hl)
-    ld a,(hl)
-    cp SCAN_RX + 1
-    jr c,@scan_col
-    ld hl,scan_rect
-    call phase4_add_rect
-
-    ;  The ship, in the middle, in its own ink.
-    ld hl,SCAN_CX
-    ld c,SCAN_CY
-    ld b,1
-    ld a,1
-    call gfx_vline
-
-    ;  Its heading, as sin and cos, kept for every hostile.
-    ld a,(pilot_slot)
+    ld a,(pilot_target)
     call ent_addr
-    ld (scan_me),hl
-    ld de,ENT_YAW
-    add hl,de
+    ld (mark_src),hl                    ; ENT_X is offset 0
+    call moth_border
+    ld hl,moth_bar
     ld a,(hl)
-    push af
-    call cam_sin
-    ld (scan_sin),a
-    pop af
-    add a,TRIG_QUARTER
-    call cam_sin
-    ld (scan_cos),a
+    ld (hl),0                           ; not the base's bearing: see above
+    or a
+    ret z                               ; straight along the view axis: no answer
 
-    ;  Every flying hostile.
-    ld hl,entities + ENT_PLAYER_MAX * ENT_SIZE
-    ld (scan_walk),hl
-    ld a,ENT_ENEMY_MAX
-    ld (scan_left),a
-@scan_one:
-    ld hl,(scan_walk)
-    ld de,ENT_FLAGS
+    ;  Which of the eight: h and v are -1, 0 or 1.
+    ld a,(moth_dx)
+    call moth_abs
+    ld b,a                              ; B = |dx|
+    ld a,(moth_dy)
+    call moth_abs
+    ld c,a                              ; C = |dy|
+    call arw_three_eighths              ; A = 3/8 |dy|
+    cp b
+    ld a,0                              ; (no flags)
+    jr nc,@arw_h_is                     ; |dx| is not more than that: no sideways
+    ld a,(moth_dx)
+    rla
+    sbc a,a
+    or 1                                ; its sign: 1 or -1
+@arw_h_is:
+    ld (arw_h),a
+    ;  The apex: the middle of the view, pushed to the edge(s) pointed at.
+    ld hl,SCR_CENTRE_X
+    or a
+    jr z,@arw_x_done
+    ld de,ARROW_DX
+    jp p,@arw_x_add
+    ld de,-ARROW_DX
+@arw_x_add:
     add hl,de
-    ld a,(hl)
-    and ENT_F_ACTIVE + ENT_F_ENEMY + ENT_F_DISABLED
-    cp ENT_F_ACTIVE + ENT_F_ENEMY
-    jr nz,@scan_next
-    call scan_plot
-@scan_next:
-    ld hl,(scan_walk)
-    ld de,ENT_SIZE
-    add hl,de
-    ld (scan_walk),hl
-    ld hl,scan_left
-    dec (hl)
-    jr nz,@scan_one
-    ret
+@arw_x_done:
+    ld (arw_x),hl
+    ld a,b
+    call arw_three_eighths              ; A = 3/8 |dx|
+    cp c
+    ld a,0
+    jr nc,@arw_v_is                     ; |dy| is not more than that: level
+    ld a,(moth_dy)
+    rla
+    sbc a,a
+    or 1
+@arw_v_is:
+    ld (arw_v),a
+    or a
+    ld a,PROJ_CENTRE_Y                  ; (no flags)
+    jr z,@arw_y_done
+    jp m,@arw_y_up
+    add a,ARROW_DY
+    jr @arw_y_done
+@arw_y_up:
+    sub ARROW_DY
+@arw_y_done:
+    ld (arw_y),a
 
-; ----------------------------------------------------------------------------
-;  scan_pair -- (scan_len) rows of ink 2 from row C at cx + i and cx - i
-;  In : C = the top row, (scan_i), (scan_len)
+    ;  The shape, and the half or halves of it.
+    ld hl,arrow_side
+    ld a,(arw_v)
+    or a
+    jr z,@arw_shape
+    ld hl,arrow_up
+    ld a,(arw_h)
+    or a
+    jr z,@arw_shape
+    ld hl,arrow_corner
+@arw_shape:
+    ld de,arw_n
+    ld bc,4
+    ldir                                ; arw_n, arw_dt, arw_db, arw_b0
+    ld a,(arw_h)
+    or a
+    jr nz,@arw_half
+    inc a                               ; straight up or down: both halves, +1 then -1
+    ld (arw_hh),a
+    call arw_fan
+    ld a,-1
+@arw_half:
+    ld (arw_hh),a
+    call arw_fan
+
+    ;  One rectangle round the apex, whichever way it points.
+    ld a,(arw_y)
+    sub ARROW_BOX
+    ld (mark_rect + 1),a
+    ld a,ARROW_BOX * 2 + 1
+    ld (mark_rect + 3),a
+    ld a,ARROW_RECT_W
+    ld (mark_rect + 2),a
+    ld hl,(arw_x)
+    ld de,-ARROW_BOX
+    add hl,de
+    srl h
+    rr l
+    srl h
+    rr l
+    ld a,l
+    jp mark_store
+
+;  arw_fan -- one half of a head: column k = 0..arw_n-1 at arw_x - arw_hh*k,
+;  a run of arw_b0 + arw_db*k rows from arw_dt*k below the apex, the run
+;  mirrored about the apex when the head points down. Sums, not products:
+;  the top and the rows step by dt and db a column.
 ;  Uses: everything
-; ----------------------------------------------------------------------------
-scan_pair:
+arw_fan:
+    ld a,(arw_b0)
+    ld b,a                              ; B = this column's rows
+    ld c,0                              ; C = its top, from the apex
+    ld e,c                              ; E = k
+@arw_col:
     push bc
-    ld a,(scan_i)
-    ld e,a
-    ld d,0
-    ld hl,SCAN_CX
-    add hl,de
-    ld a,(scan_len)
-    ld b,a
-    ld a,2
-    call gfx_vline
-    pop bc
-    ld a,(scan_i)
-    ld e,a
-    ld d,0
-    ld hl,SCAN_CX
+    push de
+    ld a,(arw_hh)
     or a
-    sbc hl,de
-    ld a,(scan_len)
-    ld b,a
-    ld a,2
-    jp gfx_vline
-
-; ----------------------------------------------------------------------------
-;  scan_plot -- one hostile's mark; scan_walk -> its record
-;  Uses: everything
-; ----------------------------------------------------------------------------
-scan_plot:
-    ;  dx, dy and dz as high bytes, saturated: SBC HL,DE overflows across a
-    ;  60000-unit map and the sign bit lies, so P/V is tested at once.
-    ld hl,(scan_walk)
-    ld de,(scan_me)
-    call scan_delta                     ; A = dx >> 8, saturated
-    ld (scan_dx),a
-    ld hl,(scan_walk)
-    ld de,(scan_me)
-    inc hl
-    inc hl
-    inc de
-    inc de
-    call scan_delta                     ; A = dy >> 8: the height
-    ld b,SCAN_HALF_V
-    call scan_clamp
-    ld (scan_dy),a
-    ld hl,(scan_walk)
-    ld de,(scan_me)
-    inc hl
-    inc hl
-    inc hl
-    inc hl
-    inc de
-    inc de
-    inc de
-    inc de
-    call scan_delta                     ; A = dz >> 8
-    ld (scan_dz),a
-
-    ;  right = dz*sin - dx*cos: the ship's right hand is (-cos y, sin y),
-    ;  which is +X for a nose along +Z (yaw 128, cos -1) -- the same side
-    ;  the cockpit camera puts +X on. First, because the oval's height at
-    ;  that column is what bounds `ahead`.
-    ld a,(scan_dz)
-    ld b,a
-    ld a,(scan_sin)
-    ld c,a
-    call cam_mul7
-    ld (scan_t),a
-    ld a,(scan_dx)
-    ld b,a
-    ld a,(scan_cos)
-    ld c,a
-    call cam_mul7
-    ld b,a
-    ld a,(scan_t)
-    sub b
-    ld b,SCAN_HALF_W
-    call scan_clamp
-    ld (scan_right),a
-    ;  ahead = dx*sin - dz*cos, halved for the oval's flattening and kept
-    ;  inside the oval at this column: a mark is never outside the plane.
-    ld a,(scan_dx)
-    ld b,a
-    ld a,(scan_sin)
-    ld c,a
-    call cam_mul7
-    ld (scan_t),a
-    ld a,(scan_dz)
-    ld b,a
-    ld a,(scan_cos)
-    ld c,a
-    call cam_mul7
-    ld b,a
-    ld a,(scan_t)
-    sub b
-    sra a
-    ld c,a
-    ld a,(scan_right)
-    bit 7,a
-    jr z,@scan_abs_ok
-    neg
-@scan_abs_ok:
-    ld hl,bank7_line                    ; the oval's table, copied down
-    add a,l
+    ld a,e
+    jp m,@arw_x_from                    ; pointing left: the body is to the right
+    neg                                 ; pointing right: to the left
+@arw_x_from:
     ld l,a
-    jr nc,@scan_oval_ok
-    inc h
-@scan_oval_ok:
-    ld a,(hl)
-    dec a
-    ld b,a                              ; the oval's half height here, less one
-    ld a,c
-    call scan_clamp
-    ld (scan_ahead),a
-
-    ;  The stalk: from the plane point (cx + right, cy - ahead) up or down
-    ;  by the height, then the bar across its tip, all in the alarm ink.
-    ld a,(scan_right)
-    ld l,a
-    ld h,0
-    bit 7,a
-    jr z,@scan_x_pos
-    dec h                               ; sign-extend
-@scan_x_pos:
-    ld de,SCAN_CX
-    add hl,de
-    ld (scan_x),hl
-    ld a,(scan_ahead)
-    neg
-    add a,SCAN_CY                       ; A = the plane row
-    ld c,a
-    ld a,(scan_dy)
+    rla
+    sbc a,a
+    ld h,a                              ; HL = -+k, sign-extended
+    ld de,(arw_x)
+    add hl,de                           ; HL = x
+    ld a,(arw_v)
     or a
-    jp m,@scan_below
-    ;  Above, or level: the run starts at the tip, cy - ahead - dy.
-    ld b,a
-    inc b                               ; dy + 1 rows
-    ld a,c
-    sub b
-    inc a
-    ld c,a                              ; the tip row
-    jr @scan_stalk
-@scan_below:
-    neg
-    ld b,a
-    inc b                               ; |dy| + 1 rows, from the plane row down
-@scan_stalk:
-    ld (scan_tip),bc                    ; C = the run's top row, B = its length
-    ld hl,(scan_x)
-    ld a,3
-    call gfx_vline
-    ;  The bar: one pixel either side of the tip.
-    ld a,(scan_dy)
-    or a
-    ld bc,(scan_tip)
-    jp m,@scan_bar
-    ;  Above: the tip is the top of the run, which C already is.
-    jr @scan_bar_at
-@scan_bar:
+    jp m,@arw_as_drawn                  ; pointing up: as drawn
+    jr z,@arw_as_drawn                  ; ...or level: as drawn
     ld a,c
     add a,b
     dec a
-    ld c,a                              ; below: the tip is the run's last row
-@scan_bar_at:
-    ld b,1
-    push bc
-    ld hl,(scan_x)
-    dec hl
-    ld a,3
+    neg
+    ld c,a                              ; pointing down: the run mirrored about the apex
+@arw_as_drawn:
+    ld a,(arw_y)
+    add a,c
+    ld c,a                              ; C = y of the top
+    ld a,PEN_RED
     call gfx_vline
+    pop de
     pop bc
-    ld hl,(scan_x)
-    inc hl
-    ld a,3
-    jp gfx_vline
+    ld a,(arw_dt)
+    add a,c
+    ld c,a
+    ld a,(arw_db)
+    add a,b
+    ld b,a
+    inc e
+    ld a,(arw_n)
+    cp e
+    jr nz,@arw_col
+    ret
+
+;  A = 3/8 of A, which is (A >> 2) + (A >> 3): no overflow, no multiply.
+;  (It was (A >> 1) + (A >> 3) first, which is FIVE eighths, and a hostile
+;  twice as far across as up read as beside rather than as the corner.)
+;  Uses: AF, E
+arw_three_eighths:
+    ld e,a
+    srl e
+    srl e
+    srl a
+    srl a
+    srl a
+    add a,e
+    ret
+
+;  The three shapes: (n, dt, db, b0) as arw_fan reads them. tests/test_marks
+;  reads them back out of the bank and does the same sums.
+arrow_side:
+    defb ARROW_SIDE_N, -1, 2, 1                 ; column k: rows -k..k
+arrow_up:
+    defb ARROW_UP_N, 2, -2, ARROW_UP_ROWS       ; column k: rows 2k..15
+arrow_corner:
+    defb ARROW_CORNER_N, 0, -1, ARROW_CORNER_N  ; column k: rows 0..11-k
+
 
 ; ----------------------------------------------------------------------------
-;  scan_delta -- A = ((HL) - (DE)) >> 8 as a saturated signed byte, the
-;  words being 16-bit world coordinates. Then >> SCAN_SHIFT.
-;  Uses: AF, BC, DE, HL
+;  pilot_enemy_bar -- the chosen enemy's strength, over its sprite
+;  Uses: everything
+;  "Το σκάφος που θα αντιμετωπίζεις να έχει πάνω την μπάρα με την ισχύ του."
+;  PILOT_BAR_W bytes by PILOT_BAR_H lines, PILOT_BAR_UP lines above where
+;  the ship projected this frame -- clear of a x4 sprite's top -- in the
+;  HUD's own enemy vocabulary: a red trough, the hull over the class's full
+;  in white, in eighths, rounded. Whole bytes through scr_fill_rect, which
+;  clips nothing, so the column is held inside the screen and the row
+;  inside the playfield; the rectangle is the bar's own, through mark_store.
 ; ----------------------------------------------------------------------------
-scan_delta:
-    ld c,(hl)
-    inc hl
-    ld b,(hl)                           ; BC = theirs
-    ld a,(de)
-    ld l,a
-    inc de
-    ld a,(de)
-    ld h,a                              ; HL = ours
-    ex de,hl                            ; DE = ours
-    ld h,b
-    ld l,c                              ; HL = theirs
+PILOT_BAR_W         equ 8
+PILOT_BAR_H         equ 3
+PILOT_BAR_UP        equ 36
+    assert PILOT_BAR_UP > 32, "the bar sits on a x4 sprite"
+
+pilot_enemy_bar:
+    ld a,(pilot_target)
+    call shot_where                     ; HL = sx, C = sy, CF if projected this frame
+    ret nc
+    ld a,c
+    sub PILOT_BAR_UP
+    jr nc,@peb_y_low_ok
+    xor a
+@peb_y_low_ok:
+    cp CTX_BAR_H
+    jr nc,@peb_y_ok
+    ld a,CTX_BAR_H
+@peb_y_ok:
+    ld (mark_rect + 1),a
+    ld c,a                              ; C = the bar's row
+    srl h
+    rr l
+    srl h
+    rr l                                ; HL = sx / 4, the ship's byte
+    ld a,l
+    sub PILOT_BAR_W / 2
+    jr nc,@peb_x_low_ok
+    xor a
+@peb_x_low_ok:
+    cp SCR_BYTES_PER_LINE - PILOT_BAR_W + 1
+    jr c,@peb_x_ok
+    ld a,SCR_BYTES_PER_LINE - PILOT_BAR_W
+@peb_x_ok:
+    ld b,a                              ; B = its byte
+    push bc
+    ;  The trough...
+    ld d,PILOT_BAR_W
+    ld e,PILOT_BAR_H
+    ld a,SOLID_INK_3
+    call scr_fill_rect
+    ;  ...and the fill: hull over full, 256ths, then eighths rounded.
+    ld a,(pilot_target)
+    call ent_addr
+    push hl
+    ld de,ENT_CLASS
+    add hl,de
+    ld e,(hl)
+    ld d,0
+    ld hl,class_hull
+    add hl,de
+    ld e,(hl)                           ; DE = the class's full hull
+    pop hl
+    ld bc,ENT_HULL
+    add hl,bc
+    ld l,(hl)
+    ld h,0                              ; HL = what is left of it
+    call wave_frac_of                   ; A = 256ths
+    add a,16
+    jr c,@peb_all                       ; past 240: all eight
+    rlca
+    rlca
+    rlca
+    and 7                               ; (A + 16) >> 5
+    jr @peb_fill
+@peb_all:
+    ld a,PILOT_BAR_W
+@peb_fill:
+    pop bc
+    push bc
     or a
-    sbc hl,de                           ; HL = theirs - ours
-    jp pe,@scan_delta_far               ; overflowed: the true sign is S xor P/V
-    ld a,h
-    jr @scan_delta_shift
-@scan_delta_far:
-    ld a,h
-    rla                                 ; the false sign into CF...
-    ld a,#7F
-    jr c,@scan_delta_shift              ; ...which was negative, so it is +far
-    ld a,#80
-@scan_delta_shift:
-    sra a                               ; SCAN_SHIFT, which is 1
-    ret
-
-;  Clamp A to +/-B, signed.
-scan_clamp:
-    bit 7,a
-    jr nz,@scan_clamp_neg
-    cp b
-    ret c
+    jr z,@peb_rect                      ; nothing left: the trough alone
+    ld d,a
+    ld e,PILOT_BAR_H
+    ld a,SOLID_INK_1
+    call scr_fill_rect
+@peb_rect:
+    pop bc
+    ld a,PILOT_BAR_W
+    ld (mark_rect + 2),a
+    ld a,PILOT_BAR_H
+    ld (mark_rect + 3),a
     ld a,b
-    ret
-@scan_clamp_neg:
-    neg
-    cp b
-    jr c,@scan_clamp_back
-    ld a,b
-@scan_clamp_back:
-    neg
-    ret
+    jp mark_store
 
 
 ; ----------------------------------------------------------------------------

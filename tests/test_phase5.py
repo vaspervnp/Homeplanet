@@ -582,6 +582,13 @@ class TestSelectionAndCamera(ControlFixture):
                          "the camera did not move to the Mothership")
 
     def test_picking_a_squadron_takes_the_camera_off_the_mothership(self):
+        #  Paused, as its sibling above is: the fleet is still fanning out
+        #  into its lattice this early, the focus is computed BEFORE the
+        #  frame's flight step, and a read at an arbitrary emulator-frame
+        #  boundary caught the mean one ship's last step (160 / 16 = 10)
+        #  past the focus. Orders still run while paused, so the selection
+        #  and the camera move; only the ships hold still.
+        self.c.write_ram(self.sym["ORDER_PAUSED"], b"\x01")
         self.hold("0", frames=25)
         self.assertEqual(self.byte("SEL_MOTHERSHIP"), 1)
         self.hold("1", frames=25)

@@ -112,6 +112,9 @@ HUD_BAR_Y           equ CTX_Y + 1
 HUD_MOTH_X          equ 28
 HUD_MOTH_BAR_X      equ 37
 HUD_HP_ALARM        equ 33
+;  In a fight the HULL bar takes turns with the ENEMY'S strength: ENM, a red
+;  trough, two seconds each way, counted in 50 Hz ticks (game/wavesdraw.asm).
+HUD_PHASE_TICKS     equ 100
 HUD_RU_X            equ 56
 HUD_RU_NUM_X        equ HUD_RU_X + 3 * TXT_CHAR_W_BYTES     ; four digits, to 70
 HUD_MIS_X           equ 72              ; one clear cell after the RU figure, digits to the edge

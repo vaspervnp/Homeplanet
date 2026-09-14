@@ -1079,7 +1079,7 @@ not needed and should stay unspent.
 | `I` | what the selected squadron is made of; `ESC` goes back |
 | `?` | the key list; `ESC` goes back |
 | `ESC` | in the TUTORIAL, leave it and go back to the title |
-| `V` | **fly the selected squadron's lead ship yourself**: the arrows turn, climb and dive it, `SPACE` fires its gun, the camera rides behind it, a reticle marks the middle of the view and a scanner at the bottom right shows where the enemy is; only ships inside the reticle's box are drawn as sprites. `V` again, its death, or **the fight ending** hands it back. Not the Mothership, not in the tutorial — see "V: you are the interceptor" |
+| `V` | **fly the selected squadron's lead ship yourself**: the arrows turn, climb and dive it, `SPACE` fires its gun (a byte-wide bolt), the camera rides inside it, a reticle marks the middle of the view. **One enemy is drawn** — the one in the reticle, else the nearest — as a sprite with its strength barred over it, a red arrowhead at the edge of the view pointing at it while it is off the screen; nothing else, friend or foe, is drawn (the scanner that sat at the bottom right is gone). `V` again, its death, or **the fight ending** hands it back. Not the Mothership, not in the tutorial — see "V: you are the interceptor" and "The cockpit shows one enemy" |
 | `SPACE` | on the title screen, start the game |
 
 `J` **announces** the jump and the drive spools for ten seconds of live battle before it happens; `ESC` calls it off — see "The jump counts down". It **lands** rather than jumping on the last mission, and landing opens the victory screen — see "The end of the journey". **On the last mission, with `LAND` on offer, `L` lands too** — it is the squadron key every other time; see "`L` lands as well" under that section. Otherwise it jumps when `mis_gate` allows it — the objective met, three waves seen, no
@@ -5577,7 +5577,41 @@ selected — the owner's assignment) with the selected one's number and count
 — a 0 and the nine squadrons' ships summed when the base is selected
 (`hud_sel_count`, bank 4, falling into `squad_count_of`) — the yard and
 JUMP on line 2. `wave_draw` draws only the two bars, on
-`wave_dirty`; `ctx_bar` draws its state words and the message row's word at
+`wave_dirty` — and, in a fight, the FIRST bar takes turns with the ENEMY's
+strength: *"Όταν ήμαστε σε μάχη, το Hull να εναλάσσεται κάθε 2
+δευτερόλεπτα με την δύναμη του εχθρού. Να δείχνει ΕΝΜ και την μπάρα με
+κόκκινο αντί για μπλε."* `hud_phase` (bank 4, `game/wavesdraw.asm`) keeps
+`hud_bar_val` — the figure to draw, bit 7 on the enemy's turn — flipping
+the bit every `HUD_PHASE_TICKS` (100) of the 50 Hz tick while
+`cbt_hostiles` is nonzero, HULL always otherwise; `wave_changed` compares
+that byte, so the flip is a repaint; `wave_draw` derives the trough ink with
+`rlca : sbc a,a : or SOLID_INK_2` (no branch) and paints `ENM ` or `HULL`
+over the caption with `phase4_hud_label`; `hud_bar` takes the trough ink in
+`C` now, and the FILL's from `hud_bar_fill`, which `hud_fill_ink` (bank 4)
+sets before each bar: white, or the alarm ink below `HUD_HP_ALARM` on a
+chrome trough only — the first build drew the enemy's fill red below the
+third, on a red trough, which is no fill at all, and the test that read the
+fill back found it. That took the decision out of `hud_bar`, eight bytes of
+a low 16K that was three from its page. The enemy's reading is `hud_squad_health`'s walk with the fold as a
+parameter — `hud_walk`, the fold patched into its own `call` — over the
+hostile region with `hud_en_fold` (ENEMY and not DISABLED, so a wreck is
+nothing), hull over full like HULL and not a headcount, on the same frames
+as the squadron's. The room: the save block's pad took forty-one per-call
+scratch bytes — a frame's tracers, the strafe walk, the landing's loop, the
+game-over and squadron pages' draw, the wave marker's saved bytes, the
+banner's rectangle — from after `bank4_end`, and that left the window
+**53 over**, so **the cockpit's scanner went** (`pilot_scanner` and its
+oval, ~527 bytes of bank 4 and 39 of bank 5): the V redesign that follows
+replaces it with an arrow at the edge of the view, and the two could not
+both be held. `tests/test_waves.TestTheEnemysTurn` reads the caption, the
+trough's ink, the fill and the turn's length off the pixels, in both
+buffers, against one hostile parked thirty thousand up. **And the boot's
+hint (below) never showed on its first build**: `bar_frame` asked for
+`phase4_hud_dirty == 1` AFTER its shadow compares, and on the first playing
+frame the shadows are the image's `#FF`/`#FE`, so the one frame the check
+existed for jumped past it — the check comes first now. A guard placed after
+an early-out is a guard for the frames the early-out does not take.
+`ctx_bar` draws its state words and the message row's word at
 `HUD_TEXT_Y` 190, and ordinary play draws nothing there. The old rows
 (`HUD_ROW_*`, `HUD_HP_X` as a figure) are gone; tests read `CTX_Y`,
 `CTX_Y2`, `CTX_LINE_Y`, `HUD_BAR_*`, `HUD_SQ_MARK_*`.
@@ -6835,6 +6869,100 @@ kept, so the orbit came back turned to wherever the ship last pointed.
 > Elite's does. The lock made the invisible case the COMMON case; before it
 > the target drifted about the view and the bolt usually had somewhere to
 > go.
+
+#### The cockpit shows one enemy, an arrow to it, and its strength over it
+
+*"Θέλω να επανασχεδιαστεί το V. Ναι μεν θα συνεχίζεται η μάχη με τα
+υπόλοιπα σκάφη στο background, αλλά θα αγνοεί τα φιλικά σκάφη, δεν θα τα
+εμφανίζει, θα δείχνει ένα μεγάλο βέλος στις άκρες της οθόνης προς τα που
+πρέπει να πας για να βρεις εχθρό (δεξιά, αριστερά, πάνω κάτω, διαγώνια
+προς όλες τις κατευθύνσεις), θα διαλέγεις μόνο έναν εχθρό να δείξεις και
+θα είναι μεγαλύτερες οι βολές σου. Το σκάφος που θα αντιμετωπίζεις να έχει
+πάνω την μπάρα με την ισχύ του."*
+
+**`pilot_target` is the one ship the cockpit draws**, chosen by
+`pilot_choose` after `pilot_ram`'s walk every frame the ship is flown,
+paused or not: the ship it already is when the reticle has locked it —
+only the target reaches the box now, so the lock's WHICH is the target
+and `pilot_lock_slot` and `pilot_lock_z` are gone — else
+`pilot_near` — the nearest flying hostile, which the ram walk now records
+on its way (the first found always, so a hostile at the saturated 255 is
+still a target; after that strictly nearer, so ties keep the lower slot
+and the choice does not wander). It is also `ENT_TARGET` of the flown ship
+every frame, so the gun aims at the ship on the screen. `mark_tier_for`
+drops everything else while flying — friend and foe alike — and the box
+now only decides the LOCK, so the target is always a sprite scaled by its
+depth (`@mt_box`'s four exits go to `@mt_keep`); `pilot_shown` says
+whether it was listed this frame. **While paused the walk declines to
+crash** (`@pilot_crash` asks `order_paused` and takes the nearest path
+instead), because the fixtures place a hostile with the battle frozen and
+the picture must not be a frame behind the pause.
+
+**The arrow**, `pilot_arrow` (`game/farmarks.asm`, from `wave_draw` after
+the reticle): when the target is not on the screen, `moth_border` on its
+record — the Mothership marker's own machinery — gives `moth_dx/moth_dy`,
+and the direction is their signs with a **three-eighths dead zone** each
+way (`arw_three_eighths`: `(A>>2)+(A>>3)` -- it was `(A>>1)+(A>>3)` first, which is FIVE eighths, and the test at a 1:2 ratio caught it): sideways only if
+`|dx| > 3/8|dy|`, vertical only if `|dy| > 3/8|dx|`, so h, v ∈ {−1, 0, 1}
+and eight arrows come out of two compares. Nothing is saved round the
+call: **the cockpit draws no marker for the base** — `moth_update` returns
+while a ship is flown, a friend being a friend — and `pilot_arrow` zeroes
+`moth_bar` after reading it, so a camera holding still under a pause
+cannot have `moth_draw` take the target's bearing for the base's. The
+apex is `160 + h·ARROW_DX` (143), `94 + v·ARROW_DY` (58): the middle of
+an edge or a corner, `ARROW_IN` 16 pixels in. **The heads are sums, not
+pictures**: a record `(n, dt, db, b0)` — `arrow_side`, `arrow_up`,
+`arrow_corner` — and `arw_fan` draws column k = 0..n−1, away from the
+edge, as a run of `b0 + db·k` rows from `dt·k` below the apex, in
+`PEN_RED` through `gfx_vline`: sideways `(10, −1, 2, 1)`, rows −k..k; up
+`(8, 2, −2, 16)`, rows 2k..15, both halves; the corner `(12, 0, −1, 12)`,
+rows 0..11−k. Left runs the columns the other way and down mirrors each
+run about the apex (top' = −(top + rows − 1)), so eight arrows are three
+records and two signs. Twelve bytes where the pictures were 117, and one
+rectangle of 8 bytes by 31 rows through `mark_store`. A target exactly
+astern has no bearing and no arrow.
+
+**The bar**, `pilot_enemy_bar`: `PILOT_BAR_W` (8) bytes by `PILOT_BAR_H`
+(3) lines, `PILOT_BAR_UP` (36, asserted past a x4 sprite's 32) above where
+`shot_where` says the target projected, the byte column clamped 0..72; a
+red trough (`SOLID_INK_3`) with `(frac + 16) >> 5` bytes of white over it,
+`wave_frac_of` hull over `class_hull`, eight on the carry. Its rectangle
+goes through `phase4_add_rect` like a marker's.
+
+**The bolt is a byte wide and two lines tall**: `shot_plot_big` sets
+`shot_wide` to `#F0` so `shot_plot` ORs the whole byte into the mask, and
+plots the row below as well; `SHOT_DOTS` is `SHOT_MAX * 3 + 4` for the
+four entries. The scanner is gone with its oval table.
+
+> **IT DID NOT FIT, BY 232 BYTES OF THE WINDOW**, against the 454 the
+> scanner's going had left: the first build of the redesign cost 686 of
+> bank 4 with the heads as pictures. Where the room came from, most first:
+> **the tracers' two dot lists (98 bytes) and this frame's shot list went
+> into the save block's pad**, which is the one place they were said never
+> to go, because they survive a frame — and they may, because the only
+> thing that overwrites the pad is a disc load and `mis_setup` now zeroes
+> the three counts beside its `shot_pos` wipe, after every one (they were
+> zeroed in `mis_init`, which runs BEFORE the load: a count of rubbish is
+> an AND over rubbish addresses in `shot_erase`). The pad had 88 free and
+> that needed more, so **`sort_seen` overlays the pad's tail** — a label
+> at `ord_sum`, no bytes of its own: it is per call inside `phase4_sort`
+> and nothing below it is live across the sort; the per-frame bytes
+> (`cbt_hostiles`, `hud_bar_fill`, `pilot_lock_now`) moved above it and
+> `src/main.asm` says so in capitals. Then the heads as sums (~110), the
+> base's marker not drawn from the cockpit and so not saved round the
+> call (~25), the bar reworked to keep its corner in BC rather than in
+> `mark_rect` and back, and the lock's "nearest in the box" compare, which
+> was dead the moment only the target reached the box. The window is at
+> **16**; the low 16K did not move.
+
+`tests/test_marks.TestTheArrow` reads the three records out of the bank,
+does the same sums, and asserts pen 3 exactly at the expected pixels in the apex's box for all
+eight directions, the dead zone either side of 3/8, and no arrow with the
+enemy on the screen or after `V`; `TestTheEnemysBar` reads the bar's
+bytes off the front buffer at four hulls and asks that it goes when the
+enemy leaves the screen. **Accepted gaps**: a target dropped as "behind
+the nose" (raw depth under `PILOT_NEAR_RAW`) draws neither sprite nor
+arrow for those frames, and a target dead astern draws none.
 
 #### The lock: aim at it, and fly as it flies
 

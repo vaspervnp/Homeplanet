@@ -42,8 +42,10 @@
 ;  Tracers a frame. Four is a busy frame; the fleet fires once in
 ;  CBT_COOLDOWN frames a ship, and what is dropped past four is dropped.
 SHOT_MAX            equ 4
-;  ...and their dots, plus the bolt's two.
-SHOT_DOTS           equ SHOT_MAX * 3 + 2
+;  ...and their dots, plus the bolt's two, which are two list entries each:
+;  "θα είναι μεγαλύτερες οι βολές σου" -- a bolt's dot is a whole byte wide
+;  and two lines tall, shot_plot_big, so it reads as a bolt and not a speck.
+SHOT_DOTS           equ SHOT_MAX * 3 + 4
 ;  The bolt is drawn on steps 1..SHOT_BOLT_STEPS-1, at step/SHOT_BOLT_STEPS
 ;  of the way; on the last it is gone.
 SHOT_BOLT_STEPS     equ 4
@@ -220,6 +222,8 @@ shot_where:
 ; ----------------------------------------------------------------------------
 shot_draw:
     call shot_bolt                      ; the flown ship's own shot, in flight
+    xor a
+    ld (shot_wide),a                    ; ...and the tracers after it are pixels
     ld a,(shot_count)
     or a
     ret z
@@ -317,8 +321,8 @@ shot_bolt:
     call shot_advance
     pop bc
     djnz @sb_step
-    call shot_plot
-    ;  ...and the second pixel, half a step on.
+    call shot_plot_big
+    ;  ...and the second, half a step on.
     ld hl,(shot_dx)
     sra h
     rr l
@@ -328,10 +332,31 @@ shot_bolt:
     rr l
     ld (shot_dy),hl
     call shot_advance
-    jp shot_plot
+    jp shot_plot_big
 @sb_off:
     xor a
     ld (shot_bolt_step),a
+    ret
+
+
+; ----------------------------------------------------------------------------
+;  shot_plot_big -- the bolt's dot: a byte wide, two lines tall
+;  Uses: everything
+;  shot_wide is ORed into every mask shot_plot takes from the table while
+;  it is set, so the four pixels of the byte come out in the bolt's pen 1
+;  (#F0 IS pen 1 across a byte); the second line is the same column a row
+;  down. Two list entries, each taken off by shot_erase as any dot is.
+;  shot_draw clears the byte before the tracers.
+; ----------------------------------------------------------------------------
+shot_plot_big:
+    ld a,SOLID_INK_1
+    ld (shot_wide),a
+    call shot_plot
+    ld hl,shot_ay
+    inc (hl)                            ; sy is under HUD_TOP: no carry to worry about
+    call shot_plot
+    ld hl,shot_ay
+    dec (hl)
     ret
 
 
@@ -410,7 +435,9 @@ shot_plot:
     ld b,0
     ld hl,gfx_pen_mask
     add hl,bc
-    ld c,(hl)                           ; the mask
+    ld a,(shot_wide)
+    or (hl)
+    ld c,a                              ; the mask, the whole byte for the bolt
     ld a,(de)
     or c
     ld (de),a

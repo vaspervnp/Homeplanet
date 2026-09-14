@@ -228,18 +228,22 @@ class WaveFixture(unittest.TestCase):
     def bar_fill(self, which, base=None):
         """(fill bytes, ink) of a hull bar off the pixels: the middle row of
         the trough, counted from its left edge while the bytes are a solid
-        pen 1 (#F0) or pen 3 (#FF)."""
+        pen 1 (#F0) or pen 3 (#FF) and not the trough's own byte -- which is
+        the top row's, #0F chrome or #FF on the enemy's turn."""
         if base is None:
             base = h.front_buffer(self.c)
         x0 = self.sym["HUD_BAR_X" if which == "fleet" else "HUD_MOTH_BAR_X"]
         y = self.sym["HUD_BAR_Y"] + 2
         ram = self.c.read_ram(base, 0x4000)
+        trough = ram[h.screen_offset(self.sym["HUD_BAR_Y"], x0)]
+        self.assertIn(trough, (0x0F, 0xFF), f"not a trough: {trough:#04x}")
         row = [ram[h.screen_offset(y, x)] for x in range(x0, x0 + self.sym["HUD_BAR_W"])]
         self.assertTrue(all(b in (0x0F, 0xF0, 0xFF) for b in row), f"not a bar: {row}")
         fill = 0
-        while fill < len(row) and row[fill] in (0xF0, 0xFF):
+        while fill < len(row) and row[fill] != trough and row[fill] in (0xF0, 0xFF):
             fill += 1
-        self.assertTrue(all(b == 0x0F for b in row[fill:]), f"a broken fill: {row}")
+        self.assertTrue(all(b == trough for b in row[fill:]), f"a broken fill: {row}")
+        self.assertTrue(all(b == row[0] for b in row[:fill]), f"a fill in two inks: {row}")
         ink = 0 if fill == 0 else (1 if row[0] == 0xF0 else 3)
         return fill, ink
 
@@ -1091,6 +1095,133 @@ class TestTheReadout(WaveFixture):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestTheEnemysTurn(WaveFixture):
+    """"Όταν ήμαστε σε μάχη, το Hull να εναλάσσεται κάθε 2 δευτερόλεπτα με
+    την δύναμη του εχθρού. Να δείχνει ΕΝΜ και την μπάρα με κόκκινο αντί για
+    μπλε." Off the pixels: the caption, the trough's ink and the fill, in
+    both buffers, with the turns timed against the 50 Hz tick.
+
+    A fight is something hostile FLYING (cbt_hostiles), so one hostile poked
+    in far off and cold is a fight in which nobody shoots and the readings
+    hold still -- the same staging test_pilot uses for V."""
+
+    def hostile(self, hull=128, where=(0, 30000, 0)):
+        """One Vekhar interceptor, thirty thousand up: past PROJ_V_LIMIT, so
+        it is never listed, drawn or shot at, and it never gets near."""
+        e = self.sym["ENT_PLAYER_MAX"]                  # the first hostile slot
+        self.c.write_ram(self.sym["ENTITIES"] + e * ENT_SIZE + ENT_X, struct.pack("<hhh", *where))
+        self.poke_ent(e, ENT_CLASS, 0)
+        self.poke_ent(e, ENT_HULL, hull)
+        self.poke_ent(e, ENT_SQUAD, 0xFF)
+        self.poke_ent(e, self.sym["ENT_ORDER"], 0)
+        self.poke_ent(e, self.sym["ENT_TARGET"], 0xFF)
+        self.poke_ent(e, self.sym["ENT_TIMER"], 0xFF)
+        self.poke_ent(e, ENT_FLAGS, F_ACTIVE | F_ENEMY)
+        return e
+
+    def caption(self, base=None):
+        return self.hull_row(base=base)[:4]
+
+    def trough(self, base=None):
+        """The HULL bar's top row: #0F is the chrome ink, #FF the alarm ink."""
+        if base is None:
+            base = h.front_buffer(self.c)
+        ram = self.c.read_ram(base, 0x4000)
+        x0 = self.sym["HUD_BAR_X"]
+        return {ram[h.screen_offset(self.sym["HUD_BAR_Y"], x)] for x in range(x0, x0 + self.sym["HUD_BAR_W"])}
+
+    def tick(self):
+        return self.byte("SYS_TICK_50HZ")
+
+    def bank4_byte(self, name):
+        """hud_bar_val is after bank4_end: the window, so read_bank4."""
+        return h.read_bank4(self.c, self.sym[name], 1)[0]
+
+    def wait_for_caption(self, word, frames=400):
+        """Run until the caption reads `word`; the tick it was first seen."""
+        for _ in range(frames // 4):
+            if self.caption() == word:
+                return self.tick()
+            self.c.run_frames(4)
+        self.fail(f"the caption reads {self.caption()!r}, never {word!r}")
+
+    def test_out_of_a_fight_it_is_hull_and_blue_and_stays_so(self):
+        """Mission 1 fields no picket: nothing hostile flies, so the turn
+        never comes -- for well over two seconds, in both buffers."""
+        self.c.run_frames(60)
+        for _ in range(4):
+            self.c.run_frames(self.sym["HUD_PHASE_TICKS"])
+            for base in (0x8000, 0xC000):
+                self.assertEqual(self.caption(base), "HULL", f"buffer {base:#06x}")
+                self.assertEqual(self.trough(base), {0x0F}, f"buffer {base:#06x}: the trough is not blue")
+        self.assertEqual(self.bank4_byte("HUD_BAR_VAL") & 0x80, 0)
+
+    def test_in_a_fight_enm_takes_a_turn_with_a_red_trough_and_the_enemys_hull(self):
+        """Half a hull on the one hostile: the ENM bar is half full in white
+        (over the alarm third), on a red trough, in both buffers; the fleet's
+        own figure and the BASE bar are untouched."""
+        self.c.run_frames(60)
+        e = self.hostile(hull=128)
+        self.wait_for_caption("ENM ")
+        self.c.run_frames(20)                            # ...into the other buffer too
+        want = self.expected_percent([e])
+        self.assertEqual(want, 50)
+        for base in (0x8000, 0xC000):
+            self.assertEqual(self.caption(base), "ENM ", f"buffer {base:#06x}")
+            self.assertEqual(self.trough(base), {0xFF}, f"buffer {base:#06x}: the trough is not red")
+            self.assertEqual(self.bar_fill("fleet", base=base), (self.bar_expect(want), 1),
+                             f"buffer {base:#06x}: not the enemy's hull")
+            self.assertEqual(self.bar_fill("moth", base=base), (self.sym["HUD_BAR_W"], 1),
+                             f"buffer {base:#06x}: BASE moved")
+        self.assertEqual(self.bank4_byte("HUD_BAR_VAL"), 0x80 | want)
+        self.assertEqual(self.byte("WAVE_PCT"), 100, "the fleet's own figure moved")
+
+    def test_the_turns_are_two_seconds_each_on_the_tick(self):
+        """ENM, then HULL, then ENM again: each turn HUD_PHASE_TICKS of the
+        50 Hz tick, give or take the game frame the flip lands in."""
+        self.c.run_frames(60)
+        self.hostile()
+        t_enm = self.wait_for_caption("ENM ")
+        t_hull = self.wait_for_caption("HULL")
+        t_enm2 = self.wait_for_caption("ENM ")
+        period = self.sym["HUD_PHASE_TICKS"]
+        for a, b in ((t_enm, t_hull), (t_hull, t_enm2)):
+            self.assertLessEqual(abs((b - a) % 256 - period), 12, f"a turn of {(b - a) % 256} ticks, not {period}")
+        self.assertEqual(self.trough(), {0xFF})
+
+    def test_the_enemys_bar_follows_its_hull(self):
+        """...and below the alarm third it is still WHITE: a red fill on the
+        red trough would be no fill at all. The trough says whose it is."""
+        self.c.run_frames(60)
+        e = self.hostile(hull=255)
+        self.wait_for_caption("ENM ")
+        self.c.run_frames(20)
+        self.assertEqual(self.bar_fill("fleet"), (self.sym["HUD_BAR_W"], 1))
+        self.poke_ent(e, ENT_HULL, 40)
+        self.c.run_frames(60)                            # a reading comes every WAVE_READ_EVERY frames
+        if self.caption() != "ENM ":
+            self.wait_for_caption("ENM ")
+            self.c.run_frames(20)
+        want = self.expected_percent([e])
+        self.assertLess(want, self.sym["HUD_HP_ALARM"])
+        self.assertEqual(self.bar_fill("fleet"), (self.bar_expect(want), 1), "the enemy's damage is not on the bar")
+
+    def test_a_wreck_is_not_the_enemy_and_ends_its_turn(self):
+        """Cripple the one hostile: nothing flies, so it is HULL and blue
+        again within a frame or two, and stays."""
+        self.c.run_frames(60)
+        e = self.hostile()
+        self.wait_for_caption("ENM ")
+        self.poke_ent(e, ENT_FLAGS, F_ACTIVE | F_ENEMY | self.sym["ENT_F_DISABLED"])
+        self.poke_ent(e, ENT_HULL, 0)
+        self.wait_for_caption("HULL", frames=80)
+        self.c.run_frames(self.sym["HUD_PHASE_TICKS"] + 40)
+        for base in (0x8000, 0xC000):
+            self.assertEqual(self.caption(base), "HULL", f"buffer {base:#06x}")
+            self.assertEqual(self.trough(base), {0x0F}, f"buffer {base:#06x}")
+        self.assertEqual(self.bar_fill("fleet"), (self.sym["HUD_BAR_W"], 1), "the squadron's own bar is not back")
 
 
 class TestTheWaveMarker(WaveFixture):

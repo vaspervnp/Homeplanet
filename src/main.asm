@@ -721,47 +721,29 @@ bank4_end:
 ;  -- and cleared by mis_init with the rest of the chase's flags.
 ;  The shooter's slot, for the frame cbt_retaliate is walking the fleet.
 cbt_avenge:         defb 0
+hud_bar_val:        defb 100            ; the HULL bar's figure, bit 7 on the enemy's turn (hud_phase)
+hud_phase_tick:     defb 0              ; the tick the turn last flipped, stepped by HUD_PHASE_TICKS
 ;  The ship being flown, for the frame pilot_frame is steering it.
 pilot_ent:          defw 0
-;  The tracers (game/shots.asm): this frame's shots, where every slot was
-;  projected, and per buffer the dots that are on it. The three counts are
-;  zeroed by mis_init; nothing else needs a starting value.
 pilot_pitch:        defb 0              ; the orbit's pitch, for when the ship is handed back
 pilot_yaw:          defb 0              ; ...and its yaw, so the view comes back where it was
 pilot_fought:       defb 0              ; something hostile flew while this ship was flown
 pilot_locked:       defb 0              ; a flying hostile projected inside the reticle this frame
 pilot_ret_pen:      defb 0              ; ...and the ink the ticks are drawn in because of it
-pilot_lock_slot:    defb 0              ; the nearest of those, by slot
-pilot_lock_z:       defb 0              ; ...and its depth, reset to #FF by pilot_frame
 pilot_prev_slot:    defb 0              ; the ship pilot_prev_pos belongs to, #FF for none
+pilot_target:       defb 0              ; the one enemy the cockpit shows, by slot; #FF for none
+pilot_shown:        defb 0              ; ...and nonzero once this frame's projection listed it
 pilot_prev_pos:     defs 6              ; where the matched target was last frame
 phase4_sorted_n:    defb 0              ; how many entries phase4_order holds from last frame
-shot_count:         defb 0
-shot_list:          defs SHOT_MAX * 2
-shot_dots_a:        defs SHOT_LIST_SIZE
-shot_dots_b:        defs SHOT_LIST_SIZE
-shot_left:          defb 0
-shot_ptr:           defw 0
-shot_shooter:       defb 0
-shot_victim:        defb 0
-shot_ax:            defw 0
-shot_ay:            defw 0
-shot_dx:            defw 0
-shot_dy:            defw 0
-shot_pen4:          defb 0
-shot_bolt_step:     defb 0              ; the flown ship's own shot: which step of its flight, 0 = none
-shot_bolt_victim:   defb 0              ; ...and the slot it was fired at
+;  (the tracers' lists are in the save block's pad: see fleet_scratch)
 ;  The wave marker's arrival point and the Mothership marker it borrows
 ;  moth_border around (game/wavesdraw.asm).
 wave_point:         defs 6
-wavem_save:         defs 4
 ;  ...set directly by the boarding action, which knows where its raid is;
 ;  wave_send clears it. game/salvage.asm.
 wavem_fixed:        defb 0
 ;  The strafing runs' walk (game/strafe.asm), and the odds of a raid at a
 ;  wreck, 0..255 against sys_rand (game/salvage.asm); mis_init sets it.
-strafe_walk:        defw 0
-strafe_left:        defb 0
 slv_ambush_odds:       defb 0
 slv_raider:         defb 0
 ;  The AUTO RESPONSE: armed by A out of a fight, used by the first hit.
@@ -772,16 +754,8 @@ auto_used:          defb 0
 cbt_prey_mask:      defb 0
 ;  The landing sequence's step counter, and the unlock banner's message and
 ;  the tick it went up on. See game/landing.asm and game/banner.asm.
-land_left:          defb 0
-land_cls:           defb 0
-land_view:          defb 0
-land_bsz:           defw 0
-land_sx:            defb 0
-land_sy:            defb 0
-land_t0:            defb 0
 ban_msg:            defb 0
 ban_tick0:          defb 0
-ban_rect:           defs 4
 ;  The chase: which way the player is steering this step (0 straight, 1 left,
 ;  2 right), the yaw view mini_blit is to draw, and one block's size.
 ;  ...the torpedo: steps of flight so far (0 = none in the air), where it was
@@ -792,27 +766,6 @@ ban_rect:           defs 4
 ;  before it is read -- over_draw and over_fires set theirs up per frame, the
 ;  breakdown tallies its per row -- so they need no starting value and were
 ;  costing DISC.BIN seventeen and thirteen bytes as `defb 0` inside the image.
-over_page_ptr:      defw 0
-over_line_ptr:      defw 0
-over_x_ptr:         defw 0
-over_line_y:        defb 0
-over_lines_left:    defb 0
-over_fires_left:    defb 0
-over_fire_ptr:      defw 0
-over_fire_buf:      defw 0
-over_chunks_left:   defb 0
-over_fire_dx:       defb 0
-over_fire_dy:       defb 0
-over_fire_h:        defb 0
-info_class:         defb 0
-info_count:         defb 0
-info_hull:          defw 0
-info_full:          defw 0
-info_pct:           defb 0
-info_y:             defb 0
-info_total:         defb 0
-info_thull:         defw 0
-info_tfull:         defw 0
 
 ;
 ;  The stand-in ships, for a machine that could not read the disc. Every class
@@ -949,31 +902,62 @@ fleet_unlocks:
 ;  lives here and costs the window nothing: a save copies whatever it holds,
 ;  harmlessly, and a load overwrites it with whatever the disc had, which
 ;  the next pass overwrites again before reading. Nothing that has to
-;  survive from one frame to the next may go here; pilot_pitch and the like
-;  stay above. The scanner's, the squadron centring's, the homeplanet's, the
-;  jump wipe's, txt_big's and pilot_ram's.
+;  survive a LOAD may go here; pilot_pitch and the like stay above. (The
+;  tracers' lists survive a frame and are here anyway, on the strength of
+;  mis_setup zeroing their counts after every load: see them.) The
+;  squadron centring's, the homeplanet's, the jump wipe's, pilot_ram's and
+;  the arrow's.
 ; ----------------------------------------------------------------------------
 fleet_pad:
     defs 2, 0                           ; shot_pos's last entry ends here: see above
 fleet_scratch:
+;  THE TRACERS' LISTS (game/shots.asm): this frame's shots, and per buffer
+;  the dots that are on it, which DO survive a frame -- a dot is taken off
+;  the buffer the next time that buffer is drawn -- and are here all the
+;  same, because the one thing that overwrites the pad is a disc load and
+;  mis_setup zeroes the three counts after every one of them, beside the
+;  shot_pos wipe. Ninety-eight bytes of the window; the V redesign's
+;  arrow and bar are what they paid for.
+shot_count:         defb 0
+shot_list:          defs SHOT_MAX * 2
+shot_dots_a:        defs SHOT_LIST_SIZE
+shot_dots_b:        defs SHOT_LIST_SIZE
+shot_bolt_step:     defb 0              ; the flown ship's own shot: which step of its flight, 0 = none
+shot_bolt_victim:   defb 0              ; ...and the slot it was fired at
+;  Per frame, read across the frame: not under sort_seen below.
+cbt_hostiles:       defb 0              ; how many hostiles fly, counted at the top of cbt_update
+hud_bar_fill:       defb 0              ; a bar's fill ink, hud_fill_ink to hud_bar within wave_draw
+pilot_lock_now:     defb 0              ; this frame's copy of pilot_locked, for pilot_frame
 pilot_scan:         defw 0              ; pilot_ram's walk over the hostile region
 pilot_scan_slot:    defb 0
+pilot_near:         defb 0              ; ...and the nearest flying hostile it passed, and how far
+pilot_near_d:       defb 0
+shot_wide:          defb 0              ; ORed into shot_plot's mask: the bolt's byte-wide dot
+arw_x:              defw 0              ; pilot_arrow's apex, its two signs, the shape's record
+arw_y:              defb 0              ; and which half is being drawn, and nothing else
+arw_h:              defb 0
+arw_v:              defb 0
+arw_n:              defb 0              ; (n, dt, db, b0), copied from arrow_side/up/corner
+arw_dt:             defb 0
+arw_db:             defb 0
+arw_b0:             defb 0
+arw_hh:             defb 0
+;  SORT_SEEN OVERLAYS EVERYTHING FROM HERE TO THE END OF THE PAD. It is
+;  phase4_refresh_order's "this index already" -- ENT_MAX bytes, cleared
+;  and written inside one call, from phase4_sort -- and nothing below is
+;  live across the sort: the squadron centring's sums are order_focus's,
+;  the homeplanet's and the tracers' sets are the draw's, the jump wipe's
+;  the reveal's, the rest belongs to screens that stop the world. Seventy-
+;  six bytes of the pad for no bytes at all. NOTHING THAT MUST SURVIVE
+;  phase4_sort MAY BE DECLARED BELOW THIS LINE; put it above, with
+;  cbt_hostiles.
+sort_seen:
 ;  order_squad_centre's sums: 24 bits an axis, x then y then z, the count,
 ;  a cursor, and the sign of the sum being divided -- see the routine.
 ord_sum:            defs 9
 ord_seen:           defb 0
 ord_sum_ptr:        defw 0
 ord_neg:            defb 0
-;  The scanner's frame (game/farmarks.asm): all written before they are read.
-scan_me:            defw 0
-scan_walk:          defw 0
-scan_left:          defb 0
-scan_sin:           defb 0
-scan_cos:           defb 0
-scan_dx:            defb 0
-scan_dz:            defb 0
-scan_t:             defb 0
-scan_ahead:         defb 0
 ;  Scratch that used to sit inside the image, for want of anywhere else: the
 ;  homeplanet's per-pass working set, the jump wipe's walk and per-ship band,
 ;  and txt_big's glyph. All written before they are read; the file was over
@@ -1002,24 +986,60 @@ jfx_fh:             defb 0
 jfx_sy:             defb 0
 jfx_spr_h:          defb 0
 jfx_half_h:         defb 0
-scan_i:             defb 0              ; the oval's column, 0..SCAN_RX
-scan_prev:          defb 0              ; ...the last column's half height
-scan_hy:            defb 0              ; ...and this one's
-scan_len:           defb 0              ; rows between the two
-scan_right:         defb 0              ; a hostile's mark: across, and
-scan_dy:            defb 0              ; ...its height off the plane
-scan_x:             defw 0              ; ...its column on the screen
-scan_tip:           defw 0              ; ...and its stalk: top row, rows
-cbt_hostiles:       defb 0              ; how many hostiles fly, counted at the top of cbt_update
-pilot_lock_now:     defb 0              ; this frame's copy of pilot_locked, for pilot_frame
-sort_seen:          defs ENT_MAX        ; phase4_refresh_order's "this index already": cleared per call
 pm_target:          defw 0              ; pilot_match's three cursors
 pm_prev:            defw 0
 pm_ours:            defw 0
+;  Moved here from after bank4_end, sixty-three bytes of the window, to pay
+;  for the HULL bar's turn with the enemy's (game/wavesdraw.asm): every one
+;  is written before it is read inside one call -- a frame's tracers, a
+;  strafe's walk, the landing's loop, the game-over page's and the squadron
+;  page's draw, the wave marker's saved bytes, the banner's rectangle.
+shot_left:          defb 0
+shot_ptr:           defw 0
+shot_shooter:       defb 0
+shot_victim:        defb 0
+shot_ax:            defw 0
+shot_ay:            defw 0
+shot_dx:            defw 0
+shot_dy:            defw 0
+shot_pen4:          defb 0
+wavem_save:         defs 4
+strafe_walk:        defw 0
+strafe_left:        defb 0
+land_left:          defb 0
+land_cls:           defb 0
+land_view:          defb 0
+land_bsz:           defw 0
+land_sx:            defb 0
+land_sy:            defb 0
+land_t0:            defb 0
+ban_rect:           defs 4
+over_page_ptr:      defw 0
+over_line_ptr:      defw 0
+over_x_ptr:         defw 0
+over_line_y:        defb 0
+over_lines_left:    defb 0
+over_fires_left:    defb 0
+over_fire_ptr:      defw 0
+over_fire_buf:      defw 0
+over_chunks_left:   defb 0
+over_fire_dx:       defb 0
+over_fire_dy:       defb 0
+over_fire_h:        defb 0
+info_class:         defb 0
+info_count:         defb 0
+info_hull:          defw 0
+info_full:          defw 0
+info_pct:           defb 0
+info_y:             defb 0
+info_total:         defb 0
+info_thull:         defw 0
+info_tfull:         defw 0
 fleet_pad_end:
     defs FLEET_BLOCK_SIZE - (fleet_pad_end - fleet_block), 0
 bank4_limit:
     assert fleet_pad_end - fleet_block <= FLEET_BLOCK_SIZE, "the scratch overflows the save block's pad"
+    assert fleet_pad_end - sort_seen >= ENT_MAX, "sort_seen overlays less of the pad than it walks"
 
     assert fleet_buffer == fleet_block + FLEET_HDR_SIZE, "the fleet must follow its header"
     assert shot_pos == fleet_block + CLASS_STANDIN_SIZE, "shot_pos does not start where the stand-in ends"
@@ -1177,7 +1197,7 @@ bank5_start:
     include "gen/hudicons.asm"
     include "gfx/bigtext.asm"           ; txt_big: CODE, run from this bank through bankn_call
     include "game/hudmarks.asm"         ; the squadron marks and their alarm: CODE, the same way
-    include "game/bank5data.asm"        ; tut_table, order_home, the fire table, the scanner's oval:
+    include "game/bank5data.asm"        ; tut_table, order_home, the fire table:
                                         ;  read once each through bankn_copy, out of bank 6 until
                                         ;  the button bar needed the room there
 bank5_data_end:

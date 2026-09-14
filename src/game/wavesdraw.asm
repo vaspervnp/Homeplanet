@@ -42,7 +42,7 @@ wave_draw:
     call unlock_banner                  ; the centre-screen unlock line, if one is up
     call shot_draw                      ; this frame's tracers, over the ships
     call pilot_reticle                  ; ...and the reticle, while a ship is flown
-    call pilot_scanner                  ; ...and the scanner beside it
+    call pilot_arrow                    ; ...and the way to its enemy, or the enemy's strength
     call wave_marker                    ; ...and where INCOMING is coming from
     ld ix,hud_alarm_frame               ; ...and the squadron alarm's blink, EVERY frame:
     ld a,GA_BANK_5                      ; bank 5, game/hudmarks.asm
@@ -55,12 +55,38 @@ wave_draw:
     ret z
     dec (hl)
 
-    ld a,(hud_sq_pct)                   ; the SELECTED SQUADRON's, not the fleet's
+    ;  The SELECTED SQUADRON's bar -- or, on the enemy's turn (bit 7 of
+    ;  hud_bar_val, see hud_phase), the enemy's strength in a RED trough
+    ;  under ENM: "Όταν ήμαστε σε μάχη, το Hull να εναλάσσεται κάθε 2
+    ;  δευτερόλεπτα με την δύναμη του εχθρού. Να δείχνει ΕΝΜ και την μπάρα
+    ;  με κόκκινο αντί για μπλε." rlca : sbc a,a is #FF for bit 7 and 0
+    ;  otherwise, and SOLID_INK_2 OR #FF is SOLID_INK_3: no branch.
+    ld a,(hud_bar_val)
+    rlca
+    sbc a,a
+    or SOLID_INK_2
+    ld c,a                              ; the trough: chrome, or the alarm ink
+    ld a,(hud_bar_val)
+    and #7F
     ld b,HUD_BAR_X
+    call hud_fill_ink
     call hud_bar
     ld a,(wave_moth_pct)
     ld b,HUD_MOTH_BAR_X
+    ld c,SOLID_INK_2
+    call hud_fill_ink
     call hud_bar
+    ;  ...and the caption, HULL or ENM, over the first: hud_draw's HULL is
+    ;  under whichever this paints, and both are four cells.
+    ld hl,hud_hp_label
+    ld a,(hud_bar_val)
+    add a,a                             ; CF = bit 7
+    jr nc,@wd_caption
+    ld hl,hud_en_label
+@wd_caption:
+    ld b,HUD_HP_X
+    ld c,CTX_Y
+    call phase4_hud_label
 
     ;  The tutorial owns the strip's SECOND line while it runs, and its
     ;  instruction is repainted on this same flag: tut_enter and every step
@@ -83,7 +109,7 @@ wave_draw:
 ;  wave_saying into ctx_sub), so the bars repaint for the hull and nothing else.
 ; ----------------------------------------------------------------------------
 wave_changed:
-    ld a,(hud_sq_pct)                   ; the bar's figure; wave_pct_shadow is its shadow
+    ld a,(hud_bar_val)                  ; the bar's figure AND whose turn it is; wave_pct_shadow is its shadow
     ld hl,wave_pct_shadow
     cp (hl)
     jr nz,@wave_hp_diff
@@ -97,7 +123,7 @@ wave_changed:
     ret z
 
 @wave_hp_diff:
-    ld a,(hud_sq_pct)
+    ld a,(hud_bar_val)
     ld (wave_pct_shadow),a
     ld a,(wave_moth_pct)
     ld (wave_moth_shadow),a
@@ -376,7 +402,8 @@ wave_init:
 
 
 ; ----------------------------------------------------------------------------
-;  hud_squad_health -- (hud_sq_pct) = the SELECTED squadron's hull, 0..100
+;  hud_squad_health -- (hud_sq_pct) = the SELECTED squadron's hull, 0..100,
+;                      (hud_en_pct) = the ENEMY's, and then hud_phase
 ;  Uses: everything
 ;
 ;  "Το Hull πρέπει να δείχνει την κατάσταση του επιλεγμένου squadron." The
@@ -389,11 +416,15 @@ wave_init:
 ;  Re-read on the frame wave_health has just walked the fleet -- wave_tick is
 ;  left at WAVE_READ_EVERY on that frame and nothing else -- and whenever the
 ;  selection has moved, so a number key changes the bar on its own frame
-;  rather than up to four later. The walk is wave_health's, with the squadron
-;  byte (ENT_SQUAD, the byte after the flags) asked as well, and it FOLDS
+;  rather than up to four later. The walk is hud_walk, wave_health's loop with
+;  the fold as a parameter: hud_sq_fold asks the squadron byte, hud_en_fold
+;  asks for a FLYING hostile (ENEMY and not DISABLED, mis_count_hostiles'
+;  own test, so a wreck adrift counts for nothing either way), and both FOLD
 ;  THROUGH wave_hp_add into wave_hull/wave_full, which are the fleet's: they
 ;  are saved on the stack and put back, so wave_send's reading is untouched.
-;  That is fourteen bytes of push/pop against a second fold routine.
+;  The enemy's is read on the same frames, twenty slots, so the bar under ENM
+;  moves as the fight goes -- it is the mirror of HULL, hull over full, not a
+;  headcount.
 ; ----------------------------------------------------------------------------
 hud_squad_health:
     ld a,(wave_tick)
@@ -402,45 +433,115 @@ hud_squad_health:
     ld a,(squad_sel)
     ld hl,hud_sq_sel
     cp (hl)
-    ret z
+    jr nz,@hsq_read
+    jr hud_phase                        ; nothing new to read: the turn still ticks
 @hsq_read:
     ld a,(squad_sel)
     ld (hud_sq_sel),a
-    cp SQUAD_NONE
-    ld a,(wave_pct)
-    jr z,@hsq_store                     ; the base selected: the whole fleet's
-
     ld hl,(wave_hull)
     push hl
     ld hl,(wave_full)
     push hl
+    cp SQUAD_NONE
+    ld a,(wave_pct)
+    jr z,@hsq_store                     ; the base selected: the whole fleet's
+    ld hl,entities + ENT_FLAGS
+    ld b,ENT_PLAYER_MAX
+    ld de,hud_sq_fold
+    call hud_walk
+@hsq_store:
+    ld (hud_sq_pct),a
+    ld hl,entities + ENT_PLAYER_MAX * ENT_SIZE + ENT_FLAGS
+    ld b,ENT_ENEMY_MAX
+    ld de,hud_en_fold
+    call hud_walk
+    ld (hud_en_pct),a
+    pop hl
+    ld (wave_full),hl
+    pop hl
+    ld (wave_hull),hl
+    ;  ...and fall into hud_phase
+
+; ----------------------------------------------------------------------------
+;  hud_phase -- whose turn the HULL bar is: (hud_bar_val) = the percentage to
+;               draw, bit 7 set on the ENEMY's
+;  Uses: AF, C, HL
+;
+;  "Όταν ήμαστε σε μάχη, το Hull να εναλάσσεται κάθε 2 δευτερόλεπτα με την
+;  δύναμη του εχθρού." A fight is something hostile FLYING -- cbt_hostiles,
+;  the count cbt_prey_roll takes at the top of every cbt_update, the jump
+;  gate's and V's own predicate -- and the turn flips every HUD_PHASE_TICKS
+;  of the 50 Hz tick, counted from hud_phase_tick and stepped by the period
+;  rather than reset, so the turns are two seconds each whatever the frame
+;  rate. Out of a fight it is HULL, always; the clock free-runs, so a fight
+;  may open on either turn, which is a second of ENM at most. The value is
+;  rebuilt every frame from whichever reading is current, so the bar follows
+;  the hull under HULL and the enemy under ENM; wave_changed compares this
+;  byte, and the bit is what makes the flip itself a repaint.
+; ----------------------------------------------------------------------------
+hud_phase:
+    ld hl,hud_phase_tick
+    ld a,(sys_tick_50hz)
+    sub (hl)
+    cp HUD_PHASE_TICKS
+    ld a,(hud_bar_val)                  ; the flags survive the load
+    jr c,@hp_keep
+    ld c,a
+    ld a,(hl)
+    add a,HUD_PHASE_TICKS               ; the period is up: step the clock, not reset it
+    ld (hl),a
+    ld a,c
+    xor #80                             ; ...and it is the other's turn
+@hp_keep:
+    ld c,a
+    ld a,(cbt_hostiles)
+    or a
+    ld a,c
+    jr nz,@hp_fight
+    xor a                               ; no fight: HULL
+@hp_fight:
+    and #80
+    ld c,a                              ; Z: HULL's turn
+    ld a,(hud_sq_pct)
+    jr z,@hp_val
+    ld a,(hud_en_pct)
+@hp_val:
+    or c
+    ld (hud_bar_val),a
+    ret
+
+;  hud_walk -- hull over full across a run of slots, through a fold
+;  In : HL -> the first slot's ENT_FLAGS, B = slots, DE = the fold to call
+;       for an ACTIVE one (HL -> its flags; it keeps HL, DE and B)
+;  Out: A = 100 * hull / full over what the fold accepted
+;  Uses: everything
+;
+;  The fold is the CALL's own operand, patched in: one loop for two readings
+;  and no branch inside it. Self-modifying, like scr_fill_rect's fill byte.
+hud_walk:
+    ld (@hw_fold),de
+    push hl
     ld hl,0
     ld (wave_hull),hl
     ld (wave_full),hl
-    ld hl,entities + ENT_FLAGS
+    pop hl
     ld de,ENT_SIZE
-    ld b,ENT_PLAYER_MAX
-@hsq_one:
+@hw_one:
     ld a,(hl)
-    and ENT_F_ACTIVE + ENT_F_ENEMY
-    cp ENT_F_ACTIVE
-    call z,hud_sq_fold                  ; ours, flying, and in the selection?
+    and ENT_F_ACTIVE
+@hw_fold equ $ + 1
+    call nz,0                           ; the fold: patched above
     add hl,de
-    djnz @hsq_one
+    djnz @hw_one
     ld hl,(wave_hull)
     ld de,(wave_full)
-    call wave_pct_of
-    pop hl
-    ld (wave_full),hl
-    pop hl
-    ld (wave_hull),hl
-@hsq_store:
-    ld (hud_sq_pct),a
-    ret
+    jp wave_pct_of
 
-;  In : HL -> a live friendly ship's ENT_FLAGS byte
+;  In : HL -> a live ship's ENT_FLAGS byte
 ;  Out: HL, DE and B as they were, like wave_hp_add
 ;  Uses: AF, C
+;  The player's region holds nothing hostile (the partition), so the squadron
+;  byte is the whole question.
 hud_sq_fold:
     inc hl
     ld a,(hl)                           ; ENT_SQUAD is the byte after the flags
@@ -451,5 +552,42 @@ hud_sq_fold:
     ret nz
     jp wave_hp_add
 
-hud_sq_pct:         defb 100            ; what the HULL bar draws
+;  ...and the hostile region's: a FLYING hostile, wrecks not.
+hud_en_fold:
+    ld a,(hl)
+    and ENT_F_ENEMY + ENT_F_DISABLED
+    cp ENT_F_ENEMY
+    ret nz
+    jp wave_hp_add
+
+; ----------------------------------------------------------------------------
+;  hud_fill_ink -- what a bar's fill is drawn in
+;  In : A = the percentage, C = the trough's ink
+;  Out: (hud_bar_fill) = SOLID_INK_1, or SOLID_INK_3 below HUD_HP_ALARM on a
+;       chrome trough; A, B, C as they were
+;  Uses: F
+;
+;  The alarm ink is for OUR hull, and on the enemy's turn the trough is
+;  already that ink: a red fill on a red trough is no fill at all, so the
+;  enemy's is white whatever it reads -- the trough says whose it is. The
+;  decision was hud_bar's, in the low 16K, which is at its page; here it is
+;  bank code and eight bytes cheaper down there.
+; ----------------------------------------------------------------------------
+hud_fill_ink:
+    push af
+    cp HUD_HP_ALARM
+    ld a,SOLID_INK_1
+    jr nc,@hf_store
+    ld a,c
+    cp SOLID_INK_2
+    ld a,SOLID_INK_1
+    jr nz,@hf_store                     ; the enemy's turn: white
+    ld a,SOLID_INK_3
+@hf_store:
+    ld (hud_bar_fill),a
+    pop af
+    ret
+
+hud_sq_pct:         defb 100            ; what the HULL bar draws on its turn
+hud_en_pct:         defb 0              ; ...and the ENM bar on its
 hud_sq_sel:         defb #FF            ; the selection it was read for
