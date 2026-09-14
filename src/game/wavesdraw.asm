@@ -38,6 +38,7 @@
 ;  moves, and by hud_draw whenever it has blanked the strip under them.
 ; ----------------------------------------------------------------------------
 wave_draw:
+    call hud_squad_health               ; the HULL bar's own reading, if it is due
     call unlock_banner                  ; the centre-screen unlock line, if one is up
     call shot_draw                      ; this frame's tracers, over the ships
     call pilot_reticle                  ; ...and the reticle, while a ship is flown
@@ -54,7 +55,7 @@ wave_draw:
     ret z
     dec (hl)
 
-    ld a,(wave_pct)
+    ld a,(hud_sq_pct)                   ; the SELECTED SQUADRON's, not the fleet's
     ld b,HUD_BAR_X
     call hud_bar
     ld a,(wave_moth_pct)
@@ -82,7 +83,7 @@ wave_draw:
 ;  wave_saying into ctx_sub), so the bars repaint for the hull and nothing else.
 ; ----------------------------------------------------------------------------
 wave_changed:
-    ld a,(wave_pct)
+    ld a,(hud_sq_pct)                   ; the bar's figure; wave_pct_shadow is its shadow
     ld hl,wave_pct_shadow
     cp (hl)
     jr nz,@wave_hp_diff
@@ -96,7 +97,7 @@ wave_changed:
     ret z
 
 @wave_hp_diff:
-    ld a,(wave_pct)
+    ld a,(hud_sq_pct)
     ld (wave_pct_shadow),a
     ld a,(wave_moth_pct)
     ld (wave_moth_shadow),a
@@ -369,4 +370,86 @@ wave_init:
     ld (wave_say),a
     ;  The readout must be right on the first frame of the mission, not on the
     ;  second: mis_setup has just changed the fleet.
+    dec a                               ; #FF: no squadron, so the HULL bar re-reads
+    ld (hud_sq_sel),a
     jp wave_health
+
+
+; ----------------------------------------------------------------------------
+;  hud_squad_health -- (hud_sq_pct) = the SELECTED squadron's hull, 0..100
+;  Uses: everything
+;
+;  "Το Hull πρέπει να δείχνει την κατάσταση του επιλεγμένου squadron." The
+;  fleet's average is what the waves are sized on and what wave_pct still
+;  holds; the bar under HULL is the squadron the player is looking at, which
+;  is the one whose damage is a decision -- repair it, recycle it, or send it
+;  in again. With the base selected (SQUAD_NONE) it is the fleet's: BASE
+;  beside it already says the Mothership's own.
+;
+;  Re-read on the frame wave_health has just walked the fleet -- wave_tick is
+;  left at WAVE_READ_EVERY on that frame and nothing else -- and whenever the
+;  selection has moved, so a number key changes the bar on its own frame
+;  rather than up to four later. The walk is wave_health's, with the squadron
+;  byte (ENT_SQUAD, the byte after the flags) asked as well, and it FOLDS
+;  THROUGH wave_hp_add into wave_hull/wave_full, which are the fleet's: they
+;  are saved on the stack and put back, so wave_send's reading is untouched.
+;  That is fourteen bytes of push/pop against a second fold routine.
+; ----------------------------------------------------------------------------
+hud_squad_health:
+    ld a,(wave_tick)
+    cp WAVE_READ_EVERY
+    jr z,@hsq_read
+    ld a,(squad_sel)
+    ld hl,hud_sq_sel
+    cp (hl)
+    ret z
+@hsq_read:
+    ld a,(squad_sel)
+    ld (hud_sq_sel),a
+    cp SQUAD_NONE
+    ld a,(wave_pct)
+    jr z,@hsq_store                     ; the base selected: the whole fleet's
+
+    ld hl,(wave_hull)
+    push hl
+    ld hl,(wave_full)
+    push hl
+    ld hl,0
+    ld (wave_hull),hl
+    ld (wave_full),hl
+    ld hl,entities + ENT_FLAGS
+    ld de,ENT_SIZE
+    ld b,ENT_PLAYER_MAX
+@hsq_one:
+    ld a,(hl)
+    and ENT_F_ACTIVE + ENT_F_ENEMY
+    cp ENT_F_ACTIVE
+    call z,hud_sq_fold                  ; ours, flying, and in the selection?
+    add hl,de
+    djnz @hsq_one
+    ld hl,(wave_hull)
+    ld de,(wave_full)
+    call wave_pct_of
+    pop hl
+    ld (wave_full),hl
+    pop hl
+    ld (wave_hull),hl
+@hsq_store:
+    ld (hud_sq_pct),a
+    ret
+
+;  In : HL -> a live friendly ship's ENT_FLAGS byte
+;  Out: HL, DE and B as they were, like wave_hp_add
+;  Uses: AF, C
+hud_sq_fold:
+    inc hl
+    ld a,(hl)                           ; ENT_SQUAD is the byte after the flags
+    dec hl
+    ld c,a
+    ld a,(squad_sel)
+    cp c
+    ret nz
+    jp wave_hp_add
+
+hud_sq_pct:         defb 100            ; what the HULL bar draws
+hud_sq_sel:         defb #FF            ; the selection it was read for

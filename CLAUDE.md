@@ -5569,7 +5569,9 @@ inside the file out of it and gives about 900 bytes back. See `todo.md`.
 
 **The top strip is two lines and the fleet's, and the context bar is a line
 at the bottom.** `CTX_BAR_H` 20, `PROJ_CENTRE_Y` 94, and `game/huddraw.asm`
-(low 16K, by arithmetic — see hud2.md §4) draws HULL and BASE as bars, RU and
+(low 16K, by arithmetic — see hud2.md §4) draws HULL — the SELECTED
+SQUADRON's, read by `hud_squad_health` into `hud_sq_pct`; `wave_pct` stays
+the fleet's for the waves — and BASE as bars, RU and
 M on line 1, and SQUADRONS as nine marks (blue with ships, white empty, RED
 selected — the owner's assignment) with the selected one's number and count,
 the yard and JUMP on line 2. `wave_draw` draws only the two bars, on

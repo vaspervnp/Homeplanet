@@ -378,6 +378,7 @@ low_end:
 ;  ENT_CLASS and the fleet's hull is silently summed out of ENT_SPEED.
     assert ENT_HULL == ENT_FLAGS - 1, "wave_hp_add reaches ENT_HULL with one DEC"
     assert ENT_CLASS == ENT_FLAGS - 2, "wave_hp_add reaches ENT_CLASS with two DECs"
+    assert ENT_SQUAD == ENT_FLAGS + 1, "hud_sq_fold reaches ENT_SQUAD with one INC"
 
 ;  The third HUD row. It has to be inside the strip the HUD owns -- otherwise
 ;  the tactical view draws over it and the dirty-rectangle erase scrubs it --

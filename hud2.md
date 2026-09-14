@@ -207,7 +207,13 @@ and this is four hundred, while removing the old `phase4_hud` — nine
 back. Low 16K `free:` 402 after, hand-written code at `#25E1`; bank 4
 **139**, up from 24.
 
-**Line 1 is the fleet's health, as bars.** `HULL` and `BASE` are captions in
+**Line 1 is the health, as bars — HULL the SELECTED SQUADRON's, BASE the
+Mothership's.** *"Το Hull πρέπει να δείχνει την κατάσταση του επιλεγμένου
+squadron"*: `hud_squad_health` (bank 4, `game/wavesdraw.asm`) re-reads the
+selection's hull through `wave_hp_add` on the frame `wave_health` reads the
+fleet's and on any frame the selection has moved, into `hud_sq_pct`; the
+fleet's average stays in `wave_pct` for the waves, and with the base
+selected the bar shows it. `HULL` and `BASE` are captions in
 the chrome ink on two **bars**, 18 bytes by 6 lines (`HUD_BAR_*`): a blue
 trough (`SOLID_INK_2`) with the inner four lines overwritten from the left
 in white for `(pct × 46 + 128) >> 8` bytes — `pct × 18 / 100` rounded, one

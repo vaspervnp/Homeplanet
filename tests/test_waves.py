@@ -49,7 +49,7 @@ ENT_SIZE = 20
 #  stop looking exactly where the new slots are.
 ENT_MAX = h.symbols()["ENT_MAX"]
 ENT_X, ENT_Y, ENT_Z = 0, 2, 4
-ENT_YAW, ENT_CLASS, ENT_HULL, ENT_FLAGS = 6, 9, 10, 11
+ENT_YAW, ENT_CLASS, ENT_HULL, ENT_FLAGS, ENT_SQUAD = 6, 9, 10, 11, 12
 F_ACTIVE, F_ENEMY, F_WAVE = 1, 2, 8
 CLASS_INTERCEPTOR, CLASS_MOTHERSHIP = 0, 1
 
@@ -135,6 +135,12 @@ class WaveFixture(unittest.TestCase):
 
     def friendly(self):
         return self.slots(lambda f: f & F_ACTIVE and not f & F_ENEMY)
+
+    def selected(self):
+        """The friendly ships in the selected squadron -- what the HULL bar
+        reads (hud_squad_health), where the fleet's average is the waves'."""
+        sel = self.byte("SQUAD_SEL")
+        return [s for s in self.friendly() if self.ent(s, ENT_SQUAD) == sel]
 
     def riders(self):
         """Slots holding a ship that arrived with a wave."""
@@ -264,7 +270,7 @@ class WaveFixture(unittest.TestCase):
         return "?"
 
     # -- the model ----------------------------------------------------------
-    def expected_percent(self):
+    def expected_percent(self, slots=None):
         """What wave_percent should be saying, computed from the table itself.
 
         class_hull is in bank 4, so it is read through the CPU's view. Reading
@@ -273,7 +279,7 @@ class WaveFixture(unittest.TestCase):
         """
         table = h.read_bank4(self.c, self.sym["CLASS_HULL"], 8)
         hull = full = 0
-        for slot in self.friendly():
+        for slot in (self.friendly() if slots is None else slots):
             hull += self.ent(slot, ENT_HULL)
             full += table[self.ent(slot, ENT_CLASS)]
         if full == 0:
@@ -787,9 +793,11 @@ class TestTheMothershipsOwnFigure(WaveFixture):
                         f"the Mothership is at a tenth and BASE reads {moth}%")
 
         #  Two bars, two fills -- and the Mothership's is red, below the third.
-        self.assertEqual(self.bar_fill("fleet"), (self.bar_expect(fleet), 1))
+        #  HULL is the selected squadron's, which the Mothership is not in.
+        sq = self.expected_percent(self.selected())
+        self.assertEqual(self.bar_fill("fleet"), (self.bar_expect(sq), 1))
         self.assertEqual(self.bar_fill("moth"), (self.bar_expect(moth), 3))
-        self.assertGreater(self.bar_expect(fleet), self.bar_expect(moth) + 10)
+        self.assertGreater(self.bar_expect(sq), self.bar_expect(moth) + 10)
 
     def test_it_repaints_when_only_the_mothership_moves(self):
         """wave_changed compares a shadow per figure, and the Mothership needs
@@ -902,7 +910,41 @@ class TestTheReadout(WaveFixture):
         want = self.expected_percent()
         self.assertLess(want, 100)
         self.assertEqual(self.byte("WAVE_PCT"), want)
-        self.assertEqual(self.bar_fill("fleet"), (self.bar_expect(want), 1 if want >= self.sym["HUD_HP_ALARM"] else 3))
+        sq = self.expected_percent(self.selected())
+        self.assertLess(sq, 100)
+        self.assertEqual(self.bar_fill("fleet"), (self.bar_expect(sq), 1 if sq >= self.sym["HUD_HP_ALARM"] else 3))
+
+    def test_the_bar_is_the_selected_squadrons_and_not_the_fleets(self):
+        """"Το Hull πρέπει να δείχνει την κατάσταση του επιλεγμένου squadron."
+        Divide squadron 1, cripple squadron 2: the bar under HULL stays whole
+        while 1 is selected, drops to 2's figure when 2 is, and reads the
+        fleet's average with the base (0) selected -- all three off the
+        pixels, and the fleet's own figure untouched throughout."""
+        self.c.run_frames(60)
+        self.hold("d")
+        two = [s for s in self.friendly() if self.ent(s, ENT_SQUAD) == 2]
+        self.assertTrue(two, "d did not make a squadron 2")
+        for slot in two:
+            self.poke_ent(slot, ENT_HULL, 40)
+        self.c.run_frames(80)
+        self.assertEqual(self.byte("SQUAD_SEL"), 1)
+        fleet = self.expected_percent()
+        self.assertEqual(self.byte("WAVE_PCT"), fleet, "the fleet's own figure moved")
+        self.assertEqual(self.bar_fill("fleet"), (self.sym["HUD_BAR_W"], 1),
+                         "squadron 1 is whole and its bar is not full")
+
+        self.hold("2")
+        self.assertEqual(self.byte("SQUAD_SEL"), 2)
+        sq = self.expected_percent(self.selected())
+        self.assertLess(sq, self.sym["HUD_HP_ALARM"])
+        self.assertEqual(self.bar_fill("fleet"), (self.bar_expect(sq), 3),
+                         "selecting 2 did not put its hull on the bar, in red")
+        self.assertEqual(self.byte("WAVE_PCT"), fleet, "the fleet's own figure moved")
+
+        self.hold("0")
+        self.assertEqual(self.byte("SQUAD_SEL"), 0)
+        self.assertEqual(self.bar_fill("fleet"), (self.bar_expect(fleet), 1),
+                         "with the base selected the bar is not the fleet's")
 
     def test_the_figure_tracks_the_table_over_a_whole_sweep(self):
         """The divide is the only one in the game -- eight steps of a restoring
