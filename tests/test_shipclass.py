@@ -425,13 +425,15 @@ class TestTheBanks(ClassFixture):
             self.page_in(bank)
             got = bytearray(h.read_cpu(self.c, BANK_WINDOW, len(want)))
             want = bytearray(want)
-            #  Two banks hold CODE now, and code has state: the button bar's in
-            #  bank 6 (bar_sel..bar_x, game/hudbar.asm) and txt_big's three
-            #  bytes of scratch in bank 5 (gfx/bigtext.asm), which the title
-            #  screen has already written by the time this reads. Those bytes
-            #  are RAM by design; the rest is the disc's.
+            #  All three banks hold CODE now, and code has state: the button
+            #  bar's in bank 6 (bar_sel..bar_x, game/hudbar.asm), txt_big's
+            #  three bytes of scratch in bank 5 (gfx/bigtext.asm), which the
+            #  title screen has already written by the time this reads, and
+            #  the cockpit's scanner's in bank 7 (game/scanner.asm). Those
+            #  bytes are RAM by design; the rest is the disc's.
             live = {"bank6": [("BAR_SEL", "BAR_X")],
-                    "bank5": [("TXT_BIG_GLYPH", "TXT_BIG_REPS"), ("HUD_MARK_PEN", "HUD_MARK_Y")]}
+                    "bank5": [("TXT_BIG_GLYPH", "TXT_BIG_REPS"), ("HUD_MARK_PEN", "HUD_MARK_Y")],
+                    "bank7": [("SCAN_ME", "SCAN_AHEAD")]}       # the scanner's scratch, game/scanner.asm
             for first, last in live.get(name, []):
                 lo = self.sym[first] - BANK_WINDOW
                 hi = self.sym[last] + 1 - BANK_WINDOW

@@ -345,9 +345,12 @@ right or left edge, the top or the bottom, or in a corner for a diagonal —
 and the moment it comes into view the arrow goes and the bar appears over
 it. An enemy exactly behind you draws no arrow: turn, and it will. Nothing
 behind your nose is drawn, and nothing closer than about five thousand
-units ahead of it — the cockpit sees the middle distance. (The oval
-scanner that used to sit at the bottom right is gone; the arrow is what
-points you at the enemy now.)
+units ahead of it — the cockpit sees the middle distance. The oval
+**scanner** at the bottom right is the plane you fly in, seen flat: your
+ship is the dot in the middle, up the oval is ahead and right is right, and
+every flying enemy is a red mark on it — level is a dash, one above you a
+`T`, one below an upside-down `T`, the stalk's length its height. The arrow
+points you at the one enemy the view follows; the scanner shows all of them.
 
 Your ship's own shots leave from the gun under the nose, at the bottom of
 the view, and **fly**: a fat white bolt rises to the enemy over a few frames,

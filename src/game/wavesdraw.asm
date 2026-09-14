@@ -44,6 +44,9 @@ wave_draw:
     call pilot_reticle                  ; ...and the reticle, while a ship is flown
     call pilot_arrow                    ; ...and the way to its enemy, or the enemy's strength
     call wave_marker                    ; ...and where INCOMING is coming from
+    ld ix,pilot_scanner                 ; ...and the cockpit's scanner, while a ship is flown:
+    ld a,GA_BANK_7                      ; bank 7, game/scanner.asm
+    call bankn_call
     ld ix,hud_alarm_frame               ; ...and the squadron alarm's blink, EVERY frame:
     ld a,GA_BANK_5                      ; bank 5, game/hudmarks.asm
     call bankn_call

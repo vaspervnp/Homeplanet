@@ -1079,7 +1079,7 @@ not needed and should stay unspent.
 | `I` | what the selected squadron is made of; `ESC` goes back |
 | `?` | the key list; `ESC` goes back |
 | `ESC` | in the TUTORIAL, leave it and go back to the title |
-| `V` | **fly the selected squadron's lead ship yourself**: the arrows turn, climb and dive it, `SPACE` fires its gun (a byte-wide bolt), the camera rides inside it, a reticle marks the middle of the view. **One enemy is drawn** — the one in the reticle, else the nearest — as a sprite with its strength barred over it, a red arrowhead at the edge of the view pointing at it while it is off the screen; nothing else, friend or foe, is drawn (the scanner that sat at the bottom right is gone). `V` again, its death, or **the fight ending** hands it back. Not the Mothership, not in the tutorial — see "V: you are the interceptor" and "The cockpit shows one enemy" |
+| `V` | **fly the selected squadron's lead ship yourself**: the arrows turn, climb and dive it, `SPACE` fires its gun (a byte-wide bolt), the camera rides inside it, a reticle marks the middle of the view. **One enemy is drawn** — the one in the reticle, else the nearest — as a sprite with its strength barred over it, a red arrowhead at the edge of the view pointing at it while it is off the screen; nothing else, friend or foe, is drawn as a ship — the Elite-style oval **scanner** at the bottom right shows every flying hostile as a red mark with a height stalk, and it is back, from bank 7. `V` again, its death, or **the fight ending** hands it back. Not the Mothership, not in the tutorial — see "V: you are the interceptor" and "The cockpit shows one enemy" |
 | `SPACE` | on the title screen, start the game |
 
 `J` **announces** the jump and the drive spools for ten seconds of live battle before it happens; `ESC` calls it off — see "The jump counts down". It **lands** rather than jumping on the last mission, and landing opens the victory screen — see "The end of the journey". **On the last mission, with `LAND` on offer, `L` lands too** — it is the squadron key every other time; see "`L` lands as well" under that section. Otherwise it jumps when `mis_gate` allows it — the objective met, three waves seen, no
@@ -5603,7 +5603,9 @@ banner's rectangle — from after `bank4_end`, and that left the window
 **53 over**, so **the cockpit's scanner went** (`pilot_scanner` and its
 oval, ~527 bytes of bank 4 and 39 of bank 5): the V redesign that follows
 replaces it with an arrow at the edge of the view, and the two could not
-both be held. `tests/test_waves.TestTheEnemysTurn` reads the caption, the
+both be held — **and then it came back, from BANK 7**, once the briefings
+were packed five bits a character; see "The scanner is back, from bank 7".
+`tests/test_waves.TestTheEnemysTurn` reads the caption, the
 trough's ink, the fill and the turn's length off the pixels, in both
 buffers, against one hostile parked thirty thousand up. **And the boot's
 hint (below) never showed on its first build**: `bar_frame` asked for
@@ -6932,7 +6934,8 @@ goes through `phase4_add_rect` like a marker's.
 **The bolt is a byte wide and two lines tall**: `shot_plot_big` sets
 `shot_wide` to `#F0` so `shot_plot` ORs the whole byte into the mask, and
 plots the row below as well; `SHOT_DOTS` is `SHOT_MAX * 3 + 4` for the
-four entries. The scanner is gone with its oval table.
+four entries. The scanner went with its oval table — and came back, from
+bank 7, two commits later; see "The scanner is back, from bank 7".
 
 > **IT DID NOT FIT, BY 232 BYTES OF THE WINDOW**, against the 454 the
 > scanner's going had left: the first build of the redesign cost 686 of
@@ -6963,6 +6966,73 @@ bytes off the front buffer at four hulls and asks that it goes when the
 enemy leaves the screen. **Accepted gaps**: a target dropped as "behind
 the nose" (raw depth under `PILOT_NEAR_RAW`) draws neither sprite nor
 arrow for those frames, and a target dead astern draws none.
+
+#### The scanner is back, from bank 7, and the briefings are packed
+
+*"στο V αφαίρεσες το radar. μπορείς να το ξαναβάλεις;"* The oval scanner
+of "The scanner is Elite's oval" — 80 × 60 at the bottom right, the ship a
+dot in the middle, every flying hostile a red mark placed by `(right,
+ahead)` against the ship's heading with a stalk for its height — is
+`game/scanner.asm` again, **assembled into bank 7 and run from it** through
+`bankn_call` (`A = GA_BANK_7`, `IX = pilot_scanner`), nine bytes at the call
+site in `wave_draw` after the marker. Legal for the reason the chase is: it
+calls only the low 16K (`gfx_vline`, `cam_sin`, `cam_mul7`, `ent_addr`,
+`phase4_add_rect`) and reads only the low 16K (`pilot_slot`, `view_sensors`,
+`entities`); the oval table and its scratch are bank-7 RAM. `bankn_call`
+returns without running anything on a discless machine, so no scanner
+there, which is what a machine with no art gets anyway.
+
+**Every bank was full, and the lever was the TEXT.** Bank 4's window was
+16, bank 5 71, bank 6 1, bank 7 ended ten bytes under the scaled blitter,
+and the low 16K eleven under its page. The briefings were 1862 bytes of
+bank 7 — sixty lines out of twenty-nine symbols — so `tools/packtext.py`
+packs them **five bits a character** into `src/gen/briefings_packed.asm`
+(1253 bytes with the marker and the length bytes; `make` regenerates it
+from `game/briefings.asm`, which is still the authored text and is not
+assembled any more), and `game/textpack.asm` decodes: a packed table begins
+with `TEXT_PACKED` (#FF), which no raw string does, each string is a length
+byte and then MSB-first codes with 0 ending it, and the alphabet is
+`"\0A..Z .,-'"`, thirty-two codes. The decoder's bit buffer is C with a
+marker bit — `sla c` hands a bit over and leaves C zero exactly when the
+byte is spent — so there is no bit counter. **`bank7_fetch`'s body moved
+INTO bank 7 with it** (`b7_fetch_body`): the paging is the only part that
+has to be in the low 16K, so the routine down there is six instructions
+and every caller is unchanged — the same HL and A in, the same line in
+`bank7_line` and cursor out, whichever kind of table it was handed. That
+gave the low 16K thirty bytes back and paid for the trampoline call.
+
+Figures after: low 16K ends **`#25E2`** (`free:` 402), bank 4's window
+**7**, bank 5 71, bank 6 1, **bank 7 5** before the scaled blitter. The
+first build of the scanner overflowed bank 7 by sixty and was leaned —
+the oval loop in registers, `scan_pair` drawing both columns through one
+push/pop, `scan_cross` for the four `cam_mul7` sequences, `rla : sbc a,a`
+for the sign extension.
+
+> **THE DISCLESS BOOT FOUND THE ONE THING THE MOVE CHANGED.** With no disc
+> bank 7 holds whatever powered up, and `bank7_fetch` used to COPY rubbish
+> out of it — harmless, a garbage title — where the new one would have RUN
+> it. `test_shipclass.TestTheFallback` hung in `wait_for_title`. The
+> trampoline asks `lib_ok` first and hands back an empty line, the shape
+> `bankn_call` already has; fourteen bytes of the low 16K.
+
+> **And the bottom-right corner arrow lands inside the oval** — apex
+> (303, 152) against an oval spanning x 238..314, y 117..155 — both in the
+> alarm ink, each with its own dirty rectangle. Accepted: the arrow is a
+> moment, the oval is chrome, and both are read. `TestTheArrow` asks that
+> every arrow pixel be lit and that any other red in the box be the
+> scanner's; the first run of `test_the_eight_directions` reported "12
+> extra" pixels that were the hostile's own mark, drawn where it should be.
+
+`tests/test_textpack.py` holds the two decoders together: every briefing
+line round-trips in Python, the table the build wrote decodes to the
+authored text, the Z80 alphabet is the packer's, all sixty lines come back
+through `bank7_fetch` on the machine, and the orders menu's RAW table
+still comes through the same call. `test_campaign`'s three briefing
+readers decode through `packtext.unpack_table` now, and `test_shipclass`
+masks the scanner's scratch (`scan_me`..`scan_ahead`, a byte LAST so the
+mask's `(first, last)` covers it) out of bank 7's comparison.
+`TestTheScanner` is back in `test_marks`, reading the oval off
+`build/bank7.raw`.
 
 #### The lock: aim at it, and fly as it flies
 

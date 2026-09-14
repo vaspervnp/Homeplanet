@@ -37,6 +37,16 @@
 ;  walked into the day the libraries repacked. bank7_fetch does the paging from
 ;  the LOW 16K and copies the three lines into brief_buffer; see sys/libload.asm.
 ;
+;  NOT ASSEMBLED ANY MORE -- PACKED. tools/packtext.py reads every `defb
+;  "...",0` below, in order, and writes src/gen/briefings_packed.asm, five
+;  bits a character (capitals, space, full stop, comma, hyphen, apostrophe
+;  -- anything else stops the build), with a length byte in front of each
+;  line; that is what src/main.asm includes. The decoder is b7_packed in
+;  game/textpack.asm and bank7_fetch's callers see the same string in
+;  bank7_line as ever. Sixty lines were 1862 bytes of a full bank; packed
+;  they are about 1220, and the room is the cockpit's scanner's. Author
+;  the words HERE, as before; the Makefile does the rest.
+;
 ;  Everything below this line is unchanged from when it lived in campaign.asm.
 ; ----------------------------------------------------------------------------
 

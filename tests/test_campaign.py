@@ -7,6 +7,7 @@ here is about losses surviving a jump rather than about the missions.
 
 from __future__ import annotations
 
+import os
 import struct
 import sys
 import unittest
@@ -15,6 +16,9 @@ sys.path.insert(0, __file__.rsplit("/", 2)[0])
 
 from tests import harness as h
 import cpc
+
+sys.path.insert(0, os.path.join(h.ROOT, "tools"))
+import packtext  # noqa: E402  -- the briefings are packed five bits a character
 
 ENT_SIZE = 20
 #  Straight out of the build: the table got bigger when the fleet's
@@ -787,17 +791,20 @@ class TestTheBriefingComesOutOfBankSeven(unittest.TestCase):
     def tearDown(self):
         h.close(getattr(self, "c", None))
 
+    def briefings_on_the_disc(self):
+        """Every line the build wrote into bank 7, decoded: the briefings are
+        PACKED there, five bits a character (tools/packtext.py, and
+        game/textpack.asm for the Z80 half), so what this reads is what
+        bank7_fetch hands the briefing screen. tests/test_textpack.py holds
+        the two decoders together."""
+        n = self.sym["MIS_COUNT"] * self.sym["BRIEF_LINES"]
+        return packtext.unpack_table(self.bank7, self.sym["MISSION_TEXT"] - 0x4000, n)
+
     def briefing_on_the_disc(self, mission):
         """The three lines the build wrote into bank 7 for one mission."""
-        at = self.sym["MISSION_TEXT"] - 0x4000
-        for _ in range(mission * self.sym["BRIEF_LINES"]):
-            at = self.bank7.index(b"\0", at) + 1
-        out = []
-        for _ in range(self.sym["BRIEF_LINES"]):
-            end = self.bank7.index(b"\0", at)
-            out.append(self.bank7[at:end].decode("ascii"))
-            at = end + 1
-        return out
+        lines = self.briefings_on_the_disc()
+        first = mission * self.sym["BRIEF_LINES"]
+        return lines[first:first + self.sym["BRIEF_LINES"]]
 
     def line_on_the_screen(self, y):
         """Decode one row of glyphs, the way tests/test_ctxbar.py does."""
@@ -836,14 +843,14 @@ class TestTheBriefingComesOutOfBankSeven(unittest.TestCase):
         TXT_CHAR_W_BYTES of them, and the text starts at BRIEF_X.
         """
         room = (80 - self.sym["BRIEF_X"]) // self.CHAR_W_BYTES
-        at, n, over = self.sym["MISSION_TEXT"] - 0x4000, 0, []
+        n, over = 0, []
+        lines = self.briefings_on_the_disc()
         for mission in range(self.sym["MIS_COUNT"]):
             for line in range(self.sym["BRIEF_LINES"]):
-                end = self.bank7.index(b"\0", at)
-                text = self.bank7[at:end].decode("ascii")
+                text = lines[n]
                 if len(text) > room:
                     over.append((mission + 1, line, len(text), text))
-                at, n = end + 1, n + 1
+                n += 1
         self.assertEqual(over, [],
                          f"briefing lines longer than the {room} characters "
                          f"the screen holds at BRIEF_X")
@@ -863,12 +870,10 @@ class TestTheBriefingComesOutOfBankSeven(unittest.TestCase):
         does not end in a one-letter word unless the word is A or I. It would
         have caught the D, and it is the only automatic thing that could have.
         """
-        bad, at = [], self.sym["MISSION_TEXT"] - 0x4000
+        bad, lines = [], iter(self.briefings_on_the_disc())
         for mission in range(self.sym["MIS_COUNT"]):
             for line in range(self.sym["BRIEF_LINES"]):
-                end = self.bank7.index(b"\0", at)
-                text = self.bank7[at:end].decode("ascii")
-                at = end + 1
+                text = next(lines)
                 last = text.rstrip(".,").split()[-1] if text.split() else ""
                 if len(last) == 1 and last not in ("A", "I"):
                     bad.append((mission + 1, line + 1, text))

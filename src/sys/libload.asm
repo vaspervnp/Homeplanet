@@ -282,6 +282,12 @@ lib_init:
 ;  the strings are in order, so sixty pointers would be a hundred and twenty
 ;  bytes spent to avoid counting zero bytes that are already there.
 ;
+;  ONLY THE PAGING IS HERE NOW. The walk and the copy are b7_fetch_body in
+;  game/textpack.asm, in bank 7 beside the words, because the briefings are
+;  PACKED (five bits a character, tools/packtext.py) and the decoder wants
+;  to be where they are. The body tells a packed table from a raw one by
+;  the TEXT_PACKED byte in front of it; callers see no difference.
+;
 ;  IT RETURNS THE CURSOR, and that is what keeps a column of seventeen rows
 ;  from being quadratic. The briefing seeks -- it wants three lines out of
 ;  sixty and pays the skip once a line -- but a column draws every string in
@@ -408,55 +414,25 @@ chase_run:
 
 
 bank7_fetch:
+    ;  WITHOUT A DISC bank 7 holds whatever powered up, and the body would
+    ;  be RUN out of it: an empty line instead, and the cursor untouched.
+    ;  (The old low-16K copy loop merely copied rubbish; this would jump
+    ;  into it. test_shipclass's discless boot found it.)
+    push af
+    ld a,(lib_ok)
+    or a
+    jr z,@b7f_none
+    pop af
     ld bc,GA_PORT * 256 + GA_BANK_7
     out (c),c
-
-    or a
-    jr z,@b7_at_text
-    ld b,a
-@b7_skip_string:
-    ld a,(hl)
-    inc hl
-    or a
-    jr nz,@b7_skip_string
-    djnz @b7_skip_string                ; ...one whole string per pass
-@b7_at_text:
-
-    ;  C is the room left in the buffer. A bound rather than a comment: the
-    ;  text is authored in another file and a line long enough to run past the
-    ;  end would write over whatever follows, on a screen that is drawn before
-    ;  anyone could see what went wrong.
-    ld de,bank7_line
-    ld c,B7_BUF_SIZE
-@b7_copy:
-    ld a,(hl)
-    ld (de),a
-    inc hl
-    inc de
-    dec c
-    jr z,@b7_full
-    or a
-    jr nz,@b7_copy
-    jr @b7_done
-
-@b7_full:
-    ;  Out of room. Terminate what there is, so the drawing walks off the end
-    ;  of a string rather than off the end of the buffer -- and then finish
-    ;  stepping over the rest of it, or the cursor this hands back would be
-    ;  stranded in the middle of a string and every row after it would be
-    ;  garbage rather than merely short.
-    dec de
-    xor a
-    ld (de),a
-@b7_rest:
-    ld a,(hl)
-    inc hl
-    or a
-    jr nz,@b7_rest
-
-@b7_done:
+    call b7_fetch_body                  ; game/textpack.asm, IN BANK 7: the skip, the copy, the unpacking
     ld bc,GA_PORT * 256 + GA_BANK_4
     out (c),c
+    ret
+@b7f_none:
+    pop af
+    xor a
+    ld (bank7_line),a
     ret
 
 

@@ -1263,8 +1263,10 @@ bank7_start:
 ;  ...and the briefings, in the 4672 bytes of this bank that lib_load was
 ;  already reading and throwing away. game/briefings.asm has the arithmetic;
 ;  the short of it is that raw sectors cost DISC.BIN nothing and DISC.BIN is
-;  what twenty missions do not fit inside.
-    include "game/briefings.asm"
+;  what twenty missions do not fit inside. PACKED, five bits a character,
+;  since the scanner came back: game/textpack.asm.
+    include "game/textpack.asm"         ; bank7_fetch's body and the 5-bit decoder, first: TEXT_PACKED
+    include "gen/briefings_packed.asm"  ; ...game/briefings.asm, packed by tools/packtext.py
 ;  ...and the words the other two stopped-world screens draw, across for the
 ;  same reason and read by the same routine. See game/screentext.asm.
     include "game/screentext.asm"
@@ -1279,7 +1281,11 @@ bank7_start:
 ;  ...and the second one, the R-Type, which reuses the chase's blit, wait,
 ;  page and penalty. game/run.asm; minigame2.md.
     include "game/run.asm"
+;  ...and the cockpit's scanner, run from this bank through bankn_call, in
+;  the six hundred bytes the briefings' packing gave back. game/scanner.asm.
+    include "game/scanner.asm"
 bank7_data_end:
+    print "bank 7 data ends at", {hex}bank7_data_end, " free before the scaled blitter:", SPR_SCALE_ORG - bank7_data_end
     SPR_SCALE_COPY 7
 bank7_end:
     assert bank7_data_end <= SPR_SCALE_ORG, "bank 7's data has grown into the scaled blitter: move SPR_SCALE_ORG or the words"

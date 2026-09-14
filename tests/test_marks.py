@@ -554,6 +554,200 @@ class TestTheLock(MarkFixture):
         self.assertGreater(gap, hold - 2 * self.step(), f"the ship held at {gap}, well inside the hold distance")
 
 
+class TestTheScanner(TestTheReticleBox):
+    """The Elite-style scanner at the bottom right, while flying: an OVAL --
+    the plane seen flat -- with the ship in the middle, every flying hostile
+    a red mark placed by where it is relative to the ship's heading (up the
+    oval is ahead, right is right) and a STALK from its point on the plane to
+    its height above or below the ship, with a bar across the tip.
+
+    Back, from BANK 7 (game/scanner.asm) through bankn_call, after the V
+    redesign had put it out for room: the cockpit draws one enemy and an
+    arrow towards it, and this is where all of them are. Every claim here
+    is about pixels, so which bank draws them is not its business."""
+
+    def oval(self):
+        s = self.sym
+        return s["SCAN_CX"], s["SCAN_CY"], s["SCAN_RX"], s["SCAN_RY"]
+
+    def half_height(self, i):
+        """scan_oval's entry, re-derived: round(RY * sqrt(1 - (i/RX)^2))."""
+        import math
+        _, _, rx, ry = self.oval()
+        return int(round(ry * math.sqrt(max(0.0, 1 - (i / rx) ** 2))))
+
+    def test_the_table_is_the_ellipse(self):
+        rx = self.sym["SCAN_RX"]
+        with open("build/bank7.raw", "rb") as f:
+            image = f.read()
+        off = self.sym["SCAN_OVAL"] - 0x4000
+        table = image[off:off + rx + 1]
+        self.assertEqual(list(table), [self.half_height(i) for i in range(rx + 1)])
+
+    def test_the_oval_and_the_ship_are_drawn_while_flying(self):
+        self.fly_with_two_ahead()
+        cx, cy, rx, ry = self.oval()
+        self.assertEqual(self.pen_at(cx, cy), 1, "no ship in the middle of the scanner")
+        #  The four extremes of the oval, and a point on its curve either
+        #  side, in the chrome ink; the inside black.
+        for x, y in ((cx - rx, cy), (cx + rx, cy), (cx, cy - ry), (cx, cy + ry),
+                     (cx + 20, cy - self.half_height(20)), (cx - 30, cy + self.half_height(30))):
+            self.assertEqual(self.pen_at(x, y), 2, f"no oval at {(x, y)}")
+        self.assertEqual(self.pen_at(cx + 10, cy - 5), 0, "the oval is not hollow")
+        #  ...and it has no gaps on its steep sides: every row between the
+        #  top and the middle has ink somewhere in the right-hand half.
+        for y in range(cy - ry, cy + 1):
+            self.assertTrue(any(self.pen_at(x, y) == 2 for x in range(cx, cx + rx + 1)),
+                            f"row {y} of the oval's right side is empty")
+
+    def mark_for(self, slot):
+        """Where the scanner should put `slot`, modelled from the records:
+        the deltas' high bytes shifted SCAN_SHIFT, rotated by the flown
+        ship's yaw with sin7 and cam_mul7's arithmetic, `ahead` halved and
+        kept inside the oval at that column, the height clamped to
+        SCAN_HALF_V. Returns (plane point, tip). Modelled rather than
+        written down because the flown ship FLIES during the frames V takes,
+        so no fixed distance survives."""
+        import math
+        me = self.pos(self.byte("PILOT_SLOT"))
+        them = self.pos(slot)
+        yaw = self.field(self.byte("PILOT_SLOT"), 6)
+
+        def hi(d):
+            d = max(-32768, min(32767, d))
+            return (d >> 8) >> self.sym["SCAN_SHIFT"]
+
+        def sin7(a):
+            return int(round(127 * math.sin(2 * math.pi * (a & 255) / 256)))
+
+        def mul7(a, b):
+            return ((a * b) * 2) >> 8
+
+        def clamp(v, lim):
+            return max(-lim, min(lim, v))
+
+        dx, dy, dz = hi(them[0] - me[0]), hi(them[1] - me[1]), hi(them[2] - me[2])
+        sn, cs = sin7(yaw), sin7(yaw + 64)
+        right = clamp(mul7(dz, sn) - mul7(dx, cs), self.sym["SCAN_HALF_W"])
+        ahead = clamp((mul7(dx, sn) - mul7(dz, cs)) >> 1, self.half_height(abs(right)) - 1)
+        dy = clamp(dy, self.sym["SCAN_HALF_V"])
+        cx, cy, *_ = self.oval()
+        return (cx + right, cy - ahead), (cx + right, cy - ahead - dy)
+
+    def pos(self, slot):
+        return struct.unpack("<hhh", self.c.read_ram(self.sym["ENTITIES"] + slot * ENT_SIZE, 6))
+
+    def field(self, slot, off):
+        return self.c.read_ram(self.sym["ENTITIES"] + slot * ENT_SIZE + off, 1)[0]
+
+    def assert_mark(self, plane, tip):
+        (px, py), (tx, ty) = plane, tip
+        self.assertEqual(px, tx)
+        for y in range(min(py, ty), max(py, ty) + 1):
+            self.assertEqual(self.pen_at(px, y), 3, f"no stalk at {(px, y)} between {plane} and {tip}")
+        self.assertEqual(self.pen_at(tx - 1, ty), 3, f"no bar left of the tip {tip}")
+        self.assertEqual(self.pen_at(tx + 1, ty), 3, f"no bar right of the tip {tip}")
+
+    def test_a_hostile_ahead_is_a_mark_above_the_ship_and_one_to_the_right_is_right_of_it(self):
+        """The ship heads +Z, so ahead is up and +X is right -- and the
+        model above says exactly which pixels, from where the ships ARE.
+        Both level with the ship: a dash on the plane, no stalk. The fixture
+        places its hostiles at y 0 and the flown ship is not there, so they
+        are brought to its height first -- 150 units below is a pixel of
+        stalk, because the shift floors."""
+        self.fly_with_two_ahead()
+        my = self.pos(self.byte("PILOT_SLOT"))[1]
+        for slot in (self.PLAYER_MAX, self.PLAYER_MAX + 1):
+            x, _, z = self.pos(slot)
+            self.poke(slot, 0, struct.pack("<hhh", x, my, z))
+        self.settle()
+        cx, cy, *_ = self.oval()
+        (ax, ay), atip = self.mark_for(self.PLAYER_MAX)
+        (rx, ry), rtip = self.mark_for(self.PLAYER_MAX + 1)
+        self.assertEqual(ax, cx, "the hostile dead ahead is not in the ship's column")
+        self.assertLess(ay, cy, "the hostile dead ahead is not above the ship")
+        self.assertGreater(rx, cx, "the hostile to the right is not right of it")
+        self.assertEqual(atip, (ax, ay), "level with the ship, yet a stalk")
+        self.assert_mark((ax, ay), atip)
+        self.assert_mark((rx, ry), rtip)
+        #  ...and nothing where a hostile is not: mirrored below, and left.
+        self.assertEqual(self.pen_at(ax, 2 * cy - ay), 0)
+        self.assertEqual(self.pen_at(2 * cx - rx, ry), 0)
+
+    def test_it_turns_with_the_ship(self):
+        """The same two hostiles with the ship heading +X (yaw 64): the one at
+        +Z is now off the LEFT hand, the one at +X,+Z ahead-and-left."""
+        self.fly_with_two_ahead()
+        self.poke(0, 6, bytes([64]))                              # ENT_YAW: +X
+        self.settle()
+        cx, cy, *_ = self.oval()
+        #  sin 64 is 127 and cos 64 is 0, so ahead = dx and right = dz: the
+        #  ship's right hand is (-cos, sin) = (0, 1) = +Z. The hostile at +Z
+        #  is now dead to the right; the one at +X,+Z ahead of that.
+        (ax, ay), atip = self.mark_for(self.PLAYER_MAX)
+        (rx, ry), rtip = self.mark_for(self.PLAYER_MAX + 1)
+        self.assertGreater(ax, cx)
+        self.assertEqual(ay, cy, "the +Z hostile is not dead on the right hand")
+        self.assertLess(ry, cy, "the +X,+Z hostile is not ahead of it")
+        self.assert_mark((ax, ay), atip)
+        self.assert_mark((rx, ry), rtip)
+
+    def test_the_height_is_a_stalk_up_for_above_and_down_for_below(self):
+        """+Y is up: pilot_frame's UP adds to ENT_Y and proj_point's sy is the
+        centre minus it. A hostile 5000 units above the ship gets a stalk
+        rising from its plane point; one 5000 below, a stalk falling."""
+        self.fly_with_two_ahead()
+        me = self.byte("PILOT_SLOT")
+        mx, my, mz = self.pos(me)
+        self.poke(self.PLAYER_MAX, 0, struct.pack("<hhh", mx + 2000, my + 5000, mz + 8000))
+        self.poke(self.PLAYER_MAX + 1, 0, struct.pack("<hhh", mx - 2000, my - 5000, mz + 8000))
+        self.settle()
+        (ux, uy), (utx, uty) = self.mark_for(self.PLAYER_MAX)
+        (dx_, dy_), (dtx, dty) = self.mark_for(self.PLAYER_MAX + 1)
+        #  The shifts FLOOR, so 5000 up is 9 pixels and 5000 down is 10.
+        up = (5000 >> 8) >> self.sym["SCAN_SHIFT"]
+        down = -((-5000 >> 8) >> self.sym["SCAN_SHIFT"])
+        self.assertGreaterEqual(up, 3, "the fixture's height is too small to show")
+        self.assertEqual(uty, uy - up, f"5000 units up is not a stalk of {up} pixels")
+        self.assertEqual(dty, dy_ + down, f"5000 units down is not a stalk of {down} pixels")
+        self.assert_mark((ux, uy), (utx, uty))
+        self.assert_mark((dx_, dy_), (dtx, dty))
+        #  ...and the plane point is where the stalk meets the plane, not
+        #  the tip: the column above the tip is clear, and below the foot.
+        self.assertEqual(self.pen_at(ux, uty - 1), 0)
+        self.assertEqual(self.pen_at(ux, uy + 1), 0)
+
+    def test_a_mark_stays_inside_the_oval(self):
+        """A hostile far ahead and far to the right would land in the
+        rectangle's corner; the mark is held to the oval's edge at its
+        column instead."""
+        self.fly_with_two_ahead()
+        me = self.byte("PILOT_SLOT")
+        mx, my, mz = self.pos(me)
+        self.poke(self.PLAYER_MAX, 0, struct.pack("<hhh", mx + 30000, my, mz + 30000))
+        self.poke(self.PLAYER_MAX + 1, 0, struct.pack("<hhh", mx - 30000, my, mz + 30000))
+        self.settle()
+        cx, cy, rx, ry = self.oval()
+        for slot in (self.PLAYER_MAX, self.PLAYER_MAX + 1):
+            (px, py), tip = self.mark_for(slot)
+            self.assertEqual(abs(px - cx), self.sym["SCAN_HALF_W"])
+            self.assertLess(cy - py, self.half_height(abs(px - cx)), "the mark is outside the oval")
+            self.assert_mark((px, py), tip)
+
+    def test_nothing_of_it_when_nobody_is_flying(self):
+        self.fly_with_two_ahead()
+        self.c.write_ram(self.sym["ORDER_PAUSED"], b"\x00")
+        self.c.key_down("v")
+        self.c.run_frames(30)
+        self.c.key_up("v")
+        self.c.run_frames(20)
+        self.c.write_ram(self.sym["ORDER_PAUSED"], b"\x01")
+        self.settle()
+        cx, cy, rx, ry = self.oval()
+        for x, y in ((cx, cy), (cx - rx, cy), (cx, cy - ry)):
+            self.assertEqual(self.pen_at(x, y), 0, f"the scanner stayed at {(x, y)}")
+
+
 class TestTheScaledSprites(MarkFixture):
     """From the cockpit the nearest ships are drawn larger than tier C --
     x2 under PILOT_X2_RAW camera units ahead, x4 under PILOT_X4_RAW -- by
@@ -941,6 +1135,29 @@ class TestTheArrow(CockpitFixture):
         return {(x, y) for x in range(ax - box, ax + box + 1) for y in range(ay - box, ay + box + 1)
                 if self.pen_at(x, y) == 3}
 
+    def in_the_scanner(self, p):
+        """The bottom-right corner arrow lands inside the scanner's oval
+        (TestTheScanner), which draws its rim and its hostiles' marks in the
+        same ink: both are drawn, each with its own rectangle, and red there
+        that is not the arrow's is the scanner's."""
+        x0, y0 = self.sym["SCAN_X_BYTES"] * 4, self.sym["SCAN_Y"]
+        return x0 <= p[0] < x0 + self.sym["SCAN_W_BYTES"] * 4 and y0 <= p[1] < y0 + self.sym["SCAN_H"]
+
+    def assert_arrow(self, hd, vd, msg=""):
+        """Every pixel of the arrow is lit, and nothing else in its box is
+        but the scanner's."""
+        got, want = self.red_about(*self.apex(hd, vd)), self.expected(hd, vd)
+        missing = want - got
+        extra = {p for p in got - want if not self.in_the_scanner(p)}
+        self.assertEqual((sorted(missing), sorted(extra)), ([], []),
+                         f"the arrow at {(hd, vd)}: {len(got & want)} of {len(want)} pixels, {len(extra)} extra{': ' + msg if msg else ''}")
+
+    def assert_no_arrow(self, hd, vd, msg=""):
+        """Not the whole shape: the scanner's rim and marks can put a few red
+        pixels in the corner's box, never seventy-eight particular ones."""
+        got, want = self.red_about(*self.apex(hd, vd)), self.expected(hd, vd)
+        self.assertFalse(want <= got, f"an arrow at {(hd, vd)}{': ' + msg if msg else ''}")
+
     def place_off_screen(self, me, dx, dy, dz=0):
         mx, my, mz = me
         self.place(self.PLAYER_MAX, (mx + dx, my + dy, mz + dz), enemy=True)
@@ -951,10 +1168,10 @@ class TestTheArrow(CockpitFixture):
     def test_a_hostile_to_the_right_is_an_arrow_pointing_right(self):
         me = self.fly()
         self.place_off_screen(me, 12000, 0)
-        self.assertEqual(self.red_about(*self.apex(1, 0)), self.expected(1, 0))
+        self.assert_arrow(1, 0)
         #  ...and nowhere else: the other seven edges are clear.
         for hd, vd in ((-1, 0), (0, -1), (0, 1), (1, -1), (-1, -1), (1, 1), (-1, 1)):
-            self.assertEqual(self.red_about(*self.apex(hd, vd)), set(), f"an arrow at {(hd, vd)} as well")
+            self.assert_no_arrow(hd, vd, f"an arrow at {(hd, vd)} as well")
 
     def test_the_eight_directions(self):
         """One boot, the hostile moved round the ship: left, up, down and
@@ -965,8 +1182,7 @@ class TestTheArrow(CockpitFixture):
                                     ((8000, 8000), (1, -1)), ((-8000, 8000), (-1, -1)),
                                     ((8000, -8000), (1, 1)), ((-8000, -8000), (-1, 1))):
             self.place_off_screen(me, dx, dy)
-            got, want = self.red_about(*self.apex(hd, vd)), self.expected(hd, vd)
-            self.assertEqual(got, want, f"the arrow for a hostile at {(dx, dy)}: {len(got & want)} of {len(want)} pixels, {len(got - want)} extra")
+            self.assert_arrow(hd, vd, f"a hostile at {(dx, dy)}")
 
     def test_a_hostile_beside_and_above_is_the_cardinal_when_it_is_mostly_one(self):
         """Three eighths is the dead zone: 12000 across and 3000 up is
@@ -974,10 +1190,10 @@ class TestTheArrow(CockpitFixture):
         and reads as the corner."""
         me = self.fly()
         self.place_off_screen(me, 12000, 3000)
-        self.assertEqual(self.red_about(*self.apex(1, 0)), self.expected(1, 0))
+        self.assert_arrow(1, 0)
         self.place_off_screen(me, 12000, 6000)
-        self.assertEqual(self.red_about(*self.apex(1, -1)), self.expected(1, -1))
-        self.assertEqual(self.red_about(*self.apex(1, 0)), set())
+        self.assert_arrow(1, -1)
+        self.assert_no_arrow(1, 0)
 
     def test_no_arrow_while_the_enemy_is_on_the_screen_and_none_after_v(self):
         me = self.fly()
@@ -986,13 +1202,13 @@ class TestTheArrow(CockpitFixture):
         self.settle()
         self.assertEqual(len([v for v in self.visible() if v["enemy"]]), 1, "the hostile ahead is not drawn")
         for hd, vd in ((1, 0), (-1, 0), (0, -1), (0, 1), (1, -1), (-1, -1), (1, 1), (-1, 1)):
-            self.assertEqual(self.red_about(*self.apex(hd, vd)), set(), f"an arrow at {(hd, vd)} with the enemy on the screen")
+            self.assert_no_arrow(hd, vd, f"an arrow at {(hd, vd)} with the enemy on the screen")
         #  Off the screen: the arrow; the stick handed back: gone.
         self.poke(self.PLAYER_MAX, 0, struct.pack("<hhh", mx + 12000, my, mz))
         self.settle()
-        self.assertEqual(self.red_about(*self.apex(1, 0)), self.expected(1, 0))
+        self.assert_arrow(1, 0)
         self.hand_back()
-        self.assertEqual(self.red_about(*self.apex(1, 0)), set(), "the arrow stayed after V")
+        self.assert_no_arrow(1, 0, "the arrow stayed after V")
 
 
 class TestTheEnemysBar(CockpitFixture):

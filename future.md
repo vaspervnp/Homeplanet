@@ -28,9 +28,10 @@ bytes of bank 4, not 180. Item 7 is the next thing this makes possible.
 
 **Redesigned since**: from the cockpit ONE enemy is drawn (the reticle's, else
 the nearest), with its strength barred over it; a red arrowhead at the edge of
-the view points at it while it is off the screen; nothing else is drawn, the
-scanner is gone, and the bolt is a byte wide. CLAUDE.md "The cockpit shows one
-enemy".
+the view points at it while it is off the screen; nothing else is drawn as a
+ship, and the bolt is a byte wide. The oval scanner went for room and came
+back from bank 7 once the briefings were packed. CLAUDE.md "The cockpit shows
+one enemy" and "The scanner is back, from bank 7".
 
 **What.** Press `V` on a selected squadron and the camera drops onto its lead
 ship, the cursor keys steer THAT ship, and `SPACE` (or `A`) fires its gun on
