@@ -5573,8 +5573,10 @@ at the bottom.** `CTX_BAR_H` 20, `PROJ_CENTRE_Y` 94, and `game/huddraw.asm`
 SQUADRON's, read by `hud_squad_health` into `hud_sq_pct`; `wave_pct` stays
 the fleet's for the waves — and BASE as bars, RU and
 M on line 1, and SQUADRONS as nine marks (blue with ships, white empty, RED
-selected — the owner's assignment) with the selected one's number and count,
-the yard and JUMP on line 2. `wave_draw` draws only the two bars, on
+selected — the owner's assignment) with the selected one's number and count
+— a 0 and the nine squadrons' ships summed when the base is selected
+(`hud_sel_count`, bank 4, falling into `squad_count_of`) — the yard and
+JUMP on line 2. `wave_draw` draws only the two bars, on
 `wave_dirty`; `ctx_bar` draws its state words and the message row's word at
 `HUD_TEXT_Y` 190, and ordinary play draws nothing there. The old rows
 (`HUD_ROW_*`, `HUD_HP_X` as a figure) are gone; tests read `CTX_Y`,
@@ -5591,8 +5593,14 @@ group) and at the top of `ctx_bar` (the paint). The arrows are the bar's by
 default and SHIFT + the arrows are the camera's (`order_update` asks `key_down` of
 SHIFT before `order_camera`). The strip is three lines: the buttons, the
 context line at `HUD_TEXT_Y` 184, the selected button's caption at
-`HUD_DESC_Y` 192, drawn by the bar itself. The joystick (row 9 of the matrix)
-walks it and fires it too. The tutorial has the bar live, put at rest by
+`HUD_DESC_Y` 192, drawn by the bar itself. On the boot's first HUD repaint
+— the first playing frame — that line carries the tutorial's first line,
+`SHIFT+ARROWS TURN THE VIEW`, copied out of bank 7 by `bar_caption` for icon
+`HUD_ICON_COUNT`, for the usual four seconds or until the bar is touched:
+`bar_hint` is `HUD_ICON_COUNT` out of the image and 0 after. The room was
+the mission row's briefing index, which was the row's own number twenty
+times over (`MIS_SIZE` 19), and the two joystick fire clears nobody read.
+The joystick (row 9 of the matrix) walks it and fires it too. The tutorial has the bar live, put at rest by
 `bar_reset` on entry and at the move-disc step, and a nineteenth step for
 it. Its state is bank-6 RAM: tests read it with `harness.read_bank`, never
 `read_bank4`. A squadron's mark carries its number in a 4×7 black digit and

@@ -25,7 +25,6 @@ mission_table:
     defb 3
     defw patches_rich
     defb MIS_OBJ_ARRIVE
-    defb 0                             ; briefing text
 
     ; 2. ΤΕΦΡΑ -- back to the burned colony. No battle; only silence.
     defb "ASH",0,0,0,0,0,0,0,0,0
@@ -34,7 +33,6 @@ mission_table:
     defb 3
     defw patches_thin
     defb MIS_OBJ_ARRIVE
-    defb 1                             ; briefing text
 
     ; 3. ΤΟ ΝΑΥΑΓΙΟ -- a debris field with a picket sitting in it.
     defb "THE WRECK",0,0,0
@@ -43,7 +41,6 @@ mission_table:
     defb 4
     defw patches_rich
     defb MIS_OBJ_CLEAR
-    defb 2                             ; briefing text
 
     ; 4. Ο ΣΤΑΘΜΟΣ -- the first attack on a static defence.
     defb "THE DEPOT",0,0,0
@@ -52,7 +49,6 @@ mission_table:
     defb 3
     defw patches_rich
     defb MIS_OBJ_CLEAR
-    defb 3                             ; briefing text
 
     ; 5. ΤΟ ΝΕΦΕΛΩΜΑ -- sensors are down; they are already close.
     defb "THE NEBULA",0,0
@@ -61,7 +57,6 @@ mission_table:
     defb 2
     defw patches_rich
     defb MIS_OBJ_CLEAR
-    defb 4                             ; briefing text
 
     ; 6. ΤΟ ΚΟΙΜΗΤΗΡΙΟ -- a dead fleet, and it is theirs.
     defb "THE GRAVES",0,0
@@ -70,7 +65,6 @@ mission_table:
     defb 3
     defw patches_deep
     defb MIS_OBJ_CLEAR
-    defb 5                             ; briefing text
 
     ; 7. Η ΠΥΛΗ -- a Vekhar jump point, and the biggest fight so far.
     defb "THE GATE",0,0,0,0
@@ -79,7 +73,6 @@ mission_table:
     defb 3
     defw patches_deep
     defb MIS_OBJ_CLEAR
-    defb 6                             ; briefing text
 
     ; 8. ΤΟ ΣΚΟΤΑΔΙ -- empty space. The waves are the whole mission.
     defb "THE DARK",0,0,0,0
@@ -88,7 +81,6 @@ mission_table:
     defb 2
     defw patches_thin
     defb MIS_OBJ_ARRIVE
-    defb 7                             ; briefing text
 
     ; 9. ΨΥΧΡΟ ΣΙΔΕΡΟ -- three frigates. Fighters cannot pay for this.
     defb "COLD IRON",0,0,0
@@ -97,7 +89,6 @@ mission_table:
     defb 3
     defw patches_deep
     defb MIS_OBJ_CLEAR
-    defb 8                             ; briefing text
 
     ; 10. Ο ΑΝΑΜΕΤΑΔΟΤΗΣ -- they are calling ahead of us now.
     defb "THE RELAY",0,0,0
@@ -106,7 +97,6 @@ mission_table:
     defb 3
     defw patches_rich
     defb MIS_OBJ_CLEAR
-    defb 9                             ; briefing text
 
     ; 11. ΚΕΡΑ -- whoever they were, this is as far as they got.
     defb "KERA",0,0,0,0,0,0,0,0
@@ -115,7 +105,6 @@ mission_table:
     defb 2
     defw patches_thin
     defb MIS_OBJ_CLEAR
-    defb 10                             ; briefing text
 
     ; 12. ΤΑ ΡΗΧΑ -- a debris shoal, and it hides them as well as it hides us.
     defb "THE SHOALS",0,0
@@ -124,7 +113,6 @@ mission_table:
     defb 3
     defw patches_deep
     defb MIS_OBJ_CLEAR
-    defb 11                             ; briefing text
 
     ; 13. ΤΟ ΧΥΤΗΡΙΟ -- where the bombers are built. They come out to meet us.
     defb "THE FOUNDRY",0
@@ -133,7 +121,6 @@ mission_table:
     defb 3
     defw patches_deep
     defb MIS_OBJ_CLEAR
-    defb 12                             ; briefing text
 
     ; 14. Η ΠΑΡΑΣΥΡΣΗ -- nothing here at all. Hold, and let them find us.
     defb "THE DRIFT",0,0,0
@@ -142,7 +129,6 @@ mission_table:
     defb 2
     defw patches_thin
     defb MIS_OBJ_SURVIVE
-    defb 13                             ; briefing text
 
     ; 15. ΤΟ ΑΜΟΝΙ -- the same hammer, and this time they know we are coming.
     defb "THE ANVIL",0,0,0
@@ -151,7 +137,6 @@ mission_table:
     defb 3
     defw patches_deep
     defb MIS_OBJ_CLEAR
-    defb 14                             ; briefing text
 
     ; 16. ΤΟ ΠΕΡΑΣΜΑ -- a lance of frigates across the only lane.
     defb "THE CROSS",0,0,0
@@ -160,7 +145,6 @@ mission_table:
     defb 3
     defw patches_deep
     defb MIS_OBJ_CLEAR
-    defb 15                             ; briefing text
 
     ; 17. Η ΣΚΟΠΙΑ -- a small watch post, and every ship in it is heavy.
     defb "THE WATCH",0,0,0
@@ -169,7 +153,6 @@ mission_table:
     defb 2
     defw patches_rich
     defb MIS_OBJ_CLEAR
-    defb 16                             ; briefing text
 
     ; 18. ΤΟ ΚΑΤΩΦΛΙ -- the last of their outer line.
     defb "THRESHOLD",0,0,0
@@ -178,7 +161,6 @@ mission_table:
     defb 3
     defw patches_deep
     defb MIS_OBJ_CLEAR
-    defb 17                             ; briefing text
 
     ; 19. Η ΤΕΛΕΥΤΑΙΑ ΠΥΛΗ -- everything they have left, in one place.
     defb "LAST GATE",0,0,0
@@ -187,7 +169,6 @@ mission_table:
     defb 3
     defw patches_deep
     defb MIS_OBJ_CLEAR
-    defb 18                             ; briefing text
 
     ; 20. HOMEPLANET -- arrival. Hold long enough to see it.
     defb "HOMEPLANET",0,0
@@ -196,7 +177,6 @@ mission_table:
     defb 2
     defw patches_deep
     defb MIS_OBJ_SURVIVE
-    defb 19                             ; briefing text
 
 mission_table_end:
 

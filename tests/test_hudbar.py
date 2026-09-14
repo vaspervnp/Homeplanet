@@ -214,6 +214,50 @@ class TestTheArrows(BarFixture):
         self.assertEqual(self.desc_line(), hudicons.caption("menu"))
 
 
+class TestTheStartOfGameHint(BarFixture):
+    """"On start of the game there should be a hint: Use SHIFT+Arrows to
+    rotate view." The description line carries the tutorial's first line for
+    the bar's usual four seconds from the first playing frame, once a boot,
+    and the first touch of the bar replaces it with a button's caption."""
+
+    HINT = "SHIFT+ARROWS TURN THE VIEW"
+
+    def wait_for_the_hint(self):
+        for _ in range(20):
+            if self.desc_line() == self.HINT:
+                return
+            self.c.run_frames(10)
+        self.fail(f"the line reads {self.desc_line()!r}, not the hint")
+
+    def test_the_first_playing_seconds_say_shift_arrows_turn_the_view(self):
+        self.wait_for_the_hint()
+        back = 0xC000 if h.front_buffer(self.c) == 0x8000 else 0x8000
+        self.assertEqual(self.desc_line(back), self.HINT, "not in both buffers")
+        self.assertEqual(self.bank6("BAR_HINT")[0], self.sym["HUD_ICON_COUNT"])
+        self.c.run_frames(self.sym["BAR_DESC_TICKS"] + 40)
+        self.assertEqual(self.desc_line(), "")
+        self.assertEqual(self.bank6("BAR_HINT")[0], 0, "the hint is not spent")
+        #  ...and it does not come back with the next caption, or after it.
+        self.hold(cpc.KEY_RIGHT, release=10)
+        self.assertEqual(self.desc_line(), hudicons.caption("build"))
+        self.c.run_frames(self.sym["BAR_DESC_TICKS"] + 40)
+        self.assertEqual(self.desc_line(), "")
+
+    def test_touching_the_bar_ends_it_early(self):
+        self.wait_for_the_hint()
+        self.hold(cpc.KEY_RIGHT, release=10)
+        self.assertEqual(self.desc_line(), hudicons.caption("build"))
+        self.assertEqual(self.bank6("BAR_HINT")[0], 0)
+
+    def test_it_is_the_tutorials_first_line_read_off_the_disc(self):
+        """One copy of the words: bar_caption copies tut_text's first line
+        out of bank 7 rather than carrying its own."""
+        with open("build/bank7.raw", "rb") as f:
+            bank7 = f.read()
+        at = self.sym["TUT_TEXT"] - 0x4000
+        self.assertEqual(bank7[at:at + len(self.HINT) + 1], self.HINT.encode() + b"\0")
+
+
 class TestPressing(BarFixture):
 
     def test_enter_on_pause_pauses_and_does_not_open_the_disc(self):
@@ -263,9 +307,11 @@ class TestAKeySelectsItsButton(BarFixture):
         self.assertEqual(self.framed_slot(), 1, "the frame did not follow B to BUILD")
 
     def test_a_key_whose_button_is_in_a_closed_group_moves_nothing(self):
+        """...and the line is not TOW's caption: empty, or still the boot's
+        hint, which a key that is not the bar's does not spend."""
         self.hold("t")                          # TOW, inside ECONOMY+
         self.assertEqual(self.framed_slot(), 0)
-        self.assertEqual(self.desc_line(), "")
+        self.assertIn(self.desc_line(), ("", TestTheStartOfGameHint.HINT))
 
     def test_inside_a_group_a_members_key_selects_it(self):
         self.go(12)                             # ECONOMY+

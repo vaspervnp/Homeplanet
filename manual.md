@@ -85,7 +85,8 @@ them, `RU nnnn` is the treasury and `M nn` the mission number.
 for a squadron with ships in it, **white** for an empty number, **red**
 for the one you have selected. A mark **blinks** while that squadron is
 being shot at. After the marks come the selected squadron's number and how
-many ships it has; then the yard's readout (`>INT 3` is an interceptor on
+many ships it has — or, with the Mothership selected by `0`, a `0` and how
+many ships the whole fleet has; then the yard's readout (`>INT 3` is an interceptor on
 the slipway with three more waiting), and **`JUMP`** in red when you may
 leave, or **`LAND`** on the last mission.
 
@@ -129,7 +130,9 @@ it always has. A group opens as a row of its own, BACK first, and `ESC`
 Whenever the frame moves, the **description** line names the button and
 its key — `ATTACK (A)`, `STRAFE (W)` — for four seconds. Pressing a key
 whose button is showing moves the frame onto it as well as doing the thing,
-so the bar always shows what you last did.
+so the bar always shows what you last did. The first time a game starts the
+same line reads `SHIFT+ARROWS TURN THE VIEW` for those four seconds, or until
+you touch the bar.
 
 A **joystick** walks and presses the bar too: left and right move the
 frame, fire presses it.

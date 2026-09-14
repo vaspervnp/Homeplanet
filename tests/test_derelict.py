@@ -59,7 +59,7 @@ NO_TARGET = 0xFF
 CLASS_INTERCEPTOR, CLASS_FRIGATE, CLASS_SALVAGE = 0, 5, 6
 COST_INTERCEPTOR, COST_FRIGATE = 35, 120
 
-MIS_SIZE = 20
+MIS_SIZE = h.symbols()["MIS_SIZE"]
 MIS_ENEMY_COUNT = 12
 
 #  Edge-triggered commands, and the game scans once a GAME frame -- ten 50 Hz

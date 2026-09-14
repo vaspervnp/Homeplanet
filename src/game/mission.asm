@@ -40,8 +40,10 @@ MIS_ENEMY_PTR       equ 13              ; -> MIS_ENEMY_SIZE-byte rows
 MIS_PATCH_COUNT     equ 15
 MIS_PATCH_PTR       equ 16              ; -> 8-byte patches
 MIS_OBJECTIVE       equ 18
-MIS_TEXT            equ 19            ; index into mission_text_table
-MIS_SIZE            equ 20
+MIS_SIZE            equ 19
+;  (There is no briefing-text index: it was the row's own number in every one
+;  of the twenty rows, so mis_brief_draw reads mis_index. Twenty bytes of
+;  bank 6, which is what the bar's start-of-game hint is made of.)
 
 ;  A row of an enemy layout: x, y, z, and the CLASS that sits there.
 ;

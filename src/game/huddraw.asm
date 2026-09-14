@@ -120,10 +120,10 @@ hud_draw:
 
     ;  The selected squadron's number and its count -- and nothing for the
     ;  others, which is the point: which squadrons exist is the marks, and the
-    ;  one figure the player is about to give an order about is here.
+    ;  one figure the player is about to give an order about is here. With
+    ;  the base selected it is 0 and the WHOLE fleet's count: "When selected
+    ;  squadron = 0 show the entire fleet vessel number" (hud_sel_count).
     ld a,(squad_sel)
-    or a                                ; SQUAD_NONE: the base is selected
-    jr z,@hud_no_sel
     add a,'0'
     ld (hud_sel_text),a
     ld hl,hud_sel_text
@@ -131,12 +131,11 @@ hud_draw:
     ld c,CTX_Y2
     call txt_draw
     ld a,(squad_sel)
-    call squad_count_of
+    call hud_sel_count
     ld b,HUD_SEL_N_X
     ld c,CTX_Y2
     ld d,2
     call txt_draw_num
-@hud_no_sel:
 
     ; --- the way out ---------------------------------------------------------
     ;  mis_leave_ok and not mis_complete: the label is a promise that the key

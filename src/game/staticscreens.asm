@@ -273,10 +273,7 @@ mis_brief_draw:
     ;  It fetches ONE LINE per call, so mis_text_ptr counts strings now instead
     ;  of walking them; a three-line buffer cost 111 bytes of a low 16K whose
     ;  floor the tests put at about 450.
-    call mis_descriptor
-    ld de,MIS_TEXT
-    add hl,de
-    ld a,(hl)
+    ld a,(mis_index)                    ; the briefing is the mission's own number
     ld b,a
     add a,a
     add a,b                             ; BRIEF_LINES strings a mission

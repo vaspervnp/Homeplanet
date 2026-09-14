@@ -18,7 +18,7 @@ sys.path.insert(0, __file__.rsplit("/", 2)[0])
 
 from tests import harness as h
 
-MIS_SIZE = 20
+MIS_SIZE = h.symbols()["MIS_SIZE"]
 MIS_PATCH_COUNT = 15
 MIS_COUNT = 8
 

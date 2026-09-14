@@ -184,13 +184,14 @@ mis_row_in_bank7:
     ld a,(mis_index)
     ld l,a
     ld h,0
-    add hl,hl
-    add hl,hl                           ; * 4
     ld d,h
     ld e,l
     add hl,hl
-    add hl,hl                           ; * 16
-    add hl,de                           ; * 20 = MIS_SIZE
+    add hl,hl
+    add hl,hl                           ; * 8
+    add hl,de                           ; * 9
+    add hl,hl                           ; * 18
+    add hl,de                           ; * 19 = MIS_SIZE
     ld de,mission_table
     add hl,de
     ret

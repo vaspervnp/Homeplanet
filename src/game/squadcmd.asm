@@ -114,6 +114,23 @@ squad_recount:
 ;  Out: A = count
 ;  Uses: AF, DE, HL
 ; ----------------------------------------------------------------------------
+;  hud_sel_count -- ...and for SQUAD_NONE, how many ships the nine squadrons
+;  have between them: the strip's figure beside the 0 when the base is
+;  selected. squad_recount skips squad 0, so summing the whole array is the
+;  fleet less the Mothership -- which has its own bar, BASE. Falls through.
+;  In : A = a squadron, or SQUAD_NONE
+;  Out: A = the count
+;  Uses: AF, B, DE, HL
+hud_sel_count:
+    or a
+    jr nz,squad_count_of
+    ld hl,squad_count
+    ld b,SQUAD_MAX + 1
+@hsc_sum:
+    add a,(hl)
+    inc hl
+    djnz @hsc_sum
+    ret
 squad_count_of:
     ld l,a
     ld h,0

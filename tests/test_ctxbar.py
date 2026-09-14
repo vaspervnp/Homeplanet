@@ -733,6 +733,23 @@ class TestTheFleetStrip(BarFixture):
             self.assertNotIn(rows, seen, f"digit {n} looks like another")
             seen.add(rows)
 
+    def test_with_the_base_selected_the_figure_is_the_whole_fleets(self):
+        """"When selected squadron = 0 show the entire fleet vessel number":
+        0 and the nine squadrons' ships added up, the Mothership not among
+        them -- it has its own bar, BASE."""
+        self.hold("0")
+        self.assertEqual(self.byte("SQUAD_SEL"), 0, "0 did not select the base")
+        counts = self.c.read_ram(self.sym["SQUAD_COUNT"], 10)
+        fleet = sum(counts)
+        self.assertGreater(fleet, 1)
+        for base in (0x8000, 0xC000):
+            text, _ = self.line(2, base)
+            self.assertIn(f"0 {fleet:>2}", text, f"line 2 reads {text.rstrip()!r} in {base:#06x}")
+        #  ...and a squadron's number and count again when one is selected.
+        self.hold("1")
+        text, _ = self.line(2)
+        self.assertIn(f"1 {counts[1]:>2}", text)
+
     def test_selecting_another_squadron_moves_the_red_mark(self):
         #  Make squadron 2 with `d`, then select it: its mark goes red and 1's blue.
         self.hold("d")

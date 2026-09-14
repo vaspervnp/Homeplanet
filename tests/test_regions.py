@@ -46,7 +46,7 @@ F_ACTIVE, F_ENEMY, F_WAVE = 1, 2, 8
 ENT_NO_TARGET = 0xFF
 CLASS_INTERCEPTOR, CLASS_MOTHERSHIP = 0, 1
 
-MIS_SIZE = 20
+MIS_SIZE = h.symbols()["MIS_SIZE"]
 MIS_ENEMY_COUNT = 12                    # the byte in a mission_table row
 
 #  Long enough for key_scan to see the release: every command is edge

@@ -202,10 +202,7 @@ bar_update:
 @bar_pressed:
     ld a,KEY_ENTER
     call bar_key_clear                  ; the press is ours, not the disc's
-    ld a,KEY_JOY_FIRE1
-    call bar_key_clear
-    ld a,KEY_JOY_FIRE2
-    call bar_key_clear
+                                        ; (the fire buttons are read by nobody else: left as they are)
     call bar_current_icon
     ;  ...and fall into the dispatch
 
@@ -280,6 +277,9 @@ bar_close:
 
 ;  The moment the frame moved: the description line counts from here.
 bar_show:
+    xor a
+    ld (bar_hint),a                     ; the player has found the bar: the hint is over
+bar_show_keep:
     ld a,(sys_tick_50hz)
     ld (bar_tick),a
     ld a,1
@@ -401,11 +401,14 @@ bar_desc_state:
     jr c,@bds_live
     xor a
     ld (bar_desc),a                     ; spent
+    ld (bar_hint),a                     ; ...and so is the hint, if it was that
 @bds_none:
     ld l,0
     ret
 @bds_live:
-    call bar_current_icon
+    ld a,(bar_hint)                     ; HUD_ICON_COUNT while the boot's hint is up...
+    or a
+    call z,bar_current_icon             ; ...else the button under the frame
     inc a
     ld l,a
     ret
@@ -425,8 +428,20 @@ bar_desc_state:
 ;  inside the forty characters the line has, terminator included.
 ; ----------------------------------------------------------------------------
 bar_caption:
-    push de
     ld a,e
+    cp HUD_ICON_COUNT
+    jr nz,@bc_icon
+    ;  THE HINT: "SHIFT+ARROWS TURN THE VIEW", which is the tutorial's first
+    ;  line (game/screentext.asm, bank 7) and need not be written twice.
+    ;  bankn_copy pages back to bank_home, which is this bank while the bar
+    ;  runs, so the copy comes home. No key in parentheses: the line IS the key.
+    ld hl,tut_text
+    ld de,bank7_line
+    ld bc,tut_text_1 - tut_text
+    ld a,GA_BANK_7
+    jp bankn_copy
+@bc_icon:
+    push de
     ld hl,hud_desc_text
     or a
     jr z,@bc_at
@@ -507,6 +522,23 @@ bar_caption:
 ; ----------------------------------------------------------------------------
 bar_frame:
     call bar_desc_line
+    ;  The HUD is repainting: so is the row, and the first time -- the game's
+    ;  first playing frame -- the boot's hint goes up on the description line:
+    ;  "Οn start of the game there should be a hint: Use SHIFT+Arrows to
+    ;  rotate view". bar_hint is HUD_ICON_COUNT out of the image and stays so
+    ;  until the four seconds run out or the player touches the bar, so a help
+    ;  page or a menu inside those seconds only restarts the clock. Asked
+    ;  BEFORE the shadows: on that first frame they are the image's #FF/#FE
+    ;  and the row is repainting for that reason too, and a check after them
+    ;  was skipped on the one frame it existed for.
+    ld a,(phase4_hud_dirty)
+    dec a                               ; Z: it is 1
+    jr nz,@bf_shadows
+    ld a,(bar_hint)
+    or a
+    call nz,bar_show_keep
+    jr @bf_changed
+@bf_shadows:
     ld a,(bar_sel)
     ld hl,bar_sel_shadow
     cp (hl)
@@ -514,10 +546,7 @@ bar_frame:
     ld a,(bar_group)
     ld hl,bar_group_shadow
     cp (hl)
-    jr nz,@bf_changed
-    ld a,(phase4_hud_dirty)
-    cp 1
-    jr nz,@bf_paint
+    jr z,@bf_paint
 @bf_changed:
     ld a,(bar_sel)
     ld (bar_sel_shadow),a
@@ -584,7 +613,7 @@ bar_desc_line:
     cp (hl)
     jr nz,@bdl_changed
     ld a,(phase4_hud_dirty)
-    cp 1
+    dec a                               ; Z: it is 1 -- the strips are repainting
     jr nz,@bdl_paint
     ld a,(hl)
 @bdl_changed:
@@ -630,19 +659,10 @@ bar_draw_frame:
     add a,b                             ; * BAR_PITCH
     add a,BAR_X0
     ld (bar_x),a
-    ld b,a
     ld c,HUD_BTN_Y
-    ld d,HUD_ICON_W_BYTES
-    ld e,1
-    ld a,SOLID_INK_2
-    call scr_fill_rect
-    ld a,(bar_x)
-    ld b,a
+    call @bdf_hline
     ld c,HUD_BTN_Y + HUD_BTN_H - 1
-    ld d,HUD_ICON_W_BYTES
-    ld e,1
-    ld a,SOLID_INK_2
-    call scr_fill_rect
+    call @bdf_hline
 
     ld a,SCR_HEIGHT_PX
     ld (spr_clip_bottom),a
@@ -652,20 +672,26 @@ bar_draw_frame:
     add hl,hl
     add hl,hl                           ; the pixel column
     push hl
-    ld c,HUD_BTN_Y
-    ld b,HUD_BTN_H
-    ld a,PEN_BLUE
-    call gfx_vline
+    call @bdf_vline
     pop hl
     ld de,HUD_ICON_W_BYTES * 4 - 1
     add hl,de
-    ld c,HUD_BTN_Y
-    ld b,HUD_BTN_H
-    ld a,PEN_BLUE
-    call gfx_vline
+    call @bdf_vline
     ld a,HUD_TOP
     ld (spr_clip_bottom),a
     ret
+@bdf_hline:                             ; the frame's top or bottom, at row C
+    ld a,(bar_x)
+    ld b,a
+    ld d,HUD_ICON_W_BYTES
+    ld e,1
+    ld a,SOLID_INK_2
+    jp scr_fill_rect
+@bdf_vline:                             ; ...and a side, at pixel column HL
+    ld c,HUD_BTN_Y
+    ld b,HUD_BTN_H
+    ld a,PEN_BLUE
+    jp gfx_vline
 
 
 ; ----------------------------------------------------------------------------
@@ -777,3 +803,4 @@ bar_desc:           defb 0              ; ...and whether a description is up
 bar_dline_shadow:   defb #FF            ; what the third line says: icon + 1, or 0
 bar_dline_dirty:    defb 0
 bar_x:              defb 0              ; the byte column being drawn
+bar_hint:           defb HUD_ICON_COUNT ; the boot's hint: armed by the image, spent once
