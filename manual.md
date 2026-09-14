@@ -47,7 +47,7 @@ flight of ships, the tune, and `SPACE - NEW GAME`.
 |---|---|
 | `SPACE` | begin a **new** campaign |
 | `C` | **continue** the saved one. The key is only offered — and only works — when the disc holds a campaign |
-| `T` | the tutorial: eighteen short lessons, one key at a time |
+| `T` | the tutorial: nineteen short lessons, one key at a time |
 | `M` | music on / off. It remembers, and the game's own music obeys it too |
 
 ### The tutorial
@@ -69,17 +69,77 @@ mission has no enemy waiting, it tells you what will come instead.
 ![the tactical view](docs/shot-battle.png)
 
 The playfield is the middle of the screen, between two strips of
-instruments.
+instruments: two lines of readouts at the top, and the buttons at the
+bottom.
 
-### The context bar (top)
+### The top strip
 
-One line that always tells you **what the keys do right now**. Keys are
-in blue, what they do in white, and a word in red is a state that wants
-your attention.
+**Line 1 — the health.** Two bars. **`HULL`** is the hull of the
+**selected squadron**, all of its ships summed against what those same
+ships would have undamaged; with the Mothership selected (`0`) it is the
+whole fleet's. **`BASE`** is the Mothership's own hull, which is the one
+number that must not reach zero. A bar turns red below a third. Beside
+them, `RU nnnn` is the treasury and `M nn` the mission number.
 
-| the bar reads | you are |
+**Line 2 — the squadrons.** `SQUADRONS` and nine numbered marks: **blue**
+for a squadron with ships in it, **white** for an empty number, **red**
+for the one you have selected. A mark **blinks** while that squadron is
+being shot at. After the marks come the selected squadron's number and how
+many ships it has; then the yard's readout (`>INT 3` is an interceptor on
+the slipway with three more waiting), and **`JUMP`** in red when you may
+leave, or **`LAND`** on the last mission.
+
+### The bottom strip
+
+Three lines: the **buttons**, the **state line**, and the **description**
+of the button under the frame.
+
+![the buttons, with ATTACK framed](docs/shot-buttons.png)
+
+Every order in the game is a button. Sixteen of them run along the bottom
+in this order, the last five being **groups** that open into more:
+
+| button | key | does |
+|---|---|---|
+| MOVE | `ENTER` | open the move disc |
+| BUILD | `B` | the build panel |
+| ATTACK | `A` | attack |
+| MINE | `H` | send the harvesters out |
+| INFO | `I` | the squadron page |
+| FORM | `F` | cycle the formation |
+| DOCK | `R` | station on the Mothership |
+| GUARD | `G` | guard |
+| JUMP | `J` | jump, or land |
+| PAUSE | `SPACE` | tactical pause |
+| MENU | `ESC` | the orders menu |
+| COMBAT+ | | STRAFE `W`, FLY `V`, TGT< `,`, TGT> `.` |
+| ECON+ | | TOW `T`, REPAIR `E`, SCRAP `Y` |
+| SQUAD+ | | DIVIDE `D`, JOIN `C`, SPLIT `O`, SHIP< `K`, SHIP> `L` |
+| CAMERA+ | | ZOOM+ `Z`, ZOOM- `X`, PAN `P`, CENTRE `0`, SENSOR `S` |
+| SYSTEM+ | | HELP `?`, MUSIC `M` |
+
+A blue **frame** marks the selected button, and the **cursor keys walk it
+left and right** — they wrap round at the ends. `ENTER` presses the framed
+button. The frame rests on MOVE, so a plain `ENTER` opens the move disc as
+it always has. A group opens as a row of its own, BACK first, and `ESC`
+(or BACK) closes it again.
+
+![the COMBAT group open](docs/shot-group.png)
+
+Whenever the frame moves, the **description** line names the button and
+its key — `ATTACK (A)`, `STRAFE (W)` — for four seconds. Pressing a key
+whose button is showing moves the frame onto it as well as doing the thing,
+so the bar always shows what you last did.
+
+A **joystick** walks and presses the bar too: left and right move the
+frame, fire presses it.
+
+The **state line** between the two says what the keys do when they have
+changed their meaning, and carries the messages:
+
+| the state line reads | you are |
 |---|---|
-| `ESC MENU ENTER MOVE B BUILD A ATTACK` | playing |
+| *(nothing)* | playing |
 | `PAUSED  SPACE RESUME ESC MENU` | paused |
 | `ARROWS MOVE SHIFT HEIGHT ENTER OK ESC` | placing the move disc |
 | `INTERCEPTOR 035 RU , . PICK ENTER BUY` | in the build panel |
@@ -88,28 +148,12 @@ your attention.
 | `LANDING 09 ESC CANCEL` | ten seconds from home |
 | `ARROWS FLY SPACE FIRE V BACK` | flying a ship yourself |
 | `ESC LEAVE SPACE PAUSE ? KEYS` | in the tutorial |
+| `INCOMING`, `YARD: FRIGATE`, `AUTO RESPONSE ON` | being told something |
 
-When a key changes its meaning — `,` and `.` step through targets in the
-game and through the price list in the build panel — the bar is where you
-find out.
-
-### The HUD (bottom)
-
-Three rows.
-
-- **`HULL nnn%`** — how battered the fleet you still have is, all of its
-  hull summed against what those same ships would have undamaged. It turns
-  red below a third. Beside it, the **message row**: `INCOMING` when a
-  wave arrives, `YARD: FRIGATE` / `YARD: DESTROYER` when the yard learns a
-  new class, `AUTO RESPONSE ON` / `USED`. At the far end, **`BASE nnn%`**,
-  the Mothership's own hull, which is the one number that must not reach
-  zero.
-- **Row A** — your squadrons and how many ships each has. The selected one
-  is white, the rest blue. Then `RU nnnn`, the treasury, and `?HELP`.
-- **Row B** — more squadrons; the yard's readout (`>INT 3` is an
-  interceptor on the slipway with three more waiting); `M nn`, the mission
-  number; and **`JUMP`** in red when you may leave, or **`LAND`** on the
-  last mission.
+Keys are in blue, what they do in white, and a word in red is a state that
+wants your attention. When a key changes its meaning — `,` and `.` step
+through targets in the game and through the price list in the build panel
+— this line is where you find out.
 
 ### The four inks
 
@@ -146,9 +190,9 @@ sent somewhere else.
 
 | key | what it does |
 |---|---|
-| cursor keys | orbit around the selection |
+| `SHIFT` + cursor keys | orbit around the selection. The bare cursor keys walk the button bar |
 | `Z` / `X` (or `+` / `-`) | zoom in / out, twelve steps |
-| `P` | pan: the cursor keys drag the view sideways instead of orbiting. `0` clears the pan |
+| `P` | pan: the cursor keys drag the view sideways. `0` clears the pan |
 | `TAB` or `S` | the sensor view: every ship as a dot or a cross, the battle at triple speed. For the long transits |
 | `0` | centre on the Mothership (and select it) |
 | `SPACE` | **tactical pause**. The battle freezes; you can still look around and give orders |
@@ -196,7 +240,7 @@ apply to it.
 
 | key | what it does |
 |---|---|
-| `ENTER` | open the **move disc**: a cursor on the reference plane with a line down to it. Cursor keys slide it; `SHIFT` + up/down raise and lower it. `ENTER` again sends the squadron there; `ESC` cancels |
+| `ENTER` | open the **move disc** (the MOVE button, where the bar's frame rests): a cursor on the reference plane with a line down to it. Cursor keys slide it; `SHIFT` + up/down raise and lower it. `ENTER` again sends the squadron there; `ESC` cancels |
 | `R` | **station** the squadron on the Mothership |
 | `F` | change formation, see above |
 
@@ -219,7 +263,7 @@ A squadron that holds formation is spread wider than its guns reach. In a
 fight, `A` is nearly always the better order.
 
 **The auto response.** Out of a fight, `A` does something else: it *arms*
-the squadron's response, and the message row says `AUTO RESPONSE ON`. The
+the squadron's response, and the state line says `AUTO RESPONSE ON`. The
 first time an enemy then lands a hit on any ship of any squadron, every
 idle ship in that squadron turns on the shooter at once — as if you had
 pressed `A` with that target the same instant. It works once a mission;
@@ -241,7 +285,7 @@ was.
 
 | key | what it does |
 |---|---|
-| `ESC` | the **orders menu**: every command with its key beside it. Cursor keys pick, `ENTER` runs it. While the disc, the panel, a recycle question or a jump countdown is open, `ESC` cancels *that* instead |
+| `ESC` | the **orders menu**: every command with its key beside it. Cursor keys pick, `ENTER` runs it. While the disc, the panel, a recycle question, a jump countdown or a button group is open, `ESC` cancels *that* instead |
 | `?` | the **key list** |
 | `J` | **jump** — see section 10 |
 | `M` | music on / off |
@@ -347,7 +391,7 @@ cannot lock itself out of income.
 The **Frigate** and the **Destroyer** are not on the list until you have
 towed one of their hulls home. A dead Vekhar frigate drifts at the edge of
 missions 4 to 6, a destroyer in missions 9 to 11; a corvette and `T` bring
-it in, the message row says `YARD: FRIGATE`, and from then on the yard can
+it in, the state line says `YARD: FRIGATE`, and from then on the yard can
 build it.
 
 `FLEET FULL` means there is no slot left for another ship; `QUEUE FULL`
@@ -406,14 +450,14 @@ the shooter's colour.
 It is the base, the yard, and the thing the campaign is about. It does not
 move. It has a gun with **twice the reach** of anything else, so a fleet
 stationed on it fights inside its cover — and a wave coming for it is shot
-at long before it shoots back. Its hull is `BASE nnn%`; mend it with `0`
+at long before it shoots back. Its hull is the `BASE` bar; mend it with `0`
 then `E`.
 
 ### Attack waves
 
 Stay in a mission for a minute and the Vekhar start arriving in **waves**:
 random size, every one to two minutes, from one bearing, on a shell around
-the Mothership. They never stop. `INCOMING` on the message row and a **red
+the Mothership. They never stop. `INCOMING` on the state line and a **red
 cross** where they are arriving tell you which way to turn.
 
 A wave is sized against the fleet you still have — a sixteenth to a quarter
@@ -456,7 +500,7 @@ fields, and an **objective**:
 
 ### Leaving
 
-`JUMP` appears on the HUD when all five of these hold:
+`JUMP` appears on the top strip when all five of these hold:
 
 1. the objective is met;
 2. **three waves** have come and gone;
@@ -482,7 +526,7 @@ too. Wrecks, and the enemy, do not.
 
 ### Landing
 
-On the twentieth mission the key reads **`LAND`**, and both `J` and `L`
+On the twentieth mission the word reads **`LAND`**, and both `J` and `L`
 land. Landing is free. The Mothership sets down on the planet, and the
 sleepers wake.
 
@@ -537,14 +581,16 @@ fresh fleet each round and no campaign at stake.
 | `1`–`9` | select squadron |
 | `SHIFT` + `1`–`9` | move the whole selection into that squadron |
 | `0` | select the Mothership, centre on it, clear the pan |
-| cursor keys | orbit / move the disc / pan / fly |
+| cursor keys | walk the buttons; move the disc / pan / fly |
+| `SHIFT` + cursor keys | orbit |
+| joystick | left and right walk the buttons, fire presses |
 | `Z` `X` `+` `-` | zoom |
 | `P` | pan on / off |
 | `TAB` `S` | sensor view |
 | `SPACE` | pause (fire, while flying; a new campaign, on the title) |
 | `C` | combine squadrons (continue the saved campaign, on the title) |
-| `ENTER` | move disc open / confirm; buy, in the panel; dismiss a briefing |
-| `ESC` | menu; or cancel the disc, the panel, a recycle, a jump; leave the tutorial |
+| `ENTER` | press the framed button (the move disc, at rest) / confirm the disc; buy, in the panel; dismiss a briefing |
+| `ESC` | menu; or cancel the disc, the panel, a recycle, a jump, an open button group; leave the tutorial |
 | `SHIFT` + ↑↓ | raise / lower the disc |
 | `F` | formation |
 | `D` `K` `L` `C` `O` | divide, ship back, ship on, combine, split by class |

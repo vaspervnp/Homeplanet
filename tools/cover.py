@@ -192,9 +192,10 @@ def back(img):
         "lost is lost. Mine, build, salvage the enemy's wrecks, and decide",
         "at every jump how much of the fleet you are willing to spend.",
         "",
-        "Orbit the battle in three dimensions. Give orders by squadron.",
-        "Take the stick of one fighter yourself. Chase a runner through",
-        "the vortex, and clear the lane in an arcade run between the jumps.",
+        "Orbit the battle in three dimensions. Give orders by squadron,",
+        "from sixteen buttons by key or by joystick. Take the stick of one",
+        "fighter yourself. Chase a runner through the vortex, and clear the",
+        "lane in an arcade run between the jumps.",
     ]
     for ln in lines:
         d.text((m, y), ln, font=body, fill=INK if ln else INK)
@@ -217,7 +218,7 @@ def back(img):
         img.paste(im, (x, yy))
     y += 2 * (sh + int(H * 0.012)) + int(H * 0.012)
     small = font(int(H * 0.013))
-    d.text((m, y), "REQUIRES AN AMSTRAD CPC 6128 WITH 128K AND A DISC DRIVE. JOYSTICK NOT SUPPORTED.", font=small, fill=GREY)
+    d.text((m, y), "REQUIRES AN AMSTRAD CPC 6128 WITH 128K AND A DISC DRIVE. KEYBOARD OR JOYSTICK.", font=small, fill=GREY)
     y += int(H * 0.019)
     d.text((m, y), "Z80 ASSEMBLY, MODE 1, FOUR INKS. WRITTEN BY VASPER FOR REVIVE8BIT, 2026.", font=small, fill=GREY)
     #  The barcode, which every back had, and a catalogue number.
