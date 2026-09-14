@@ -307,6 +307,8 @@ does nothing. The camera drops **inside the cockpit**, looking along the
 nose; the rest of the squadron goes on doing what it was told, and when the
 stick comes back the camera returns to the orbit you left it in.
 
+![the cockpit: the enemy with its strength over it, and the scanner](docs/shot-cockpit.png)
+
 | key | while flying |
 |---|---|
 | ← / → | turn |
