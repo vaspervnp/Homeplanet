@@ -22,8 +22,8 @@ import hudicons  # noqa: E402
 
 FIRST_CHAR, LAST_CHAR, CHAR_H, CHAR_W_BYTES = 32, 90, 8, 2
 BANK_6 = 0xC6
-TOP_ROW = ("move", "station", "formation", "attack", "guard", "harvest", "build",
-           "jump", "info", "pause", "menu",
+TOP_ROW = ("move", "build", "attack", "harvest", "info", "formation", "station",
+           "guard", "jump", "pause", "menu",
            "grp_combat", "grp_economy", "grp_squadron", "grp_camera", "grp_system")
 
 
@@ -161,7 +161,7 @@ class TestTheRow(BarFixture):
         """The bytes on the screen are bank 5's, and bank 5 is the sheet."""
         raw = open(os.path.join(ROOT, "build", "bank5.raw"), "rb").read()
         base = self.sym["HUD_ICONS"] - 0x4000
-        i = self.index["station"]
+        i = self.index["build"]
         want = raw[base + i * 56:base + (i + 1) * 56]
         cell = self.slot_bytes(1)
         self.assertEqual(bytes(b for row in cell[1:15] for b in row), want)
@@ -174,10 +174,10 @@ class TestTheArrows(BarFixture):
     def test_right_moves_the_frame_and_the_description_names_the_button(self):
         self.hold(cpc.KEY_RIGHT)
         self.assertEqual(self.framed_slot(), 1)
-        self.assertEqual(self.desc_line(), hudicons.caption("station"))
+        self.assertEqual(self.desc_line(), hudicons.caption("build"))
         self.hold(cpc.KEY_RIGHT)
         self.assertEqual(self.framed_slot(), 2)
-        self.assertEqual(self.desc_line(), hudicons.caption("formation"))
+        self.assertEqual(self.desc_line(), hudicons.caption("attack"))
 
     def test_left_wraps_round_to_the_last_button(self):
         self.hold(cpc.KEY_LEFT)
@@ -187,7 +187,7 @@ class TestTheArrows(BarFixture):
 
     def test_the_description_goes_away_after_four_seconds(self):
         self.hold(cpc.KEY_RIGHT, release=10)
-        self.assertEqual(self.desc_line(), hudicons.caption("station"))
+        self.assertEqual(self.desc_line(), hudicons.caption("build"))
         self.c.run_frames(self.sym["BAR_DESC_TICKS"] + 40)
         self.assertEqual(self.desc_line(), "")
 
@@ -240,7 +240,7 @@ class TestPressing(BarFixture):
     def test_enter_on_attack_is_the_attack_key(self):
         """Mission 1 has nothing to attack, so `A` ARMS the auto response --
         which is what pressing the key does, and so what the button does."""
-        self.go(3)
+        self.go(2)
         self.hold(cpc.KEY_ENTER)
         self.assertEqual(h.read_bank4(self.c, self.sym["AUTO_ARMED"], 1)[0], 1,
                          "ATTACK did not do what A does")
@@ -260,7 +260,7 @@ class TestAKeySelectsItsButton(BarFixture):
     def test_b_selects_build_and_opens_the_yard(self):
         self.hold("b")
         self.assertEqual(self.byte("ECO_BUILD_OPEN"), 1, "B did not open the yard")
-        self.assertEqual(self.framed_slot(), 6, "the frame did not follow B to BUILD")
+        self.assertEqual(self.framed_slot(), 1, "the frame did not follow B to BUILD")
 
     def test_a_key_whose_button_is_in_a_closed_group_moves_nothing(self):
         self.hold("t")                          # TOW, inside ECONOMY+
@@ -280,7 +280,7 @@ class TestAKeySelectsItsButton(BarFixture):
         προτεραιότητα": the yard's panel takes , . and ENTER, not the arrows."""
         self.hold("b")
         self.assertEqual(self.byte("ECO_BUILD_OPEN"), 1)
-        self.assertEqual(self.framed_slot(), 6)              # B selected BUILD
+        self.assertEqual(self.framed_slot(), 1)              # B selected BUILD
         self.go(9)                                           # PAUSE, panel still up
         self.assertEqual(self.byte("ECO_BUILD_OPEN"), 1, "walking the bar shut the panel")
         self.hold(cpc.KEY_ENTER)
@@ -289,9 +289,9 @@ class TestAKeySelectsItsButton(BarFixture):
     def test_enter_does_not_jump_the_frame_to_move(self):
         """ENTER is MOVE's key and the bar's own press: with the frame on
         ATTACK it presses ATTACK, and the frame stays there."""
-        self.go(3)
+        self.go(2)
         self.hold(cpc.KEY_ENTER)
-        self.assertEqual(self.framed_slot(), 3)
+        self.assertEqual(self.framed_slot(), 2)
 
 
 class TestTheJoystick(BarFixture):
@@ -312,7 +312,7 @@ class TestTheJoystick(BarFixture):
     def test_the_stick_walks_the_frame_both_ways(self):
         self.stick(cpc.JOY_RIGHT)
         self.assertEqual(self.framed_slot(), 1)
-        self.assertEqual(self.desc_line(), hudicons.caption("station"))
+        self.assertEqual(self.desc_line(), hudicons.caption("build"))
         self.stick(cpc.JOY_LEFT)
         self.stick(cpc.JOY_LEFT)
         self.assertEqual(self.framed_slot(), 15)
